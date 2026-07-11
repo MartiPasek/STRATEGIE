@@ -66,6 +66,23 @@ def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, us
         save_message(conversation_id, role="assistant", content=reply,
                      author_type="ai", author_user_id=HAIKU_USER_ID)
         return conversation_id, reply, None
+    # Haiku zna jmeno cloveka, se kterym mluvi (user_id) -- at neoslovi spatne.
+    _hk_name = None
+    try:
+        from modules.core.infrastructure.models_core import User as _HkUser
+        from core.database_core import get_core_session as _hk_gcs
+        _hk_cs = _hk_gcs()
+        try:
+            _hk_u = _hk_cs.query(_HkUser).filter_by(id=user_id).first()
+            if _hk_u:
+                _hk_name = (_hk_u.short_name or " ".join(filter(None, [_hk_u.first_name, _hk_u.last_name])).strip() or _hk_u.first_name)
+        finally:
+            _hk_cs.close()
+    except Exception:
+        _hk_name = None
+    _hk_system = HAIKU_SYSTEM_PROMPT
+    if _hk_name:
+        _hk_system = HAIKU_SYSTEM_PROMPT + "\n\nPrávě mluvíš s: " + _hk_name + ". Klidně ho/ji oslov jménem. NEVYMÝŠLEJ si jméno."
     _hk_traced = False
     try:
         _hk_tel.begin_chat_trace()
@@ -81,7 +98,7 @@ def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, us
                 conversation_id=conversation_id,
                 kind="haiku",
                 model=HAIKU_MODEL,
-                system=HAIKU_SYSTEM_PROMPT,
+                system=_hk_system,
                 messages=_hk_msgs,
                 max_tokens=1024,
                 tenant_id=tenant_id,
@@ -91,7 +108,7 @@ def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, us
             _hk_resp = _hk_client.messages.create(
                 model=HAIKU_MODEL,
                 max_tokens=1024,
-                system=HAIKU_SYSTEM_PROMPT,
+                system=_hk_system,
                 messages=_hk_msgs,
             )
         _hk_parts = [b.text for b in _hk_resp.content if getattr(b, "type", None) == "text"]

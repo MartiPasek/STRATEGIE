@@ -1337,6 +1337,14 @@ def iso_vize_page():
                         headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/kultura")
+def kultura_page():
+    """Veřejná stránka Kultura STRATEGIE — kdo jsme a jak pracujeme. BEZ auth.
+    Schváleno Marti + Marti-AI 11.7.2026; viditelnost = podmínka (hlavní nav + citace na landingu)."""
+    return FileResponse(os.path.join(static_dir, "kultura.html"),
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/vp")
 def vp_page():
     """Cockpit týmu Vedoucích projektů (digitalizace) — Eliščin tým (Marti 1.7.2026).

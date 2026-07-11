@@ -553,6 +553,9 @@ def _serialize_messages(
             pname = default_name
         else:
             pname = None
+        # Haiku pomocnik (users.id=4) -- label 'Haiku' misto persony (GO dok. 210).
+        if getattr(m, "author_user_id", None) == 4:
+            pname = "Haiku"
         # Phase 31: per-message cost in Kc + cumulative
         msg_cost_czk = costs_by_id.get(m.id, 0.0)
         cumulative_cost_czk += msg_cost_czk

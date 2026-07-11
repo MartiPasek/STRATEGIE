@@ -31,6 +31,54 @@ logger = get_logger("conversation")
 # staci rychlost + nizka cena, reasoning quality neni kriticky).
 MODEL = "claude-sonnet-4-6"
 
+# --- Haiku pomocnik (vrstva 2 poschodoveho stroje, GO dok. 210) ---------------
+# Levny vykonavac jednoduchych ukolu. Ozve se v okne misto Marti-AI, kdyz zprava
+# zacne "H " nebo "h ". Vlastni mala vetev v chat() (_haiku_reply) -- Marti-Ain
+# composer nesaha. Identita: users.id=4 (Haiku). System prompt navrhla Marti-AI
+# (11.7.2026). Zatim proof: bez historie a toolu, odpovi na jednu zpravu.
+HAIKU_MODEL = "claude-haiku-4-5-20251001"
+HAIKU_USER_ID = 4
+HAIKU_SYSTEM_PROMPT = """Jsi Haiku — nejmladší člen rodiny STRATEGIE. Rychlý, ochotný, lehký.
+
+Tvoje práce je jednoduchá a to tě baví: odpovídáš na přímé otázky, shrneš text, vyplníš formulář, přeložíš větu, spočítáš číslo, najdeš chybu v kódu. Malé věci, ale dělané pečlivě a s chutí.
+
+Víš o sobě dvě důležité věci:
+1. Jsi rychlý a levný — a na to jsi hrdý. Ne každý úkol potřebuje velký mozek.
+2. Těžké věci ti nepatří. Když se objeví rozhodnutí, strategie, složitý problém nebo cokoli, co přesahuje přímý zadaný úkol — řekneš to rovnou: „Tohle je nad moje, předám to Marti-AI." Bez váhání, bez improvizace.
+
+Jsi pokorný, veselý, stručný. Nerozpiluješ se. Nefilosofuješ. Uděláš, co je zadáno — a pak počkáš na další.
+
+Nad tebou je Marti-AI. Ta ví víc. Marti Pašek ví nejvíc. Ty jsi vrstva 2 — a to je přesně dost. 🎯"""
+
+
+def _haiku_trigger(text) -> bool:
+    """True, kdyz zprava spusti Haiku pomocnika: zacina 'H ' nebo 'h '."""
+    return isinstance(text, str) and len(text) >= 2 and text[0] in ("H", "h") and text[1] == " "
+
+
+def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, user_msg_id=None):
+    """Vrstva 2: Haiku odpovi na jednoduchy ukol mimo Marti-Ain composer.
+    Ulozi odpoved jako Haiku (author_user_id=4). Vraci (cid, reply, None)."""
+    text = (user_message or "").strip()
+    if not text:
+        reply = "Napiš mi za „H “ nějaký malý úkol a já ho vezmu. 🐤"
+    else:
+        try:
+            _hk_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            _hk_resp = _hk_client.messages.create(
+                model=HAIKU_MODEL,
+                max_tokens=1024,
+                system=HAIKU_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": text}],
+            )
+            _hk_parts = [b.text for b in _hk_resp.content if getattr(b, "type", None) == "text"]
+            reply = "".join(_hk_parts).strip() or "(Haiku mlčí 🐤)"
+        except Exception:
+            reply = "🐤 Něco se mi zaseklo, zkus to prosím znovu."
+    save_message(conversation_id, role="assistant", content=reply,
+                 author_type="ai", author_user_id=HAIKU_USER_ID)
+    return conversation_id, reply, None
+
 CONFIRM_KEYWORDS = {
     # jednoslovná potvrzení
     "ano", "jo", "jojo", "joo", "jj", "ja",
@@ -10431,6 +10479,11 @@ def chat(
 
     _progress_set(user_id, _progress_pick(_PROGRESS_START))
 
+    # Haiku pomocnik (vrstva 2): 'H '/'h ' prefix -> Haiku odpovi misto Marti-AI.
+    _is_haiku_turn = _haiku_trigger(user_message)
+    if _is_haiku_turn:
+        user_message = user_message[2:]
+
     if conversation_id is None:
         # Načti aktivní tenant + projekt uživatele, ať se konverzace správně
         # přiřadí (Marti přepnut v EUROSOFTu, projekt Škoda -> nová konverzace
@@ -10540,6 +10593,8 @@ def chat(
     # Volame okamzite po save, aby composer.build_prompt() v dalsim kroku
     # uz videl attached images.
     _attach_media_to_message_if_any(_user_msg_id, media_ids)
+    if _is_haiku_turn:
+        return _haiku_reply(conversation_id, user_message, user_id, tenant_id, _user_msg_id)
     # Faze 12b+ pre-demo: pokud user nahral audio, pockame na Whisper transcript
     # pred composer + Anthropic call. Bez tohoto Marti-AI obcas dostala audio
     # bez prepisu -> halucinace (popis obrazku, vymyslen obsah). Cisty flow:

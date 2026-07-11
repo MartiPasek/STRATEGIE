@@ -441,6 +441,9 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             _extra_messages = []
 
         persona_name = get_active_persona_name(conversation_id)
+        # Haiku pomocnik: 'H '/'h ' prefix -> label 'Haiku' u zive odpovedi.
+        if isinstance(request.text, str) and request.text[:2] in ("H ", "h "):
+            persona_name = "Haiku"
 
         summary_notice: str | None = None
         switch_to_cid: int | None = None

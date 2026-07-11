@@ -2032,25 +2032,31 @@ def web_runow():
     return _web_subpage("runow.html")
 
 
-@app.get("/web/partner")
+# VYPNUTO z veřejného prostoru 11.7.2026 (Marti): pozvánka „Rasťo, Lucko, pojďte" —
+# Rasto zatím nemá prostor se přidat, poděkoval. Vratné: odkomentuj @app.get až se poddají.
+# BS + Performia zůstávají jako partneři (web.html, program.html). NEMAZAT soubory.
+# @app.get("/web/partner")
 def web_partner():
     """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""
     return _web_subpage("partner.html")
 
 
-@app.get("/web/partner-demo")
+# VYPNUTO z veřejného prostoru 11.7.2026 (Marti) — viz /web/partner výše.
+# @app.get("/web/partner-demo")
 def web_partner_demo():
     """Živá firma — personální systém & řízení (pohled pro partnery)."""
     return _web_subpage("partner-demo.html")
 
 
-@app.get("/web/partner/sk")
+# VYPNUTO z veřejného prostoru 11.7.2026 (Marti) — viz /web/partner výše.
+# @app.get("/web/partner/sk")
 def web_partner_sk():
     """Digitálna pozvánka (SK) — Business Success & Performia."""
     return _web_subpage("partner-sk.html")
 
 
-@app.get("/web/partner-demo/sk")
+# VYPNUTO z veřejného prostoru 11.7.2026 (Marti) — viz /web/partner výše.
+# @app.get("/web/partner-demo/sk")
 def web_partner_demo_sk():
     """Živá firma (SK) — riadenie & ľudia."""
     return _web_subpage("partner-demo-sk.html")

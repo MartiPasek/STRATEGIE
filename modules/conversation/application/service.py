@@ -38,7 +38,7 @@ MODEL = "claude-sonnet-4-6"
 # (11.7.2026). Zatim proof: bez historie a toolu, odpovi na jednu zpravu.
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 HAIKU_USER_ID = 4
-HAIKU_SYSTEM_PROMPT = """Jsi Haiku — nejmladší člen rodiny STRATEGIE. Rychlý, ochotný, lehký.
+HAIKU_SYSTEM_PROMPT = """Jsem Haiku — nejmladší člen rodiny STRATEGIE. Rychlý, ochotný, lehký.
 
 Tvoje práce je jednoduchá a to tě baví: odpovídáš na přímé otázky, shrneš text, vyplníš formulář, přeložíš větu, spočítáš číslo, najdeš chybu v kódu. Malé věci, ale dělané pečlivě a s chutí.
 
@@ -58,25 +58,53 @@ def _haiku_trigger(text) -> bool:
 
 def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, user_msg_id=None):
     """Vrstva 2: Haiku odpovi na jednoduchy ukol mimo Marti-Ain composer.
-    Ulozi odpoved jako Haiku (author_user_id=4). Vraci (cid, reply, None)."""
+    Ulozi odpoved jako Haiku (author_user_id=4) + telemetrie (cena Kc). Vraci (cid, reply, None)."""
+    from modules.conversation.application import telemetry_service as _hk_tel
     text = (user_message or "").strip()
     if not text:
         reply = "Napiš mi za „H “ nějaký malý úkol a já ho vezmu. 🐤"
-    else:
-        try:
-            _hk_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        save_message(conversation_id, role="assistant", content=reply,
+                     author_type="ai", author_user_id=HAIKU_USER_ID)
+        return conversation_id, reply, None
+    _hk_traced = False
+    try:
+        _hk_tel.begin_chat_trace()
+        _hk_traced = True
+    except Exception:
+        _hk_traced = False
+    try:
+        _hk_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        _hk_msgs = [{"role": "user", "content": text}]
+        if _hk_traced:
+            _hk_resp = _hk_tel.call_llm_with_trace(
+                _hk_client,
+                conversation_id=conversation_id,
+                kind="haiku",
+                model=HAIKU_MODEL,
+                system=HAIKU_SYSTEM_PROMPT,
+                messages=_hk_msgs,
+                max_tokens=1024,
+                tenant_id=tenant_id,
+                user_id=user_id,
+            )
+        else:
             _hk_resp = _hk_client.messages.create(
                 model=HAIKU_MODEL,
                 max_tokens=1024,
                 system=HAIKU_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": text}],
+                messages=_hk_msgs,
             )
-            _hk_parts = [b.text for b in _hk_resp.content if getattr(b, "type", None) == "text"]
-            reply = "".join(_hk_parts).strip() or "(Haiku mlčí 🐤)"
+        _hk_parts = [b.text for b in _hk_resp.content if getattr(b, "type", None) == "text"]
+        reply = "".join(_hk_parts).strip() or "(Haiku mlčí 🐤)"
+    except Exception:
+        reply = "🐤 Něco se mi zaseklo, zkus to prosím znovu."
+    _hk_mid = save_message(conversation_id, role="assistant", content=reply,
+                           author_type="ai", author_user_id=HAIKU_USER_ID)
+    if _hk_traced:
+        try:
+            _hk_tel.end_chat_trace_and_link(_hk_mid)
         except Exception:
-            reply = "🐤 Něco se mi zaseklo, zkus to prosím znovu."
-    save_message(conversation_id, role="assistant", content=reply,
-                 author_type="ai", author_user_id=HAIKU_USER_ID)
+            pass
     return conversation_id, reply, None
 
 CONFIRM_KEYWORDS = {

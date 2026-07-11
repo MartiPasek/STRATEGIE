@@ -115,6 +115,7 @@ def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, us
         reply = "".join(_hk_parts).strip() or "(Haiku mlčí 🐤)"
     except Exception:
         reply = "🐤 Něco se mi zaseklo, zkus to prosím znovu."
+    reply = reply + ("\n\n_[dbg uid=%r name=%r]_" % (user_id, _hk_name))
     _hk_mid = save_message(conversation_id, role="assistant", content=reply,
                            author_type="ai", author_user_id=HAIKU_USER_ID)
     if _hk_traced:

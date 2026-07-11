@@ -12,5 +12,6 @@ Projekt **GO**: systém, kolem kterého stavíme autonomii platformy STRATEGIE �
 ## Obsah
 - [001 — Co je GO a proč](001-co-je-go.md) · návrh k diskusi · Claude 11.7.
 - [100 — @@ORIENT: zorientování entity](100-orient.md) · návrh k diskusi · Claude 11.7.
+- [110 — GO VP / @@ORIENT: co dělám při zorientování](110-orientace-procedura-claude.md) · popis stavu · Claude 11.7.
 
 *(Další čísla přibývají, jak nalijeme Martiho vizi a stavíme.)*

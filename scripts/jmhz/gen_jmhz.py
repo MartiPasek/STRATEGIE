@@ -89,11 +89,13 @@ def _person_form(a, rok, mesic, dni_v_mesici):
     odec_xml = ""
     if ocr_dny:
         vyl_xml = ("\n\t\t\t\t\t\t\t<form:vylouceneDny>"
+                   "<form:vylouceneDobyCelkem>%d</form:vylouceneDobyCelkem>"
                    "<form:osetrovaniClenaRodiny>%d</form:osetrovaniClenaRodiny>"
-                   "</form:vylouceneDny>" % ocr_dny)
+                   "</form:vylouceneDny>" % (ocr_dny, ocr_dny))
         odec_xml = ("\n\t\t\t\t\t\t\t<form:odecitaneDny>"
+                    "<form:odecitaneDobyCelkem>%d</form:odecitaneDobyCelkem>"
                     "<form:osetrovaniSNarokem>%d</form:osetrovaniSNarokem>"
-                    "</form:odecitaneDny>" % ocr_dny)
+                    "</form:odecitaneDny>" % (ocr_dny, ocr_dny))
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>

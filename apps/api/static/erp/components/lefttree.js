@@ -632,17 +632,15 @@
      * vlastní tryRestoreActive() po init().
      */
     _restoreFromStorage() {
-      if (!this.options.enablePersistence) return;
-      const prefix = this.options.storageKeyPrefix;
-      try {
-        const expRaw = localStorage.getItem(prefix + ".expanded");
-        if (expRaw) {
-          const arr = JSON.parse(expRaw);
-          if (Array.isArray(arr)) arr.forEach(id => this._expandedIds.add(String(id)));
-        }
-      } catch (e) {
-        console.warn("[ErpLeftPanelTree] storage restore failed:", e);
-      }
+      // Marti 12.7.2026: strom se defaultne otevira SBALENY (collapsed).
+      // Drive se pri startu obnovoval ulozeny expanded set z localStorage
+      // (erp.tree.expanded), ale se spoustou soudecku to prekazelo ("vsechno
+      // rozbalene"). Cross-reload uz expanded stav neobnovujeme -> cisty
+      // sbaleny strom pri kazdem otevreni. Rozbalovani/sbalovani behem
+      // session dal funguje; aktivni zalozce se jeji vetev rozbali pres
+      // tryRestoreActive(). Save do erp.tree.expanded zustava (jen ho pri
+      // startu ignorujeme) -> trivialni revert = vratit puvodni restore.
+      return;
     }
 
     // ════════════════════════════════════════════════════════════════

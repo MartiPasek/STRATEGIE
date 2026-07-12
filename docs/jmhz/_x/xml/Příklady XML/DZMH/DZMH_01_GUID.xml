@@ -1,8 +1,0 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<!-- v cJMHZ jedno hlaseni, ve stavu Castecne prijato, Radne podani Zpracovano, Hlaseni je castecne prijato -->
-<DZMH verze="2025.0" xmlns="http://schemas.cssz.cz/JMHZ/dotazNaStav/2025">
-  <!--<VENDOR productName="productName1" productVersion="productVersion11"/>-->
-  <!--<SENDER EmailNotifikace="e-milos.halcak@mpsv.cz" ISDSreport=""/>-->
-  <variabilniSymbol>1190113017</variabilniSymbol>
-  <idPodani>A4D75000-0076-3855-8899-aAbBc0004322</idPodani>
-</DZMH>

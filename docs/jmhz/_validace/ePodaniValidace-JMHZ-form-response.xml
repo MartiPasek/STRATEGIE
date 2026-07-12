@@ -1,9 +1,0 @@
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-      <ValidujPodaniOdpoved xmlns="urn:cz:isvs:cssz:schemas:ePodaniValidace:v1">
-         <PozadavekId>6649AE42-D62E-4614-B287-099B191081C2</PozadavekId>
-         <OdpovedCas>2026-01-08T10:22:48.603694+00:00</OdpovedCas>
-         <VysledekKod>OK</VysledekKod>
-      </ValidujPodaniOdpoved>
-   </s:Body>
-</s:Envelope>

@@ -265,8 +265,7 @@ _OZ_RAW_BASE = (
     "orge._Zkratka_Nazvu AS zkratka_nazvu, COALESCE(z.LoginID, d.Autor) AS resitel, "
     "de._OznPrjZakaznik AS oznprjzakaznik, de._PopisPrjZakaznik AS popisprjzakaznik, "
     "dbo.EC_GetDoklad(d.NavaznyDoklad) AS navaznydoklad, d.NavaznaObjednavka AS navaznaobjednavka, "
-    "d.Autor AS autor, CAST(d.SumaKcBezDPH AS numeric(19,2)) AS sumakcbezdph, "
-    "CAST(d.Realizovano AS int) AS realizovano, d.DatPorizeni AS datporizeni "
+    "d.Autor AS autor, CAST(d.SumaKcBezDPH AS numeric(19,2)) AS sumakcbezdph, d.DatPorizeni AS datporizeni "
     "FROM TabDokladyZbozi d WITH (NOLOCK) "
     "LEFT JOIN TabCisOrg org ON d.CisloOrg=org.CisloOrg "
     "LEFT JOIN TabCisOrg_EXT orge ON org.ID=orge.ID "
@@ -274,8 +273,14 @@ _OZ_RAW_BASE = (
     "LEFT JOIN TabDokladyZbozi_EXT de ON de.ID=d.ID "
     "WHERE %s"
 )
+# Vydané poptávky (řada 940): „neuzavřeno" = Realizovano=0 (ne Splneno), stejný vzor jako
+# faktury ve vp_pipeline. Přemapujeme proto splneno→Realizovano jen pro tento raw mirror.
+# (Marti 12.7.2026 „srovnej to"; splneno v cockpitu = generický 'closed' flag.)
+_OZ_RAW_BASE_REALIZ = _OZ_RAW_BASE.replace(
+    "CAST(d.Splneno AS int) AS splneno", "CAST(d.Realizovano AS int) AS splneno")
+
 _OZ_RAW = {
-    "oz_vy_popt": _OZ_RAW_BASE % "d.RadaDokladu='940'",
+    "oz_vy_popt": _OZ_RAW_BASE_REALIZ % "d.RadaDokladu='940'",
     "oz_vydejka": _OZ_RAW_BASE % ("d.RadaDokladu IN ('200','290') AND d.DruhPohybuZbo BETWEEN 2 AND 4 "
                                   "AND d.DatPorizeni >= '2023-01-01'"),
     "oz_prijemka": _OZ_RAW_BASE % "d.DruhPohybuZbo <= 1 AND d.DatPorizeni >= '2023-01-01'",

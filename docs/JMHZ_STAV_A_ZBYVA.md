@@ -12,12 +12,27 @@
 - **VS zaměstnavatele u ČSSZ:** EC = „EUROSOFT - Control" = **4445158191**, ES = „EUROSOFT - System" = **4442058998** (nahradilo placeholder z pilotu). Stejný VS = klíč pro automatické stahování notifikací k nemocenské/OČR (eNeschopenka).
 - **Ověření:** celý červen prošel ČSSZ TEST validátorem — 50/50 osob + OČR OK.
 
+## Reconciliace proti Heliosu (po updatu Heliosu, 12. 7. večer)
+
+Marti po updatu Heliosu vygeneroval JMHZ přímo z Heliosu (modul Mzdy → JMHZ, tabulky `TabMzJmhz` / `TabMzJmhzPP`, podání ID=4 pro EC i ES, Rok 2026 Měsíc 6, typ Řádné, stav „Pořízeno" = neodesláno). Porovnáno s naším generátorem:
+
+- **Počet osob sedí:** Helios `TabMzJmhzPP` = **EC 17 / ES 33** = náš generátor. (Přehledová hlavička hlásí 19/35 — to je počet formulářů = osoby + souhrn + PVPOJ, ne lidé. Domněnka „dohody DPP/DPČ" vyvrácena: `TabMzHlaseniDohod` má ES 0 řádků.)
+- **Identifikátory 50/50 IDENTICKÉ:** náš generátor dává pro všech 50 lidí byte-shodné IK MPSV i ID PPV jako Heliosovo podání (0 neshod, ověřeno skriptem proti per-osoba exportu „HEO – JMHZ – pracovní poměry").
+- **Heliosova vlastní validace = 0 chyb** u všech 50 (Kód chyby i N.ch. = 0, `TabMzJMHZPPErr` prázdná). Všichni „Bez příznaku", „Řádné". IK MPSV všech 50 správně 10-místné.
+- **Payload dávky (XML `<n1:jmhz>`) Helios v DB nedrží** — staví ho až při zápisu na disk. Uploadované soubory „HEO – Jednotné měsíční hlášení" i „…pracovní poměry" jsou přehledové gridy (`<CACHE>`), ne payload. Na plnou obsahovou kontrolu přes `@@EPVAL` (částky) je potřeba soubor dávky, co Helios zapíše na disk při přípravě k odeslání.
+
 ## Co SCHÁZÍ / rizika (dotáhnout příští týden)
 
 1. **BOD 4 — speciální pojistné vztahy (největší díra).** Generátor teď každého pošle jako standardního zaměstnance s plným měsícem pojištění a plným fondem. Reálně:
    - **Šafránková — mateřská dovolená** = vyloučená doba, ne odpracovaný měsíc. I když XSD projde, je to sémanticky špatně (měla by mít mateřskou jako vyloučenou dobu, ne fond 160 h / 30 dní).
    - **Herejtová, Senft — srážková daň** (prohlášení = 0): částky z Heliosu jsou správné, ale typ vztahu (DPP/DPČ?) se nerozlišuje.
    → Doplnit rozpoznání typu vztahu a mateřské/DPP do formuláře.
+   → POZN. z reconciliace 12.7.: Helios sám vede Šafránkovou/Herejtovou/Senfta jako „Bez příznaku" s 0 chybami — takže díra může být menší, než se zdálo. Ověřit, jestli Helios mateřskou/srážkovou řeší uvnitř formuláře (vyloučené doby), a případně to dorovnat u nás.
+
+2. **⚠️ Dvě krátká ID PPV v EC (dořešit před ostrým podáním).** V Heliosím podání i u nás (bereme ze stejné tabulky) mají dva lidé ID PPV, které nemá 13 číslic:
+   - **Pašek, os. č. 2:** `400276552758` (12 číslic; jeho ES záznam má správné 13-místné `4002992990225`).
+   - **Peřina, os. č. 536:** `9279914` (7 číslic; nový zaměstnanec — identifikátor zaměstnání zřejmě ještě není plně přiřazený).
+   Helios u nich hlásí 0 chyb, ale formát je kratší než u ostatních → ověřit registraci PPV u ČSSZ, jinak riziko odmítnutí při ostrém podání. Ostatních 48 má ID PPV správně 13-místné.
 
 2. **Absence mimo OČR se nepromítají.** `attach_absence` řeší zatím jen ošetřovné. **Nemoc, mateřská, dovolená** vytvářejí taky vyloučené doby v ELDP — teď se do JMHZ nedostanou. → Projít, kdo měl v červnu jakou absenci, a napojit i tyto druhy.
 

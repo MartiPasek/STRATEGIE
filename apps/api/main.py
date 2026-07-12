@@ -2117,8 +2117,10 @@ def web_partner():
     return _web_subpage("partner.html")
 
 
-# VYPNUTO z veřejného prostoru 11.7.2026 (Marti) — viz /web/partner výše.
-# @app.get("/web/partner-demo")
+# ZNOVU ZAPNUTO 12.7.2026 (Marti): partner-demo = "Personální & řízení" pohled
+# linkovaný z /web/demo (veřejná živá ukázka firmy) → musí být veřejný (padal 404).
+# Pozvánka /web/partner (Rasťo/Lucko) zůstává VYPNUTÁ dle 11.7.
+@app.get("/web/partner-demo")
 def web_partner_demo():
     """Živá firma — personální systém & řízení (pohled pro partnery)."""
     return _web_subpage("partner-demo.html")

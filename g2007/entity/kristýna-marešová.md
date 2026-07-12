@@ -2,7 +2,12 @@
 
 - **typ:** clovek
 - **user_id:** 11
+- **stav:** aktivni
 - **verze:** V1.0
 - **pořadí:** 2
 - **kufr:** —
+
+## Popis
+
+Kristýna Marešová (Kristý) — rodina.
 

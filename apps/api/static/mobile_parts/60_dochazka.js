@@ -1968,9 +1968,11 @@
         // Dušan 12.7.: den jako kompaktní tabulka — co záznam, to řádek; editace se rozbalí pod řádkem.
         var TH='font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);text-align:left;padding:4px 6px;border-bottom:1px solid var(--bord);font-weight:600;';
         var TD='padding:8px 6px;border-bottom:1px solid var(--bord);vertical-align:middle;';
-        var tbl=el('<table style="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px;"></table>');
-        tbl.appendChild(el('<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'"></th></tr></thead>'));
+        var tbl=document.createElement('table'); tbl.style.cssText="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px;";
+        // POZOR: el() parsuje v kontextu <div>, který thead/tr/td zahazuje — tabulku stavíme přes DOM API.
+        tbl.innerHTML='<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'"></th></tr></thead>';
         var tb=document.createElement('tbody'); tbl.appendChild(tb);
+        function tdc(html,style){ var c=document.createElement('td'); if(style)c.style.cssText=style; c.innerHTML=html; return c; }
         function hmMin(x){ var p=String(x||"").split(":"); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
         var lastKon=null;  // konec předchozího viditelného záznamu — detekce mezer (Centrála: „Mezery v docházce")
         es.forEach(function(e2){
@@ -1978,8 +1980,13 @@
           var isDE=(e2.code==="day_end");  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
           if(!gone&&!isDE&&e2.zac&&lastKon&&(hmMin(e2.zac)-hmMin(lastKon))>=5&&!j.locked){
             var gz=lastKon, gk=e2.zac;
-            var gr=el('<tr><td colspan="3" style="border-bottom:1px dashed var(--bord);color:var(--mut);font-size:11.5px;padding:4px 6px;">⋯ mezera '+esc(gz)+'–'+esc(gk)+' (bez záznamu)</td><td style="border-bottom:1px dashed var(--bord);text-align:right;padding:4px 6px;"><button class="ghost sm" style="padding:4px 9px;">➕</button></td></tr>');
-            gr.querySelector("button").addEventListener("click",function(){ openAdd(gz,gk); });
+            var gr=document.createElement('tr');
+            var g1=tdc('⋯ mezera '+esc(gz)+'–'+esc(gk)+' (bez záznamu)','border-bottom:1px dashed var(--bord);color:var(--mut);font-size:11.5px;padding:4px 6px;');
+            g1.colSpan=3;
+            var g2=tdc('','border-bottom:1px dashed var(--bord);text-align:right;padding:4px 6px;');
+            var gb=el('<button class="ghost sm" style="padding:4px 9px;">➕</button>');
+            gb.addEventListener("click",function(){ openAdd(gz,gk); });
+            g2.appendChild(gb); gr.appendChild(g1); gr.appendChild(g2);
             tb.appendChild(gr);
           }
           var tr0=document.createElement('tr'); if(gone) tr0.style.opacity=".45";
@@ -1995,18 +2002,19 @@
             if(e2.note) sub+=(sub?" · ":"")+e2.note;
             if(e2.source_system&&!gone) sub+=(sub?" · ":"")+"Oprava se dělá v Centrále — sem se přezrcadlí.";
           }
-          var tdT=el('<td style="'+TD+'"></td>');
+          var tdT=tdc('',TD);
           tdT.appendChild(el('<div style="font-weight:600;white-space:nowrap;">'+(isDE?'🫡 Odchod':esc(e2.typ||""))+badge+'</div>'));
           if(sub) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">'+esc(sub)+'</div>'));
           tr0.appendChild(tdT);
-          tr0.appendChild(el('<td style="'+TD+'white-space:nowrap;font-variant-numeric:tabular-nums;">'+esc(e2.zac||"—")+(isDE?'':("–"+esc(e2.kon||"…")))+'</td>'));
-          tr0.appendChild(el('<td style="'+TD+'text-align:right;font-variant-numeric:tabular-nums;">'+((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"")+'</td>'));
-          var tdA=el('<td style="'+TD+'text-align:right;white-space:nowrap;"></td>'); tr0.appendChild(tdA);
+          tr0.appendChild(tdc(esc(e2.zac||"—")+(isDE?'':("–"+esc(e2.kon||"…"))),TD+'white-space:nowrap;font-variant-numeric:tabular-nums;'));
+          tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
+          var tdA=tdc('',TD+'text-align:right;white-space:nowrap;'); tr0.appendChild(tdA);
           tb.appendChild(tr0);
           if(!gone&&!isDE&&e2.kon) lastKon=e2.kon;
           if(e2.editable&&!e2.running&&e2.zac){
             var frow=document.createElement('tr'); frow.style.display="none";
-            var fcell=el('<td colspan="4" style="background:rgba(255,255,255,.03);border-bottom:1px solid var(--bord);padding:10px 8px;"></td>');
+            var fcell=tdc('','background:rgba(255,255,255,.03);border-bottom:1px solid var(--bord);padding:10px 8px;');
+            fcell.colSpan=4;
             frow.appendChild(fcell); tb.appendChild(frow);
             var closeForm=function(){ frow.style.display="none"; tr0.style.background=""; fcell.innerHTML=""; };
             var openForm=function(titul){

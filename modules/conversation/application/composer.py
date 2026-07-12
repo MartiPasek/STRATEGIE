@@ -4754,9 +4754,11 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
                               capture_output=True, text=True)
         if diff.returncode != 0:
             git_log.append(_git("commit", "-m", "g2007 export (generovano z DB)"))
-            git_log.append(_git("push"))
         else:
             git_log.append({"cmd": "commit", "rc": 0, "out": "nic ke commitu (beze zmen)"})
+        # cloud muze byt pozadu za originem -> pred push srovnat (rebase g2007 commit na origin/main)
+        git_log.append(_git("pull", "--rebase", "origin", "main"))
+        git_log.append(_git("push", "origin", "main"))
         result["git"] = git_log
 
     return result

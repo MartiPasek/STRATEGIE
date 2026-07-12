@@ -39,6 +39,12 @@
   .krok{background:var(--step);border:1px solid #2c4a6e;border-radius:11px;
     padding:10px 12px;margin:10px 0 6px;font-size:14px}
   .krok .lb{font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-bottom:3px}
+  .flow{display:flex;gap:5px;margin:10px 0 4px;flex-wrap:wrap}
+  .step{flex:1;min-width:74px;background:#111a24;border:1px solid var(--line);border-radius:9px;padding:6px 6px;text-align:center}
+  .step .lb{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+  .step .v{font-size:12.5px;font-weight:700;margin-top:2px;color:var(--pend)}
+  .step.st-ok{border-color:var(--ok)} .step.st-ok .v{color:var(--ok)}
+  .step.st-wip{border-color:var(--wip)} .step.st-wip .v{color:var(--wip)}
   .meta{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
     color:var(--dim);flex-wrap:wrap;border-top:1px solid var(--line);padding-top:9px;margin-top:4px}
   .load{color:var(--dim);padding:20px 4px}
@@ -52,6 +58,7 @@
 <body>
   <h1>🗂️ Eliška — vedení zakázek</h1>
   <div class="sub">Živý přehled tvých zakázek: fáze, termíny (pracovní dny), efektivita a navržený další krok. Zvýrazněné mají termín během tvého volna.</div>
+  <div class="sub">🗼 <a href="/vp-vez" style="color:var(--accent)">VP řídící věž</a> — všechny hromady po řešitelích, od poptávky po zaplacenou fakturu.</div>
   <div id="kpi" class="kpi"></div>
   <div id="banner"></div>
   <div id="list"><div class="load">Načítám zakázky…</div></div>
@@ -95,6 +102,7 @@ function render(zz){
         '<span class="kv">Objem: <b>'+fmtKc(z.velikost_kc)+'</b></span>'+
         (eff!=null?'<span class="kv eff">Efektivita: <span class="v" style="color:'+effc+'">'+eff+' %</span> ('+(z.real_h||0)+'/'+(z.kalk_h||0)+' h)</span>':'')+
       '</div>'+
+      flowHtml(z)+
       (z.dalsi_krok?'<div class="krok"><div class="lb">Další krok (návrh)</div>'+esc(z.dalsi_krok)+'</div>':'')+
       '<div class="meta"><span>'+(z.koresponduje?('Korespondence: '+esc(z.koresponduje)):'Bez korespondence')+'</span>'+
         '<span>'+(z.posl_email?('Poslední e-mail: '+esc(z.posl_email)):'')+'</span></div>'+

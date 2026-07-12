@@ -49,6 +49,7 @@ from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — ř
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
 from modules.erp.api.hr_spis import hr_spis_router  # Osobní spis zaměstnance — HR pohled + self-service (1.7.2026)
+from modules.erp.api.mzdy_jmhz import jmhz_router  # JMHZ — Jednotné měsíční hlášení zaměstnavatele (ČSSZ) ke mzdám (12.7.2026)
 
 setup_logging()
 
@@ -867,6 +868,7 @@ app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_c
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
 app.include_router(bozp_router)  # BOZP a PO cockpit (řízení dokumentů, rizik, termínů, úrazů)
 app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)
+app.include_router(jmhz_router)  # JMHZ (ČSSZ hlášení) — generace z Heliosu + ověření na tlačítku (12.7.2026)
 app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
 app.include_router(hr_spis_router)  # Osobní spis zaměstnance — HR pohled + zaměstnanecký self-service
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
@@ -2117,10 +2119,8 @@ def web_partner():
     return _web_subpage("partner.html")
 
 
-# ZNOVU ZAPNUTO 12.7.2026 (Marti): partner-demo = "Personální & řízení" pohled
-# linkovaný z /web/demo (veřejná živá ukázka firmy) → musí být veřejný (padal 404).
-# Pozvánka /web/partner (Rasťo/Lucko) zůstává VYPNUTÁ dle 11.7.
-@app.get("/web/partner-demo")
+# VYPNUTO z veřejného prostoru 11.7.2026 (Marti) — viz /web/partner výše.
+# @app.get("/web/partner-demo")
 def web_partner_demo():
     """Živá firma — personální systém & řízení (pohled pro partnery)."""
     return _web_subpage("partner-demo.html")

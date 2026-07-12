@@ -9,6 +9,7 @@ JMHZ: validátor ověřuje JEDEN <n1:formularOsoby> naráz → proženeme každo
 PREZEC/REGZEC: obalí se celý kořenový element.
 
 Marti / ID23, 3.7.2026 — „ověření naostro proti ČSSZ".
+12.7.2026 — přidána validace z řetězce (validate_xml_string) pro JMHZ modul na tlačítku.
 """
 import os, uuid, datetime, html
 import requests
@@ -56,12 +57,10 @@ def _call(payload_xml: str, test: bool = True) -> dict:
         return {"ok": False, "chyba_spojeni": "%s: %s" % (type(e).__name__, str(e)[:200])}
     out = {"http": r.status_code}
     txt = r.text or ""
-    # VysledekKod
     try:
         rt = etree.fromstring(r.content)
         kod = rt.find(".//{%s}VysledekKod" % URN)
         out["VysledekKod"] = kod.text if kod is not None else None
-        # posbírej případné chyby (elementy obsahující 'hyb' nebo 'Text'/'Popis')
         chyby = []
         for el in rt.iter():
             tag = etree.QName(el).localname
@@ -75,13 +74,8 @@ def _call(payload_xml: str, test: bool = True) -> dict:
     return out
 
 
-def validate_file(fname: str, test: bool = True) -> dict:
-    """@@EPVAL <soubor> — soubor v docs/jmhz/. Rozpozná JMHZ vs PREZEC/REGZEC."""
-    path = fname if os.path.isabs(fname) else os.path.join(DOCS_JMHZ, fname)
-    if not os.path.exists(path):
-        return {"ok": False, "error": "soubor nenalezen: %s" % path}
-    tree = etree.parse(path)
-    root = tree.getroot()
+def _validate_root(root, test: bool = True) -> dict:
+    """Zvaliduje kořen podání (jmhz / PREZEC / REGZEC) proti ČSSZ."""
     rtag = etree.QName(root).localname
     prostredi = "test" if test else "PRODUKCE"
 
@@ -92,7 +86,6 @@ def validate_file(fname: str, test: bool = True) -> dict:
         for i, o in enumerate(osoby, 1):
             payload = etree.tostring(o, encoding="unicode")
             res = _call(payload, test=test)
-            # identifikace osoby (ikMpsv) pro přehled
             ik = o.find(".//{http://schemas.cssz.cz/JMHZ/form/1.0}ikMpsv")
             vysledky.append({"osoba": i, "ikMpsv": (ik.text if ik is not None else None), **res})
         ok = all(v.get("ok") for v in vysledky) if vysledky else False
@@ -105,3 +98,22 @@ def validate_file(fname: str, test: bool = True) -> dict:
         return {"ok": res.get("ok"), "typ": rtag, "prostredi": prostredi, **res}
 
     return {"ok": False, "error": "neznámý kořen: %s" % rtag}
+
+
+def validate_file(fname: str, test: bool = True) -> dict:
+    """@@EPVAL <soubor> — soubor v docs/jmhz/. Rozpozná JMHZ vs PREZEC/REGZEC."""
+    path = fname if os.path.isabs(fname) else os.path.join(DOCS_JMHZ, fname)
+    if not os.path.exists(path):
+        return {"ok": False, "error": "soubor nenalezen: %s" % path}
+    root = etree.parse(path).getroot()
+    return _validate_root(root, test=test)
+
+
+def validate_xml_string(xml, test: bool = True) -> dict:
+    """Zvaliduje JMHZ/PREZEC/REGZEC přímo z řetězce (bez souboru) — pro modul na tlačítku."""
+    data = xml.encode("utf-8") if isinstance(xml, str) else xml
+    try:
+        root = etree.fromstring(data)
+    except Exception as e:
+        return {"ok": False, "error": "neplatné XML: %s" % str(e)[:200]}
+    return _validate_root(root, test=test)

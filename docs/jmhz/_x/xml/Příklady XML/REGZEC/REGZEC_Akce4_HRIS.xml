@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<REGZEC version="version1" partialAccept="partialAccept1" xsi:schemaLocation="http://schemas.cssz.cz/REGZEC/2025 REGZEC25.xsd" xmlns="http://schemas.cssz.cz/REGZEC/2025" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<employees>
+		<!--Zamestnanec 1 - sqnr: poradove cislo vety; dep: kod okresu (CSSZ) z C_COKR; act:cislo akce z C_AKCE;
+		datum: datum vyplneni datove vety; fro: platnost udaju od-->
+		<employee sqnr="1" dep="887" act="4" dat="2025-11-01" fro="2025-11-01">
+			<!-- ikmpsv: IK MPSV -->
+			<!-- vyplni se pouze pro identifikaci, nelze menit -->
+			<client ikmpsv="XXXXXXXXXX">
+				<!-- ****************** Oprava Titul **************************-->
+				<name tit="Ing."/>
+				<!--******************** Oprava danove rezidence - datum zmeny rezidence ***********************-->
+				<!-- type: typ danove identifikace; num: DIC ve state rezidence; stat: kod statu rezidentstvi; statchang: platnost zmeny kodu rezidentstvi od -->
+				<taxidrezid stat="CZ" statchang="2020-08-01"/>
+			</client>
+			
+			<!-- zamestnavatel- vs: variabilni symbol; nam: nazev zamestnavatele -->
+			<!-- vyplni se pouze pro identifikaci, nelze menit -->
+			<comp vs="XXXXXXXXXX" nam="ZamestnavatelNazev" />
+			
+			<!--zamestnani- oid: identifikator pojistneho vztahu IDPPV; rel: druh vydelecne cinnosti; relDetail: blizsi urceni PPV -->
+			<!--********************  Atributy oid a rel se vyplni pouze pro identifikaci, nelze menit za jinou hodnotu ******************** -->
+			<!--********************  Oprava data - vznik zamestnani podle smlouvy ******************** -->
+			<job oid="XXXXXXXXXXXXX" rel="2" relDetail="1" contractfro="2025-06-03"/>
+
+			<!--********************  Oprava nejvyssiho vzdelani ******************** -->
+			<!-- highedu: nejvyssi dosazene vzdelani podle KKOV -->
+			<fact highedu="V" />
+		</employee>
+	</employees>
+</REGZEC>

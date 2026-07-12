@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- Priklad HRIS - Akce 2 Ukonceni -  uveden pouze duvod neposkytnuti podkladu pro urad prace - podpora v nezamestnanosti -->
+<REGZEC version="version1" partialAccept="partialAccept1" xsi:schemaLocation="http://schemas.cssz.cz/REGZEC/2025 REGZEC25.xsd" xmlns="http://schemas.cssz.cz/REGZEC/2025" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<employees>
+		<!--Zamestnanec 1 - sqnr: poradove cislo vety; dep: kod okresu (CSSZ) z C_COKR; act:cislo akce z C_AKCE;
+		dat: datum vyplneni datove vety -->
+		<employee sqnr="1" dep="887" act="2" dat="2025-11-01">
+			<!-- ikmpsv: IK MPSV -->
+			<client ikmpsv="XXXXXXXXXX">
+			</client>
+
+			<!--zamestnavatel- vs: variabilni symbol; nam: nazev zamestnavatele-->
+			<comp vs="XXXXXXXXXX" nam="ZamestnavatelNazev" />
+
+			<!--zamestnani- oid: identifikator pojistneho vztahu IDPPV; to: datum ukonceni zamestnani; rel: druh vydelecne cinnosti; 
+	        relDetail: blizsi urceni PPV; endbydeath: zamestani ukonceno smrti A/N;-->
+			<job oid="XXXXXXXXXXXXX" rel="9" relDetail="1" to="2025-11-01" endbydeath="N" />
+
+			<!--rsn: kod duvodu neposkytnuti podkladu -->
+			<unemplcomp rsn="2">
+				<!-- intervaly duchodoveho pojisteni- fro: duchod pobiran od; to: duchod pobiran do -->
+				<!-- povinne pro A2-OST, nevyplnuje se pokud rsn="2" nebo endbydeath="A" -->
+				<!--<pensionperiod fro="2025-07-12" to="2025-08-31"/>-->
+			</unemplcomp>
+		</employee>
+	</employees>
+</REGZEC>

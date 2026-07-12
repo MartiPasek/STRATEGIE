@@ -1,0 +1,252 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<n1:jmhz
+	xmlns:n1="http://schemas.cssz.cz/JMHZ/podani/1.0"
+        xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:bt="http://schemas.cssz.cz/baseTypes/v2"
+        xmlns:so="http://schemas.cssz.cz/JMHZ/souhrn/1.0"
+        xmlns:pvpoj="http://schemas.cssz.cz/JMHZ/PVPOJ/1.0"
+        xmlns:form="http://schemas.cssz.cz/JMHZ/form/1.0"
+        
+	xs:schemaLocation="
+		http://schemas.cssz.cz/JMHZ/podani/1.0 jmhzPodani.xsd
+		http://schemas.cssz.cz/JMHZ/souhrn/1.0 souhrn.xsd
+		http://schemas.cssz.cz/JMHZ/PVPOJ/1.0 PVPOJ.xsd
+        http://schemas.cssz.cz/JMHZ/form/1.0 form.xsd
+		http://schemas.cssz.cz/baseTypes/v2 baseTypes2.xsd">
+
+	<n1:VENDOR productName="productName1" productVersion="productVersion1" />
+	<n1:SENDER EmailNotifikace="EmailNotifikace1" ISDSreport="ISDSreport1" VerzeProtokolu="VerzeProtokolu1" />
+
+	<n1:hlavicka>
+		<n1:idPodani>A4D75000-0210-3855-8899-aAbBc0004322</n1:idPodani>
+		<!--10001-->
+		<n1:typPodani>O</n1:typPodani>
+		<!--10007-->
+		<n1:variabilniSymbol>1156117978</n1:variabilniSymbol>
+		<!--10221-->
+		<n1:mesic>1</n1:mesic>
+		<!--10010-->
+		<n1:rok>2025</n1:rok>
+		<!--10011-->
+		<n1:datumVyplneni>2025-02-06T11:16:06Z</n1:datumVyplneni>
+		<!--10005-->
+		<n1:balikPoradi>1</n1:balikPoradi>
+		<!--10002-->
+		<n1:balikyPocet>1</n1:balikyPocet>
+		<!--10003-->
+		<n1:formularePocetVBaliku>3</n1:formularePocetVBaliku>
+		<!--10015-->
+		<n1:formularePocetCelkem>3</n1:formularePocetCelkem>
+		<!--10488-->
+	</n1:hlavicka>
+
+	<so:souhrn>
+		<so:danUdajeMesic>
+			<so:danZalohaPoSleve>0</so:danZalohaPoSleve>
+			<!--10034 sam-->
+			<!--součet všech ID 10305-->
+			<!--<so:danBonus>0</so:danBonus>-->
+			<!--10035-->
+		</so:danUdajeMesic>
+		
+	</so:souhrn>
+
+
+	<pvpoj:PVPOJ>
+		<pvpoj:pojistne>
+			<pvpoj:zakladZamestnavateleA>0</pvpoj:zakladZamestnavateleA>
+			<!--10023-->
+			<!--součet všech ID 10478-->
+
+			<pvpoj:pojistneZamestnavateleA>0</pvpoj:pojistneZamestnavateleA>
+			<!--10024-->
+			<!--ID 10023 * 0,248-->
+	
+			<pvpoj:zakladZamestnavateleB>0</pvpoj:zakladZamestnavateleB>
+			<!--10025-->
+			<!--součet všech ID 10479-->
+
+			<pvpoj:pojistneZamestnavateleB>0</pvpoj:pojistneZamestnavateleB>
+			<!--10026-->
+			<!--ID 10025 * 0,288-->
+
+			<pvpoj:zakladZamestnavateleC>0</pvpoj:zakladZamestnavateleC>
+			<!--10483-->
+
+			<pvpoj:pojistneZamestnavateleC>0</pvpoj:pojistneZamestnavateleC>
+			<!--10484-->
+			<!--ID 10483 * 0,268-->
+			
+			<pvpoj:pojistneZamestnavateleCelkem>0</pvpoj:pojistneZamestnavateleCelkem>
+			<!--10027-->
+
+			<pvpoj:pojistneZamestnance>0</pvpoj:pojistneZamestnance>
+			<!--10028-->
+			<!--součet všech ID 10370-->
+
+			<pvpoj:pojistneCelkem>0</pvpoj:pojistneCelkem>
+			<!--/10029-->
+			<!--ID 10027 + ID 10028-->
+
+		</pvpoj:pojistne>
+
+		<pvpoj:pojistneUhrada>0</pvpoj:pojistneUhrada>
+		<!--10033-->
+		<!--ID 10029 - ID 10032 - ID10487-->
+	</pvpoj:PVPOJ>
+
+	<n1:formulareOsob>
+
+
+		<!--ODLOŽENÝ PŘÍJEM-->
+		<n1:formularOsoby>
+			<n1:hlavicka>
+				<n1:idFormulare>A4D75000-0210-3955-8899-aAbBc0004322</n1:idFormulare>
+				<n1:typFormulare>O</n1:typFormulare>
+				<!--10016-->
+				<n1:primarniPpv>true</n1:primarniPpv>
+				<!--10495-->
+			</n1:hlavicka>
+			<form:odlozenyPrijem>
+				
+				<form:typ>4</form:typ>
+				<!--10548-->
+
+				<form:identifikace>
+					<form:ikMpsv>1100150656</form:ikMpsv>
+					<!--10051-->
+					<form:idPpv>4002830952202</form:idPpv>
+					<!--10228-->
+				</form:identifikace>
+
+				<form:souhrnDataZec>
+					<form:prijmy>
+						<form:zuctovanoCelkem>0</form:zuctovanoCelkem>
+						<!--10286  -->
+						
+					</form:prijmy>
+
+					<form:zalohaNaDan>
+						<!--<form:zakladDane>0</form:zakladDane>
+						--><!--10297  --><!--
+						<form:vypoctenaZaloha>0</form:vypoctenaZaloha>
+						--><!--10298  --><!--
+						<form:danZalohaPoSleve>0</form:danZalohaPoSleve>
+						--><!--10305 --><!--
+						<form:danBonus>0</form:danBonus>-->
+						<!--10306-->
+					</form:zalohaNaDan>
+
+					<form:zvlastniSazbaDane>
+						<form:zakladDane>0</form:zakladDane>
+						<!--10307  -->
+						
+					</form:zvlastniSazbaDane>
+
+					<form:prohlaseniPoplatnika>false</form:prohlaseniPoplatnika>
+					<!--10419  -->
+					<form:prohlaseniPoplatnikaDane>
+						<form:zakladniSleva>0</form:zakladniSleva>
+						<!--10299  -->
+						
+					</form:prohlaseniPoplatnikaDane>
+					
+					<form:rocniUhrny>
+						<form:prijemZdanitelnyCelkem>270000</form:prijemZdanitelnyCelkem>
+						<!--10313-->
+						<form:prijemZdanitelnyDoplatek>40500</form:prijemZdanitelnyDoplatek>
+						<!--10316-->
+						<form:zalohaPrijmy>0</form:zalohaPrijmy>
+						<!--10317-->
+						<form:zalohaDoplatky>0</form:zalohaDoplatky>
+						<!--10318-->
+						<form:rocniZuctovaniZadost>false</form:rocniZuctovaniZadost>
+						<!--10319-->
+						<form:rocniZuctovaniProvedeno>false</form:rocniZuctovaniProvedeno>
+						<!--10320-->
+					</form:rocniUhrny>
+					
+					<form:mzdaCista>
+						<form:mzdaCista>30557</form:mzdaCista>
+						<!--10344-->
+						<form:srazkyZeMzdyEvidovany>false</form:srazkyZeMzdyEvidovany>
+						<!--10116-->
+
+					</form:mzdaCista>
+
+					<form:zdravPojZamestnavatel>
+						<form:zdravotniPojisteni>3433</form:zdravotniPojisteni>
+						<!--10482-->
+					</form:zdravPojZamestnavatel>
+
+					<form:zdravPojZamestnanec>
+						<form:zdravotniPojisteni>1716</form:zdravotniPojisteni>
+						<!--10371-->
+					</form:zdravPojZamestnanec>
+
+				</form:souhrnDataZec>
+
+				<form:pojisteni>
+
+					<form:vymerovaciZaklad>
+						<!--<form:castkaOdvodPojistneho>7200</form:castkaOdvodPojistneho>-->
+						<!--10477 -->
+						<form:prijemNepojistenaCinnost>0</form:prijemNepojistenaCinnost>
+						<!--10476  -->
+					</form:vymerovaciZaklad>
+
+					<form:vymerovaciZakladParagraf5>
+						<!--<form:pismenoA>7200</form:pismenoA>-->
+						<!--10478  -->
+						<!--<form:pismenoB></form:pismenoB>-->
+						<!--10479-->
+						<!--<form:pismenoC></form:pismenoC>-->
+						<!--10480-->
+					</form:vymerovaciZakladParagraf5>
+
+					<form:eldpObdobi>
+						<form:obdobi>
+							<form:mesic>9</form:mesic>
+							<!--10537-->
+							<form:rok>2025</form:rok>
+							<!--10538-->
+
+							<form:eldpSeznam>
+								<form:eldp>
+									<!--<form:kod></form:kod>-->
+									<!--10240-->
+									<!--<form:platnostOd>2025-07-01</form:platnostOd>
+									--><!--10241--><!--
+									<form:platnostDo>2025-07-31</form:platnostDo>-->
+									<!--10242-->
+									<form:pocetDnu>0</form:pocetDnu>
+									<!--10356  -->
+									
+								</form:eldp>
+							</form:eldpSeznam>
+
+						</form:obdobi>
+				
+					</form:eldpObdobi>
+
+					<form:slevaZamestnance>
+						<form:slevaZamestnanceEvidovana>false</form:slevaZamestnanceEvidovana>
+						<!--10490  -->
+						<!--<form:slevaZamestnanceOvoZelEvidovana>false</form:slevaZamestnanceOvoZelEvidovana>-->
+						<!--10546 -->
+					</form:slevaZamestnance>
+
+				</form:pojisteni>
+				
+				<form:prijem>
+					<form:dan>
+					<form:zakladDane>0</form:zakladDane>
+					<!--10535  -->
+					</form:dan>
+
+				</form:prijem>
+			</form:odlozenyPrijem>
+		</n1:formularOsoby>
+
+	</n1:formulareOsob>
+</n1:jmhz>

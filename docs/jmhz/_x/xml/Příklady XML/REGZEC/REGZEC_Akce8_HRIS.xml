@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<REGZEC version="version1" partialAccept="partialAccept1" xsi:schemaLocation="http://schemas.cssz.cz/REGZEC/2025 REGZEC25.xsd" xmlns="http://schemas.cssz.cz/REGZEC/2025" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<employees>
+		<!--Zamestnanec 1 - sqnr: poradove cislo vety; dep: kod okresu (CSSZ) z C_COKR; act:cislo akce z C_AKCE;
+		datum: datum vyplneni datove vety; fro: platnost udaju od-->
+		<employee sqnr="1" dep="887" act="8" dat="2025-11-01">
+			<!-- ikmpsv: IK MPSV -->
+			<client ikmpsv="XXXXXXXXXX" />
+
+			<!--zamestnavatel- vs: variabilni symbol; nam: nazev zamestnavatele-->
+			<comp vs="XXXXXXXXXX" nam="ZamestnavatelNazev" />
+			
+			<!--zamestnani- oid: identifikator pojistneho vztahu IDPPV; notstart: zamestnanec nenastoupil A/N -->
+			<job oid="XXXXXXXXXXXXX" notstart="N" />
+		</employee>
+	</employees>
+</REGZEC>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- Priklad HRIS - Akce 2 Ukonceni -  s vyplnenymi podklady pro urad prace - podpora v nezamestnanosti -->
+<REGZEC version="version1" partialAccept="partialAccept1" xsi:schemaLocation="http://schemas.cssz.cz/REGZEC/2025 REGZEC25.xsd" xmlns="http://schemas.cssz.cz/REGZEC/2025" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<employees>
+		<!--Zamestnanec 1 - sqnr: poradove cislo vety; dep: kod okresu (CSSZ) z C_COKR; act:cislo akce z C_AKCE;
+		datum: datum vyplneni datove vety -->
+		<employee sqnr="1" dep="887" act="2" dat="2025-11-01">
+			<!-- ikmpsv: IK MPSV -->
+			<client ikmpsv="XXXXXXXXXX">
+			</client>
+			
+			<!--zamestnavatel- vs: variabilni symbol; nam: nazev zamestnavatele-->
+			<comp vs="XXXXXXXXXX" nam="ZamestnavatelNazev" />
+			
+			<!--zamestnani- oid: identifikator pojistneho vztahu IDPPV; rel: druh vydelecne cinnosti; relDetail: blizsi urceni PPV;
+				to: datum ukonceni zamestnani; endbydeath: zamestani ukonceno smrti A/N; -->
+			<job oid="XXXXXXXXXXXXX" rel="9" relDetail="1" to="2025-10-31" endbydeath="N" />
+
+			<!-- podpora v nezamestnanosti -->
+			<!-- typeempl: kod druhu zamestnani; belong: nalezi odchodne/odbytne/odstupne A/N;
+				fullpay: odchodne/odbytne/odstupne vyplaceno v plne vysi A/N; avgmonear: prumerny cisty mesicni vydelek; 
+				rsnterrel: kod duvodu ukonceni sluzebniho pomeru; rsnterempl: kod duvodu ukonceni PPV
+				pro typeempl="1" (PPV) - replacement: jednorazova nahrada; nebo goldenhandshake: Odstupné podle § 67 odst. 1 ZP;
+				pro typeempl="2" (sluz. pomer) - severancepay: odchodne; nebo disposal: odbytne -->
+			<unemplcomp typeempl="1" belong="A" fullpay="A" avgmonear="33569" rsnterempl="3" goldenhandshake="30000" >
+				<!-- intervaly duchodoveho pojisteni- fro: duchodove pojisteni od; to: duchodove pojisteni do -->
+				<pensionperiod fro="2025-04-01" to="2025-10-31"/>
+			</unemplcomp>
+		</employee>
+	</employees>
+</REGZEC>

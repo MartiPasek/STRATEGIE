@@ -1,0 +1,280 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<n1:jmhz
+	xmlns:n1="http://schemas.cssz.cz/JMHZ/podani/1.0"
+        xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:bt="http://schemas.cssz.cz/baseTypes/v2"
+        xmlns:so="http://schemas.cssz.cz/JMHZ/souhrn/1.0"
+        xmlns:pvpoj="http://schemas.cssz.cz/JMHZ/PVPOJ/1.0"
+        xmlns:form="http://schemas.cssz.cz/JMHZ/form/1.0"
+        
+	xs:schemaLocation="
+		http://schemas.cssz.cz/JMHZ/podani/1.0 jmhzPodani.xsd
+		http://schemas.cssz.cz/JMHZ/souhrn/1.0 souhrn.xsd
+		http://schemas.cssz.cz/JMHZ/PVPOJ/1.0 PVPOJ.xsd
+        http://schemas.cssz.cz/JMHZ/form/1.0 form.xsd
+		http://schemas.cssz.cz/baseTypes/v2 baseTypes2.xsd">
+
+	<n1:VENDOR productName="productName1" productVersion="productVersion1" />
+	<n1:SENDER EmailNotifikace="EmailNotifikace1" ISDSreport="ISDSreport1" VerzeProtokolu="VerzeProtokolu1" />
+
+	<!--verze: 1.4.3, 18.3.2026-->
+	<n1:hlavicka>
+		<n1:idPodani>AA000001-CDCC-2222-3333-B9890B083831</n1:idPodani>
+		<!--10001 GUID podání-->
+		<n1:typPodani>R</n1:typPodani>
+		<!--10007 R=řádné-->
+		<n1:variabilniSymbol>1142028180</n1:variabilniSymbol>
+		<!--10221 VS zaměstnavatele-->
+		<n1:mesic>1</n1:mesic>
+		<!--10010-->
+		<n1:rok>2026</n1:rok>
+		<!--10011-->
+		<n1:datumVyplneni>2026-03-10T10:00:00Z</n1:datumVyplneni>
+		<n1:balikPoradi>1</n1:balikPoradi>
+		<!--10002-->
+		<n1:balikyPocet>1</n1:balikyPocet>
+		<!--10003-->
+		<n1:formularePocetVBaliku>3</n1:formularePocetVBaliku>
+		<!--10015-->
+		<n1:formularePocetCelkem>3</n1:formularePocetCelkem>
+		<!--10488-->
+	</n1:hlavicka>
+
+	<so:souhrn>
+		<so:danUdajeMesic>
+			<so:danZalohaPoSleve>3500</so:danZalohaPoSleve>
+			<!--10034 součet ID 10305 všech zaměstnanců-->
+		</so:danUdajeMesic>
+	</so:souhrn>
+
+	<!-- PVPOJ s rizikovou prací – zakladZamestnavateleC pro rizikové zaměstnání -->
+	<pvpoj:PVPOJ>
+		<pvpoj:pojistne>
+			<pvpoj:zakladZamestnavateleA>0</pvpoj:zakladZamestnavateleA>
+			<!--10023 nerizikoví zaměstnanci – 0, protože máme jen rizikového-->
+			<pvpoj:pojistneZamestnavateleA>0</pvpoj:pojistneZamestnavateleA>
+			<!--10024-->
+			<pvpoj:zakladZamestnavateleC>45000</pvpoj:zakladZamestnavateleC>
+			<!--10483 úhrn VZ zaměstnanců v rizikovém zaměstnání-->
+			<pvpoj:pojistneZamestnavateleC>12510</pvpoj:pojistneZamestnavateleC>
+			<!--10484 pojistné zaměstnavatele 2026 = 27,8 % z ID 10483-->
+			<pvpoj:pojistneZamestnavateleCelkem>12510</pvpoj:pojistneZamestnavateleCelkem>
+			<!--10027-->
+			<pvpoj:pojistneZamestnance>3195</pvpoj:pojistneZamestnance>
+			<!--10028 7,1 % z VZ zaměstnance-->
+			<pvpoj:pojistneCelkem>15705</pvpoj:pojistneCelkem>
+			<!--10029-->
+		</pvpoj:pojistne>
+		<pvpoj:pojistneUhrada>15705</pvpoj:pojistneUhrada>
+		<!--10033-->
+	</pvpoj:PVPOJ>
+
+	<n1:formulareOsob>
+		<!-- ZAMĚSTNANEC – RIZIKOVÁ PRÁCE – VÍCE KATEGORIÍ RIZIKA -->
+		<n1:formularOsoby>
+			<n1:hlavicka>
+				<n1:idFormulare>CC000001-AAAA-BBBB-CCCC-DD0000000001</n1:idFormulare>
+				<n1:typFormulare>R</n1:typFormulare>
+				<!--10016-->
+				<n1:primarniPpv>true</n1:primarniPpv>
+				<!--10495-->
+			</n1:hlavicka>
+
+			<form:bezPriznaku>
+
+				<!-- IDENTIFIKACE ZAMĚSTNANCE -->
+				<form:identifikace>
+					<form:ikMpsv>1684440483</form:ikMpsv>
+					<!--10051 IK MPSV (OIČ)-->
+					<form:idPpv>4002831040079</form:idPpv>
+					<!--10228 ID pracovněprávního vztahu-->
+				</form:identifikace>
+
+				<!-- SOUHRNNÁ DATA -->
+				<form:souhrnDataZec>
+					<form:prijmy>
+						<form:zuctovanoCelkem>45000</form:zuctovanoCelkem>
+						<!--10286-->
+					</form:prijmy>
+					<form:zalohaNaDan>
+						<form:zakladDane>45000</form:zakladDane>
+						<!--10297-->
+						<form:vypoctenaZaloha>6750</form:vypoctenaZaloha>
+						<!--10298-->
+						<form:danZalohaPoSleve>3500</form:danZalohaPoSleve>
+						<!--10305-->
+					</form:zalohaNaDan>
+					<form:prohlaseniPoplatnika>true</form:prohlaseniPoplatnika>
+					<!--10419-->
+					<form:prohlaseniPoplatnikaDane>
+						<form:zakladniSleva>2570</form:zakladniSleva>
+						<!--10299-->
+					</form:prohlaseniPoplatnikaDane>
+					<form:mzdaCista>
+						<form:mzdaCista>38305</form:mzdaCista>
+						<!--10344-->
+						<form:srazkyZeMzdyEvidovany>0</form:srazkyZeMzdyEvidovany>
+						<!--10116-->
+					</form:mzdaCista>
+					<form:zdravPojZamestnavatel>
+						<form:zdravotniPojisteni>4050</form:zdravotniPojisteni>
+						<!--10482-->
+					</form:zdravPojZamestnavatel>
+					<form:zdravPojZamestnanec>
+						<form:zdravotniPojisteni>2025</form:zdravotniPojisteni>
+						<!--10371-->
+					</form:zdravPojZamestnanec>
+				</form:souhrnDataZec>
+
+				<!-- POJIŠTĚNÍ -->
+				<form:pojisteni>
+					<form:trvani>
+						<form:pojisteniOd>2026-01-01</form:pojisteniOd>
+						<!--10354-->
+						<form:pojisteniDo>2026-01-31</form:pojisteniDo>
+						<!--10355-->
+					</form:trvani>
+					<form:vymerovaciZaklad>
+						<form:castkaOdvodPojistneho>45000</form:castkaOdvodPojistneho>
+						<!--10477-->
+					</form:vymerovaciZaklad>
+					<form:vymerovaciZakladParagraf5>
+						<form:pismenoC>45000</form:pismenoC>
+						<!--10480 – rizikoví zaměstnanci VZ pod písm. C-->
+					</form:vymerovaciZakladParagraf5>
+					<form:eldpSeznam>
+						<form:eldp>
+							<form:kod>1++</form:kod>
+							<!--10240-->
+							<form:platnostOd>2026-01-01</form:platnostOd>
+							<!--10241-->
+							<form:platnostDo>2026-01-31</form:platnostDo>
+							<!--10242-->
+							<form:pocetDnu>30</form:pocetDnu>
+							<!--10356-->
+							<form:vymerovaciZaklad>45000</form:vymerovaciZaklad>
+							<!--10245-->
+						</form:eldp>
+					</form:eldpSeznam>
+					<form:pojisteniZamestnanec>
+						<form:socialniPojisteni>3195</form:socialniPojisteni>
+						<!--10370 7,1 % z VZ-->
+					</form:pojisteniZamestnanec>
+					<form:pojisteniZamestnavatel>
+						<form:socialniPojisteni>12510</form:socialniPojisteni>
+						<!--10481-->
+					</form:pojisteniZamestnavatel>
+					<form:slevaZamestnance>
+						<form:slevaZamestnanceEvidovana>false</form:slevaZamestnanceEvidovana>
+						<!--10490-->
+						<form:slevaZamestnanceOvoZelEvidovana>false</form:slevaZamestnanceOvoZelEvidovana>
+						<!--10546-->
+					</form:slevaZamestnance>
+					<form:slevaZamestnavatele>
+						<form:slevaZamestnavateleEvidovana>false</form:slevaZamestnavateleEvidovana>
+						<!--10372-->
+					</form:slevaZamestnavatele>
+				</form:pojisteni>
+
+				<!-- VYKONÁVANÁ POZICE -->
+				<form:vykonavanaPozice>
+					<form:mistoVykonuPrace>
+						<form:obec>Praha</form:obec>
+						<!--10229-->
+						<form:kodObce>554782</form:kodObce>
+						<!--10230-->
+						<form:kodStatu>CZ</form:kodStatu>
+						<!--10231-->
+					</form:mistoVykonuPrace>
+					<form:uplatnujiPrispevekApz>false</form:uplatnujiPrispevekApz>
+					<!--10232-->
+					<form:funkcniPozitky>false</form:funkcniPozitky>
+					<!--10247-->
+					<form:docasnePrideleniEvidovano>false</form:docasnePrideleniEvidovano>
+					<!--10251-->
+					<form:fondPracovniDoby>
+						<form:stanovenyFond>168</form:stanovenyFond>
+						<!--10259-->
+						<form:sjednanyFond>168</form:sjednanyFond>
+						<!--10260-->
+						<form:stanovenaTydenniDoba>40</form:stanovenaTydenniDoba>
+						<!--10261-->
+					</form:fondPracovniDoby>
+				</form:vykonavanaPozice>
+
+				<!-- PRŮBĚH ZAMĚSTNÁNÍ -->
+				<form:prubehZamestnani>
+					<form:odpracovaneDny>
+						<form:dnyEvidencniStav>30</form:dnyEvidencniStav>
+						<!--10265-->
+						<form:dnyOdpracovanePocet>22</form:dnyOdpracovanePocet>
+						<!--10267-->
+					</form:odpracovaneDny>
+
+					<!-- ╔══════════════════════════════════════════════╗
+               ║  ODPRACOVANÉ HODINY S RIZIKOVOU PRACÍ (IN29) ║
+               ╚══════════════════════════════════════════════╝ -->
+					<form:odpracovaneHodiny>
+						<form:pocet>160</form:pocet>
+						<!--10268 celkový počet odpracovaných hodin-->
+						<form:rozpad>
+							<form:prescas>0</form:prescas>
+							<!--10269 přesčasy-->
+
+							<!-- ★ BLOK RIZIKOVÉ PRÁCE – KLÍČOVÁ ČÁST ★ -->
+							<form:riziko>
+								<form:hodinyOdpracovanePocet>160</form:hodinyOdpracovanePocet>
+								<!--10273 hodiny v rámci rizikové práce – POVINNÉ-->
+
+								<!-- VÍCE KATEGORIÍ RIZIKA: každá kategorie = samostatný element -->
+								<!-- !!! KÓDY OVĚŘTE V ČÍSELNÍKU ČSSZ "CIS Kategorizace rizika" !!! -->
+								<form:kategorizaceRizika>1</form:kategorizaceRizika>
+								<!--10274 Práce zařazená do kategorie 4 – kód dle ČSSZ číselníku-->
+								<form:kategorizaceRizika>6</form:kategorizaceRizika>
+								<!--10274 Práce zdravotnického záchranáře – kód dle ČSSZ číselníku-->
+								<form:kategorizaceRizika>7</form:kategorizaceRizika>
+								<!--10274 Práce člena jednotky HZS podniku – kód dle ČSSZ číselníku-->
+								
+							</form:riziko>
+							<!-- ★ KONEC BLOKU RIZIKOVÉ PRÁCE ★ -->
+
+						</form:rozpad>
+					</form:odpracovaneHodiny>
+
+					<form:neodpracovaneHodiny>
+						<form:hodinyNeodpracCelkem>8</form:hodinyNeodpracCelkem>
+						<!--10275-->
+					</form:neodpracovaneHodiny>
+				</form:prubehZamestnani>
+
+				<!-- PŘÍJEM -->
+				<form:prijem>
+					<form:dan>
+						<form:zakladDane>45000</form:zakladDane>
+						<!--10535-->
+					</form:dan>
+				</form:prijem>
+
+				<!-- MZDA -->
+				<form:mzda>
+					<form:mzdaZuctovana>45000</form:mzdaZuctovana>
+					<!--10328-->
+					<form:mzdaRozpad>
+						<form:tarif>45000</form:tarif>
+						<!--10329-->
+						<form:odmenyPravidelne>0</form:odmenyPravidelne>
+						<!--10330-->
+						<form:odmenyNepravidelne>0</form:odmenyNepravidelne>
+						<!--10331-->
+					</form:mzdaRozpad>
+					<form:vydelek>
+						<form:vydelekPrumernyHod>281.25</form:vydelekPrumernyHod>
+						<!--10345 = 45000 / 160 hodin-->
+					</form:vydelek>
+				</form:mzda>
+
+			</form:bezPriznaku>
+		</n1:formularOsoby>
+	</n1:formulareOsob>
+
+</n1:jmhz>

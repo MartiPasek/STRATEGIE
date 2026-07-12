@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<REGZEC version="version1" partialAccept="partialAccept1" xsi:schemaLocation="http://schemas.cssz.cz/REGZEC/2025 REGZEC25.xsd" xmlns="http://schemas.cssz.cz/REGZEC/2025" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<employees>
+		<!--Zamestnanec 1 - sqnr: poradove cislo vety; dep: kod okresu (CSSZ) z C_COKR; act:cislo akce z C_AKCE;
+		datum: datum vyplneni datove vety; fro: platnost udaju od-->
+		<employee sqnr="1" dep="444" act="7" dat="2025-11-01" fro="2025-11-01">
+			<!-- ikmpsv: IK MPSV -->
+			<client ikmpsv="XXXXXXXXX">
+			</client>
+
+			<!--zamestnavatel- vs: variabilni symbol; nam: nazev zamestnavatele-->
+			<comp vs="XXXXXXXXX" nam="ZamestnavatelNazev" />
+
+			<!--zamestnani- oid: identifikator pojistneho vztahu IDPPV -->
+			<job oid="XXXXXXXXX" />
+
+			<!--nositel cizozemskeho pojisteni- cur: specifikace; nam: nazev; str: ulice; num: cislo popisne; pnu: PSC; cit: obec; cnt: stat;
+			id: cislo cizozemskeho pojisteni; sec: sektor/ ucel pojisteni-->
+			<forin cur="S" nam="Versicherung" str="Strasse" num="45" pnu="DE41987" cit="Berlin" cnt="DE" id="45978"/>
+		</employee>
+	</employees>
+</REGZEC>

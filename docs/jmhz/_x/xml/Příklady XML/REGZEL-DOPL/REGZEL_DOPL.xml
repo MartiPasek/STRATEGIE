@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<REGZELDOPL xmlns="http://schemas.cssz.cz/REGZELDOPL/2025"
+			xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			xsi:schemaLocation="http://schemas.cssz.cz/REGZELDOPL/2025 REGZELDOPL25.xsd">
+  <!--version="string" partialAccept="string">-->
+  <!--<VENDOR productName="string" productVersion="string"/>-->
+  <!--<SENDER EmailNotifikace="string" ISDSreport="string" VerzeProtokolu="string"/>-->
+  <formular>
+    <hlavicka>
+      <kodPracovisteCSSZ>891</kodPracovisteCSSZ>
+      <kodFU>2300</kodFU>
+      <kodPracovisteFU>2312</kodPracovisteFU>
+    </hlavicka>
+    <zamestnavatel>
+      <vs>1112018285</vs>
+      <datovaSchranka>ys6c5s8</datovaSchranka>
+      <doplnInformace>
+        <socialniPodnik>0</socialniPodnik>
+        <agenturaPrace>1</agenturaPrace>
+        <chranenyTrh>1</chranenyTrh>
+      </doplnInformace>
+    </zamestnavatel>
+  </formular>
+</REGZELDOPL>

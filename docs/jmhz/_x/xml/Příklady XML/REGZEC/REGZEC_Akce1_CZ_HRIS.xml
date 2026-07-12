@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<REGZEC version="version1" partialAccept="partialAccept1" xmlns="http://schemas.cssz.cz/REGZEC/2025" xsi:schemaLocation="http://schemas.cssz.cz/REGZEC/2025 REGZEC25.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<employees>
+		<!-- Zamestnanec 1 - sqnr: poradove cislo vety; dep: kod okresu (CSSZ) z C_COKR; act:cislo akce z C_AKCE;
+		datum: datum vyplneni datove vety; fro: platnost udaju od -->
+		<employee sqnr="1" dep="887" act="1" dat="2025-11-01">
+			<!-- bno: rodne cislo, ikmpsv: IK MPSV, vcp: Vlastni cislo platce -->
+			<client bno="Xxxxxxxx" ikmpsv="Xxxxxxxx">
+				<!-- sur: prijmeni; ona: vsechna dalsi prijmeni; fir: jmeno; tit: titul-->
+				<name sur="Prijmeni" fir="Jmeno" />
+				<!-- birth: datum narozeni; nam: rodne prijmeni; cit: misto narozeni; stat: stat narozeni-->
+				<birth dat="1985-10-17" nam="RodnePrijmeni" cit="Mesto" stat="CZ"/>
+				<!-- mal: pohlavi; cnt: statni obcanstvi -->
+				<stat mal="Ž" cnt="CZ"/>
+				<!-- trvaly pobyt adresa- str: ulice; num: cislo popisne/cislo orientacni; pnu: PSC; cit: obec; cnt: stat; pos: prvních pìt písmen sídla pošty; ruianpoint: kod adresniho mista RUIAN -->
+				<adr str="Ulice" num="111" onum="1" pnu="75131" cit="Mesto" cnt="CZ" ruianpoint="11263091"/>
+				<!-- adresa pobytu v CR, pokud je trvaly pobyt mimo CR- str: ulice; num: cislo popisne/cislo orientacni; pnu: PSC; cit: obec; pos: prvních pìt písmen sídla pošty; ruianpoint: kod adresniho mista RUIAN -->
+				<!--<fdr str="Ulice" num="111" onum="1" pnu="75131" cit="Mesto" ruianpoint="11263091"/>-->
+				<!-- kontaktni adresa- str: ulice; num: cislo popisne/cislo orientacni; pnu: PSC; cit: obec; cnt: stat; pos: prvních pìt písmen sídla pošty; ruianpoint: kod adresniho mista RUIAN -->
+				<!--<cdr str="Ulice" num="111" onum="1" pnu="75131" cit="Mesto" cnt="CZ" ruianpoint="11263091"/>-->
+				<!-- type: typ danove identifikace; num: DIC ve state rezidence; stat: kod statu rezidentstvi; statchang: platnost zmeny kodu rezidentstvi od -->
+				<taxidrezid stat="CZ"/>
+			</client>
+			
+			<!-- zamestnavatel- vs: variabilni symbol; nvs: novy variabilni symbol; id: individualni ID cislo zamestnavatele; nam: nazev zamestnavatele -->
+			<comp vs="XXXXXXXXXX" nam="ZamestnavatelNazev"/>
+			
+			<!-- zamestnani- fro: zamestnan od; to: datum ukonceni zamestnani; 
+				rel: druh vydelecne cinnosti; relDetail: blizsi urceni PPV; sme: zamestnani maleho rozsahu A/N; 
+				endbydeath: zamestani ukonceno smrti A/N; notstart: zamestnanec nenastoupil A/N; contractfro: vznik zamestanani; 
+				relat: postaveni v zamestani; workmode: pracovni rezim; cont: nepretrzity provoz A/N; 
+				place: prace probiha prevazne; preplace: predpokladane misto prace; 
+				contractplace: Misto prace ve smlouve;	cit: nazev obce; municode: kod obce -->
+			<job fro="2025-11-01" rel="4" relDetail="1" sme="N" contractfro="2025-11-01" relat="1111" workmode="1" cont="N" contractplace="Praha" cit="Praha" municode="554782">
+				<!-- clas: profese; edu: nejvyssi dosazene vzdelani pozadovane pro vykon profese -->
+				<prof clas="24112"/>
+				<!-- name: nazev pozice; fro: pozice vykonavana od; lead: vedouci zamestnanec -->
+				<position name="účetní" lead="N"/>
+			</job>
+			
+			<!-- typ: druh pobiraneho duchodu; tak: duchod pobiran od; early: predcasny starobny duchod A/N; reducedAge: Pozivatel starobniho duchodu se snizenym duchodovym vekem A/N -->
+			<pens early="N" reducedAge="N"/>
+			
+			<!-- cnr: kod zdravotni pojistovny -->
+			<insh cnr="111"/>
+			
+			<!-- nam: nazev soucasneho organu nemocenskeho pojisteni mimo CSSZ -->
+			<!--<inso nam="NazevOrganNemocPojSoucasny"/>-->
+			
+			<!-- nam: nazev predchoziho organu nemocenskeho pojisteni mimo CSSZ -->
+			<!--<insp nam="NazevOrganNemocPojPredchozi"/>-->
+			
+			<!-- podpora v nezamestnanosti, vyplnuje se pokud je vyplnen atribut job.to - datum ukonceni zamestnani -->
+			<!-- rsn: kod duvodu neposkytnuti podkladu; 
+				typeempl: kod druhu zamestnani; belong: nalezi odchodne/odbytne/odstupne A/N;
+				fullpay: odchodne/odbytne/odstupne vyplaceno v plne vysi A/N; avgmonear: prumerny cisty mesicni vydelek; 
+				rsnterrel: kod duvodu ukonceni sluzebniho pomeru; rsnterempl: kod duvodu ukonceni PPV
+				pro typeempl="1" (PPV) - replacement: jednorazova nahrada; nebo goldenhandshake: Odstupné podle § 67 odst. 1 ZP;
+				pro typeempl="2" (sluz. pomer) - severancepay: odchodne; nebo disposal: odbytne -->
+			<!--<unemplcomp typeempl="1" belong="A" fullpay="A" avgmonear="33569" rsnterempl="3" goldenhandshake="30000" > -->
+				<!-- interval duchodoveho pojisteni- fro: duchodove pojisteni od; to: duchodove pojisteni do -->
+				<!--<pensionperiod fro="1900-01-01" to="1999-01-01"/>
+			</unemplcomp>-->
+			
+			<!-- penben: pozivatel duchodu; ztp: drzitel karty ZTP A/N;	highedu: nejvyssi dosazene vzdelani podle KKOV; 
+				 reduc: srazky z prijmu na zaklade soud. rozhodnuti, konkursu nebo dohody A/N -->
+			<fact highedu="T">
+				<!-- zdravotni omezeni- type: typ zdravotniho omezeni; fro: zdrav. omez. priznano od; to: zdrav. omez. priznane do -->
+				<!--<healtrest type="1" fro="2023-01-01" to="2023-12-31"/>-->
+			</fact>
+			
+			<!-- juris: prislusnost k cizim pravnim predpisum A/N; state: kod statu -->
+			<forinreg juris="N"/>
+			
+			<!-- prilohy -->
+			<!--<attachs>-->
+				<!-- name: nazev prilohy/souboru vcetne pripony; desc: popis prilohy; data: data prilohy -->
+				<!--<attach name="Příloha.pdf" desc="Příloha obsahuje doklad osoby" data="AAECAwQFBgcICQoLDA0ODw=="/>-->
+				<!--<attach name="PrilohaSoubor2.docx" desc="PopisSoubor2" data="AAECAwQFBgcICQoLDA0ODw=="/>-->
+				<!--<attach name="PrilohaSoubor3.xlsx" desc="PopisSoubor3" data="AAECAwQFBgcICQoLDA0ODw=="/>-->
+			<!--</attachs>-->
+		</employee>
+	</employees>
+</REGZEC>

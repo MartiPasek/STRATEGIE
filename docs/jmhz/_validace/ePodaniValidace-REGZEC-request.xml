@@ -1,0 +1,20 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:cz:isvs:cssz:schemas:ePodaniValidace:v1">
+  <soapenv:Body>
+    <urn:ValidujPodani>
+      <urn:PozadavekId>6649AE42-D62E-4614-B287-099B191081C1</urn:PozadavekId>
+      <urn:PozadavekCas>2026-01-08T10:58:44.23</urn:PozadavekCas>
+      <REGZEC partialAccept="true" version="1.4" xmlns="http://schemas.cssz.cz/REGZEC/2025">
+        <employees>
+          <employee act="2" dat="2025-11-01" dep="999" sqnr="1">
+            <client ikmpsv="1499555519"/>
+            <comp nam="LASSELSBERGER, s.r.o." vs="7750114881"/>
+            <job endbydeath="N" oid="4002831004437" rel="9" relDetail="1" to="2025-10-31"/>
+            <unemplcomp avgmonear="33569" belong="A" fullpay="N" goldenhandshake="30000" rsnterempl="3" typeempl="1">
+              <pensionperiod fro="2025-09-19" to="2025-10-31"/>
+            </unemplcomp>
+          </employee>
+        </employees>
+      </REGZEC>
+    </urn:ValidujPodani>
+  </soapenv:Body>
+</soapenv:Envelope>

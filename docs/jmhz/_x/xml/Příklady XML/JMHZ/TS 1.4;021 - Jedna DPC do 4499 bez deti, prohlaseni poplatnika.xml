@@ -1,0 +1,232 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<n1:jmhz
+	xmlns:n1="http://schemas.cssz.cz/JMHZ/podani/1.0"
+        xmlns:xs="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:bt="http://schemas.cssz.cz/baseTypes/v2"
+        xmlns:so="http://schemas.cssz.cz/JMHZ/souhrn/1.0"
+        xmlns:pvpoj="http://schemas.cssz.cz/JMHZ/PVPOJ/1.0"
+        xmlns:form="http://schemas.cssz.cz/JMHZ/form/1.0"
+        
+	xs:schemaLocation="
+		http://schemas.cssz.cz/JMHZ/podani/1.0 jmhzPodani.xsd
+		http://schemas.cssz.cz/JMHZ/souhrn/1.0 souhrn.xsd
+		http://schemas.cssz.cz/JMHZ/PVPOJ/1.0 PVPOJ.xsd
+        http://schemas.cssz.cz/JMHZ/form/1.0 form.xsd
+		http://schemas.cssz.cz/baseTypes/v2 baseTypes2.xsd">
+
+  <n1:VENDOR productName="productName1" productVersion="productVersion1" />
+  <n1:SENDER EmailNotifikace="EmailNotifikace1" ISDSreport="ISDSreport1" VerzeProtokolu="VerzeProtokolu1" />
+
+  <n1:hlavicka>
+    <n1:idPodani>B00D4321-eeE4-1255-8899-aAbB6eE04322</n1:idPodani>
+    <!--10001-->
+    <n1:typPodani>R</n1:typPodani>
+    <!--10007-->
+    <n1:variabilniSymbol>1180100560</n1:variabilniSymbol>
+    <!--10221-->
+    <n1:mesic>7</n1:mesic>
+    <!--10010-->
+    <n1:rok>2020</n1:rok>
+    <!--10011-->
+    <n1:datumVyplneni>2020-08-10T11:11:01Z</n1:datumVyplneni>
+    <n1:balikPoradi>1</n1:balikPoradi>
+    <!--10002-->
+    <n1:balikyPocet>1</n1:balikyPocet>
+    <!--10003-->
+    <n1:formularePocetVBaliku>3</n1:formularePocetVBaliku>
+    <!--10015-->
+    <n1:formularePocetCelkem>3</n1:formularePocetCelkem>
+    <!--10488-->
+  </n1:hlavicka>
+
+  <so:souhrn>
+    <so:danUdajeMesic>
+      <so:danZalohaPoSleve>0</so:danZalohaPoSleve>
+    </so:danUdajeMesic>
+  </so:souhrn>
+
+  <pvpoj:PVPOJ>
+    <pvpoj:pojistne>
+      <pvpoj:zakladZamestnavateleA>0</pvpoj:zakladZamestnavateleA>
+      <!--10023-->
+      <!--součet všech ID 10478-->
+
+      <pvpoj:pojistneZamestnavateleA>0</pvpoj:pojistneZamestnavateleA>
+      <!--10024-->
+      <!--ID 10023 * 0,248-->
+
+      <pvpoj:zakladZamestnavateleB>0</pvpoj:zakladZamestnavateleB>
+      <!--10025-->
+
+      <pvpoj:zakladZamestnavateleC>0</pvpoj:zakladZamestnavateleC>
+      <!--10483-->
+
+      <pvpoj:pojistneZamestnavateleCelkem>0</pvpoj:pojistneZamestnavateleCelkem>
+      <!--10027-->
+
+      <pvpoj:pojistneZamestnance>0</pvpoj:pojistneZamestnance>
+      <!--10028-->
+      <!--ID 10023 * 0,071-->
+
+      <pvpoj:pojistneCelkem>0</pvpoj:pojistneCelkem>
+      <!--/10029-->
+      <!--ID 10027 + ID 10028-->
+
+    </pvpoj:pojistne>
+    <pvpoj:pojistneUhrada>0</pvpoj:pojistneUhrada>
+    <!--10033-->
+    <!--ID 10029 - ID 10032 - ID10487-->
+  </pvpoj:PVPOJ>
+
+  <n1:formulareOsob>
+    <n1:formularOsoby>
+      <n1:hlavicka>
+        <n1:idFormulare>AF732321-2222-5325-8258-aAbBc22c86C8</n1:idFormulare>
+        <n1:typFormulare>R</n1:typFormulare>
+        <!--10016-->
+        <n1:primarniPpv>true</n1:primarniPpv>
+        <!--10495-->
+      </n1:hlavicka>
+      <form:bezPriznaku>
+        <form:identifikace>
+          <form:ikMpsv>1239649620</form:ikMpsv>
+          <!--10051-->
+          <form:idPpv>4002806515721</form:idPpv>
+          <!--10228-->
+        </form:identifikace>
+
+        <form:souhrnDataZec>
+          <form:prijmy>
+            <form:zuctovanoCelkem>4499</form:zuctovanoCelkem>
+            <!--10286-->
+            <form:osvobozenoCelkem>0</form:osvobozenoCelkem>
+            <!--10289-->
+          </form:prijmy>
+
+          <form:zalohaNaDan>
+            <form:zakladDane>4499</form:zakladDane>
+            <!--10297-->
+            <form:vypoctenaZaloha>675</form:vypoctenaZaloha>
+            <!--10298-->
+            <form:danZalohaPoSleve>0</form:danZalohaPoSleve>
+            <!--10305-->
+          </form:zalohaNaDan>
+          <form:prohlaseniPoplatnika>true</form:prohlaseniPoplatnika>
+          <!--10419-->
+          <form:prohlaseniPoplatnikaDane>
+            <form:zakladniSleva>2570</form:zakladniSleva>
+          </form:prohlaseniPoplatnikaDane>
+
+          <form:mzdaCista>
+            <form:mzdaCista>4499</form:mzdaCista>
+            <!--10344-->
+            <form:srazkyZeMzdyEvidovany>0</form:srazkyZeMzdyEvidovany>
+            <!--10116-->
+          </form:mzdaCista>
+          <form:zdravPojZamestnavatel>
+            <form:zdravotniPojisteni>3433</form:zdravotniPojisteni>
+            <!--10482-->
+          </form:zdravPojZamestnavatel>
+          <form:zdravPojZamestnanec>
+            <form:zdravotniPojisteni>1716</form:zdravotniPojisteni>
+            <!--10371-->
+          </form:zdravPojZamestnanec>
+        </form:souhrnDataZec>
+        <form:pojisteni>
+          <form:trvani>
+            <form:pojisteniOd>2020-07-01</form:pojisteniOd>
+            <!--10354-->
+            <form:pojisteniDo>2020-07-31</form:pojisteniDo>
+            <!--10355-->
+          </form:trvani>
+          <form:vymerovaciZaklad/>
+          <form:eldpSeznam>
+            <form:eldp>
+              <form:kod>A++</form:kod>
+              <!--10240-->
+              <form:platnostOd>2020-07-01</form:platnostOd>
+              <!--10241-->
+              <form:platnostDo>2020-07-31</form:platnostDo>
+              <!--10242-->
+              <form:pocetDnu>31</form:pocetDnu>
+              <!--10356-->
+              <form:vymerovaciZaklad>4499</form:vymerovaciZaklad>
+              <!--10245-->
+            </form:eldp>
+          </form:eldpSeznam>
+          <form:pojisteniZamestnanec>
+            <form:socialniPojisteni>0</form:socialniPojisteni>
+            <!--10370-->
+          </form:pojisteniZamestnanec>
+          <form:pojisteniZamestnavatel>
+            <form:socialniPojisteni>0</form:socialniPojisteni>
+            <!--10481-->
+          </form:pojisteniZamestnavatel>
+        </form:pojisteni>
+        <form:vykonavanaPozice>
+          <form:mistoVykonuPrace>
+            <form:obec>Lešany</form:obec>
+            <!--10229-->
+            <form:kodObce>530051</form:kodObce>
+            <!--10230-->
+            <form:kodStatu>CZ</form:kodStatu>
+            <!--10231-->
+          </form:mistoVykonuPrace>
+
+          <form:uplatnujiPrispevekApz>false</form:uplatnujiPrispevekApz>
+          <!--10232-->
+          <form:funkcniPozitky>false</form:funkcniPozitky>
+          <!--10247-->
+          <form:docasnePrideleniEvidovano>false</form:docasnePrideleniEvidovano>
+          <!--10251-->
+          <form:fondPracovniDoby>
+            <form:stanovenyFond>168</form:stanovenyFond>
+            <!--10259-->
+            <form:sjednanyFond>40</form:sjednanyFond>
+            <!--10260-->
+            <form:stanovenaTydenniDoba>10</form:stanovenaTydenniDoba>
+            <!--10261-->
+          </form:fondPracovniDoby>
+        </form:vykonavanaPozice>
+        <form:prubehZamestnani>
+          <form:odpracovaneDny>
+            <form:dnyEvidencniStav>31</form:dnyEvidencniStav>
+            <!--10265-->
+            <form:dnyOdpracovanePocet>5</form:dnyOdpracovanePocet>
+            <!--10267-->
+          </form:odpracovaneDny>
+          <form:odpracovaneHodiny>
+            <form:pocet>40</form:pocet>
+            <!--10268-->
+            <form:rozpad>
+              <form:prescas>0</form:prescas>
+              <!--10269-->
+            </form:rozpad>
+          </form:odpracovaneHodiny>
+        </form:prubehZamestnani>
+        <form:prijem>
+          <form:dan>
+            <form:zakladDane>4499</form:zakladDane>
+            <!--10535-->
+          </form:dan>
+        </form:prijem>
+        <form:mzda>
+          <form:mzdaZuctovana>4499</form:mzdaZuctovana>
+          <!--10328-->
+          <form:mzdaRozpad>
+            <form:tarif>0</form:tarif>
+            <!--10329-->
+            <form:odmenyPravidelne>0</form:odmenyPravidelne>
+            <!--10330-->
+            <form:odmenyNepravidelne>0</form:odmenyNepravidelne>
+            <!--10331-->
+          </form:mzdaRozpad>
+          <form:vydelek>
+            <form:vydelekPrumernyHod>112.48</form:vydelekPrumernyHod>
+            <!--10345-->
+          </form:vydelek>
+        </form:mzda>
+      </form:bezPriznaku>
+    </n1:formularOsoby>
+  </n1:formulareOsob>
+</n1:jmhz>

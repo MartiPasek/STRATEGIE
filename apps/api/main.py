@@ -1469,6 +1469,20 @@ def g2007_breakdown_log(conversation_id: int, graf: str = "marti-ai-md5",
         return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
 
 
+@app.get("/g2007/export")
+def g2007_export(git: int = 1):
+    """G2007 -- vysype strom docs z DB do STRATEGIE/g2007/ na app serveru.
+    Plna prestavba (DB = zdroj pravdy). Na lokal si to dostanes git pull.
+    ?git=0 = jen zapis bez commitu. Marti 12.7.2026."""
+    import os
+    from modules.conversation.application.composer import export_g2007_docs
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        return export_g2007_docs(repo_root, do_git=bool(git))
+    except Exception as e:
+        return {"error": str(e), "repo_root": repo_root}
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

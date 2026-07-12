@@ -4540,3 +4540,216 @@ def log_breakdown(conversation_id: int, graf_kod: str = "marti-ai-md5",
         "polozek": len(bloky),
         "souhrn": souhrn,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G2007 · EXPORT DB → disk strom STRATEGIE/g2007/ (generátor). Marti 12.7.2026
+# ═══════════════════════════════════════════════════════════════════════════
+# Běží na app serveru. Plná přestavba z DB. Transport na lokál = git pull.
+# DB = zdroj pravdy, disk = projekce.
+
+def _g2007_md_nastroj(row, kufry_of) -> str:
+    kat = row["kategorie"] or "běžné (CORE)"
+    kufry = ", ".join(kufry_of.get(row["id"], [])) or "—"
+    L = []
+    L.append(f"# {row['kod']}")
+    L.append("")
+    L.append("## MAPA")
+    L.append(f"- **kód:** `{row['kod']}`")
+    L.append(f"- **kategorie:** {kat}")
+    L.append(f"- **v kufrech:** {kufry}")
+    L.append(f"- **implementace:** `{row['implementace'] or '—'}`")
+    L.append("")
+    L.append("## CHOVÁNÍ")
+    L.append(f"- **automat_safe:** {row['automat_safe'] if row['automat_safe'] is not None else '— (nezatříděno)'}")
+    L.append(f"- **vedlejší účinek:** {row['vedlejsi_ucinek'] if row['vedlejsi_ucinek'] is not None else '— (nezatříděno)'}")
+    L.append(f"- **při chybě:** `{row['pri_chybe'] or '—'}`")
+    L.append("")
+    L.append("## POPIS")
+    L.append("")
+    L.append(row["popis_plny"] or "*(bez popisu)*")
+    L.append("")
+    L.append("## PARAMETRY")
+    L.append("")
+    par = row["parametry"] or {}
+    props = (par or {}).get("properties", {}) if isinstance(par, dict) else {}
+    req = set((par or {}).get("required", []) if isinstance(par, dict) else [])
+    if not props:
+        L.append("*(žádné parametry — čistá akce)*")
+    else:
+        for pname, pdef in props.items():
+            pov = "POVINNÝ" if pname in req else "volitelný"
+            typ = pdef.get("type", "?")
+            extra = ""
+            if "enum" in pdef:
+                extra += f" · enum: {pdef['enum']}"
+            if "default" in pdef:
+                extra += f" · default: `{pdef['default']}`"
+            L.append(f"- **`{pname}`** [{typ}, {pov}]{extra}")
+            if pdef.get("description"):
+                L.append(f"  - {pdef['description']}")
+    L.append("")
+    return "\n".join(L) + "\n"
+
+
+def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
+    """Vysází STRATEGIE/g2007/ strom z DB. Plná přestavba. Vrací souhrn."""
+    import os
+    from sqlalchemy import text as T
+    from core.database import get_session
+
+    root = os.path.join(repo_root, "g2007")
+    written = []
+
+    def w(relpath, content):
+        p = os.path.join(root, relpath)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(content)
+        written.append("g2007/" + relpath.replace(os.sep, "/"))
+
+    s = get_session()
+    try:
+        # kufr membership per nástroj
+        kn = s.execute(T(
+            "SELECT kn.nastroj_id, k.kod FROM g2007.kufr_nastroj kn "
+            "JOIN g2007.kufr k ON k.id=kn.kufr_id ORDER BY kn.nastroj_id"
+        )).fetchall()
+        kufry_of = {}
+        for nid, kkod in kn:
+            kufry_of.setdefault(nid, []).append(kkod)
+
+        # nástroje
+        nrows = s.execute(T(
+            "SELECT id, kod, nazev, kategorie, popis_plny, parametry, implementace, "
+            "automat_safe, vedlejsi_ucinek, pri_chybe, poradi "
+            "FROM g2007.nastroj ORDER BY poradi, kod"
+        )).mappings().all()
+        for r in nrows:
+            w(f"nastroje/{r['kod']}.md", _g2007_md_nastroj(r, kufry_of))
+
+        # přehled nástrojů
+        P = ["# Nástroje — přehled", "",
+             f"Celkem **{len(nrows)}** nástrojů. Zdroj pravdy: `g2007.nastroj`.", "",
+             "| # | kód | kategorie | kufry | automat_safe | při chybě |",
+             "|---|-----|-----------|-------|--------------|-----------|"]
+        for r in nrows:
+            kat = r["kategorie"] or "CORE"
+            kufry = ",".join(kufry_of.get(r["id"], [])) or "—"
+            asafe = r["automat_safe"] if r["automat_safe"] is not None else "—"
+            P.append(f"| {r['poradi']} | [{r['kod']}](./{r['kod']}.md) | {kat} | {kufry} | {asafe} | {r['pri_chybe'] or '—'} |")
+        w("nastroje/_prehled.md", "\n".join(P) + "\n")
+
+        # kufry
+        krows = s.execute(T(
+            "SELECT id, kod, nazev, ikona, popis, stav, poradi FROM g2007.kufr ORDER BY poradi, id"
+        )).mappings().all()
+        for k in krows:
+            tools = s.execute(T(
+                "SELECT n.kod, n.kategorie FROM g2007.kufr_nastroj kn "
+                "JOIN g2007.nastroj n ON n.id=kn.nastroj_id WHERE kn.kufr_id=:kid "
+                "ORDER BY n.poradi, n.kod"
+            ), {"kid": k["id"]}).fetchall()
+            L = [f"# Kufr: {k['nazev'] or k['kod']} {k['ikona'] or ''}".strip(), "",
+                 f"- **kód:** `{k['kod']}`", f"- **stav:** {k['stav']}",
+                 f"- **nástrojů:** {len(tools)}", "",
+                 (k["popis"] or ""), "", "## Nástroje v kufru", ""]
+            for tk, tkat in tools:
+                L.append(f"- [{tk}](../nastroje/{tk}.md) ({tkat or 'CORE'})")
+            w(f"kufry/{k['kod']}.md", "\n".join(L) + "\n")
+
+        # entity
+        erows = s.execute(T(
+            "SELECT id, user_id, nazev, typ, profese_id, kufr_id, poradi, verze "
+            "FROM g2007.entita ORDER BY poradi, id"
+        )).mappings().all()
+        for e in erows:
+            kkod = None
+            if e["kufr_id"]:
+                kr = s.execute(T("SELECT kod FROM g2007.kufr WHERE id=:i"), {"i": e["kufr_id"]}).fetchone()
+                kkod = kr[0] if kr else None
+            slug = (e["nazev"] or f"entita-{e['id']}").lower().replace(" ", "-").replace("/", "-")
+            L = [f"# Entita: {e['nazev'] or e['id']}", "",
+                 f"- **typ:** {e['typ']}", f"- **user_id:** {e['user_id']}",
+                 f"- **verze:** {e['verze']}", f"- **pořadí:** {e['poradi']}",
+                 f"- **kufr:** " + (f"[{kkod}](../kufry/{kkod}.md)" if kkod else "—"), ""]
+            w(f"entity/{slug}.md", "\n".join(L) + "\n")
+
+        # grafy (kroky + přechody)
+        grows = s.execute(T("SELECT id, kod, nazev, popis FROM g2007.graf ORDER BY id")).mappings().all()
+        for g in grows:
+            kroky = s.execute(T(
+                "SELECT poradi, kod, vrstva, typ, cast_promptu, zdroj_dat "
+                "FROM g2007.graf_krok WHERE graf_id=:gid ORDER BY poradi"
+            ), {"gid": g["id"]}).fetchall()
+            L = [f"# Graf: {g['nazev'] or g['kod']}", "",
+                 (g["popis"] or ""), "", "## Kroky", "",
+                 "| pořadí | kód | vrstva | typ | zdroj | část promptu |",
+                 "|--------|-----|--------|-----|-------|--------------|"]
+            for kp, kk, kv, kt, cp, zd in kroky:
+                L.append(f"| {kp} | {kk} | {kv} | {kt or ''} | {zd or ''} | {(cp or '').replace('|','/')} |")
+            w(f"grafy/{g['kod']}.md", "\n".join(L) + "\n")
+
+        # struktura (snímky)
+        srows = s.execute(T(
+            "SELECT id, persona_nazev, graf_kod, n_nastroju, prompt_tokenu, nastroje_tokenu, "
+            "celkem_tokenu, prompt_pct, nastroje_pct, label, created_at "
+            "FROM g2007.prompt_struktura ORDER BY id"
+        )).mappings().all()
+        for st in srows:
+            pol = s.execute(T(
+                "SELECT poradi, kod, vrstva, tokenu, procent FROM g2007.prompt_struktura_pol "
+                "WHERE struktura_id=:sid ORDER BY COALESCE(poradi, 9999), id"
+            ), {"sid": st["id"]}).fetchall()
+            L = [f"# Snímek struktury #{st['id']} — {st['persona_nazev'] or ''} ({st['label'] or ''})", "",
+                 f"- **graf:** {st['graf_kod']}", f"- **nástrojů:** {st['n_nastroju']}",
+                 f"- **prompt:** {st['prompt_tokenu']} tok ({st['prompt_pct']} %)",
+                 f"- **nástroje:** {st['nastroje_tokenu']} tok ({st['nastroje_pct']} %)",
+                 f"- **celkem:** {st['celkem_tokenu']} tok", "",
+                 "| pořadí | blok | vrstva | tokenů | % |",
+                 "|--------|------|--------|--------|---|"]
+            for pp, kk, vv, tk, pc in pol:
+                L.append(f"| {pp if pp is not None else ''} | {kk} | {vv or ''} | {tk if tk is not None else ''} | {pc if pc is not None else ''} |")
+            w(f"struktura/snimek-{st['id']:04d}.md", "\n".join(L) + "\n")
+
+        # README (index)
+        R = ["# G2007 — generováno z databáze", "",
+             "> **Tento strom je PROJEKCE databáze `g2007`.** Needituj ručně — změň DB a přegeneruj přes `/g2007/export`.",
+             "> Zdroj pravdy = databáze. Disk = výtisk na požádání.", "",
+             f"- Nástrojů: **{len(nrows)}** → [nastroje/_prehled.md](nastroje/_prehled.md)",
+             f"- Kufrů: **{len(krows)}** → `kufry/`",
+             f"- Entit: **{len(erows)}** → `entity/`",
+             f"- Grafů: **{len(grows)}** → `grafy/`",
+             f"- Snímků struktury: **{len(srows)}** → `struktura/`", "",
+             "## Grafy (Krok 0)", ""]
+        for g in grows:
+            R.append(f"- **{g['kod']}** — {g['nazev'] or ''}")
+        w("README.md", "\n".join(R) + "\n")
+    finally:
+        s.close()
+
+    result = {"root": root, "souboru": len(written), "seznam": sorted(written)}
+
+    if do_git:
+        import subprocess
+        def _git(*args):
+            try:
+                r = subprocess.run(["git", "-C", repo_root] + list(args),
+                                   capture_output=True, text=True, timeout=60)
+                return {"cmd": " ".join(args), "rc": r.returncode,
+                        "out": (r.stdout or "")[-500:], "err": (r.stderr or "")[-500:]}
+            except Exception as e:
+                return {"cmd": " ".join(args), "rc": -1, "err": str(e)}
+        git_log = []
+        git_log.append(_git("add", "g2007"))
+        # commit jen pokud je co
+        diff = subprocess.run(["git", "-C", repo_root, "diff", "--cached", "--quiet"],
+                              capture_output=True, text=True)
+        if diff.returncode != 0:
+            git_log.append(_git("commit", "-m", "g2007 export (generovano z DB)"))
+            git_log.append(_git("push"))
+        else:
+            git_log.append({"cmd": "commit", "rc": 0, "out": "nic ke commitu (beze zmen)"})
+        result["git"] = git_log
+
+    return result

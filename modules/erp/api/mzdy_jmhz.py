@@ -310,13 +310,42 @@ def load_persons_helios(firma, rok, mesic):
     return persons
 
 
-def attach_identifikatory(persons, firma):
-    """BOD 1 — IK MPSV / ID PPV. Zatím placeholdery per os.č. (ČSSZ TEST je bere);
-    nahradit reálnými z registrace / rodných čísel."""
+def attach_identifikatory(persons, firma, rok, mesic):
+    """BOD 1 — reálné IK MPSV (Helios OsobniIC) + ID PPV z TabMzJmhzPP (poslední dostupný
+    měsíc ≤ zvolené období, primární PPV). Identifikátory jsou stálé, takže se přebírají
+    z posledního měsíce, kdy účetní JMHZ v Heliosu generovala (duben/květen 2026 dál).
+    Fallback = placeholder per os.č. (pro osoby bez historie JMHZ; ČSSZ TEST je bere)."""
+    from modules.erp.api import router as _r
+    cloud_db = _r._firma_cloud_db(firma)
+    obd = int(rok) * 100 + int(mesic)
+    q = ("WITH latest AS ("
+         "SELECT j.CisZam_ID AS zid, j.OsobniIC AS ik, j.ID_PPV AS ppv, "
+         "ROW_NUMBER() OVER (PARTITION BY j.CisZam_ID ORDER BY o.Rok DESC, o.Mesic DESC) rn "
+         "FROM " + cloud_db + ".dbo.TabMzJmhzPP j "
+         "JOIN " + cloud_db + ".dbo.TabMzdObd o ON o.IdObdobi=j.IdObdobi "
+         "WHERE j.PrimarniPPV=1 AND (o.Rok*100+o.Mesic)<=" + str(obd) + " "
+         "AND LEN(ISNULL(j.OsobniIC,''))>0) "
+         "SELECT zid, ik, ppv FROM latest WHERE rn=1")
+    mp = {}
+    try:
+        r = _r._mssql188_query(q)
+        if r.get("ok") and r.get("rows"):
+            for v in r["rows"]:
+                mp[int(v[0])] = ((v[1] or "").strip(), (v[2] or "").strip())
+    except Exception:
+        mp = {}
     for p in persons:
+        zid = int(p.get("zid") or 0)
+        real = mp.get(zid)
         c = int(p.get("cislo") or 0)
-        p.setdefault("ikMpsv", "9" + str(c).zfill(9))
-        p.setdefault("idPpv", "4002831" + str(c).zfill(6))
+        if real and real[0]:
+            p["ikMpsv"] = real[0]
+            p["idPpv"] = real[1] or ("4002831" + str(c).zfill(6))
+            p["ident_zdroj"] = "helios"
+        else:
+            p["ikMpsv"] = "9" + str(c).zfill(9)
+            p["idPpv"] = "4002831" + str(c).zfill(6)
+            p["ident_zdroj"] = "placeholder"
     return persons
 
 
@@ -334,7 +363,7 @@ def attach_dane(persons, firma, rok, mesic):
 
 def prepare_persons(firma, rok, mesic):
     ps = load_persons_helios(firma, rok, mesic)
-    ps = attach_identifikatory(ps, firma)
+    ps = attach_identifikatory(ps, firma, rok, mesic)
     ps = attach_absence(ps, firma, rok, mesic)
     ps = attach_dane(ps, firma, rok, mesic)
     for p in ps:
@@ -364,11 +393,14 @@ def generate_and_validate(firma, rok, mesic, prod=False):
             v["cislo"] = p.get("cislo")
             v["jmeno"] = p.get("jmeno_full")
             v["hruba"] = p.get("hruba")
+            v["ident_zdroj"] = p.get("ident_zdroj")
     ok_cnt = sum(1 for v in res.get("vysledky", []) if v.get("ok"))
+    ident_helios = sum(1 for p in ps if p.get("ident_zdroj") == "helios")
     return {
         "ok": res.get("ok"), "firma": (firma or "").upper(), "rok": rok, "mesic": mesic,
         "prostredi": ("PRODUKCE" if prod else "test"),
         "pocet": len(ps), "ok_pocet": ok_cnt, "chyb": len(ps) - ok_cnt,
+        "ident_helios": ident_helios, "ident_placeholder": len(ps) - ident_helios,
         "vysledky": res.get("vysledky", []),
     }
 

@@ -8,7 +8,7 @@
 - Entit: **5** → `entity/`
 - Grafů: **2** → `grafy/`
 - Snímků struktury: **1** → `struktura/`
-- Znalostí: **97** v **12** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)
+- Znalostí: **100** v **12** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)
 
 ## Grafy (Krok 0)
 

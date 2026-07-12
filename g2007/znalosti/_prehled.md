@@ -14,5 +14,5 @@
 | `kalkulace-rozvadecu` | obor | 7 | Oborova znalost pro personu kalkulujici rozvadece. |
 | `bozp-po` | obor | 0 | Oborova znalost pro personu BOZP a pozarni ochrany. |
 | `tisax` | obor | 1 | Oborova znalost pro personu odpovednou za TISAX. |
-| `iso27001` | obor | 34 | Oborova znalost pro personu odpovednou za ISO 27001. |
+| `iso27001` | obor | 37 | Oborova znalost pro personu odpovednou za ISO 27001. |
 | `osoba` | osoba | 0 | Znalost pro persony jednotlivych lidi. |

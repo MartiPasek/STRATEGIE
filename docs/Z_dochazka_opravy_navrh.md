@@ -211,3 +211,28 @@ schválil: ERP plná tabulka, mobil kompaktní tabulka, editace se rozbalí POD 
 - NEpřidáno (vědomě): změna zakázky v opravě — backend `fix/entry` project_ref
   nemění (přenáší původní) a pravda o zakázkách žije ve `work_alloc` (precedent
   Voříšek 27.6.); případná podpora = samostatný návrh pro Martiho.
+  → **PŘIDÁNO 12.7. odpoledne na pokyn Jirky** (viz §14).
+
+## 14. Srozumitelnost pro editory + změna zakázky (12.7.2026 odpoledne, Jirka)
+
+Jirka po vlastním testu: tlačítka nebyla vidět (půlka záznamů 8.–10.7. je
+`centrala_RO` z tabletu — bez tlačítek ZÁMĚRNĚ, ale nebylo jasné proč) a chtěl
+poznámky lidí mimo tabulku. Nasazeno (commity `bdda32dd` + `49a91039`):
+
+- **„✋ Co člověk hlásí" NAD tabulkou** (žlutý panel): rozpor dne (nové pole
+  `dispute` v `fix/day` z `att_day_confirm`) + rozpory na záznamech (✋ ROZPOR
+  z note). Systémové poznámky (stopy oprav, automaty) POD tabulkou
+  („🗒 Poznámky k záznamům"); tabulka sama je čistá.
+- **Sloupce ERP**: Typ | Od | Do | Hodiny | Zakázka | Stav | Akce. Tlačítka
+  s popiskem „✏️ Opravit / 🗑 Storno"; needitovatelný řádek má v Akce šedý
+  DŮVOD („🏛 oprava v Centrále" / „● běží" / „storno" / „🔒 uzamčeno" /
+  „— (absence/automat)") + legenda 🏛 pod tabulkou. Mobil: totéž kompaktně,
+  typ smí zalamovat (jinak Akce vyjede z displeje).
+- **Změna zakázky v opravě** (`fix/entry` přijímá volitelný `project_ref`):
+  validace píchatelnosti jako u `fix/add`; nový záznam nese novou zakázku;
+  ve `work_alloc` se přepíšou JEN úseky nesoucí PŮVODNÍ zakázku záznamu
+  (multi-zakázková okna netknuta — pravda o segmentech je work_alloc,
+  precedent Voříšek 27.6.); audit + notifikace zmíní starou → novou.
+  Klíč v body chybí = chování beze změny (zpětně kompatibilní).
+- Ověřeno naživo: ERP přes Chrome (Bernardová 8.7. s ✋ panelem, Voříšek 10.7.,
+  Saxana 10.7. s 🏛), mobil přes Playwright (Pixel 7). Bez JS chyb.

@@ -378,8 +378,64 @@ def attach_identifikatory(persons, firma, rok, mesic):
 
 
 def attach_absence(persons, firma, rok, mesic):
-    """BOD 2 — OČR / nemoc / dovolená z docházky (att) → ocr_dny/ocr_hodiny + ELDP.
-    Zatím no-op (doplníme napojení na docházku, začneme ošetřovným)."""
+    """BOD 2 — OČR (ošetřovné) z docházky (tenant.att_ocr_case) → ocr_dny/ocr_hodiny + ELDP.
+
+    Napojení: schválené OČR case překrývající zvolený měsíc, per company=firma, matchnuté
+    na osobu přes att_employee.cislo_zam == Helios číslo (p['cislo']). Doplní vyloučené +
+    odečitatelné dny a neodpracované hodiny OČR do formuláře; odpracované dny/hodiny
+    zůstávají na fondu (tak, jak to prošlo ČSSZ TEST 12.7.2026 — Kristý ES č.21, 4 dny/32 h).
+    Bezpečné aditivně: když osoba nemá OČR match, nechá ji beze změny."""
+    import calendar as _cal, datetime as _dt
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session as _g
+    fu = (firma or "").upper()
+    mstart = _dt.date(int(rok), int(mesic), 1)
+    mend = _dt.date(int(rok), int(mesic), _cal.monthrange(int(rok), int(mesic))[1])
+    rows = []
+    try:
+        s = _g()
+        try:
+            res = s.execute(_t(
+                "SELECT e.cislo_zam, oc.datum_od, oc.datum_do, COALESCE(oc.dny_count,0) "
+                "FROM tenant.att_ocr_case oc "
+                "JOIN tenant.att_employee e ON e.id=oc.employee_id "
+                "WHERE oc.company=:firma AND oc.stav='schvaleno' "
+                "AND oc.datum_od<=:mend AND oc.datum_do>=:mstart"),
+                {"firma": fu, "mstart": mstart, "mend": mend}).fetchall()
+            rows = [((str(x[0]).strip() if x[0] is not None else ""), x[1], x[2], int(x[3] or 0))
+                    for x in res]
+        finally:
+            s.close()
+    except Exception:
+        rows = []
+    if not rows:
+        return persons
+
+    # OČR dny per Helios číslo (překryv case s měsícem; celý case v měsíci → dny_count)
+    by_cislo = {}
+    for cz, od, do, cnt in rows:
+        if not cz or not od or not do:
+            continue
+        i_od = od if od > mstart else mstart
+        i_do = do if do < mend else mend
+        if i_od > i_do:
+            continue
+        if od >= mstart and do <= mend and cnt:
+            days = cnt
+        else:
+            days = sum(1 for k in range((i_do - i_od).days + 1)
+                       if (i_od + _dt.timedelta(days=k)).weekday() < 5)
+        if days:
+            by_cislo[cz] = by_cislo.get(cz, 0) + days
+
+    for p in persons:
+        cz = str(p.get("cislo") if p.get("cislo") is not None else "").strip()
+        d = by_cislo.get(cz)
+        if d:
+            tyden = float(p.get("tyden_hodin", 40) or 40)
+            p["ocr_dny"] = int(d)
+            p["ocr_hodiny"] = round(d * (tyden / 5.0), 3)
+            p["ocr_zdroj"] = "att_ocr_case"
     return persons
 
 
@@ -451,13 +507,18 @@ def generate_and_validate(firma, rok, mesic, prod=False):
             v["jmeno"] = p.get("jmeno_full")
             v["hruba"] = p.get("hruba")
             v["ident_zdroj"] = p.get("ident_zdroj")
+            if p.get("ocr_dny"):
+                v["ocr_dny"] = p.get("ocr_dny")
     ok_cnt = sum(1 for v in res.get("vysledky", []) if v.get("ok"))
     ident_helios = sum(1 for p in ps if p.get("ident_zdroj") == "helios")
+    ocr_osoby = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full"), "dny": p.get("ocr_dny")}
+                 for p in ps if p.get("ocr_dny")]
     return {
         "ok": res.get("ok"), "firma": (firma or "").upper(), "rok": rok, "mesic": mesic,
         "prostredi": ("PRODUKCE" if prod else "test"),
         "pocet": len(ps), "ok_pocet": ok_cnt, "chyb": len(ps) - ok_cnt,
         "ident_helios": ident_helios, "ident_placeholder": len(ps) - ident_helios,
+        "ocr_pocet": len(ocr_osoby), "ocr_osoby": ocr_osoby,
         "vysledky": res.get("vysledky", []),
     }
 

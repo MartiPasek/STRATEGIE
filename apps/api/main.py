@@ -1407,6 +1407,14 @@ def marti_cockpit_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/g2007")
+def g2007_page():
+    """G2007 -- sandbox skladani promptu (GRAPH7 skladac). Martiho laborator pro
+    vyvoj promptu; prvni stavebni kaminek = GRAPH7 mapa. Marti 12.7.2026."""
+    return FileResponse(os.path.join(static_dir, "g2007.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

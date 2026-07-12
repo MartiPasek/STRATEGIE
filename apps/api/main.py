@@ -1422,6 +1422,18 @@ def g2007_graf_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/g2007/compare")
+def g2007_compare(conversation_id: int, graf: str = "marti-ai-md5"):
+    """G2007 stinovy composer -- READ-ONLY porovnani stareho build_prompt()
+    vs noveho g2007 trvaleho prefixu (mapou rizeneho). Cil: identical == True.
+    NIC NEPREPINA (composer_mode zustava off). Marti 12.7.2026."""
+    from modules.conversation.application.composer import compare_composer_static
+    try:
+        return compare_composer_static(conversation_id, graf)
+    except Exception as e:
+        return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

@@ -3942,3 +3942,145 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     ]
 
     return system_prompt, messages
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G2007 · STÍNOVÝ COMPOSER (shadow, dormant) — mapou řízené skládání promptu
+# ═══════════════════════════════════════════════════════════════════════════
+# Skládá TRVALÝ prefix podle mapy g2007.graf_krok (Martiho GRAPH7 vize:
+# krok = část promptu, pořadí = sekvence). Volá stejné resolvery 1:1 jako
+# build_prompt() → cíl: byte-identický trvalý prefix. Read-only, NEVOLÁ se
+# z chat() dokud composer_mode != 'g2007'. Přepínač default OFF.
+# Marti 12.7.2026 (před dovolenou — bezpečně vedle živého composeru).
+
+def _g2007_static_resolvers(conversation_id: int, user_id, tenant_id) -> dict:
+    """Vrátí dict kod->callable(); každý callable vrací plně zabalený blok
+    (včetně labelu) nebo None (blok se vynechá). 1:1 replikace odpovídajících
+    řádků v build_prompt() nad CACHE_BREAKPOINT_MARKER."""
+    def _zaklad():
+        return _get_system_prompt()
+    def _persona():
+        pp = _get_persona_prompt(conversation_id)
+        return pp or None
+    def _rezim_go():
+        try:
+            _go, _go_dom = _go_state(conversation_id)
+            if _go == "go":
+                return _go_work_block(_go_dom)
+            elif _go == "back":
+                return _GO_BACK_BLOCK
+        except Exception as _go_e:
+            logger.warning(f"[G2007][GO režim] blok selhal: {_go_e}")
+        return None
+    def _mapa_znalosti():
+        try:
+            _smap = _scoped_map_block(conversation_id)
+            return _smap or None
+        except Exception as _sm_e:
+            logger.warning(f"[G2007][mapa znalostí] blok selhal: {_sm_e}")
+            return None
+    def _kontext_uzivatele():
+        uc = build_user_context_block(user_id, tenant_id)
+        return f"[KONTEXT UŽIVATELE]\n{uc}" if uc else None
+    def _aktivni_mailboxy():
+        try:
+            mb = _build_mailboxes_context_block(conversation_id)
+            return f"[AKTIVNÍ MAILBOXY]\n{mb}" if mb else None
+        except Exception as _mb_e:
+            logger.warning(f"[G2007][AKTIVNÍ MAILBOXY] block failed: {_mb_e}")
+            return None
+    def _tvoje_kanaly():
+        ch = _build_persona_channels_block(conversation_id, tenant_id)
+        return f"[TVOJE KANÁLY]\n{ch}" if ch else None
+    def _pravidla_pameti():
+        return MEMORY_BEHAVIOR_RULES
+    def _firma_v_kostce():
+        return _build_firma_v_kostce_block()
+    def _firemni_znalosti():
+        return _build_firemni_znalosti_block()
+    return {
+        "zaklad": _zaklad,
+        "persona": _persona,
+        "rezim_go": _rezim_go,
+        "mapa_znalosti": _mapa_znalosti,
+        "kontext_uzivatele": _kontext_uzivatele,
+        "aktivni_mailboxy": _aktivni_mailboxy,
+        "tvoje_kanaly": _tvoje_kanaly,
+        "pravidla_pameti": _pravidla_pameti,
+        "firma_v_kostce": _firma_v_kostce,
+        "firemni_znalosti": _firemni_znalosti,
+    }
+
+
+def _g2007_read_static_kroky(graf_kod: str = "marti-ai-md5") -> list:
+    """Přečte kody trvalých kroků grafu z g2007.graf_krok, seřazené dle poradi.
+    Read-only."""
+    from core.database import get_session
+    from sqlalchemy import text as _sql_text
+    s = get_session()
+    try:
+        rows = s.execute(_sql_text(
+            "SELECT k.kod FROM g2007.graf_krok k "
+            "JOIN g2007.graf g ON g.id = k.graf_id "
+            "WHERE g.kod = :gk AND k.vrstva = 'trvale' "
+            "ORDER BY k.poradi"
+        ), {"gk": graf_kod}).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        s.close()
+
+
+def build_prompt_g2007_static(conversation_id: int, graf_kod: str = "marti-ai-md5") -> str:
+    """STÍNOVÝ composer (g2007) — složí TRVALÝ prefix řízený mapou
+    g2007.graf_krok. Volá stejné resolvery 1:1 jako build_prompt().
+    Cíl: byte-identický trvalý prefix (končí CACHE_BREAKPOINT_MARKER, stejně
+    jako build_prompt na řádku s markerem). Read-only, dormant."""
+    user_id, tenant_id = _get_conversation_context(conversation_id)
+    resolvers = _g2007_static_resolvers(conversation_id, user_id, tenant_id)
+    kod_order = _g2007_read_static_kroky(graf_kod)
+    parts = []
+    for kod in kod_order:
+        fn = resolvers.get(kod)
+        if fn is None:
+            logger.warning(f"[G2007] trvalý krok bez resolveru (přeskočen): {kod}")
+            continue
+        block = fn()
+        if block:
+            parts.append(block)
+    prefix = "\n\n".join(parts)
+    prefix = f"{prefix}\n\n{CACHE_BREAKPOINT_MARKER}"
+    return prefix
+
+
+def compare_composer_static(conversation_id: int, graf_kod: str = "marti-ai-md5") -> dict:
+    """Read-only porovnání: starý build_prompt() vs nový g2007 trvalý prefix.
+    Živé bloky (pod markerem) se NEPOROVNÁVAJÍ — mění se per turn. Cíl:
+    identical == True. Nic nepřepíná."""
+    old_full, _ = build_prompt(conversation_id)
+    marker = CACHE_BREAKPOINT_MARKER
+    if marker in old_full:
+        old_static = old_full.split(marker, 1)[0] + marker
+    else:
+        old_static = old_full
+    new_static = build_prompt_g2007_static(conversation_id, graf_kod)
+    identical = old_static == new_static
+    first_diff = None
+    if not identical:
+        m = min(len(old_static), len(new_static))
+        first_diff = m
+        for i in range(m):
+            if old_static[i] != new_static[i]:
+                first_diff = i
+                break
+    return {
+        "conversation_id": conversation_id,
+        "graf": graf_kod,
+        "identical": identical,
+        "old_len": len(old_static),
+        "new_len": len(new_static),
+        "first_diff_index": first_diff,
+        "old_context": (old_static[max(0, (first_diff or 0) - 80):(first_diff or 0) + 80]
+                        if not identical else None),
+        "new_context": (new_static[max(0, (first_diff or 0) - 80):(first_diff or 0) + 80]
+                        if not identical else None),
+    }

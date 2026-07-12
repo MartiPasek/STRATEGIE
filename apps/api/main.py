@@ -1457,6 +1457,18 @@ def g2007_breakdown(conversation_id: int, graf: str = "marti-ai-md5"):
         return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
 
 
+@app.get("/g2007/breakdown/log")
+def g2007_breakdown_log(conversation_id: int, graf: str = "marti-ai-md5",
+                        label: str = None, poznamka: str = None):
+    """G2007 -- ULOZI snimek struktury promptu do g2007.prompt_struktura(+_pol)
+    pro porovnani verzi a person. Pise jen do g2007 (sandbox log). Marti 12.7.2026."""
+    from modules.conversation.application.composer import log_breakdown
+    try:
+        return log_breakdown(conversation_id, graf, label, poznamka)
+    except Exception as e:
+        return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

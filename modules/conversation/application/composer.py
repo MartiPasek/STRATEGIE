@@ -4443,3 +4443,100 @@ def composer_breakdown(conversation_id: int, graf_kod: str = "marti-ai-md5") -> 
             "pozn": "messages (historie) nezapočítána; token odhad prompt/3.8, tools/3.6",
         },
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G2007 · LOG struktury promptu do g2007.prompt_struktura(+_pol). Marti 12.7.2026
+# ═══════════════════════════════════════════════════════════════════════════
+def log_breakdown(conversation_id: int, graf_kod: str = "marti-ai-md5",
+                  label=None, poznamka=None) -> dict:
+    """Spočte composer_breakdown a ULOŽÍ snímek do g2007.prompt_struktura
+    (hlavička) + prompt_struktura_pol (položky). Vrací struktura_id.
+    Pro porovnání verzí a person. Píše jen do g2007 (sandbox log)."""
+    from sqlalchemy import text as T
+    from core.database import get_session
+
+    data = composer_breakdown(conversation_id, graf_kod)
+    bloky = data["bloky"]
+    souhrn = data["souhrn"]
+
+    persona_id = None
+    persona_nazev = None
+    is_default = None
+    try:
+        from core.database_data import get_data_session
+        from modules.core.infrastructure.models_data import Conversation as _Conv
+        ds = get_data_session()
+        try:
+            conv = ds.query(_Conv).filter_by(id=conversation_id).first()
+            persona_id = conv.active_agent_id if conv else None
+        finally:
+            ds.close()
+        if persona_id:
+            from core.database_core import get_core_session
+            from modules.core.infrastructure.models_core import Persona as _Pers
+            cs = get_core_session()
+            try:
+                p = cs.query(_Pers).filter_by(id=persona_id).first()
+                if p:
+                    persona_nazev = p.name
+                    is_default = bool(p.is_default)
+            finally:
+                cs.close()
+    except Exception as e:
+        logger.warning(f"[G2007][log] persona lookup failed: {e}")
+
+    prompt_znaku = sum(
+        (b.get("znaku") or 0) for b in bloky
+        if b.get("vrstva") in ("trvale", "zive")
+    )
+    nastroje_znaku = next(
+        (b.get("znaku") or 0 for b in bloky if b.get("vrstva") == "tools"), 0
+    )
+
+    s = get_session()
+    try:
+        row = s.execute(T(
+            "INSERT INTO g2007.prompt_struktura "
+            "(graf_kod, conversation_id, persona_id, persona_nazev, is_default, "
+            " n_nastroju, prompt_znaku, nastroje_znaku, prompt_tokenu, nastroje_tokenu, "
+            " celkem_tokenu, prompt_pct, nastroje_pct, label, poznamka) "
+            "VALUES (:gk,:cid,:pid,:pn,:isd,:nn,:pz,:nz,:pt,:nt,:ct,:ppct,:npct,:lbl,:pozn) "
+            "RETURNING id"
+        ), {
+            "gk": graf_kod, "cid": conversation_id, "pid": persona_id,
+            "pn": persona_nazev, "isd": is_default, "nn": souhrn.get("n_nastroju"),
+            "pz": prompt_znaku, "nz": nastroje_znaku,
+            "pt": souhrn.get("prompt_tokenu"), "nt": souhrn.get("nastroje_tokenu"),
+            "ct": souhrn.get("celkem_tokenu_bez_messages"),
+            "ppct": souhrn.get("prompt_pct"), "npct": souhrn.get("nastroje_pct"),
+            "lbl": label, "pozn": poznamka,
+        }).fetchone()
+        struktura_id = row[0]
+
+        for b in bloky:
+            vr = b.get("vrstva")
+            s.execute(T(
+                "INSERT INTO g2007.prompt_struktura_pol "
+                "(struktura_id, poradi, kod, vrstva, popis, znaku, tokenu, procent, "
+                " pritomny, je_zlom, je_nastroje) "
+                "VALUES (:sid,:por,:kod,:vr,:pop,:zn,:tok,:pct,:pri,:jz,:jn)"
+            ), {
+                "sid": struktura_id, "por": b.get("poradi"), "kod": b.get("kod"),
+                "vr": vr, "pop": b.get("popis"), "zn": b.get("znaku"),
+                "tok": b.get("tokenu"), "pct": b.get("procent"),
+                "pri": b.get("pritomny"), "jz": (vr == "—"), "jn": (vr == "tools"),
+            })
+        s.commit()
+    finally:
+        s.close()
+
+    return {
+        "struktura_id": struktura_id,
+        "conversation_id": conversation_id,
+        "graf": graf_kod,
+        "persona_id": persona_id,
+        "persona_nazev": persona_nazev,
+        "polozek": len(bloky),
+        "souhrn": souhrn,
+    }

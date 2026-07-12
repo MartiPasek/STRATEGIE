@@ -51,22 +51,48 @@ def _r(x):
 
 
 def compute_person_amounts(p):
-    """Doplní derivované částky z hrubé (p['hruba']). SP/ZP = přesně sazby (= Helios).
-    Daň zjednodušeně jen sleva poplatníka — BOD 3 nahradí reálnými údaji z Heliosu."""
+    """Spočítá částky pro JMHZ. Pokud máme reálné spočítané hodnoty z Heliosu
+    (helios_ready = TabZamVyp), použije je NAPŘÍMO → čistá + daň + SP/ZP sedí 1:1 na Helios
+    (BOD 3). Jinak derivuje z hrubé (SP/ZP přesně sazby, daň jen sleva poplatníka)."""
     h = float(p["hruba"])
     proh = bool(p.get("prohlaseni", True))
     a = dict(p)
     a["zuctovanoCelkem"] = _r(h)
+    fond_h = float(p.get("fond_hodin", 160) or 160)
+    a["vydelekPrumernyHod"] = round(h / fond_h, 2) if fond_h else 0.0
+
+    if p.get("helios_ready"):
+        sp_zam = int(p.get("helios_sp_zam", 0) or 0)
+        zp_zam = int(p.get("helios_zp_zam", 0) or 0)
+        sp_firma = int(p.get("helios_sp_firma", 0) or 0)
+        cista = int(p.get("helios_cista", 0) or 0)
+        vyp_zaloha = int(p.get("helios_dan", 0) or 0)   # DanZakladni = vypočtená záloha (před slevou)
+        withheld = _r(h) - sp_zam - zp_zam - cista       # reálně sražená záloha po slevách/zvýhodnění
+        a["sp_zam"] = sp_zam
+        a["sp_firma"] = sp_firma
+        a["zp_zam"] = zp_zam
+        a["zp_firma"] = int(p.get("helios_zp_firma") or _r(h * ZP_FIRMA))
+        a["cista"] = cista
+        a["vypoctenaZaloha"] = vyp_zaloha
+        a["danZalohaPoSleve"] = max(withheld, 0)
+        a["danBonus"] = max(-withheld, 0)
+        # sleva poplatníka + prohlášení z TabMzJmhzPP (attach_dane), fallback 2570
+        if p.get("zakladniSleva_real") is not None:
+            a["zakladniSleva"] = int(p.get("zakladniSleva_real"))
+        else:
+            a["zakladniSleva"] = SLEVA_POPLATNIK if proh else 0
+        return a
+
+    # --- fallback: derivace z hrubé (bez Helios hodnot) ---
     a["vypoctenaZaloha"] = int(math.ceil(h * ZALOHA))
     a["zakladniSleva"] = SLEVA_POPLATNIK if proh else 0
     a["danZalohaPoSleve"] = max(a["vypoctenaZaloha"] - a["zakladniSleva"], 0)
+    a["danBonus"] = 0
     a["sp_zam"] = _r(h * SP_ZAM)
     a["sp_firma"] = _r(h * SP_FIRMA)
     a["zp_zam"] = _r(h * ZP_ZAM)
     a["zp_firma"] = _r(h * ZP_FIRMA)
     a["cista"] = _r(h) - a["sp_zam"] - a["zp_zam"] - a["danZalohaPoSleve"]
-    fond_h = float(p.get("fond_hodin", 160) or 160)
-    a["vydelekPrumernyHod"] = round(h / fond_h, 2) if fond_h else 0.0
     return a
 
 
@@ -223,6 +249,7 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
     dni = calendar.monthrange(rok, mesic)[1]
     amt = [compute_person_amounts(p) for p in persons]
     dan_celkem = sum(a["danZalohaPoSleve"] for a in amt)
+    bonus_celkem = sum(a.get("danBonus", 0) for a in amt)
     zaklad_zam_a = sum(_r(float(a["hruba"])) for a in amt)
     poj_firma_a = sum(a["sp_firma"] for a in amt)
     poj_zam = sum(a["sp_zam"] for a in amt)
@@ -250,7 +277,7 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
 \t<so:souhrn>
 \t\t<so:danUdajeMesic>
 \t\t\t<so:danZalohaPoSleve>{dan_celkem}</so:danZalohaPoSleve>
-\t\t\t<so:danBonus>0</so:danBonus>
+\t\t\t<so:danBonus>{bonus_celkem}</so:danBonus>
 \t\t</so:danUdajeMesic>
 \t</so:souhrn>
 \t<pvpoj:PVPOJ>
@@ -306,6 +333,7 @@ def load_persons_helios(firma, rok, mesic):
                 "helios_sp_zam": int(v[5] or 0), "helios_zp_zam": int(v[6] or 0),
                 "helios_dan": int(v[7] or 0), "helios_bonus": int(v[8] or 0),
                 "helios_cista": int(v[9] or 0), "helios_sp_firma": int(v[10] or 0),
+                "helios_ready": True,
             })
     return persons
 
@@ -356,8 +384,37 @@ def attach_absence(persons, firma, rok, mesic):
 
 
 def attach_dane(persons, firma, rok, mesic):
-    """BOD 3 — reálné daňové údaje (sleva na dítě, zvýhodnění) tak, aby čistá = Helios.
-    Zatím no-op (compute_person_amounts počítá jen slevu poplatníka)."""
+    """BOD 3 — daň + čistá bereme reálně z Heliosu (TabZamVyp, helios_ready → compute
+    použije napřímo, čistá sedí 1:1). Sem doplníme jen STÁLÉ daňové příznaky z TabMzJmhzPP
+    (poslední měsíc): prohlášení poplatníka + sleva poplatníka. Daňové zvýhodnění na děti je
+    už zohledněné v reálné čisté/sražené záloze z Heliosu."""
+    from modules.erp.api import router as _r
+    cloud_db = _r._firma_cloud_db(firma)
+    obd = int(rok) * 100 + int(mesic)
+    q = ("WITH latest AS ("
+         "SELECT j.CisZam_ID AS zid, j.prohlPoplatnika AS proh, j.prohlZakladniSleva AS sleva, "
+         "ROW_NUMBER() OVER (PARTITION BY j.CisZam_ID ORDER BY o.Rok DESC, o.Mesic DESC) rn "
+         "FROM " + cloud_db + ".dbo.TabMzJmhzPP j "
+         "JOIN " + cloud_db + ".dbo.TabMzdObd o ON o.IdObdobi=j.IdObdobi "
+         "WHERE j.PrimarniPPV=1 AND (o.Rok*100+o.Mesic)<=" + str(obd) + ") "
+         "SELECT zid, proh, sleva FROM latest WHERE rn=1")
+    mp = {}
+    try:
+        r = _r._mssql188_query(q)
+        if r.get("ok") and r.get("rows"):
+            for v in r["rows"]:
+                mp[int(v[0])] = (v[1], v[2])
+    except Exception:
+        mp = {}
+    for p in persons:
+        zid = int(p.get("zid") or 0)
+        d = mp.get(zid)
+        if d is not None:
+            proh_raw, sleva_raw = d
+            if proh_raw is not None:
+                p["prohlaseni"] = bool(proh_raw)
+            if sleva_raw is not None:
+                p["zakladniSleva_real"] = int(round(float(sleva_raw)))
     return persons
 
 

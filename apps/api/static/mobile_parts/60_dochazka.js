@@ -1974,8 +1974,8 @@
         var es=j.entries||[];
         if(!es.length){ box.appendChild(el('<div class="hint">Žádné záznamy v tomto dni.</div>')); return; }
         // Dušan 12.7.: den jako kompaktní tabulka — co záznam, to řádek; editace se rozbalí pod řádkem.
-        var TH='font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);text-align:left;padding:4px 6px;border-bottom:1px solid var(--bord);font-weight:600;';
-        var TD='padding:8px 6px;border-bottom:1px solid var(--bord);vertical-align:middle;';
+        var TH='font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);text-align:left;padding:4px 4px;border-bottom:1px solid var(--bord);font-weight:600;';
+        var TD='padding:8px 4px;border-bottom:1px solid var(--bord);vertical-align:middle;';
         var tbl=document.createElement('table'); tbl.style.cssText="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px;";
         // POZOR: el() parsuje v kontextu <div>, který thead/tr/td zahazuje — tabulku stavíme přes DOM API.
         tbl.innerHTML='<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'text-align:right;">Akce</th></tr></thead>';
@@ -2007,10 +2007,10 @@
           if(e2.source==="manual_fix") badge+=' <span style="font-size:10.5px;color:#7c8cdb;">🛠</span>';
           if(!gone&&e2.note&&e2.note.indexOf("✋ ROZPOR")<0) poznBelow.push('<b>'+esc((e2.zac||"?")+(isDE?'':("–"+(e2.kon||"…"))))+' '+(isDE?'🫡 Odchod':esc(e2.typ||""))+':</b> '+esc(e2.note));
           var tdT=tdc('',TD);
-          tdT.appendChild(el('<div style="font-weight:600;white-space:nowrap;">'+(isDE?'🫡 Odchod':esc(e2.typ||""))+badge+'</div>'));
+          tdT.appendChild(el('<div style="font-weight:600;">'+(isDE?'🫡 Odchod':esc(e2.typ||""))+badge+'</div>'));
           if(!isDE&&e2.project_ref) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">🧾 '+esc(e2.project_ref)+'</div>'));
           tr0.appendChild(tdT);
-          tr0.appendChild(tdc(esc(e2.zac||"—")+(isDE?'':("–"+esc(e2.kon||"…"))),TD+'white-space:nowrap;font-variant-numeric:tabular-nums;'));
+          tr0.appendChild(tdc(e2.zac?(esc(e2.zac)+(isDE?'':("–"+esc(e2.kon||"…")))):"—",TD+'white-space:nowrap;font-variant-numeric:tabular-nums;'));
           tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
           var tdA=tdc('',TD+'text-align:right;white-space:nowrap;'); tr0.appendChild(tdA);
           tb.appendChild(tr0);

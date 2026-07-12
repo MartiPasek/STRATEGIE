@@ -4658,21 +4658,28 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
                 L.append(f"- [{tk}](../nastroje/{tk}.md) ({tkat or 'CORE'})")
             w(f"kufry/{k['kod']}.md", "\n".join(L) + "\n")
 
-        # entity
+        # entity (jméno = měkký odkaz; odvodíme z popisu před — nebo ( )
+        import re as _re
         erows = s.execute(T(
-            "SELECT id, user_id, nazev, typ, profese_id, kufr_id, poradi, verze "
+            "SELECT id, user_id, typ, profese_id, kufr_id, poradi, verze, stav, popis "
             "FROM g2007.entita ORDER BY poradi, id"
         )).mappings().all()
         for e in erows:
+            popis = e["popis"] or ""
+            nazev = _re.split(r"[—(]", popis)[0].strip() if popis else ""
+            if not nazev:
+                nazev = f"entita-{e['id']}"
             kkod = None
             if e["kufr_id"]:
                 kr = s.execute(T("SELECT kod FROM g2007.kufr WHERE id=:i"), {"i": e["kufr_id"]}).fetchone()
                 kkod = kr[0] if kr else None
-            slug = (e["nazev"] or f"entita-{e['id']}").lower().replace(" ", "-").replace("/", "-")
-            L = [f"# Entita: {e['nazev'] or e['id']}", "",
+            slug = nazev.lower().replace(" ", "-").replace("/", "-") or f"entita-{e['id']}"
+            L = [f"# Entita: {nazev}", "",
                  f"- **typ:** {e['typ']}", f"- **user_id:** {e['user_id']}",
+                 f"- **stav:** {e['stav']}",
                  f"- **verze:** {e['verze']}", f"- **pořadí:** {e['poradi']}",
-                 f"- **kufr:** " + (f"[{kkod}](../kufry/{kkod}.md)" if kkod else "—"), ""]
+                 f"- **kufr:** " + (f"[{kkod}](../kufry/{kkod}.md)" if kkod else "—"), "",
+                 "## Popis", "", popis or "*(bez popisu)*", ""]
             w(f"entity/{slug}.md", "\n".join(L) + "\n")
 
         # grafy (kroky + přechody)

@@ -4312,3 +4312,134 @@ def compare_composer_full(conversation_id: int, graf_kod: str = "marti-ai-md5") 
         "new_context": (nn[max(0, (first_diff or 0) - 100):(first_diff or 0) + 100]
                         if not norm_identical else None),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G2007 · ROZPAD PROMPTU PO BLOCÍCH + nástroje + cachovací zlom + % tokenů
+# ═══════════════════════════════════════════════════════════════════════════
+# Read-only. Pro danou konverzaci projde graf_krok v pořadí, změří každý blok
+# (reálný obsah přes resolvery 1:1), vloží cachovací zlom na hranici
+# trvale→zive, přidá nástrojovou sadu (tools=), spočte přibližný podíl tokenů.
+# Marti 12.7.2026.
+
+def _g2007_tools_size(conversation_id: int):
+    """Vrátí (n_nastroju, znaku_json, is_default) pro effective_tools dané
+    konverzace — replikuje výběr sady z chat() (default persona = vše)."""
+    import json
+    from modules.conversation.application.tools import get_effective_tools
+    is_default = True
+    try:
+        from core.database_data import get_data_session
+        from modules.core.infrastructure.models_data import Conversation as _Conv
+        ds = get_data_session()
+        try:
+            conv = ds.query(_Conv).filter_by(id=conversation_id).first()
+            active_pid = conv.active_agent_id if conv else None
+        finally:
+            ds.close()
+        if active_pid:
+            from core.database_core import get_core_session
+            from modules.core.infrastructure.models_core import Persona as _Pers
+            cs = get_core_session()
+            try:
+                persona = cs.query(_Pers).filter_by(id=active_pid).first()
+                is_default = bool(persona and persona.is_default)
+            finally:
+                cs.close()
+    except Exception as e:
+        logger.warning(f"[G2007][breakdown] is_default lookup failed: {e}")
+    tools = get_effective_tools(is_default)
+    znaku = len(json.dumps(tools, ensure_ascii=False))
+    return len(tools), znaku, is_default
+
+
+def composer_breakdown(conversation_id: int, graf_kod: str = "marti-ai-md5") -> dict:
+    """Rozpad vstupu do LLM po blocích + nástroje + cachovací zlom + % tokenů.
+    Read-only, nic nepřepíná. Token odhad: prompt znaky/3.8, tools znaky/3.6."""
+    from core.database import get_session
+    from sqlalchemy import text as _sql_text
+
+    user_id, tenant_id = _get_conversation_context(conversation_id)
+    stat_res = _g2007_static_resolvers(conversation_id, user_id, tenant_id)
+    dyn_res = _g2007_dynamic_resolvers(conversation_id, user_id, tenant_id)
+    resolvers = {}
+    resolvers.update(stat_res)
+    resolvers.update(dyn_res)
+
+    s = get_session()
+    try:
+        rows = s.execute(_sql_text(
+            "SELECT k.poradi, k.kod, k.vrstva, k.cast_promptu "
+            "FROM g2007.graf_krok k JOIN g2007.graf g ON g.id = k.graf_id "
+            "WHERE g.kod = :gk ORDER BY k.poradi"
+        ), {"gk": graf_kod}).fetchall()
+    finally:
+        s.close()
+
+    PROMPT_DIV = 3.8
+    TOOLS_DIV = 3.6
+
+    bloky = []
+    inserted_marker = False
+    prompt_tokenu = 0.0
+
+    for poradi, kod, vrstva, popis in rows:
+        # cachovací zlom na hranici trvale→zive
+        if (vrstva == "zive") and (not inserted_marker):
+            mk = len(CACHE_BREAKPOINT_MARKER)
+            bloky.append({
+                "poradi": None, "kod": "═ CACHOVACÍ ZLOM ═", "vrstva": "—",
+                "popis": "Nad zlomem = STATICKÉ (peče se, cache ~5 min, napříč turny). "
+                         "Pod zlomem = ŽIVÉ (počítá se každý turn).",
+                "znaku": mk, "tokenu": round(mk / PROMPT_DIV),
+            })
+            inserted_marker = True
+        fn = resolvers.get(kod)
+        block = None
+        if fn is not None:
+            try:
+                block = fn()
+            except Exception as e:
+                logger.warning(f"[G2007][breakdown] resolver {kod} failed: {e}")
+                block = None
+        znaku = len(block) if block else 0
+        tok = znaku / PROMPT_DIV
+        prompt_tokenu += tok
+        bloky.append({
+            "poradi": poradi, "kod": kod, "vrstva": vrstva,
+            "popis": popis or "",
+            "znaku": znaku, "tokenu": round(tok),
+            "pritomny": bool(block),
+        })
+
+    # nástrojová sada
+    n_nastroju, tools_znaku, is_default = _g2007_tools_size(conversation_id)
+    tools_tokenu = tools_znaku / TOOLS_DIV
+
+    celkem_tok = prompt_tokenu + tools_tokenu
+    for b in bloky:
+        b["procent"] = round(100.0 * (b["tokenu"]) / celkem_tok, 1) if celkem_tok else 0.0
+
+    bloky.append({
+        "poradi": None, "kod": "🧰 NÁSTROJE (tools=)", "vrstva": "tools",
+        "popis": f"Nástrojová sada poslaná modelu souběžně s promptem. "
+                 f"{n_nastroju} nástrojů (is_default={is_default}). "
+                 f"Není součást promptu — samostatný kanál.",
+        "znaku": tools_znaku, "tokenu": round(tools_tokenu),
+        "procent": round(100.0 * tools_tokenu / celkem_tok, 1) if celkem_tok else 0.0,
+    })
+
+    return {
+        "conversation_id": conversation_id,
+        "graf": graf_kod,
+        "bloky": bloky,
+        "souhrn": {
+            "prompt_tokenu": round(prompt_tokenu),
+            "nastroje_tokenu": round(tools_tokenu),
+            "celkem_tokenu_bez_messages": round(celkem_tok),
+            "prompt_pct": round(100.0 * prompt_tokenu / celkem_tok, 1) if celkem_tok else 0.0,
+            "nastroje_pct": round(100.0 * tools_tokenu / celkem_tok, 1) if celkem_tok else 0.0,
+            "n_nastroju": n_nastroju,
+            "pozn": "messages (historie) nezapočítána; token odhad prompt/3.8, tools/3.6",
+        },
+    }

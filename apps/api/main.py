@@ -1446,6 +1446,17 @@ def g2007_compare_full(conversation_id: int, graf: str = "marti-ai-md5"):
         return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
 
 
+@app.get("/g2007/breakdown")
+def g2007_breakdown(conversation_id: int, graf: str = "marti-ai-md5"):
+    """G2007 -- READ-ONLY rozpad vstupu do LLM po blocích (co v kterém bloku je) +
+    cachovaci zlom + nastrojova sada + priblizny podil tokenu. Marti 12.7.2026."""
+    from modules.conversation.application.composer import composer_breakdown
+    try:
+        return composer_breakdown(conversation_id, graf)
+    except Exception as e:
+        return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

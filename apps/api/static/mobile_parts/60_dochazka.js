@@ -1933,6 +1933,14 @@
         box.innerHTML="";
         if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
         if(j.locked) box.appendChild(el('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px;">🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Odemknout smí Peťa/Šárka.</div>'));
+        // Jirka 12.7.: co člověk hlásí (✋ rozpor dne + rozpory na záznamech) = důležité, NAD tabulkou
+        var hlasi=[];
+        if(j.dispute&&j.dispute.disputed&&(j.dispute.note||"").trim())hlasi.push('<b>Den:</b> „'+esc(j.dispute.note)+'“');
+        (j.entries||[]).forEach(function(e0){
+          if(e0.status!=="superseded"&&(e0.note||"").indexOf("✋ ROZPOR")>=0)
+            hlasi.push('<b>'+esc((e0.zac||"?")+"–"+(e0.kon||"…"))+':</b> '+esc(e0.note.replace(/.*?✋ ROZPOR:\s*/,"")));
+        });
+        if(hlasi.length)box.appendChild(el('<div style="background:rgba(245,158,11,.10);border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;"><div style="font-weight:700;margin-bottom:4px;">✋ Co člověk hlásí</div>'+hlasi.join('<br>')+'</div>'));
         // ➕ doplnění chybějícího záznamu — z tlačítka i z řádku „mezera" (Dušan 12.7., předvyplněné časy)
         var addB=el('<button class="ghost full" style="margin-bottom:8px;border-color:var(--green);color:var(--green);">➕ Přidat záznam (zapomenutý příchod, mezera…)</button>');
         var addFx=el('<div style="margin-bottom:8px;"></div>');
@@ -1970,8 +1978,9 @@
         var TD='padding:8px 6px;border-bottom:1px solid var(--bord);vertical-align:middle;';
         var tbl=document.createElement('table'); tbl.style.cssText="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px;";
         // POZOR: el() parsuje v kontextu <div>, který thead/tr/td zahazuje — tabulku stavíme přes DOM API.
-        tbl.innerHTML='<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'"></th></tr></thead>';
+        tbl.innerHTML='<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'text-align:right;">Akce</th></tr></thead>';
         var tb=document.createElement('tbody'); tbl.appendChild(tb);
+        var poznBelow=[], maCentralu=false;
         function tdc(html,style){ var c=document.createElement('td'); if(style)c.style.cssText=style; c.innerHTML=html; return c; }
         function hmMin(x){ var p=String(x||"").split(":"); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
         var lastKon=null;  // konec předchozího viditelného záznamu — detekce mezer (Centrála: „Mezery v docházce")
@@ -1991,26 +2000,26 @@
           }
           var tr0=document.createElement('tr'); if(gone) tr0.style.opacity=".45";
           var badge="";
-          if(gone) badge='<span style="font-size:10.5px;color:var(--mut);"> (storno)</span>';
+          if(gone) badge=' <span style="font-size:10.5px;color:var(--mut);">(storno)</span>';
           else if(e2.running&&!isDE) badge=' <span style="font-size:10.5px;color:var(--green);">● běží</span>';
-          else if(e2.source_system) badge=' <span style="font-size:10.5px;color:var(--amber);">🏛 Centrála</span>';
+          else if(e2.source_system){ badge=' <span style="font-size:10.5px;color:var(--amber);">🏛</span>'; maCentralu=true; }
+          if(isDE&&!gone) badge+=' <span style="font-size:10.5px;color:var(--mut);">(uzávěrka dne)</span>';
           if(e2.source==="manual_fix") badge+=' <span style="font-size:10.5px;color:#7c8cdb;">🛠</span>';
-          var sub="";
-          if(isDE&&!gone) sub="Interní uzávěrka dne — lze stornovat.";
-          else{
-            if(e2.project_ref) sub+="🧾 "+e2.project_ref;
-            if(e2.note) sub+=(sub?" · ":"")+e2.note;
-            if(e2.source_system&&!gone) sub+=(sub?" · ":"")+"Oprava se dělá v Centrále — sem se přezrcadlí.";
-          }
+          if(!gone&&e2.note&&e2.note.indexOf("✋ ROZPOR")<0) poznBelow.push('<b>'+esc((e2.zac||"?")+(isDE?'':("–"+(e2.kon||"…"))))+' '+(isDE?'🫡 Odchod':esc(e2.typ||""))+':</b> '+esc(e2.note));
           var tdT=tdc('',TD);
           tdT.appendChild(el('<div style="font-weight:600;white-space:nowrap;">'+(isDE?'🫡 Odchod':esc(e2.typ||""))+badge+'</div>'));
-          if(sub) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">'+esc(sub)+'</div>'));
+          if(!isDE&&e2.project_ref) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">🧾 '+esc(e2.project_ref)+'</div>'));
           tr0.appendChild(tdT);
           tr0.appendChild(tdc(esc(e2.zac||"—")+(isDE?'':("–"+esc(e2.kon||"…"))),TD+'white-space:nowrap;font-variant-numeric:tabular-nums;'));
           tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
           var tdA=tdc('',TD+'text-align:right;white-space:nowrap;'); tr0.appendChild(tdA);
           tb.appendChild(tr0);
           if(!gone&&!isDE&&e2.kon) lastKon=e2.kon;
+          if(!(e2.editable&&!e2.running&&e2.zac)){
+            // proč tu nejsou tlačítka — ať je jasné, že to není chyba
+            var duvod=gone?"storno":(e2.running&&!isDE)?"● běží":(e2.source_system?"🏛 v Centrále":(j.locked?"🔒":(!e2.zac?"—":"—")));
+            tdA.innerHTML='<span style="font-size:11px;color:var(--mut);">'+duvod+'</span>';
+          }
           if(e2.editable&&!e2.running&&e2.zac){
             var frow=document.createElement('tr'); frow.style.display="none";
             var fcell=tdc('','background:rgba(255,255,255,.03);border-bottom:1px solid var(--bord);padding:10px 8px;');
@@ -2024,8 +2033,8 @@
               bx.addEventListener("click",closeForm); hd.appendChild(bx); fcell.appendChild(hd);
               var fx=el('<div></div>'); fcell.appendChild(fx); return fx;
             };
-            var be=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);padding:5px 9px;">✏️</button>');
-            var bs=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);padding:5px 9px;margin-left:6px;">🗑</button>');
+            var be=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);padding:7px 11px;">✏️</button>');
+            var bs=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);padding:7px 11px;margin-left:6px;">🗑</button>');
             if(!isDE) tdA.appendChild(be);  // interní marker se needituje, jen stornuje
             tdA.appendChild(bs);
             be.addEventListener("click",function(){
@@ -2035,15 +2044,16 @@
               var tr=el('<div style="display:flex;gap:8%;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
               var sel=el('<select style="width:100%;margin-top:6px;"></select>');
               _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>')); });
+              var zk=el('<input value="'+esc(e2.project_ref||"")+'" placeholder="🧾 zakázka (jen u práce)" style="width:100%;margin-top:6px;">');
               var rb=_fixReasonBox();
               var ok=el('<button class="green full" style="margin-top:8px;">Uložit opravu</button>');
               var st=el('<div class="hint" style="margin-top:4px;"></div>');
-              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(rb); fx.appendChild(ok); fx.appendChild(st);
+              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(zk); fx.appendChild(rb); fx.appendChild(ok); fx.appendChild(st);
               ok.addEventListener("click",function(){
                 if(!t1.value||!t2.value){ st.textContent="Vyplň oba časy."; return; }
                 if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
-                _fixConfirm(fx,"Opravit záznam z <b>"+esc((e2.zac||"?")+"–"+(e2.kon||"…"))+"</b> na <b>"+esc(t1.value+"–"+t2.value)+"</b>?",function(cw){
-                  api("POST","/api/v1/erp/app/attendance/fix/entry",{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,reason:rb._input.value.trim()}).then(function(r){
+                _fixConfirm(fx,"Opravit záznam z <b>"+esc((e2.zac||"?")+"–"+(e2.kon||"…"))+"</b> na <b>"+esc(t1.value+"–"+t2.value)+((zk.value||"").trim()!==(e2.project_ref||"")?(" · 🧾 "+esc((zk.value||"").trim()||"bez zakázky")):"")+"</b>?",function(cw){
+                  api("POST","/api/v1/erp/app/attendance/fix/entry",{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,project_ref:(zk.value||"").trim(),reason:rb._input.value.trim()}).then(function(r){
                     if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
                   });
                 });
@@ -2088,6 +2098,14 @@
           }
         });
         box.appendChild(tbl);
+        // Jirka 12.7.: systémové poznámky (stopy oprav, automaty…) POD tabulkou, ať je nahoře čistá
+        if(maCentralu) box.appendChild(el('<div class="hint" style="margin-top:8px;">🏛 Záznamy z tabletu staré Centrály se opravují v Centrále (Dušan) — sem se přezrcadlí.</div>'));
+        if(poznBelow.length){
+          var pb=el('<div style="margin-top:10px;"></div>');
+          pb.appendChild(el('<div style="font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--mut);text-transform:uppercase;">🗒 Poznámky k záznamům</div>'));
+          poznBelow.forEach(function(x){ pb.appendChild(el('<div class="hint" style="margin-top:3px;">'+x+'</div>')); });
+          box.appendChild(pb);
+        }
       });
     }
     load();

@@ -19366,8 +19366,14 @@ async def att_fix_day(req: Request) -> JSONResponse:
             "ORDER BY e.started_at NULLS LAST, e.id"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
         jm = _user_jmeno(s, tuid)
+        # Jirka 12.7.: rozpor dne (co člověk napsal přes ✋ Nesedí) — do panelu nad tabulkou
+        disp = s.execute(_t(
+            "SELECT COALESCE(note,''), disputed FROM tenant.att_day_confirm "
+            "WHERE tenant_id=:t AND employee_id=:e AND day=:d"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).first()
         s.commit()
         return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked,
+            "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
             "entries": [
             {"id": r[0], "zac": r[1], "kon": r[2],
              "hours": (float(r[3]) if r[3] is not None else None),
@@ -19423,6 +19429,9 @@ async def att_fix_entry(req: Request) -> JSONResponse:
     kon = _att_fix_parse_hhmm((body or {}).get("kon"))
     tcode = str((body or {}).get("type_code") or "").strip() or None
     reason = str((body or {}).get("reason") or "").strip()[:300]
+    # Jirka 12.7.: volitelná změna zakázky — klíč chybí = nechat původní (zpětně kompatibilní)
+    pref_sent = isinstance(body, dict) and ("project_ref" in body)
+    pref_new = (str((body or {}).get("project_ref") or "").strip()[:40] or None) if pref_sent else None
     if not (eid and zac and kon):
         return JSONResponse({"ok": False, "error": "Zadej platné časy od–do (HH:MM)."})
     if not reason:
@@ -19475,6 +19484,13 @@ async def att_fix_entry(req: Request) -> JSONResponse:
         if not tid:
             return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
         pref = row[7] if new_code in ("work",) else None
+        if pref_sent and new_code == "work":
+            if pref_new:
+                zk = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
+                               {"t": _ATT_TENANT, "c": pref_new}).first()
+                if not zk:
+                    return JSONResponse({"ok": False, "error": "Zakázka " + pref_new + " není píchatelná / neexistuje."})
+            pref = pref_new
         brk = int(row[8])
         hrs = round(max((new_end - new_start).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
         actor = _user_jmeno(s, uid)
@@ -19509,17 +19525,33 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                         "  AND (ended_at IS NULL OR ended_at > CAST(:ne AS timestamptz) OR started_at < CAST(:ns AS timestamptz))"),
                         {"u": tu, "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
                          "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
+                    # Jirka 12.7.: změna zakázky → přepiš JEN úseky nesoucí PŮVODNÍ
+                    # zakázku záznamu (multi-zakázková okna se nedotknou — pravda
+                    # o segmentech je work_alloc, precedent Voříšek 27.6.)
+                    if pref_sent and new_code == "work" and pref != row[7]:
+                        s.execute(_t(
+                            "UPDATE tenant.work_alloc SET project_ref = :np, "
+                            "project_nazev = (SELECT z.nazev FROM tenant.zakazka z WHERE z.tenant_id = :t AND z.cislo = :np), "
+                            "updated_at = now() "
+                            "WHERE user_id=:u AND started_at >= CAST(:ns AS timestamptz) - interval '1 minute' "
+                            "  AND started_at < CAST(:ne AS timestamptz) "
+                            "  AND project_ref IS NOT DISTINCT FROM :op"),
+                            {"t": _ATT_TENANT, "u": tu, "np": pref, "op": row[7],
+                             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
             except Exception:
                 pass
         s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
                      "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
                   {"t": _ATT_TENANT, "i": eid})
+        zm_zak = (" | zakázka " + (row[7] or "—") + " → " + (pref or "—")) if (pref_sent and new_code == "work" and pref != row[7]) else ""
         _att_fix_audit(s, "fix", nid, emp, uid, actor,
-                       old_note=old_desc.strip(), new_note=(new_code + " " + zac + "–" + kon),
-                       detail=reason + " | původní #" + str(eid), old_date=sd.isoformat())
+                       old_note=old_desc.strip(), new_note=(new_code + " " + zac + "–" + kon + ((" 🧾 " + pref) if pref else "")),
+                       detail=reason + zm_zak + " | původní #" + str(eid), old_date=sd.isoformat())
         _att_fix_notify(s, emp, uid, actor, "🛠 Oprava docházky",
                         actor + " opravil(a) tvou docházku " + sd.strftime("%d.%m.") + ": "
-                        + old_desc.strip() + " → " + zac + "–" + kon + " (" + reason + "). "
+                        + old_desc.strip() + " → " + zac + "–" + kon
+                        + ((" (zakázka → " + pref + ")") if (pref_sent and new_code == "work" and pref != row[7] and pref) else "")
+                        + " (" + reason + "). "
                         "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
         s.commit()
         return JSONResponse({"ok": True, "id": nid, "hours": hrs})

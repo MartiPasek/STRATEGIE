@@ -6734,7 +6734,7 @@ setTimeout(function(){
   // Editoři = staff_group „DOCHÁZKA - OPRAVY" (backend /app/attendance/fix/*).
   // Oprava = supersede + nový záznam s povinným důvodem; dotčený dostane
   // notifikaci a může rozporovat. Lidé sami zpětně needitují.
-  var _FIX_REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","chybný typ záznamu","omylem založený záznam"];
+  var _FIX_REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","zapomenutý oběd/pauza","mezera v docházce","chybný typ záznamu","omylem založený záznam"];
   var _FIX_TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
   function _fixReasonBox(){
     var w=el('<div style="margin-top:8px;"></div>');
@@ -6926,16 +6926,17 @@ setTimeout(function(){
         box.innerHTML="";
         if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
         if(j.locked) box.appendChild(el('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px;">🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Odemknout smí Peťa/Šárka.</div>'));
-        // ➕ doplnění chybějícího záznamu
-        var addB=el('<button class="ghost full" style="margin-bottom:8px;border-color:var(--green);color:var(--green);">➕ Přidat záznam (zapomenutý příchod…)</button>');
+        // ➕ doplnění chybějícího záznamu — z tlačítka i z řádku „mezera" (Dušan 12.7., předvyplněné časy)
+        var addB=el('<button class="ghost full" style="margin-bottom:8px;border-color:var(--green);color:var(--green);">➕ Přidat záznam (zapomenutý příchod, mezera…)</button>');
         var addFx=el('<div style="margin-bottom:8px;"></div>');
         if(!j.locked){ box.appendChild(addB); box.appendChild(addFx); }
-        addB.addEventListener("click",function(){
+        function openAdd(prefZ,prefK){
+          if(j.locked)return;
           addFx.innerHTML="";
           var w=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;"></div>');
           var sel=el('<select style="width:100%;"></select>');
           _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'">'+t[1]+'</option>')); });
-          var t1=el('<input type="time" style="width:46%;">'), t2=el('<input type="time" style="width:46%;">');
+          var t1=el('<input type="time" value="'+esc(prefZ||"")+'" style="width:46%;">'), t2=el('<input type="time" value="'+esc(prefK||"")+'" style="width:46%;">');
           var tr=el('<div style="display:flex;gap:8%;margin-top:6px;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
           var zk=el('<input placeholder="🧾 zakázka (jen u práce, nepovinné)" style="width:100%;margin-top:6px;">');
           var rb=_fixReasonBox();
@@ -6943,6 +6944,7 @@ setTimeout(function(){
           var st=el('<div class="hint" style="margin-top:4px;"></div>');
           w.appendChild(sel); w.appendChild(tr); w.appendChild(zk); w.appendChild(rb); w.appendChild(ok); w.appendChild(st);
           addFx.appendChild(w);
+          try{ addFx.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
           ok.addEventListener("click",function(){
             if(!t1.value||!t2.value){ st.textContent="Vyplň časy od–do."; return; }
             if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
@@ -6952,36 +6954,67 @@ setTimeout(function(){
               });
             });
           });
-        });
+        }
+        addB.addEventListener("click",function(){ openAdd("",""); });
         var es=j.entries||[];
         if(!es.length){ box.appendChild(el('<div class="hint">Žádné záznamy v tomto dni.</div>')); return; }
+        // Dušan 12.7.: den jako kompaktní tabulka — co záznam, to řádek; editace se rozbalí pod řádkem.
+        var TH='font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);text-align:left;padding:4px 6px;border-bottom:1px solid var(--bord);font-weight:600;';
+        var TD='padding:8px 6px;border-bottom:1px solid var(--bord);vertical-align:middle;';
+        var tbl=el('<table style="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px;"></table>');
+        tbl.appendChild(el('<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'"></th></tr></thead>'));
+        var tb=document.createElement('tbody'); tbl.appendChild(tb);
+        function hmMin(x){ var p=String(x||"").split(":"); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
+        var lastKon=null;  // konec předchozího viditelného záznamu — detekce mezer (Centrála: „Mezery v docházce")
         es.forEach(function(e2){
           var gone=(e2.status==="superseded");
           var isDE=(e2.code==="day_end");  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
-          var row=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;'+(gone?'opacity:.45;':'')+'"></div>');
-          var badge="";
-          if(gone) badge=' <span style="font-size:11px;color:var(--mut);">(nahrazeno/storno)</span>';
-          else if(e2.running&&!isDE) badge=' <span style="font-size:11px;color:var(--green);">● běží</span>';
-          else if(e2.source_system) badge=' <span style="font-size:11px;color:var(--amber);">🏛 Centrála</span>';
-          if(e2.source==="manual_fix") badge+=' <span style="font-size:11px;color:#7c8cdb;">🛠 opraveno</span>';
-          if(isDE){
-            // Marti-AI (c): „🫡 Odchod HH:MM" — bez rozsahu do 23:59, bez hodin; storno zůstává.
-            row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">🫡 Odchod '+esc(e2.zac||"?")+badge+'</div>'));
-            if(!gone) row.appendChild(el('<div class="hint" style="margin-top:2px;">Interní uzávěrka dne — lze stornovat.</div>'));
-          }else{
-            row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc(e2.typ||"")+' '+esc((e2.zac||"?")+" – "+(e2.kon||"…"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+badge+'</div>'));
-            if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
+          if(!gone&&!isDE&&e2.zac&&lastKon&&(hmMin(e2.zac)-hmMin(lastKon))>=5&&!j.locked){
+            var gz=lastKon, gk=e2.zac;
+            var gr=el('<tr><td colspan="3" style="border-bottom:1px dashed var(--bord);color:var(--mut);font-size:11.5px;padding:4px 6px;">⋯ mezera '+esc(gz)+'–'+esc(gk)+' (bez záznamu)</td><td style="border-bottom:1px dashed var(--bord);text-align:right;padding:4px 6px;"><button class="ghost sm" style="padding:4px 9px;">➕</button></td></tr>');
+            gr.querySelector("button").addEventListener("click",function(){ openAdd(gz,gk); });
+            tb.appendChild(gr);
           }
-          if(e2.source_system&&!gone) row.appendChild(el('<div class="hint" style="margin-top:2px;">Záznam vlastní stará Centrála — oprava se dělá tam (Dušan) a sem se přezrcadlí.</div>'));
+          var tr0=document.createElement('tr'); if(gone) tr0.style.opacity=".45";
+          var badge="";
+          if(gone) badge='<span style="font-size:10.5px;color:var(--mut);"> (storno)</span>';
+          else if(e2.running&&!isDE) badge=' <span style="font-size:10.5px;color:var(--green);">● běží</span>';
+          else if(e2.source_system) badge=' <span style="font-size:10.5px;color:var(--amber);">🏛 Centrála</span>';
+          if(e2.source==="manual_fix") badge+=' <span style="font-size:10.5px;color:#7c8cdb;">🛠</span>';
+          var sub="";
+          if(isDE&&!gone) sub="Interní uzávěrka dne — lze stornovat.";
+          else{
+            if(e2.project_ref) sub+="🧾 "+e2.project_ref;
+            if(e2.note) sub+=(sub?" · ":"")+e2.note;
+            if(e2.source_system&&!gone) sub+=(sub?" · ":"")+"Oprava se dělá v Centrále — sem se přezrcadlí.";
+          }
+          var tdT=el('<td style="'+TD+'"></td>');
+          tdT.appendChild(el('<div style="font-weight:600;white-space:nowrap;">'+(isDE?'🫡 Odchod':esc(e2.typ||""))+badge+'</div>'));
+          if(sub) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">'+esc(sub)+'</div>'));
+          tr0.appendChild(tdT);
+          tr0.appendChild(el('<td style="'+TD+'white-space:nowrap;font-variant-numeric:tabular-nums;">'+esc(e2.zac||"—")+(isDE?'':("–"+esc(e2.kon||"…")))+'</td>'));
+          tr0.appendChild(el('<td style="'+TD+'text-align:right;font-variant-numeric:tabular-nums;">'+((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"")+'</td>'));
+          var tdA=el('<td style="'+TD+'text-align:right;white-space:nowrap;"></td>'); tr0.appendChild(tdA);
+          tb.appendChild(tr0);
+          if(!gone&&!isDE&&e2.kon) lastKon=e2.kon;
           if(e2.editable&&!e2.running&&e2.zac){
-            var ar=el('<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"></div>');
-            var be=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✏️ Opravit</button>');
-            var bs=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">🗑 Storno</button>');
-            if(!isDE) ar.appendChild(be);  // interní marker se needituje, jen stornuje
-            ar.appendChild(bs); row.appendChild(ar);
-            var fx=el('<div style="margin-top:6px;"></div>'); row.appendChild(fx);
+            var frow=document.createElement('tr'); frow.style.display="none";
+            var fcell=el('<td colspan="4" style="background:rgba(255,255,255,.03);border-bottom:1px solid var(--bord);padding:10px 8px;"></td>');
+            frow.appendChild(fcell); tb.appendChild(frow);
+            var closeForm=function(){ frow.style.display="none"; tr0.style.background=""; fcell.innerHTML=""; };
+            var openForm=function(titul){
+              frow.style.display=""; tr0.style.background="rgba(79,142,247,.08)"; fcell.innerHTML="";
+              var hd=el('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="font-size:12.5px;">'+titul+' — '+(isDE?'🫡 Odchod '+esc(e2.zac||"?"):esc((e2.typ||"")+" "+(e2.zac||"?")+"–"+(e2.kon||"…")))+'</b></div>');
+              var bx=el('<button class="ghost sm" style="padding:2px 9px;">✕</button>');
+              bx.addEventListener("click",closeForm); hd.appendChild(bx); fcell.appendChild(hd);
+              var fx=el('<div></div>'); fcell.appendChild(fx); return fx;
+            };
+            var be=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);padding:5px 9px;">✏️</button>');
+            var bs=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);padding:5px 9px;margin-left:6px;">🗑</button>');
+            if(!isDE) tdA.appendChild(be);  // interní marker se needituje, jen stornuje
+            tdA.appendChild(bs);
             be.addEventListener("click",function(){
-              fx.innerHTML="";
+              var fx=openForm("✏️ Oprava záznamu");
               var t1=el('<input type="time" value="'+esc(e2.zac||"")+'" style="width:46%;">');
               var t2=el('<input type="time" value="'+esc(e2.kon||"")+'" style="width:46%;">');
               var tr=el('<div style="display:flex;gap:8%;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
@@ -7002,7 +7035,7 @@ setTimeout(function(){
               });
             });
             bs.addEventListener("click",function(){
-              fx.innerHTML="";
+              var fx=openForm("🗑 Storno záznamu");
               var rb=_fixReasonBox(); fx.appendChild(rb);
               var ok=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">Stornovat záznam</button>');
               var st=el('<div class="hint" style="margin-top:4px;"></div>');
@@ -7038,8 +7071,8 @@ setTimeout(function(){
               });
             });
           }
-          box.appendChild(row);
         });
+        box.appendChild(tbl);
       });
     }
     load();

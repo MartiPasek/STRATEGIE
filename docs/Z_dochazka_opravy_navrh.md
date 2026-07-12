@@ -163,3 +163,51 @@ soudeček+iframe schválen, samoúpravy si bere k Martimu (s vlastním doporuče
   obrazovky `doch_opravy` + `doch_opravy_den` (`mobile_parts/60_dochazka.js`, build OK).
 - ✅ ERP: `apps/api/static/dochazka-opravy.html` + routa `/dochazka-opravy` (main.py)
   + hook `dochazka.opravy` v `page_render.js`.
+
+## 12. OSTRÉ NASAZENÍ + působnosti (10.7.2026, rozhodl Marti)
+
+Pilot ukončen, nasazeno na všechny 4 editory (write #1102, commit `7d8cc917`) s PŮSOBNOSTMI:
+
+| Editor | scope (`tenant.att_fix_scope`) | Koho vidí a opravuje |
+|---|---|---|
+| Peťa Šafránková (18) | `kancelar` | všichni zařazení MIMO výrobu (34) + nezařazení (7) |
+| Míša Hladíková (16) | `vyroba` | podřízení Dušana Havláta (38) + nezařazení (7) |
+| Dušan Havlát (41) | `vyroba` | dtto |
+| Jirka Honomichl (20) | `vse` | všichni (79 aktivních karet) |
+
+- **Výroba = org podstrom pod posty Dušana (user 41)** — počítá se ŽIVĚ
+  (`_att_fix_scope_emps`, WITH RECURSIVE přes org_post/org_post_assign), nové
+  nástupy se propíšou samy. Nezařazení (bez aktivního postu) = vidí OBĚ strany.
+- Scoping vynucen NA SERVERU ve všech fix/* endpointech (queue, day, entry, add,
+  void, merge, resolve, audit) + nový **`GET /app/attendance/fix/lide`** (seznam
+  jen v působnosti; mobil i ERP na něj přepnuty).
+- Ladění 10.7. navíc: storno se sešitím (fix/merge), volba dne ◀▶ + volné pořadí
+  den/člověk, ERP iframe XFO fix, „Vyřídit bez opravy", fronta backlog odbaven.
+- ✅ day_end v editorském dni VYŘEŠEN verdiktem Marti-AI (msg 10632, varianta c,
+  commit `a0a26cdf`): „🫡 Odchod HH:MM" bez rozsahu/hodin, hint „Interní uzávěrka
+  dne — lze stornovat", jen Storno (bez Opravit).
+
+## 13. Detail dne jako TABULKA (12.7.2026, podnět Dušan Havlát)
+
+Dušan: detail dne byl „co záznam, to kartička s tlačítky" — chtěl **tabulkový
+přehled** (celý den na jeden pohled) s možností úpravy u každého řádku. Jirka
+schválil: ERP plná tabulka, mobil kompaktní tabulka, editace se rozbalí POD řádkem.
+
+- **ERP** (`dochazka-opravy.html`): tabulka Typ | Od | Do | Hodiny | Zakázka |
+  Poznámka/stav | akce (✏️ 🗑 ikonky vpravo). Stornované řádky šedě, aktivní
+  editovaný řádek zvýrazněn, formulář (oprava/storno vč. nabídky sešití) se
+  rozbalí jako řádek pod záznamem s hlavičkou a ✕. Badge 🏛 Centrála má tooltip.
+- **Mobil** (`mobile_parts/60_dochazka.js` → build): kompaktní tabulka Typ
+  (+ zakázka/poznámka drobně pod ním) | Od–Do | Hod | akce. Stejná mechanika.
+- **NOVÉ: řádek „⋯ mezera HH:MM–HH:MM (bez záznamu)"** mezi nenavazujícími
+  záznamy (≥ 5 min, jen v odemčeném období) s ➕ — předvyplní časy do formuláře
+  „Přidat záznam". Podklad: Centrála zná chybu „Mezery v docházce" (typ 6)
+  a „Zapomenutý oběd" (typ 2) v `EC_Dochazka_ChybyVDochazceTypy`.
+- Chipy důvodů rozšířeny o „zapomenutý oběd/pauza" a „mezera v docházce"
+  (dle typů chyb Centrály; nejčastější reálný důvod z auditu zůstává
+  „omylem založený záznam").
+- Funkčně beze změny: stejné endpointy, scoping, day_end jen Storno,
+  Centrála-záznamy read-only, důvod povinný, potvrzení, notifikace dotčenému.
+- NEpřidáno (vědomě): změna zakázky v opravě — backend `fix/entry` project_ref
+  nemění (přenáší původní) a pravda o zakázkách žije ve `work_alloc` (precedent
+  Voříšek 27.6.); případná podpora = samostatný návrh pro Martiho.

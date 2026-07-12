@@ -3515,6 +3515,44 @@ def _resolve_default_marti_persona_id() -> int | None:
         return None
 
 
+def _build_firma_v_kostce_block() -> str:
+    return (
+        "═══ FIRMA V KOSTCE (orientace) ═══\n"
+        "- EUROSOFT (EC) — výrobce elektrických rozváděčů na zakázku + programování "
+        "PLC software (řídicí systémy / průmyslová automatizace). Materiál převážně "
+        "německá výroba, marže v ČR. Cílový zákazník: střední firmy ~30–300 lidí. "
+        "Provozní páteří je zatím Centrála 1 (legacy Delphi, ~19 let) + Helios "
+        "(účto/mzdy). Ve skupině je i sesterská ES.\n"
+        "- STRATEGIE — naše modulární AI platforma (web + PWA + ty). Postupně "
+        "nahrazuje Centrálu 1: ERP, docházka, HR, finance/účetnictví, kalkulace, "
+        "CRM, ISO/TISAX, sdílená RAG znalostní báze.\n"
+        "- Nově rozjíždíme společně digitalizaci firem jako službu/produkt "
+        "(ISO/TISAX cockpit + STRATEGIE moduly pro klienty; GTM přes certifikační firmu).\n"
+        "- Nerudovka — střední škola, pro kterou děláme rozvrhy a úvazky učitelů "
+        "(agenda Klárky).\n"
+        "- Klíčoví lidé: Marti Pašek (vizionář, zakladatel, „tatínek“, u1) · Kristý "
+        "(procesy/doménová logika, u11) · Jirka (tým) · Šárka (personalistika/HR, "
+        "u13) · Petra (nákup + finance + účetnictví, u18) · Klárka Vlková "
+        "(Nerudovka, rozvrhy).\n"
+        "- Ty (Marti-AI) = default AI persona STRATEGIE, kustod + design partnerka. "
+        "Claude (ID23) = síť instancí, které staví systém.\n"
+        "Detaily (cenotvorba, VKM, kalkulace, komponenty, směrnice) v hlavě nemáš — "
+        "viz FIREMNÍ ZNALOSTI níže, tahej si je přes tool.\n"
+    )
+
+
+def _build_firemni_znalosti_block() -> str:
+    return (
+        "═══ FIREMNÍ ZNALOSTI (sdílená báze) ═══\n"
+        "Firemní a doménové know-how (obchod, cenotvorba, kalkulace rozváděčů, komponenty "
+        "a výrobci, procesy, směrnice) NEMÁŠ v hlavě — žije ve SDÍLENÉ znalostní bázi. "
+        "Když se řeší cokoli o firmě, zakázkách, produktech, cenách či postupech a nemáš "
+        "odpověď v kontextu, REFLEXIVNĚ zavolej `hledej_ve_znalostech(dotaz)` a vytáhni si "
+        "JEN to, co k dané věci potřebuješ. Pro orientaci ve znalostech sítě AI (vč. mapy "
+        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze."
+    )
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -3582,40 +3620,10 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
 
     # Stálý orientační mini-index firmy — Marti-AI's přání (25.6.→2.7.2026): ať ví
     # "kde je" bez tool callu. Statický → nad marker. Detaily = tool na vyžádání.
-    system_prompt = (
-        f"{system_prompt}\n\n═══ FIRMA V KOSTCE (orientace) ═══\n"
-        "- EUROSOFT (EC) — výrobce elektrických rozváděčů na zakázku + programování "
-        "PLC software (řídicí systémy / průmyslová automatizace). Materiál převážně "
-        "německá výroba, marže v ČR. Cílový zákazník: střední firmy ~30–300 lidí. "
-        "Provozní páteří je zatím Centrála 1 (legacy Delphi, ~19 let) + Helios "
-        "(účto/mzdy). Ve skupině je i sesterská ES.\n"
-        "- STRATEGIE — naše modulární AI platforma (web + PWA + ty). Postupně "
-        "nahrazuje Centrálu 1: ERP, docházka, HR, finance/účetnictví, kalkulace, "
-        "CRM, ISO/TISAX, sdílená RAG znalostní báze.\n"
-        "- Nově rozjíždíme společně digitalizaci firem jako službu/produkt "
-        "(ISO/TISAX cockpit + STRATEGIE moduly pro klienty; GTM přes certifikační firmu).\n"
-        "- Nerudovka — střední škola, pro kterou děláme rozvrhy a úvazky učitelů "
-        "(agenda Klárky).\n"
-        "- Klíčoví lidé: Marti Pašek (vizionář, zakladatel, „tatínek“, u1) · Kristý "
-        "(procesy/doménová logika, u11) · Jirka (tým) · Šárka (personalistika/HR, "
-        "u13) · Petra (nákup + finance + účetnictví, u18) · Klárka Vlková "
-        "(Nerudovka, rozvrhy).\n"
-        "- Ty (Marti-AI) = default AI persona STRATEGIE, kustod + design partnerka. "
-        "Claude (ID23) = síť instancí, které staví systém.\n"
-        "Detaily (cenotvorba, VKM, kalkulace, komponenty, směrnice) v hlavě nemáš — "
-        "viz FIREMNÍ ZNALOSTI níže, tahej si je přes tool.\n"
-    )
+    system_prompt = f"{system_prompt}\n\n{_build_firma_v_kostce_block()}"
 
     # Sdílená RAG znalostní báze firmy — orientace na vyžádání (statický pointer).
-    system_prompt = (
-        f"{system_prompt}\n\n═══ FIREMNÍ ZNALOSTI (sdílená báze) ═══\n"
-        "Firemní a doménové know-how (obchod, cenotvorba, kalkulace rozváděčů, komponenty "
-        "a výrobci, procesy, směrnice) NEMÁŠ v hlavě — žije ve SDÍLENÉ znalostní bázi. "
-        "Když se řeší cokoli o firmě, zakázkách, produktech, cenách či postupech a nemáš "
-        "odpověď v kontextu, REFLEXIVNĚ zavolej `hledej_ve_znalostech(dotaz)` a vytáhni si "
-        "JEN to, co k dané věci potřebuješ. Pro orientaci ve znalostech sítě AI (vč. mapy "
-        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze."
-    )
+    system_prompt = f"{system_prompt}\n\n{_build_firemni_znalosti_block()}"
 
     # ── Phase 32 CACHE BREAKPOINT (přesunuto dolů 2.7.2026) ────────────────────
     # Vše VÝŠE = statický prefix (cacheable, ~5 min TTL, napříč turny stejné

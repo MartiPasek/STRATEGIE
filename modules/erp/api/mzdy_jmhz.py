@@ -33,9 +33,11 @@ NS = (
 )
 VENDOR = "STRATEGIE_JMHZ_0.1"
 SENDER_EMAIL = "marti-ai@eurosoft.com"
-# VS zaměstnavatele per firma (z pilotu EUROSOFT). ES zatím shodné — POTVRDIT u ČSSZ.
-VS_ZAMESTNAVATELE = {"EC": "1180109983", "ES": "1180109983"}
-DEFAULT_VS = "1180109983"
+# VS zaměstnavatele u ČSSZ (Marti 12.7.2026, potvrzeno). EC = "EUROSOFT - Control",
+# ES = "EUROSOFT - System". Stejný VS se používá i pro automatické stahování notifikací
+# k nemocenské/OČR (eNeschopenka). Zdroj pravdy — drž tady + v paměti [[cssz-vs-zamestnavatele]].
+VS_ZAMESTNAVATELE = {"EC": "4445158191", "ES": "4442058998"}
+DEFAULT_VS = "4445158191"
 
 # ověřené sazby (z pilotu)
 SP_ZAM = 0.071

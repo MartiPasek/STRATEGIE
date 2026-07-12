@@ -4719,6 +4719,34 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
                 L.append(f"| {pp if pp is not None else ''} | {kk} | {vv or ''} | {tk if tk is not None else ''} | {pc if pc is not None else ''} |")
             w(f"struktura/snimek-{st['id']:04d}.md", "\n".join(L) + "\n")
 
+        # znalosti (oblasti + jednotky pravdy)
+        orows = s.execute(T(
+            "SELECT id, kod, nazev, popis, uroven, poradi FROM g2007.znalost_oblast ORDER BY poradi, id"
+        )).mappings().all()
+        zrows = s.execute(T(
+            "SELECT z.id, z.tenant_id, z.uroven, z.typ, z.kod, z.nadpis, z.obsah, z.verze, z.stav, "
+            "o.kod AS oblast_kod FROM g2007.znalost z JOIN g2007.znalost_oblast o ON o.id=z.oblast_id "
+            "ORDER BY o.poradi, z.kod"
+        )).mappings().all()
+        znal_by_oblast = {}
+        for z in zrows:
+            znal_by_oblast.setdefault(z["oblast_kod"], []).append(z)
+        for z in zrows:
+            scope = "globální (všichni tenanti)" if z["tenant_id"] is None else f"tenant {z['tenant_id']}"
+            L = [f"# {z['nadpis']}", "",
+                 f"> oblast: `{z['oblast_kod']}` · úroveň: {z['uroven'] or ''} · typ: {z['typ'] or ''} "
+                 f"· verze: {z['verze']} · rozsah: {scope}", "",
+                 z["obsah"] or "", ""]
+            w(f"znalosti/{z['oblast_kod']}/{z['kod']}.md", "\n".join(L) + "\n")
+        ZP = ["# Znalosti — přehled oblastí", "",
+              "> Zdroj pravdy o vědění systému i oborů. Multitenant (globální = pro všechny).", "",
+              "| oblast | úroveň | znalostí | popis |",
+              "|--------|--------|----------|-------|"]
+        for o in orows:
+            cnt = len(znal_by_oblast.get(o["kod"], []))
+            ZP.append(f"| `{o['kod']}` | {o['uroven'] or ''} | {cnt} | {(o['popis'] or '').replace('|','/')} |")
+        w("znalosti/_prehled.md", "\n".join(ZP) + "\n")
+
         # README (index)
         R = ["# G2007 — generováno z databáze", "",
              "> **Tento strom je PROJEKCE databáze `g2007`.** Needituj ručně — změň DB a přegeneruj přes `/g2007/export`.",
@@ -4727,7 +4755,8 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
              f"- Kufrů: **{len(krows)}** → `kufry/`",
              f"- Entit: **{len(erows)}** → `entity/`",
              f"- Grafů: **{len(grows)}** → `grafy/`",
-             f"- Snímků struktury: **{len(srows)}** → `struktura/`", "",
+             f"- Snímků struktury: **{len(srows)}** → `struktura/`",
+             f"- Znalostí: **{len(zrows)}** v **{len(orows)}** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)", "",
              "## Grafy (Krok 0)", ""]
         for g in grows:
             R.append(f"- **{g['kod']}** — {g['nazev'] or ''}")

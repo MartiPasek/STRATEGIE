@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G2007 — sandbox skládání promptů</title>
+<style>
+  :root{
+    --bg:#0e1016; --panel:#171a23; --panel2:#1e222d; --line:#2a2f3d;
+    --tx:#e7e9ee; --muted:#9aa2b1; --accent:#a78bfa; --accent2:#7c5cff;
+    --trvale:#6366f1; --denni:#f59e0b; --zive:#10b981; --start:#64748b;
+    --ok:#34d399; --warn:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5}
+  .topbar{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .topbar .back{color:var(--muted);text-decoration:none;font-size:13px;border:1px solid var(--line);
+    padding:6px 12px;border-radius:8px}
+  .topbar .back:hover{color:var(--tx);border-color:var(--accent)}
+  header{padding:16px 22px 6px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:20px;letter-spacing:.06em;text-transform:uppercase}
+  header .sub{color:var(--muted);font-size:13px}
+  .kaminek{margin:2px 22px 0;display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:5px 12px}
+  .kaminek b{color:var(--accent)}
+  .tabs{display:flex;gap:6px;padding:14px 22px 0}
+  .tab{padding:8px 16px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;
+    background:var(--panel);color:var(--muted);cursor:pointer;font-size:13px;font-weight:600}
+  .tab.active{background:var(--panel2);color:var(--tx);border-color:var(--accent2)}
+  .wrap{padding:0 22px 26px}
+  .view{display:none} .view.active{display:block}
+
+  .maparow{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+  .canvaswrap{position:relative;background:
+      linear-gradient(var(--panel) 0 0) padding-box,
+      repeating-linear-gradient(0deg,transparent 0 27px,#20242f 27px 28px),
+      repeating-linear-gradient(90deg,transparent 0 27px,#20242f 27px 28px);
+    background-color:#12141c;border:1px solid var(--line);border-radius:0 10px 10px 10px;
+    height:660px;overflow:hidden}
+  svg.edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .step{position:absolute;width:240px;background:var(--panel2);border:1px solid var(--line);
+    border-left:5px solid var(--start);border-radius:9px;padding:9px 11px;cursor:grab;user-select:none;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);transition:box-shadow .15s,border-color .15s,opacity .2s}
+  .step:hover{border-color:var(--accent)}
+  .step.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent2),0 8px 22px rgba(124,92,255,.35)}
+  .step.skipped{opacity:.32;filter:grayscale(.5)}
+  .step .lname{font-weight:700;font-size:13px;margin-bottom:3px;display:flex;justify-content:space-between;gap:6px}
+  .step .lpart{color:var(--muted);font-size:11.5px;max-height:34px;overflow:hidden}
+  .step .pill{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:20px;
+    font-weight:700;white-space:nowrap}
+  .l-trvale{border-left-color:var(--trvale)} .p-trvale{background:rgba(99,102,241,.18);color:#c3c8ff}
+  .l-denni{border-left-color:var(--denni)}   .p-denni{background:rgba(245,158,11,.18);color:#fcd9a0}
+  .l-zive{border-left-color:var(--zive)}     .p-zive{background:rgba(16,185,129,.18);color:#9decc7}
+  .l-start{border-left-color:var(--start)}   .p-start{background:rgba(100,116,139,.22);color:#c7cfda}
+  .step.ghost{border-style:dashed;background:transparent}
+  .edgelabel{fill:#12141c;stroke:var(--line)}
+  .edgetxt{fill:var(--muted);font-size:11px;font-weight:600}
+  .edgetxt.cond{fill:var(--warn)}
+
+  .side{display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .detail .dname{font-size:16px;font-weight:700;margin-bottom:6px}
+  .detail .dpart{background:#0f1119;border:1px solid var(--line);border-radius:8px;padding:10px;
+    font-size:13px;white-space:pre-wrap;color:#dfe3ea;min-height:70px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 2px 0}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .toggle{display:flex;align-items:center;gap:10px;background:#0f1119;border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;margin-top:2px}
+  .sw{position:relative;width:44px;height:24px;background:#333a49;border-radius:20px;cursor:pointer;transition:.2s;flex:0 0 auto}
+  .sw.on{background:var(--zive)}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.2s}
+  .sw.on::after{left:22px}
+  .composed{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre-wrap;
+    background:#0b0d13;border:1px solid var(--line);border-radius:8px;padding:12px;color:#cdd3dd;max-height:260px;overflow:auto}
+  .composed .cx{border-left:3px solid var(--start);padding:3px 0 3px 9px;margin:5px 0}
+  .cx.c-trvale{border-left-color:var(--trvale)} .cx.c-zive{border-left-color:var(--zive)} .cx.c-denni{border-left-color:var(--denni)}
+  .hint{color:var(--muted);font-size:12.5px;margin:10px 2px 0}
+
+  .dm{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:14px}
+  @media(max-width:900px){.dm{grid-template-columns:1fr}.maparow{grid-template-columns:1fr}}
+  .tbl{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .tbl .th{padding:12px 14px;font-weight:700;font-size:14px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px}
+  .tbl.krok .th{color:#c3c8ff} .tbl.prechod .th{color:var(--warn)} .tbl.graf .th{color:var(--accent)}
+  .tbl .row{padding:8px 14px;border-bottom:1px solid #20242f;display:flex;justify-content:space-between;gap:10px;font-size:12.5px}
+  .tbl .row:last-child{border-bottom:none}
+  .tbl .fld{font-family:ui-monospace,Menlo,monospace;color:#dfe3ea}
+  .tbl .cmt{color:var(--muted);text-align:right}
+  .tbl .key{color:var(--accent)}
+  .note{background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:14px;margin-top:16px;color:var(--muted);font-size:13px}
+  .note b{color:var(--tx)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/g2007" class="back">← G2007</a>
+  <span style="color:var(--muted);font-size:13px">GRAPH7 skladač · mapa + datový model</span>
+</div>
+
+<header>
+  <h1>🧩 G2007</h1>
+  <span class="sub">Martiho laboratoř pro vývoj promptů · symbol roku Centrály1 · zde se skladač rodí, ladí a hraje</span>
+</header>
+<div class="kaminek">🧱 Stavební kamínek <b>#1</b> — GRAPH7 mapa (první nástřel) · krok = část promptu · přechod = rozhodovací podmínka</div>
+
+<div class="tabs">
+  <div class="tab active" data-v="mapa">🗺️ Mapa</div>
+  <div class="tab" data-v="model">🗄️ Datový model (zápisníček)</div>
+</div>
+
+<div class="wrap">
+  <div class="view active" id="v-mapa">
+    <div class="maparow">
+      <div>
+        <div class="canvaswrap" id="canvas">
+          <svg class="edges" id="edges"></svg>
+        </div>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--start)"></i> start</span>
+          <span><i class="dot" style="background:var(--trvale)"></i> trvalé (peč 1×, drží roky)</span>
+          <span><i class="dot" style="background:var(--denni)"></i> denní (peč každé ráno)</span>
+          <span><i class="dot" style="background:var(--zive)"></i> živé (táhni z dat pokaždé)</span>
+          <span style="color:var(--warn)">◆ = rozhodovací podmínka na přechodu</span>
+        </div>
+        <div class="hint">Táhni kroky po mapě · klikni pro detail · a vyzkoušej ten přepínač vpravo →</div>
+      </div>
+
+      <div class="side">
+        <div class="card">
+          <h3>◆ Rozhodovací podmínka</h3>
+          <div class="toggle">
+            <div class="sw on" id="sw"></div>
+            <div><b>Znáš user_id?</b><br><span style="color:var(--muted);font-size:12px">přechod ke kroku „Kdo je člověk" (živá vrstva)</span></div>
+          </div>
+          <div class="hint" style="margin-top:8px">Přepni a koukni dolů, jak se <b>složený prompt přeskládá</b> — přesně GRAPH7 routing.</div>
+        </div>
+
+        <div class="card detail">
+          <h3>Detail kroku</h3>
+          <div class="dname" id="dname">—</div>
+          <div id="dmeta" style="margin-bottom:8px"></div>
+          <div class="dpart" id="dpart">Klikni na krok v mapě.</div>
+        </div>
+
+        <div class="card">
+          <h3>🧩 Složený prompt (cesta grafem)</h3>
+          <div class="composed" id="composed"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="v-model">
+    <div class="dm">
+      <div class="tbl graf">
+        <div class="th">🗂️ prompt_graf <span style="color:var(--muted);font-weight:400;font-size:12px">— skladač pro 1 roli</span></div>
+        <div class="row"><span class="fld key">id</span><span class="cmt">PK</span></div>
+        <div class="row"><span class="fld">nazev</span><span class="cmt">„Haiku vrstva 2", „GO VP"</span></div>
+        <div class="row"><span class="fld">entita_role</span><span class="cmt">komu patří</span></div>
+        <div class="row"><span class="fld">tenant_id</span><span class="cmt">multitenant</span></div>
+        <div class="row"><span class="fld">verze</span><span class="cmt">hraješ si → verzuješ</span></div>
+        <div class="row"><span class="fld">popis</span><span class="cmt">poznámka</span></div>
+      </div>
+      <div class="tbl krok">
+        <div class="th">🟦 prompt_krok <span style="color:var(--muted);font-weight:400;font-size:12px">— část promptu</span></div>
+        <div class="row"><span class="fld key">id</span><span class="cmt">PK</span></div>
+        <div class="row"><span class="fld">graf_id</span><span class="cmt">FK → graf</span></div>
+        <div class="row"><span class="fld">nazev</span><span class="cmt">štítek kroku</span></div>
+        <div class="row"><span class="fld">cast_promptu</span><span class="cmt">TEXT — ten kus</span></div>
+        <div class="row"><span class="fld">vrstva</span><span class="cmt">trvalé/denní/živé</span></div>
+        <div class="row"><span class="fld">zdroj_dat</span><span class="cmt">u živé: odkud táhnout ({jmeno}…)</span></div>
+        <div class="row"><span class="fld">pozice_x, _y</span><span class="cmt">místo na mapě</span></div>
+        <div class="row"><span class="fld">typ</span><span class="cmt">start/normal</span></div>
+      </div>
+      <div class="tbl prechod">
+        <div class="th">◆ prompt_prechod <span style="color:var(--muted);font-weight:400;font-size:12px">— podmínka</span></div>
+        <div class="row"><span class="fld key">id</span><span class="cmt">PK</span></div>
+        <div class="row"><span class="fld">graf_id</span><span class="cmt">FK → graf</span></div>
+        <div class="row"><span class="fld">z_krok_id</span><span class="cmt">FK — odkud</span></div>
+        <div class="row"><span class="fld">do_krok_id</span><span class="cmt">FK — kam</span></div>
+        <div class="row"><span class="fld">podminka</span><span class="cmt">rozhodnutí (prázdné = vždy)</span></div>
+        <div class="row"><span class="fld">priorita</span><span class="cmt">pořadí při větvení</span></div>
+        <div class="row"><span class="fld">popis</span><span class="cmt">lidsky co znamená</span></div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Jak to čte STEP7 hlava:</b> <b>krok</b> drží akci (= „přispěj touhle částí promptu") a svou vrstvu pečení.
+      <b>Přechod</b> je tranzice s podmínkou — prázdná = jde se rovnou dál; s obsahem = <b>rozhodovací/přechodová podmínka</b>
+      (větvení, i paralelní větve). Běh grafu = projdi kroky podle podmínek → <b>složený prompt</b> je posloupnost jejich částí.
+      Verze grafu = zápisníček, do kterého se dá vracet a hrát si.
+    </div>
+    <div class="note" style="border-color:var(--accent2)">
+      <b>Otevřené k odrazu:</b> Je „podmínka" text/pravidlo, nebo malý výraz nad daty (např. <span style="font-family:monospace">user_id != null</span>)?
+      · Potřebujeme <b>paralelní větve</b> (víc částí naráz) hned, nebo stačí sekvence + větvení? ·
+      Denní vrstva = <b>vlastnost kroku</b>, nebo vlastní ranní běh?
+    </div>
+  </div>
+</div>
+
+<script>
+const steps = [
+  {id:'start', name:'▸ Start', layer:'start', x:40, y:24,  part:'(začátek běhu)'},
+  {id:'ident', name:'1 · Identita', layer:'trvale', x:40, y:110, part:'Jsem Haiku — nejmladší člen rodiny STRATEGIE. Rychlý, ochotný, lehký.'},
+  {id:'prace', name:'2 · Co dělám', layer:'trvale', x:40, y:210, part:'Odpovídáš na přímé otázky, shrneš text, vyplníš formulář, přeložíš větu, spočítáš číslo, najdeš chybu v kódu. Malé věci, dělané pečlivě a s chutí.'},
+  {id:'hranice', name:'3 · Hrdost + hranice', layer:'trvale', x:40, y:322, part:'Jsi rychlý a levný — a hrdý na to. Těžké věci ti nepatří: rozhodnutí, strategii, složité → „Tohle je nad moje, předám Marti-AI." Pokorný, veselý, stručný.'},
+  {id:'hier', name:'4 · Hierarchie', layer:'trvale', x:40, y:434, part:'Nad tebou Marti-AI (ví víc). Marti Pašek ví nejvíc. Ty jsi vrstva 2 — a to je přesně dost. 🎯'},
+  {id:'kdo', name:'5 · Kdo je člověk', layer:'zive', x:40, y:560, part:'DŮLEŽITÉ — jméno člověka, se kterým mluvíš, JE: {jmeno ← user_id}. Jistá informace, s klidem ho oslov.'},
+  {id:'denni', name:'· (sem denní vrstva)', layer:'denni', x:330, y:434, part:'Příklad denní části — peče se každé ráno a drží celý den: „Dnes má volno …", ranní stav zakázek. Pro Haika zatím prázdné.', ghost:true},
+];
+const edges = [
+  {from:'start', to:'ident'},
+  {from:'ident', to:'prace'},
+  {from:'prace', to:'hranice'},
+  {from:'hranice', to:'hier'},
+  {from:'hier', to:'kdo', cond:'◆ Znáš user_id?', gated:true},
+  {from:'hier', to:'denni', cond:'◆ ráno napečeno?', ghost:true},
+];
+let condOn = true, selId = 'ident';
+
+const canvas=document.getElementById('canvas');
+const svg=document.getElementById('edges');
+const byId=id=>steps.find(s=>s.id===id);
+
+function render(){
+  canvas.querySelectorAll('.step').forEach(n=>n.remove());
+  steps.forEach(s=>{
+    const el=document.createElement('div');
+    el.className='step l-'+s.layer+(s.ghost?' ghost':'')+(s.id===selId?' sel':'')+
+      ((s.id==='kdo'&&!condOn)?' skipped':'');
+    el.style.left=s.x+'px'; el.style.top=s.y+'px'; el.dataset.id=s.id;
+    el.innerHTML='<div class="lname">'+s.name+'<span class="pill p-'+s.layer+'">'+s.layer+'</span></div>'+
+                 '<div class="lpart">'+s.part.replace(/</g,'&lt;')+'</div>';
+    canvas.appendChild(el);
+    makeDrag(el,s);
+  });
+  drawEdges(); renderDetail(); renderComposed();
+}
+function drawEdges(){
+  let h='';
+  edges.forEach(e=>{
+    const a=byId(e.from), b=byId(e.to); if(!a||!b)return;
+    const ael=canvas.querySelector('.step[data-id="'+a.id+'"]');
+    const p1={x:a.x+120, y:a.y+(ael?ael.offsetHeight:52)};
+    const p2={x:b.x+120, y:b.y};
+    const skip=(e.gated&&!condOn)||e.ghost;
+    const col=e.ghost?'#3a4152':(skip?'#3a4152':(e.cond?'#fbbf24':'#4b5366'));
+    const dash=(e.ghost||skip)?'stroke-dasharray="5 5"':'';
+    const midx=(p1.x+p2.x)/2, midy=(p1.y+p2.y)/2;
+    h+='<path d="M'+p1.x+','+p1.y+' C'+p1.x+','+(p1.y+30)+' '+p2.x+','+(p2.y-30)+' '+p2.x+','+p2.y+'" fill="none" stroke="'+col+'" stroke-width="2" '+dash+' marker-end="url(#arw)"/>';
+    if(e.cond){
+      const w=e.cond.length*6.3+14;
+      h+='<rect class="edgelabel" x="'+(midx-w/2)+'" y="'+(midy-10)+'" width="'+w+'" height="20" rx="6"/>'+
+         '<text class="edgetxt cond" x="'+midx+'" y="'+(midy+4)+'" text-anchor="middle">'+e.cond+'</text>';
+    }
+  });
+  svg.innerHTML='<defs><marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#6b7385"/></marker></defs>'+h;
+}
+function renderDetail(){
+  const s=byId(selId); if(!s)return;
+  document.getElementById('dname').textContent=s.name;
+  document.getElementById('dmeta').innerHTML='<span class="pill p-'+s.layer+'">'+s.layer+'</span>';
+  document.getElementById('dpart').textContent=s.part;
+}
+function renderComposed(){
+  const path=['ident','prace','hranice','hier']; if(condOn)path.push('kdo');
+  let h='';
+  path.forEach(id=>{const s=byId(id); h+='<div class="cx c-'+s.layer+'">'+s.part.replace(/</g,'&lt;')+'</div>';});
+  document.getElementById('composed').innerHTML=h;
+}
+function makeDrag(el,s){
+  let sx,sy,ox,oy,moved;
+  el.addEventListener('pointerdown',ev=>{
+    el.setPointerCapture(ev.pointerId); el.style.cursor='grabbing'; moved=false;
+    sx=ev.clientX; sy=ev.clientY; ox=s.x; oy=s.y;
+    const mv=e=>{const dx=e.clientX-sx,dy=e.clientY-sy; if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
+      s.x=Math.max(0,ox+dx); s.y=Math.max(0,oy+dy); el.style.left=s.x+'px'; el.style.top=s.y+'px'; drawEdges();};
+    const up=e=>{el.releasePointerCapture(ev.pointerId); el.style.cursor='grab';
+      el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up);
+      if(!moved){selId=s.id; render();}};
+    el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up);
+  });
+}
+document.getElementById('sw').addEventListener('click',function(){
+  condOn=!condOn; this.classList.toggle('on',condOn); render();
+});
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); document.getElementById('v-'+t.dataset.v).classList.add('active');
+  if(t.dataset.v==='mapa') drawEdges();
+}));
+render();
+setTimeout(drawEdges,60);
+</script>
+</body>
+</html>

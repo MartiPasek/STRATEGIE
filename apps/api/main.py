@@ -1415,6 +1415,13 @@ def g2007_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/g2007-graf")
+def g2007_graf_page():
+    """G2007 -> GRAPH7 skladac (mapa + datovy model). Prvni nastroj sandboxu. Marti 12.7.2026."""
+    return FileResponse(os.path.join(static_dir, "g2007-graf.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

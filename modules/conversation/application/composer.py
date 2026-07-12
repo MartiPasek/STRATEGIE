@@ -4084,3 +4084,231 @@ def compare_composer_static(conversation_id: int, graf_kod: str = "marti-ai-md5"
         "new_context": (new_static[max(0, (first_diff or 0) - 80):(first_diff or 0) + 80]
                         if not identical else None),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G2007 · STÍNOVÝ COMPOSER — ŽIVÝ SUFFIX (full převzetí) 12.7.2026
+# ═══════════════════════════════════════════════════════════════════════════
+# 13 dynamických kroků (poradi 110-230) — 1:1 replikace call-sites v
+# build_prompt() pod CACHE_BREAKPOINT_MARKER. Read-only, dormant.
+
+def _g2007_dynamic_resolvers(conversation_id: int, user_id, tenant_id) -> dict:
+    """dict kod->callable(); každý vrací plně zabalený živý blok nebo None.
+    1:1 replikace build_prompt() pod markerem (vč. labelů/podmínek/personal
+    mode/try-except)."""
+    _mode = _get_persona_mode(conversation_id)
+    _is_personal = (_mode == "personal")
+
+    def _aktualni_cas():
+        try:
+            b = _build_current_time_block()
+            return f"[AKTUÁLNÍ ČAS]\n{b}"
+        except Exception as e:
+            logger.warning(f"[G2007][AKTUÁLNÍ ČAS] block failed: {e}")
+            return None
+
+    def _stav_pameti():
+        try:
+            b = _build_memory_state_block(conversation_id)
+            return f"[STAV PAMĚTI A ZDROJE]\n{b}" if b else None
+        except Exception as e:
+            logger.warning(f"[G2007][STAV PAMĚTI A ZDROJE] block failed: {e}")
+            return None
+
+    def _eurosoft_mcp():
+        try:
+            b = _build_eurosoft_mcp_summary_block()
+            return f"[EUROSOFT MCP dnes]\n{b}" if b else None
+        except Exception as e:
+            logger.warning(f"[G2007][EUROSOFT MCP dnes] block failed: {e}")
+            return None
+
+    def _zapisnicek():
+        try:
+            p = _get_active_persona_id(conversation_id)
+            b = _build_notebook_block(conversation_id, p)
+            return f"[ZÁPISNÍČEK pro konverzaci #{conversation_id}]\n{b}" if b else None
+        except Exception as e:
+            logger.warning(f"[G2007][ZÁPISNÍČEK] block failed: {e}")
+            return None
+
+    def _kontext_projektu():
+        try:
+            b = _build_project_context_block(conversation_id)
+            return b or None
+        except Exception as e:
+            logger.warning(f"[G2007][project context] block failed: {e}")
+            return None
+
+    def _inbox_dokumenty():
+        if _is_personal:
+            return None
+        try:
+            b = _build_inbox_documents_block(user_id, tenant_id)
+            return b or None
+        except Exception as e:
+            logger.warning(f"[G2007][inbox docs] block failed: {e}")
+            return None
+
+    def _rag_pamet():
+        try:
+            b = _build_rag_memory_block(
+                conversation_id=conversation_id,
+                persona_id=_get_active_persona_id(conversation_id),
+                user_id=user_id,
+                tenant_id=tenant_id,
+            )
+            if b:
+                return f"[VYBAVUJEŠ SI:]\n{b}"
+            return (
+                "[VYBAVUJEŠ SI:]\n"
+                "(K této konkrétní zprávě se nevybavila žádná konkrétní vzpomínka. "
+                "Tvá paměť ale obsahuje thoughts/diáře — můžeš je vyhledat tool "
+                "calls `recall_thoughts` (semanticky) nebo `read_diary` (osobní deník) "
+                "kdykoli potřebuješ něco konkrétního zjistit.)"
+            )
+        except Exception:
+            return (
+                "[VYBAVUJEŠ SI:]\n"
+                "(Paměť momentálně neodpovídá -- pouzij tool `recall_thoughts` nebo "
+                "`read_diary` pro přístup ke svým záznamům.)"
+            )
+
+    def _personal_overlay():
+        if _is_personal:
+            return _build_personal_mode_overlay()
+        return None
+
+    def _dneska():
+        if _is_personal:
+            return None
+        try:
+            b = _build_today_block(conversation_id)
+            return b or None
+        except Exception as e:
+            logger.warning(f"[G2007][DNESKA] block failed: {e}")
+            return None
+
+    def _auto_consent():
+        if _is_personal:
+            return None
+        try:
+            b = _build_auto_consent_block(conversation_id)
+            return b or None
+        except Exception as e:
+            logger.warning(f"[G2007][auto-consent] block failed: {e}")
+            return None
+
+    def _md1_zapisnik():
+        b = _build_md1_block(conversation_id)
+        if not b:
+            return None
+        return (
+            "[TVŮJ md1 ZÁPISNÍK PRO TOHOTO UŽIVATELE]\n"
+            f"{b}\n"
+            "[INSTRUKCE pro md1: Toto je tvuj zapisnik o tomto uzivateli, "
+            "cross-konverzacni. Pouzij fakta plynně, NIKDY neopisuj md1 "
+            "obsah verbatim do chatu. Po dnesni konverzaci aktualizuj přes "
+            "update_my_md tool (delta zapis, ne přepis). Kvalita "
+            "pritomnosti -- pokud user prijde po pauze, prečti sekci 'Tón "
+            "/ Citlivost' a otázka přítomnosti první, pak teprve task.]"
+        )
+
+    def _orchestrate():
+        o = _build_orchestrate_block(conversation_id)
+        return f"[ORCHESTRATE MODE (aplikuj po tool_use)]\n{o}" if o else None
+
+    def _pack_overlay():
+        ov = _build_pack_overlay_block(conversation_id)
+        return f"[AKTIVNI PACK OVERLAY]\n{ov}" if ov else None
+
+    return {
+        "aktualni_cas": _aktualni_cas,
+        "stav_pameti": _stav_pameti,
+        "eurosoft_mcp": _eurosoft_mcp,
+        "zapisnicek": _zapisnicek,
+        "kontext_projektu": _kontext_projektu,
+        "inbox_dokumenty": _inbox_dokumenty,
+        "rag_pamet": _rag_pamet,
+        "personal_overlay": _personal_overlay,
+        "dneska": _dneska,
+        "auto_consent": _auto_consent,
+        "md1_zapisnik": _md1_zapisnik,
+        "orchestrate": _orchestrate,
+        "pack_overlay": _pack_overlay,
+    }
+
+
+def _g2007_read_kroky(graf_kod: str, vrstva: str) -> list:
+    """Přečte kody kroků dané vrstvy, ORDER BY poradi. Read-only."""
+    from core.database import get_session
+    from sqlalchemy import text as _sql_text
+    s = get_session()
+    try:
+        rows = s.execute(_sql_text(
+            "SELECT k.kod FROM g2007.graf_krok k "
+            "JOIN g2007.graf g ON g.id = k.graf_id "
+            "WHERE g.kod = :gk AND k.vrstva = :vr "
+            "ORDER BY k.poradi"
+        ), {"gk": graf_kod, "vr": vrstva}).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        s.close()
+
+
+def build_prompt_g2007_full(conversation_id: int, graf_kod: str = "marti-ai-md5") -> str:
+    """STÍNOVÝ composer — CELÝ prompt (trvalý prefix + živý suffix), řízený
+    mapou g2007.graf_krok. Volá stejné resolvery 1:1 jako build_prompt().
+    Read-only, dormant. Odpovídá system_prompt návratu build_prompt()."""
+    user_id, tenant_id = _get_conversation_context(conversation_id)
+    static_prefix = build_prompt_g2007_static(conversation_id, graf_kod)
+    dyn = _g2007_dynamic_resolvers(conversation_id, user_id, tenant_id)
+    zive = _g2007_read_kroky(graf_kod, "zive")
+    parts = [static_prefix]
+    for kod in zive:
+        fn = dyn.get(kod)
+        if fn is None:
+            logger.warning(f"[G2007] živý krok bez resolveru (přeskočen): {kod}")
+            continue
+        b = fn()
+        if b:
+            parts.append(b)
+    return "\n\n".join(parts)
+
+
+def compare_composer_full(conversation_id: int, graf_kod: str = "marti-ai-md5") -> dict:
+    """Read-only porovnání CELÉHO promptu: starý build_prompt() vs nový
+    build_prompt_g2007_full(). Chytré: neutralizuje tikot hodin v
+    [AKTUÁLNÍ ČAS] (jednořádkový). raw_identical = i s hodinami;
+    identical_bez_hodin = po normalizaci času. Nic nepřepíná."""
+    import re
+    old_full, _ = build_prompt(conversation_id)
+    new_full = build_prompt_g2007_full(conversation_id, graf_kod)
+
+    def _norm(s: str) -> str:
+        return re.sub(r"\[AKTUÁLNÍ ČAS\]\n[^\n]*", "[AKTUÁLNÍ ČAS]\n<ČAS>", s)
+
+    raw_identical = old_full == new_full
+    no, nn = _norm(old_full), _norm(new_full)
+    norm_identical = no == nn
+    first_diff = None
+    if not norm_identical:
+        m = min(len(no), len(nn))
+        first_diff = m
+        for i in range(m):
+            if no[i] != nn[i]:
+                first_diff = i
+                break
+    return {
+        "conversation_id": conversation_id,
+        "graf": graf_kod,
+        "raw_identical": raw_identical,
+        "identical_bez_hodin": norm_identical,
+        "old_len": len(old_full),
+        "new_len": len(new_full),
+        "first_diff_index": first_diff,
+        "old_context": (no[max(0, (first_diff or 0) - 100):(first_diff or 0) + 100]
+                        if not norm_identical else None),
+        "new_context": (nn[max(0, (first_diff or 0) - 100):(first_diff or 0) + 100]
+                        if not norm_identical else None),
+    }

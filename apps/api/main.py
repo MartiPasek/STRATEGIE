@@ -1434,6 +1434,18 @@ def g2007_compare(conversation_id: int, graf: str = "marti-ai-md5"):
         return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
 
 
+@app.get("/g2007/compare-full")
+def g2007_compare_full(conversation_id: int, graf: str = "marti-ai-md5"):
+    """G2007 stinovy composer -- READ-ONLY porovnani CELEHO promptu (prefix +
+    zivy suffix) stareho build_prompt() vs build_prompt_g2007_full(). Chytre:
+    neutralizuje tikot hodin. NIC NEPREPINA. Marti 12.7.2026."""
+    from modules.conversation.application.composer import compare_composer_full
+    try:
+        return compare_composer_full(conversation_id, graf)
+    except Exception as e:
+        return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

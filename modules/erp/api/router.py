@@ -32661,7 +32661,7 @@ def platby_faktury_get(req: Request):
             "  (CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) castka, " + _open + " open_saldo, "
             "  (p.splatnost::date - now()::date) dni, "
             "  p.rada, p.poradove_cislo, COALESCE(p.realizovano,0) realizovano, COALESCE(p.uctovano,0) uctovano, "
-            "  COALESCE(p.fin_schvaleni,0) schvaleno, COALESCE(p.fin_zakaz,0) zakaz, COALESCE(p.navrh_platby,0) navrh, "
+            "  p.fin_schvaleni schvaleno, p.fin_zakaz zakaz, p.navrh_platby navrh, "
             "  COALESCE(p.uziv_ok,0) uziv_ok, p.suma_uhrad, "
             "  to_char(NULLIF(p.dat_uhrady,'')::date,'DD.MM.YYYY') dat_uhrady, "
             "  EXISTS(SELECT 1 FROM tenant.platak_uhrada_lock l WHERE l.id_fak=p.id) v_plataku, "

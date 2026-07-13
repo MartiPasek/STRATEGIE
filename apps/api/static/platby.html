@@ -535,7 +535,7 @@ function _faktMatch(p){
     if(c.t==='date')continue;
     if(fv==null||fv==='')continue;
     if(c.t==='b'){if(!!p[c.k]!==(fv==='1'))return false;}
-    else{var val=(p[c.k]==null?'':(''+p[c.k])).toLowerCase();if(val.indexOf((''+fv).toLowerCase())<0)return false;}}
+    else{var val=(p[c.k]==null?'':(''+p[c.k])).toLowerCase().replace(/,/g,'.');if(val.indexOf((''+fv).toLowerCase().replace(/,/g,'.'))<0)return false;}}
   var _od=_fCol['splatnost_od'],_do=_fCol['splatnost_do'];
   if(_od||_do){var dn=_dnum(p.splatnost);if(dn===null)return false;
     if(_od){var o=_inum(_od);if(o!==null&&dn<o)return false;}

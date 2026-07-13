@@ -191,7 +191,7 @@ _NAVRH_SQL = (
     "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
     "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
     "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
-    "  AND p.splatnost::date <= :cutoff "
+    "  {selcond} "
     "  AND ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) > 0.5 "
     "{ffilter}{mfilter} ORDER BY p.mena, p.splatnost"
 )
@@ -207,13 +207,25 @@ def _parse_cutoff(v):
     return _dt.date.today() + _dt.timedelta(days=7)
 
 
-def _build_groups(s, firma, mena_f, cutoff=None):
+def _build_groups(s, firma, mena_f, cutoff=None, manual=False):
     """Návrh → účty z DB_EC → verdikt (jen varuje) → payment-day. Vrací
-    (groups, meta). cutoff = posledni datum splatnosti (Peta: 'splatnost do'). NIC nezapisuje."""
+    (groups, meta). cutoff = posledni datum splatnosti (Peta: 'splatnost do'). NIC nezapisuje.
+    manual=True: bere JEN faktury ručně označené v tenant.platak_navrh (bez ohledu na datum
+    splatnosti) — ruční výběr Peti. Jinak (auto) bere vše se splatností <= cutoff."""
     from sqlalchemy import text as _t
     if cutoff is None:
         cutoff = _dt.date.today() + _dt.timedelta(days=7)
-    params = {"cutoff": cutoff}
+    if manual:
+        # ruční výběr: plať vše označené → aby it["plati"] bylo vždy True, posuň cutoff daleko
+        cutoff = _dt.date(9999, 12, 31)
+        s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
+                     "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
+        s.commit()
+        selcond = "AND EXISTS (SELECT 1 FROM tenant.platak_navrh n WHERE n.id_fak = p.id)"
+        params = {}
+    else:
+        selcond = "AND p.splatnost::date <= :cutoff"
+        params = {"cutoff": cutoff}
     ffilter = ""
     if firma in ("1", "2"):
         params["ff"] = int(firma)
@@ -222,7 +234,7 @@ def _build_groups(s, firma, mena_f, cutoff=None):
     if mena_f in ("CZK", "EUR"):
         params["mm"] = mena_f
         mfilter = " AND p.mena = :mm "
-    sql = _NAVRH_SQL.replace("{ffilter}", ffilter).replace("{mfilter}", mfilter)
+    sql = _NAVRH_SQL.replace("{selcond}", selcond).replace("{ffilter}", ffilter).replace("{mfilter}", mfilter)
     rows = s.execute(_t(sql), params).fetchall()
 
     navrh = []
@@ -357,6 +369,54 @@ def _target(firma, mena, dnes, now):
     return abs_dir, fn
 
 
+def _write_platak(s, uid, frm, mena, gen, meta):
+    """Vygeneruj JEDEN platák (firma+měna) ze seznamu položek `gen` (už vyfiltrované
+    'platí teď' s účtem). Render → zápis .p11/.f84 na disk + úhradový zámek + hlavička.
+    Po úspěchu smaže vygenerované faktury z tenant.platak_navrh (ruční příznak už netřeba).
+    Vrací výsledkový dict. Chybu vyvolá výjimkou (volající řeší rollback/HTTP)."""
+    from sqlalchemy import text as _t
+    lines = []
+    for i, it in enumerate(gen, start=1):
+        ln = _render_item(it, i, meta)
+        if ln is None:
+            raise RuntimeError("Render selhal u dokladu %s." % it["doklad"])
+        lines.append(ln)
+    content = b"".join(ln.encode("cp1250") + b"\r\n" for ln in lines)
+    b64c = _b64.b64encode(content).decode("ascii")
+    suma = round(sum(it.get("castka_platba", it["castka"]) for it in gen), 2)
+
+    now = _dt.datetime.now()
+    abs_dir, fn = _target(frm, mena, meta["dnes"], now)
+    typ = "tuz" if mena == "CZK" else "zahr"
+
+    pid = s.execute(_t(
+        "INSERT INTO tenant.bank_platak (firma, typ, mena, nas_ucet, datum_vytvoreni, "
+        "  datum_splatnosti, pocet_polozek, suma, stav, vytvoril_user_id) "
+        "VALUES (:firma, :typ, :mena, :nas, CURRENT_DATE, CURRENT_DATE, :pocet, :suma, "
+        "  'vygenerovano', :uid) RETURNING id"),
+        {"firma": frm, "typ": typ, "mena": mena, "nas": _NAS_UCET.get(frm, ""),
+         "pocet": len(gen), "suma": suma, "uid": int(uid)}).scalar()
+    s.flush()
+    _mcp_file_write(abs_dir, fn, b64c)   # zápis na disk (když spadne → rollback)
+    for it in gen:
+        s.execute(_t(
+            "INSERT INTO tenant.platak_uhrada_lock (firma, id_fak, castka, mena, doklad_vs, "
+            "  dodavatel, splatnost, platak_id) "
+            "VALUES (:firma, :idf, :castka, :mena, :vs, :dod, :splat, :pid)"),
+            {"firma": frm, "idf": it["id_fak"], "castka": it["castka"], "mena": mena,
+             "vs": (it["vs"] or it["doklad"])[:60], "dod": (it["dodavatel"] or "")[:120],
+             "splat": it["splat_d"], "pid": pid})
+    # po vygenerování už ruční příznak Návrh netřeba (faktura je v platáku/zamčená)
+    _gids = [it["id_fak"] for it in gen]
+    if _gids:
+        s.execute(_t("DELETE FROM tenant.platak_navrh WHERE id_fak = ANY(:ids)"), {"ids": _gids})
+    s.execute(_t("UPDATE tenant.bank_platak SET soubor_nazev=:fn, soubor_cesta=:cesta WHERE id=:pid"),
+              {"fn": fn, "cesta": abs_dir + "\\", "pid": pid})
+    s.commit()
+    return {"platak_id": int(pid), "firma": frm, "firma_kod": _FIRMA_KOD.get(frm, "?"),
+            "mena": mena, "soubor": fn, "cesta": abs_dir + "\\", "pocet": len(gen), "suma": suma}
+
+
 # ------------------------------------------------------------------ endpointy
 @api_router.get("/app/platby/platak/preview")
 def platak_preview(req: Request):
@@ -370,7 +430,8 @@ def platak_preview(req: Request):
         firma = (req.query_params.get("firma") or "all").strip()
         mena_f = (req.query_params.get("mena") or "all").strip().upper()
         cutoff = _parse_cutoff(req.query_params.get("splatnost_do"))
-        buckets, meta = _build_groups(s, firma, mena_f, cutoff)
+        manual = (req.query_params.get("rezim") or "").strip().lower() == "navrh"
+        buckets, meta = _build_groups(s, firma, mena_f, cutoff, manual=manual)
         if not buckets:
             return {"ok": True, "skupiny": [], "pocet": 0,
                     "dnes": meta["dnes"].strftime("%d.%m.%Y"),
@@ -427,11 +488,12 @@ async def platak_commit(req: Request):
         firma = str((b or {}).get("firma") or "").strip()
         mena = str((b or {}).get("mena") or "").strip().upper()
         cutoff = _parse_cutoff((b or {}).get("splatnost_do"))
+        manual = str((b or {}).get("rezim") or "").strip().lower() == "navrh"
         if firma not in ("1", "2") or mena not in ("CZK", "EUR"):
             return JSONResponse({"ok": False, "error": "Zadej firmu (1/2) a měnu (CZK/EUR)."}, status_code=400)
         frm = int(firma)
 
-        buckets, meta = _build_groups(s, firma, mena, cutoff)
+        buckets, meta = _build_groups(s, firma, mena, cutoff, manual=manual)
         if meta["ec_err"]:
             return JSONResponse({"ok": False, "error": "Účty z DB_EC se nenačetly: " + meta["ec_err"]}, status_code=502)
         items = buckets.get((frm, mena), [])
@@ -451,50 +513,64 @@ async def platak_commit(req: Request):
         if not gen:
             return JSONResponse({"ok": False, "error": "Není co vygenerovat (žádná faktura 'platí teď' s účtem)."}, status_code=400)
 
-        # render souboru (kontinuální pořadí)
-        lines = []
-        for i, it in enumerate(gen, start=1):
-            ln = _render_item(it, i, meta)
-            if ln is None:
-                return JSONResponse({"ok": False, "error": "Render selhal u dokladu %s." % it["doklad"]}, status_code=500)
-            lines.append(ln)
-        content = b"".join(ln.encode("cp1250") + b"\r\n" for ln in lines)
-        b64c = _b64.b64encode(content).decode("ascii")
-        suma = round(sum(it.get("castka_platba", it["castka"]) for it in gen), 2)
-
-        now = _dt.datetime.now()
-        abs_dir, fn = _target(frm, mena, meta["dnes"], now)
-        typ = "tuz" if mena == "CZK" else "zahr"
-
         # 1) hlavička (flush pro id), 2) zápis souboru, 3) zámky + doplň soubor, commit.
         try:
-            pid = s.execute(_t(
-                "INSERT INTO tenant.bank_platak (firma, typ, mena, nas_ucet, datum_vytvoreni, "
-                "  datum_splatnosti, pocet_polozek, suma, stav, vytvoril_user_id) "
-                "VALUES (:firma, :typ, :mena, :nas, CURRENT_DATE, CURRENT_DATE, :pocet, :suma, "
-                "  'vygenerovano', :uid) RETURNING id"),
-                {"firma": frm, "typ": typ, "mena": mena, "nas": _NAS_UCET.get(frm, ""),
-                 "pocet": len(gen), "suma": suma, "uid": int(uid)}).scalar()
-            s.flush()
-            _mcp_file_write(abs_dir, fn, b64c)   # zápis na disk (když spadne → rollback)
-            for it in gen:
-                s.execute(_t(
-                    "INSERT INTO tenant.platak_uhrada_lock (firma, id_fak, castka, mena, doklad_vs, "
-                    "  dodavatel, splatnost, platak_id) "
-                    "VALUES (:firma, :idf, :castka, :mena, :vs, :dod, :splat, :pid)"),
-                    {"firma": frm, "idf": it["id_fak"], "castka": it["castka"], "mena": mena,
-                     "vs": (it["vs"] or it["doklad"])[:60], "dod": (it["dodavatel"] or "")[:120],
-                     "splat": it["splat_d"], "pid": pid})
-            s.execute(_t("UPDATE tenant.bank_platak SET soubor_nazev=:fn, soubor_cesta=:cesta WHERE id=:pid"),
-                      {"fn": fn, "cesta": abs_dir + "\\", "pid": pid})
-            s.commit()
+            res = _write_platak(s, uid, frm, mena, gen, meta)
         except Exception as exc:
             s.rollback()
             return JSONResponse({"ok": False, "error": "Generování selhalo: " + str(exc)[:200]}, status_code=500)
 
-        return {"ok": True, "platak_id": int(pid), "firma_kod": _FIRMA_KOD.get(frm, "?"),
-                "mena": mena, "soubor": fn, "cesta": abs_dir + "\\", "pocet": len(gen), "suma": suma,
-                "zamek_uvolnitelny": len(gen), "odlozeno": len(skip_odloz), "bez_uctu": len(skip_chybi)}
+        res["ok"] = True
+        res["zamek_uvolnitelny"] = len(gen)
+        res["odlozeno"] = len(skip_odloz)
+        res["bez_uctu"] = len(skip_chybi)
+        return res
+    finally:
+        s.close()
+
+
+@api_router.post("/app/platby/platak/commit-vse")
+async def platak_commit_vse(req: Request):
+    """HROMADNĚ: vygeneruj platáky pro VŠECHNY skupiny (firma+měna) najednou z ručního
+    výběru (tenant.platak_navrh). Pro každou kombinaci firma+měna vznikne samostatný soubor
+    (.p11 CZK / .f84 EUR). Peta+Claude26 13.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        b = await req.json()
+        # hromadné = jen ruční režim (návrh); auto se generuje po firmě+měně jako dřív
+        manual = str((b or {}).get("rezim") or "navrh").strip().lower() == "navrh"
+        firma = str((b or {}).get("firma") or "all").strip()
+        cutoff = _parse_cutoff((b or {}).get("splatnost_do"))
+
+        buckets, meta = _build_groups(s, firma, "all", cutoff, manual=manual)
+        if meta["ec_err"]:
+            return JSONResponse({"ok": False, "error": "Účty z DB_EC se nenačetly: " + meta["ec_err"]}, status_code=502)
+
+        hotovo, chyby = [], []
+        odlozeno_c, bez_uctu_c = 0, 0
+        # deterministicky: podle firmy, pak měny
+        for (frm, mena), items in sorted(buckets.items(), key=lambda k: (k[0][0], k[0][1])):
+            gen = [it for it in items if it["plati"] and it["verdikt"] != "chybi"]
+            odlozeno_c += len([it for it in items if not it["plati"]])
+            bez_uctu_c += len([it for it in items if it["plati"] and it["verdikt"] == "chybi"])
+            if not gen:
+                continue
+            try:
+                res = _write_platak(s, uid, frm, mena, gen, meta)
+                hotovo.append(res)
+            except Exception as exc:
+                s.rollback()
+                chyby.append({"firma_kod": _FIRMA_KOD.get(frm, "?"), "mena": mena,
+                              "error": str(exc)[:200]})
+
+        if not hotovo and not chyby:
+            return JSONResponse({"ok": False, "error": "Není co vygenerovat — žádná faktura označená k platbě (Návrh) s účtem."}, status_code=400)
+        return {"ok": True, "plataky": hotovo, "pocet_souboru": len(hotovo),
+                "chyby": chyby, "odlozeno": odlozeno_c, "bez_uctu": bez_uctu_c}
     finally:
         s.close()
 

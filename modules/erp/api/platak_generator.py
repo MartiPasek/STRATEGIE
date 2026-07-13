@@ -186,7 +186,8 @@ _NAVRH_SQL = (
     "  COALESCE(p.var_symbol,'') vs, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
     "  p.splatnost::date splat_d, "
     "  ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) open_saldo, "
-    "  COALESCE(p.popis,'') popis, (CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END) AS ufirma "
+    "  COALESCE(p.popis,'') popis, (CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END) AS ufirma, "
+    "  p.skonto, p.skonto_do "
     "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
     "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
     "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
@@ -231,6 +232,8 @@ def _build_groups(s, firma, mena_f, cutoff=None):
             "vs": r[4] or "", "splatnost": r[5], "splat_d": r[6],
             "castka": round(float(r[7]), 2) if r[7] is not None else 0.0,
             "popis": (r[8] or "")[:70], "firma": int(r[9]) if r[9] is not None else 1,
+            "skonto": round(float(r[10]), 2) if r[10] is not None else 0.0,
+            "skonto_do": r[11],
         })
 
     dnes = _dt.date.today()
@@ -238,6 +241,19 @@ def _build_groups(s, firma, mena_f, cutoff=None):
     meta = {"dnes": dnes, "nextpd": nextpd, "cutoff": cutoff,
             "datum_vytv6": dnes.strftime("%y%m%d"), "datum_vytv8": dnes.strftime("%Y%m%d"),
             "datum_splat6": dnes.strftime("%y%m%d")}   # Peťa: splatnost VŽDY dnešní
+
+    # Skonto (Peta 13.7.): když dnes <= skonto_do, plať SNÍŽENOU částku (částka − skonto).
+    # Zámek drží PLNOU částku (saldo nevisí); Helios při zaúčtování výpisu doplní úhradu „Skonto".
+    for _it in navrh:
+        _sk = _it.get("skonto") or 0.0
+        _it["skonto_uplat"] = 0.0
+        if _sk and _it.get("skonto_do"):
+            try:
+                if dnes <= _dt.date.fromisoformat(str(_it["skonto_do"])[:10]):
+                    _it["skonto_uplat"] = round(float(_sk), 2)
+            except Exception:
+                pass
+        _it["castka_platba"] = round(float(_it["castka"]) - _it["skonto_uplat"], 2)
 
     # účty příjemců z DB_EC (bulk)
     ucty, ec_err = {}, None
@@ -311,7 +327,7 @@ def _render_item(it, porad, meta):
     nas = _NAS_UCET.get(it["firma"], "")
     if mena == "CZK":
         return render_tuz_line(
-            porad=porad, datum_vytv=meta["datum_vytv6"], castka=it["castka"], ks="", vs=it["vs"],
+            porad=porad, datum_vytv=meta["datum_vytv6"], castka=it.get("castka_platba", it["castka"]), ks="", vs=it["vs"],
             ss="", kod_ustavu_prij=_clean(acc.get("KodUstavu")), ucet_prij=_clean(acc.get("CisloUctu")),
             ucet_klient=nas, datum_splat=meta["datum_splat6"],
             ucel=(it["doklad"] + " " + it["dodavatel"]).strip())
@@ -319,7 +335,7 @@ def _render_item(it, porad, meta):
     zeme = _clean(acc.get("org_zeme")) or _clean(acc.get("CilovaZeme"))
     op_misto = (_clean(acc.get("org_psc")) + " " + _clean(acc.get("org_misto"))).strip()
     return render_zahr_line(
-        porad=porad, datum_vytv8=meta["datum_vytv8"], castka=it["castka"], mena="EUR",
+        porad=porad, datum_vytv8=meta["datum_vytv8"], castka=it.get("castka_platba", it["castka"]), mena="EUR",
         up_nazev=_clean(acc.get("NazevUstavu")), up_ulice="", up_misto="",
         zup_nazev=_clean(acc.get("zbu_nazev")), op_firma=_clean(acc.get("org_firma")),
         op_ulice=_clean(acc.get("org_ulice")) or _clean(acc.get("org_ulice2")),
@@ -444,7 +460,7 @@ async def platak_commit(req: Request):
             lines.append(ln)
         content = b"".join(ln.encode("cp1250") + b"\r\n" for ln in lines)
         b64c = _b64.b64encode(content).decode("ascii")
-        suma = round(sum(it["castka"] for it in gen), 2)
+        suma = round(sum(it.get("castka_platba", it["castka"]) for it in gen), 2)
 
         now = _dt.datetime.now()
         abs_dir, fn = _target(frm, mena, meta["dnes"], now)

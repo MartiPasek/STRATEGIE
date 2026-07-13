@@ -562,7 +562,16 @@ def _maybe_finalize(s, tid, cid):
                 _sig_bytes = base64.b64decode(_sb)
     except Exception:
         _sig_bytes = None
-    final_bytes = _build_final_pdf(bytes(orig) if orig else b"", e, parties, _sig_bytes) if orig else None
+    # Kristý 13.7.2026: pokud originál UŽ obsahuje kryptografický podpis (protistrany),
+    # NErozbíjet ho slepením přes pypdf (full-rewrite = ztráta platnosti). Originál necháme
+    # beze změny jako finální podepsané PDF a doložku SES přiložíme ZVLÁŠŤ (2. příloha e-mailu).
+    _orig_signed = _pdf_is_signed(orig) if orig else False
+    _dolozka_bytes = None
+    if orig and _orig_signed:
+        final_bytes = bytes(orig)
+        _dolozka_bytes = _render_dolozka(e, parties, _sig_bytes)
+    else:
+        final_bytes = _build_final_pdf(bytes(orig) if orig else b"", e, parties, _sig_bytes) if orig else None
     if final_bytes:
         s.execute(_t("UPDATE tenant.contract_sign SET stav='completed',pdf_final=:f,completed_at=now(),updated_at=now() "
                      "WHERE id=:c"), {"f": final_bytes, "c": cid})
@@ -591,31 +600,42 @@ def _maybe_finalize(s, tid, cid):
                 {"u": our_uid}).scalar()
             if oem:
                 emails.append(oem)
-        # finální PDF (s doložkou) → dokument → příloha e-mailu
+        # finální PDF (+ případně samostatná doložka) → dokument(y) → příloha(y) e-mailu
         doc_id = None
+        dol_id = None
         try:
+            from modules.rag.application.service import upload_document
             if final_bytes:
-                from modules.rag.application.service import upload_document
                 fn = ("Podepsano_" + (e["title"] or "smlouva"))[:120] + ".pdf"
                 doc_id = upload_document(file_bytes=final_bytes, filename=fn, tenant_id=tid,
                                         user_id=(our_uid or 1))
+            if _dolozka_bytes:
+                fnd = ("Podpisova_dolozka_" + (e["title"] or "smlouva"))[:110] + ".pdf"
+                dol_id = upload_document(file_bytes=_dolozka_bytes, filename=fnd, tenant_id=tid,
+                                        user_id=(our_uid or 1))
         except Exception:
-            doc_id = None
-        if doc_id:
-            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán"
-                    "(prostý el. podpis dle eIDAS + auditní stopa). V příloze najdete finální podepsané "
-                    "PDF s podpisovou doložkou (jména, časy, IP, otisk dokumentu). Tisk ani sken není potřeba.\n\n"
+            pass
+        _att = [x for x in (doc_id, dol_id) if x]
+        if _dolozka_bytes and doc_id:
+            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán (prostý el. podpis dle eIDAS "
+                    "+ auditní stopa). V příloze je podepsané PDF s platným podpisem druhé strany "
+                    "(ponecháno beze změny, aby jeho podpis zůstal platný) a samostatná podpisová doložka "
+                    "s auditní stopou (jména, časy, IP, otisk dokumentu). Tisk ani sken není potřeba.\n\n"
+                    "S pozdravem\n%s") % (e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
+        elif doc_id:
+            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán (prostý el. podpis dle eIDAS "
+                    "+ auditní stopa). V příloze najdete finální podepsané PDF s podpisovou doložkou "
+                    "(jména, časy, IP, otisk dokumentu). Tisk ani sken není potřeba.\n\n"
                     "S pozdravem\n%s") % (e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
         else:
-            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán"
-                    "(prostý el. podpis dle eIDAS + auditní stopa). Finální podepsané PDF s podpisovou "
-                    "doložkou je k dispozici přes odkaz, který jsme Vám k podpisu zaslali.\n\nS pozdravem\n%s") % (
-                        e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
+            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán (prostý el. podpis dle eIDAS "
+                    "+ auditní stopa). Finální podepsané PDF je k dispozici přes odkaz, který jsme Vám "
+                    "k podpisu zaslali.\n\nS pozdravem\n%s") % (e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
         for em in set(emails):
             try:
                 queue_email(to=em, subject="Podepsáno: %s" % e["title"], body=body,
                             persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request",
-                            attachment_document_ids=([doc_id] if doc_id else None))
+                            attachment_document_ids=(_att or None))
             except Exception:
                 pass
     except Exception:
@@ -651,7 +671,11 @@ async def sign_regenerate(cid: int, req: Request):
                     _sig_bytes = base64.b64decode(_sb)
         except Exception:
             _sig_bytes = None
-        final_bytes = _build_final_pdf(bytes(orig), e, parties, _sig_bytes)
+        # Kristý 13.7.2026: podepsaný originál nepřepisovat (zneplatnil by se podpis protistrany).
+        if _pdf_is_signed(orig):
+            final_bytes = bytes(orig)
+        else:
+            final_bytes = _build_final_pdf(bytes(orig), e, parties, _sig_bytes)
         if not final_bytes:
             return JSONResponse({"ok": False, "error": "render doložky selhal"}, status_code=500)
         s.execute(_t("UPDATE tenant.contract_sign SET pdf_final=:f,updated_at=now() WHERE id=:c"),
@@ -708,8 +732,120 @@ async def sign_regenerate(cid: int, req: Request):
         s.close()
 
 
+def _pdf_is_signed(raw):
+    """True, když PDF už obsahuje digitální (kryptografický) podpis — pak se k němu NESMÍ
+    sáhnout přepisem (full-rewrite přes pypdf by ho zneplatnil). (Kristý 13.7.2026)"""
+    try:
+        b = bytes(raw) if raw is not None else b""
+    except Exception:
+        return False
+    return (b"/ByteRange" in b) and (b"adbe.pkcs7" in b or b"ETSI." in b or b"/Sig" in b)
+
+
+def _render_dolozka(e, parties, sig_png_bytes=None):
+    """SAMOSTATNÉ PDF podpisové doložky (bytes) — pro případ, kdy originál už podpis MÁ a
+    nesmí se přepsat: doložku pak přikládáme zvlášť. Kreslení = kopie z _build_final_pdf
+    (záměrně, ať se nesahá do funkční slepovací cesty). (Kristý 13.7.2026)"""
+    try:
+        import io
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+    except Exception:
+        return None
+    try:
+        FN, FB, FI = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+        try:
+            import os as _os
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            from modules.erp.api.doc_templates import _font_files as _ff
+            if "CzSans" not in set(pdfmetrics.getRegisteredFontNames()):
+                _n, _b = _ff()
+                if _n:
+                    pdfmetrics.registerFont(TTFont("CzSans", _n))
+                    pdfmetrics.registerFont(TTFont("CzSans-Bold", _b or _n))
+                    _it = _n
+                    for _c in (_n.replace("DejaVuSans.ttf", "DejaVuSans-Oblique.ttf"),
+                               _n.replace("verdana.ttf", "verdanai.ttf"),
+                               _n.replace("arial.ttf", "ariali.ttf")):
+                        if _c != _n and _os.path.exists(_c):
+                            _it = _c
+                            break
+                    pdfmetrics.registerFont(TTFont("CzSans-It", _it))
+            if "CzSans" in set(pdfmetrics.getRegisteredFontNames()):
+                FN, FB, FI = "CzSans", "CzSans-Bold", "CzSans-It"
+        except Exception:
+            pass
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf, pagesize=A4)
+        W, H = A4
+        y = H - 30 * mm
+        c.setFont(FB, 15)
+        c.drawString(25 * mm, y, "Podpisová doložka — elektronické podepsání")
+        y -= 10 * mm
+        c.setFont(FN, 10)
+        def line(txt, dy=6.2 * mm, bold=False):
+            nonlocal y
+            c.setFont(FB if bold else FN, 10)
+            for chunk in _wrap(txt, 95):
+                c.drawString(25 * mm, y, chunk); y -= dy
+        line("Dokument: %s" % (e["title"] or ""), bold=True)
+        line("SHA-256 dokumentu: %s" % (e["doc_sha256"] or ""))
+        line("")
+        line("Podpisy (prostý elektronický podpis dle eIDAS, SES):", bold=True)
+        for p in parties:
+            role = "Za %s" % (e["our_party"] or "nás") if p["role"] == "internal" else "Protistrana"
+            sat = p["signed_at"].strftime("%d.%m.%Y %H:%M:%S") if p["signed_at"] else "?"
+            line("• %s: %s" % (role, p["jmeno"] or ""))
+            line("   podepsáno %s, IP %s" % (sat, p["signed_ip"] or "?"))
+            if p["email"]:
+                line("   e-mail: %s" % p["email"])
+        line("")
+        if sig_png_bytes:
+            try:
+                line("Podpis za %s:" % (e["our_party"] or "nás"), bold=True)
+                sig = ImageReader(io.BytesIO(sig_png_bytes))
+                iw, ih = sig.getSize()
+                dispw = 55 * mm
+                disph = dispw * ih / float(iw)
+                c.drawImage(sig, 25 * mm, y - disph, width=dispw, height=disph,
+                            mask="auto", preserveAspectRatio=True)
+                c.line(25 * mm, y - disph - 1 * mm, 25 * mm + dispw, y - disph - 1 * mm)
+                y = y - disph - 8 * mm
+            except Exception:
+                pass
+        _cp = next((q for q in parties if q.get("role") != "internal" and q.get("signed")), None)
+        if _cp:
+            _csat = _cp["signed_at"].strftime("%d.%m.%Y %H:%M:%S") if _cp.get("signed_at") else "?"
+            _cpnm = (_cp.get("jmeno") or "").strip()
+            line("Podpis za protistranu%s:" % ((" — " + _cpnm) if _cpnm else ""), bold=True)
+            line("   elektronicky (SES) podepsáno %s" % _csat)
+            _cptail = "   IP %s" % (_cp.get("signed_ip") or "?")
+            if _cp.get("email"):
+                _cptail += ", e-mail %s" % _cp["email"]
+            line(_cptail)
+            try:
+                c.line(25 * mm, y + 3 * mm, 25 * mm + 55 * mm, y + 3 * mm)
+            except Exception:
+                pass
+            y -= 5 * mm
+        line("Tato doložka je auditní stopou elektronického podpisu. Obě strany vyjádřily")
+        line("souhlas s elektronickým podepsáním. Integritu dokumentu ověřuje SHA-256 otisk výše.")
+        c.setFont(FI, 8)
+        c.drawString(25 * mm, 15 * mm, "Vygenerováno systémem STRATEGIE dne %s" % datetime.now().strftime("%d.%m.%Y %H:%M"))
+        c.showPage(); c.save()
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
 def _build_final_pdf(orig_bytes, e, parties, sig_png_bytes=None):
-    """Sestaví finální PDF (bytes): originál + podpisová doložka (+ obrázek podpisu). Vrací bytes nebo None."""
+    """Sestaví finální PDF (bytes): originál + podpisová doložka (+ obrázek podpisu). Vrací bytes nebo None.
+    POZOR: full-rewrite (pypdf) → JEN na originál BEZ existujícího podpisu (jinak _maybe_finalize
+    přikládá doložku zvlášť, ať nezneplatní kryptografický podpis protistrany)."""
     try:
         import io
         from reportlab.lib.pagesizes import A4

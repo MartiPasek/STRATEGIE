@@ -32659,16 +32659,31 @@ def platby_faktury_get(req: Request):
             "SELECT p.doklad, " + _uf + " ufirma, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
             "  COALESCE(p.var_symbol,'') vs, p.mena, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
             "  (CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) castka, " + _open + " open_saldo, "
-            "  (p.splatnost::date - now()::date) dni " + base +
+            "  (p.splatnost::date - now()::date) dni, "
+            "  p.rada, p.poradove_cislo, COALESCE(p.realizovano,0) realizovano, COALESCE(p.uctovano,0) uctovano, "
+            "  COALESCE(p.fin_schvaleni,0) schvaleno, COALESCE(p.fin_zakaz,0) zakaz, COALESCE(p.navrh_platby,0) navrh, "
+            "  COALESCE(p.uziv_ok,0) uziv_ok, p.suma_uhrad, "
+            "  to_char(NULLIF(p.dat_uhrady,'')::date,'DD.MM.YYYY') dat_uhrady, "
+            "  EXISTS(SELECT 1 FROM tenant.platak_uhrada_lock l WHERE l.id_fak=p.id) v_plataku, "
+            "  EXISTS(SELECT 1 FROM tenant.bank_transaction_raw t WHERE t.par_metoda='platak' AND t.par_doklad_id=p.id) bank_vypis "
+            + base +
             " ORDER BY p.splatnost::date DESC NULLS LAST, p.id DESC LIMIT 1000"), params).fetchall()
         out = []
         for r in rows:
             sal = float(r[7]) if r[7] is not None else 0.0
+            vp = bool(r[19]); bv = bool(r[20])
             out.append({"doklad": r[0] or "", "firma": int(r[1]), "dodavatel": r[2] or "",
                         "vs": r[3] or "", "mena": r[4] or "CZK", "splatnost": r[5],
                         "castka": round(float(r[6]), 2) if r[6] is not None else 0.0,
                         "saldo": round(sal, 2), "dni": int(r[8]) if r[8] is not None else None,
-                        "zaplaceno": sal <= 0.5})
+                        "zaplaceno": sal <= 0.5,
+                        "rada": r[9] or "", "por_cislo": r[10],
+                        "realizovano": bool(r[11]), "uctovano": bool(r[12]), "schvaleno": bool(r[13]),
+                        "zakaz": bool(r[14]), "navrh": bool(r[15]), "uziv_ok": bool(r[16]),
+                        "suma_uhrad": round(float(r[17]), 2) if r[17] is not None else 0.0,
+                        "dat_uhrady": r[18] or "", "v_plataku": vp, "bank_vypis": bv,
+                        "banka_export": vp, "ceka_vypis": (vp and not bv),
+                        "skonto": "", "skonto_do": ""})
         agg = s.execute(_t("SELECT p.mena, count(*) n, SUM(" + _open + ") open_sum " + base + " GROUP BY p.mena"),
                         params).fetchall()
         sums = {row[0]: {"pocet": int(row[1]), "otevreno": round(float(row[2] or 0), 2)} for row in agg}

@@ -214,6 +214,16 @@ function commitPlatak(firma,mena,btn){
       else{btn.disabled=false;btn.textContent='✅ Vygenerovat platák';window.alert('Nepovedlo se: '+((d&&d.error)||'chyba'));}
     }).catch(function(){btn.disabled=false;btn.textContent='✅ Vygenerovat platák';window.alert('Chyba generování.');});
 }
+function commitPlatakOne(firma,mena,idf,btn){
+  if(!window.confirm('ZKOUŠKA: vygenerovat platák jen s TOUTO jednou fakturou?\nZapíše soubor na disk a zamkne jen tuto fakturu. Jde hned smazat (🗑 výše).'))return;
+  btn.disabled=true;var _t=btn.textContent;btn.textContent='generuji…';
+  fetch('/api/v1/erp/app/platby/platak/commit',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({firma:firma,mena:mena,splatnost_do:_nfSplatDo,only_id:idf})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){window.alert('✅ Zkušební platák: '+d.pocet+' platba · '+money(d.suma,d.mena)+'\n'+d.cesta+d.soubor+'\n\nOtevři detail (klik na název souboru) a zkontroluj v obsahu pole 01EUR.');openPlatakReload();}
+      else{btn.disabled=false;btn.textContent=_t;window.alert('Nepovedlo se: '+((d&&d.error)||'chyba'));}
+    }).catch(function(){btn.disabled=false;btn.textContent=_t;window.alert('Chyba generování.');});
+}
 function closeDetail(){document.getElementById('platakDetailOv').classList.remove('on');}
 function openDetail(id){
   document.getElementById('platakDetailOv').classList.add('on');
@@ -297,7 +307,7 @@ function renderPlatak(d){
         '<td class="mono" style="color:var(--ink)">'+esc(p.ucet||'—')+'</td>'+
         '<td>'+esc(p.splatnost)+'</td>'+
         '<td'+warnTitle+'>'+verdiktPill(p.verdikt)+'</td>'+
-        '<td>'+(p.plati?'<span class="pill ok">platí</span>':'<span class="pill" style="background:#26303f;color:#8ea3bd">odloží</span>')+'</td>'+
+        '<td>'+(p.plati?'<span class="pill ok">platí</span>':'<span class="pill" style="background:#26303f;color:#8ea3bd">odloží</span>')+((p.plati&&p.verdikt!=='chybi')?' <button class="btn" style="padding:2px 8px;font-size:11px;border-color:#3a5a8c;background:#12233f;color:#bcd6ff" onclick="commitPlatakOne('+g.firma+',\''+g.mena+'\','+p.id_fak+',this)">🔬 zkouška</button>':'')+'</td>'+
         '<td class="r money">'+money(p.castka,g.mena)+'</td></tr>';
     });
     h+='</tbody></table></div>';
@@ -508,15 +518,28 @@ function renderFaktury(){
   var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+_ftotal+' faktur'+cap+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   if(!_faktury.length){h+='<div class="load" style="padding:16px">Žádné faktury pro tento filtr.</div></div>';b.innerHTML=h;bindFaktChips();return;}
-  h+='<table><thead><tr><th>Doklad</th><th></th><th>Dodavatel</th><th>VS</th><th>Splatnost</th><th>Stav</th><th class="r">Částka</th><th class="r">Otevřeno</th></tr></thead><tbody>';
+  h+='<div style="overflow-x:auto"><table><thead><tr>'+
+    '<th>Real.</th><th>Účt.</th><th>Schv.</th><th>Zákaz</th><th>Řada</th><th>Doklad</th><th></th><th>VS</th><th>Dodavatel</th>'+
+    '<th>Splatnost</th><th class="r">Částka</th><th>Měna</th><th>Návrh</th><th class="r">Saldo</th>'+
+    '<th>Skonto</th><th>Skonto do</th><th>Dat.úhrady</th><th>V platáku</th><th class="r">Uhrazeno</th>'+
+    '<th>Export</th><th>Čeká výpis</th><th>Bank.výpis</th><th>Uživ.OK</th>'+
+    '</tr></thead><tbody>';
+  var _ck=function(v){return v?'<span style="color:#3fb950;font-weight:700">✓</span>':'<span style="color:var(--dim)">–</span>';};
   _faktury.forEach(function(p){
-    var st=p.zaplaceno?'<span class="pill ok">✓ zaplaceno</span>':(dniPill(p.dni)||'<span class="pill warn">nezaplaceno</span>');
-    h+='<tr><td>'+esc(p.doklad)+'</td><td>'+firmaLbl(p.firma)+'</td><td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.vs)+'</td>'+
-      '<td>'+esc(p.splatnost)+'</td><td>'+st+'</td>'+
-      '<td class="r money">'+money(p.castka,p.mena)+'</td>'+
-      '<td class="r money" style="color:'+(p.zaplaceno?'var(--dim)':'var(--hot)')+'">'+money(p.saldo,p.mena)+'</td></tr>';
+    h+='<tr>'+
+      '<td>'+_ck(p.realizovano)+'</td><td>'+_ck(p.uctovano)+'</td><td>'+_ck(p.schvaleno)+'</td><td>'+_ck(p.zakaz)+'</td>'+
+      '<td>'+esc(p.rada)+'</td><td>'+esc(p.doklad)+'</td><td>'+firmaLbl(p.firma)+'</td><td>'+esc(p.vs)+'</td>'+
+      '<td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.splatnost)+'</td>'+
+      '<td class="r money">'+money(p.castka,p.mena)+'</td><td>'+esc(p.mena)+'</td>'+
+      '<td>'+_ck(p.navrh)+'</td>'+
+      '<td class="r money" style="color:'+(p.zaplaceno?'var(--dim)':'var(--hot)')+'">'+money(p.saldo,p.mena)+'</td>'+
+      '<td>'+esc(p.skonto||'')+'</td><td>'+esc(p.skonto_do||'')+'</td><td>'+esc(p.dat_uhrady||'')+'</td>'+
+      '<td>'+_ck(p.v_plataku)+'</td>'+
+      '<td class="r money">'+(p.suma_uhrad?money(p.suma_uhrad,p.mena):'')+'</td>'+
+      '<td>'+_ck(p.banka_export)+'</td><td>'+_ck(p.ceka_vypis)+'</td><td>'+_ck(p.bank_vypis)+'</td><td>'+_ck(p.uziv_ok)+'</td>'+
+      '</tr>';
   });
-  b.innerHTML=h+'</tbody></table></div>'; bindFaktChips();
+  b.innerHTML=h+'</tbody></table></div></div>'; bindFaktChips();
 }
 function loadFaktury(force){
   var b=document.getElementById('faktury-body');

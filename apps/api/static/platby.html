@@ -498,7 +498,7 @@ function loadPlataky(force){
       _plataky=d.plataky||[]; if(d.firmy)_firmy=d.firmy; _ptotal=d.total||0; _psums=d.sums||{}; _pshown=d.shown||_plataky.length; renderPlataky();
     }).catch(function(){document.getElementById('plataky-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
-var _ffFirma='all',_ffStav='open',_faktury=[],_fsums={},_ftotal=0,_fshown=0;
+var _ffFirma='all',_ffStav='open',_ffText='',_faktury=[],_fsums={},_ftotal=0,_fshown=0;
 function faktChips(){
   var h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">';
   [['all','Vše'],['1','EUROSOFT - Control'],['2','EUROSOFT - System']].forEach(function(o){
@@ -506,6 +506,7 @@ function faktChips(){
   h+='<span style="width:14px;display:inline-block"></span>';
   [['open','Nezaplacené'],['all','Vše']].forEach(function(o){
     h+='<span class="chip'+(_ffStav===o[0]?' on':'')+'" data-fs="'+o[0]+'">'+o[1]+'</span>';});
+  h+='<input id="fakt-find" value="'+esc(_ffText)+'" placeholder="🔎 Hledat (dodavatel, doklad, VS…)" style="flex:1;min-width:220px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:13px" oninput="_ffText=this.value;renderFaktury();var e=document.getElementById(\'fakt-find\');if(e){e.focus();var n=e.value.length;e.setSelectionRange(n,n);}">';
   return h+'</div>';
 }
 function bindFaktChips(){
@@ -514,11 +515,14 @@ function bindFaktChips(){
 }
 function renderFaktury(){
   var b=document.getElementById('faktury-body');
+  var q=_ffText.trim().toLowerCase();
+  var list=q?_faktury.filter(function(p){return (p.doklad+' '+p.dodavatel+' '+p.vs+' '+p.rada+' '+p.splatnost+' '+p.mena+' '+p.castka+' '+(p.dat_uhrady||'')).toLowerCase().indexOf(q)>=0;}):_faktury;
   var sh=Object.keys(_fsums).map(function(m){return _fsums[m].pocet+'× '+money(_fsums[m].otevreno,m)+' otevř.';}).join(' · ')||'—';
   var cap=(_fshown<_ftotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_fshown+' nejnovějších)</span>'):'';
-  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+_ftotal+' faktur'+cap+'</div>'+
+  var poc=q?(list.length+' z '+_ftotal):(''+_ftotal);
+  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
-  if(!_faktury.length){h+='<div class="load" style="padding:16px">Žádné faktury pro tento filtr.</div></div>';b.innerHTML=h;bindFaktChips();return;}
+  if(!list.length){h+='<div class="load" style="padding:16px">Žádná faktura neodpovídá hledání.</div></div>';b.innerHTML=h;bindFaktChips();return;}
   h+='<div style="overflow:auto;max-height:calc(100vh - 250px)"><table><thead><tr>'+
     '<th>Real.</th><th>Účt.</th><th>Schv.</th><th>Zákaz</th><th>Řada</th><th>Doklad</th><th></th><th>VS</th><th>Dodavatel</th>'+
     '<th>Splatnost</th><th class="r">Částka</th><th>Měna</th><th>Návrh</th><th class="r">Saldo</th>'+
@@ -526,7 +530,7 @@ function renderFaktury(){
     '<th>Export</th><th>Čeká výpis</th><th>Bank.výpis</th><th>Uživ.OK</th>'+
     '</tr></thead><tbody>';
   var _ck=function(v){return v?'<span style="color:#3fb950;font-weight:700">✓</span>':'<span style="color:var(--dim)">–</span>';};
-  _faktury.forEach(function(p){
+  list.forEach(function(p){
     h+='<tr>'+
       '<td>'+_ck(p.realizovano)+'</td><td>'+_ck(p.uctovano)+'</td><td>'+_ck(p.schvaleno)+'</td><td>'+_ck(p.zakaz)+'</td>'+
       '<td>'+esc(p.rada)+'</td><td>'+esc(p.doklad)+'</td><td>'+firmaLbl(p.firma)+'</td><td>'+esc(p.vs)+'</td>'+

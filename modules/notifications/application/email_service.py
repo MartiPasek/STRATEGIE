@@ -2090,32 +2090,6 @@ def _send_outbox_row(outbox_id: int) -> dict:
     except Exception:
         att_doc_ids = None
 
-    # CRM rich HTML šablona (např. DE #17): tělo obsahuje cid: obrázky z de_images.
-    # Resolvni je a pošli jako HOTOVÉ HTML + inline přílohy — jinak by v mailu byly
-    # křížky. Díky tomu jde rich šablona i asynchronní cestou (worker) → bez sync
-    # timeoutu, takže CRM oslovení pošle 50+ najednou (queue místo sync). Guard:
-    # když cokoli selže, _html_body=False → chování beze změny.
-    _html_body = False
-    _inline_imgs = None
-    try:
-        import os as _os_ob, re as _re_ob
-        _cids = sorted(set(_re_ob.findall(r"cid:([\w.@\-]+)", row.body or "")))
-        if _cids:
-            _de = _os_ob.path.abspath(_os_ob.path.join(
-                _os_ob.path.dirname(__file__), "..", "..", "..",
-                "docs", "mail_sablony", "de_images"))
-            _ii = []
-            for _cid in _cids:
-                _fp = _os_ob.path.join(_de, _cid.split("@", 1)[0])
-                if _os_ob.path.isfile(_fp):
-                    _ii.append((_fp, _cid))
-            if _ii:
-                _html_body = True
-                _inline_imgs = _ii
-    except Exception:
-        _html_body = False
-        _inline_imgs = None
-
     error_kind: str | None = None
     err_msg: str | None = None
     try:
@@ -2130,8 +2104,6 @@ def _send_outbox_row(outbox_id: int) -> dict:
             cc=cc_list,
             bcc=bcc_list,
             attachment_document_ids=att_doc_ids,
-            html_body=_html_body,
-            inline_images=_inline_imgs,
         )
     except EmailAuthError as e:
         error_kind = "auth"

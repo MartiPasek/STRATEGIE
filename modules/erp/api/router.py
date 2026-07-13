@@ -6238,11 +6238,15 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 inline_imgs.append((_fp, _cid))
     except Exception:
         inline_imgs = []
-    # Vše přes queue_email (async worker) — i rich DE šablona s inline obrázky.
-    # Worker doresí inline obrázky z de_images podle cid v těle → žádný sync
-    # timeout, takže projde i 50 najednou. (Dříve: rich sync + strop 5.)
-    _batch = targets2
-    truncated = False
+    # BEZPEČNÝ režim (revert 13.7.2026 po incidentu): rich HTML šablona (DE #17)
+    # -> SYNCHRONNÍ send_email_or_raise s html_body=True + inline obrázky (renderuje
+    # správně). Cap 5 na běh (proxy timeout). Textové šablony -> queue_email (async).
+    # Async cesta pro rich se NEPOUŽÍVÁ — worker posílal HTML jako plain text
+    # (persona_id=None -> žádný HTMLBody) => „html klikiháky". 50 najednou = TODO
+    # bezpečně a otestovaně (napřed demo).
+    _rich = bool(inline_imgs)
+    _batch = targets2[:5] if _rich else targets2
+    truncated = _rich and len(targets2) > len(_batch)
 
     sent, errs = 0, []
     ds = _gds_ls()
@@ -6280,10 +6284,16 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 body_html = _sab + _extra
             _subj = (predmet + " — " + firma)[:200]
             try:
-                queue_email(to=rec, subject=_subj, body=body_html,
-                            user_id=_CRM_LIVE_FROM_USER, from_identity="user",
-                            purpose="user_request")
-                # Trasovani zapis AZ po uspesnem zarazeni do fronty (demo=false)
+                if _rich:
+                    send_email_or_raise(
+                        to=rec, subject=_subj, body=body_html,
+                        user_id=_CRM_LIVE_FROM_USER, from_identity="user",
+                        html_body=True, inline_images=inline_imgs)
+                else:
+                    queue_email(to=rec, subject=_subj, body=body_html,
+                                user_id=_CRM_LIVE_FROM_USER, from_identity="user",
+                                purpose="user_request")
+                # Trasovani zapis AZ po uspesnem odeslani/zarazeni (demo=false)
                 ds.execute(_sql_ls(
                     "INSERT INTO mod.crm_email_track "
                     "(token, firma_id, firma, recipient, template_code, demo, requested_by) "

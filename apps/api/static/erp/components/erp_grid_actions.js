@@ -423,11 +423,11 @@
 
     // Dialog „📊 Tracking" na přehledu Aktivity obchodníka (core 124): pro vybrané
     // řádky (akce) ukáže stav odeslání + otevření z tracking pixelu (crm_email_track).
-    function _trackingDialog(actionIds) {
+    function _trackingDialog(rowsPayload) {
       return fetch("/api/v1/erp/crm/aktivity/tracking", {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action_ids: actionIds }),
+        body: JSON.stringify({ rows: rowsPayload }),
       }).then(function (r) { return r.json().catch(function () { return {}; }); })
         .then(function (j) {
           if (!j || !j.ok) { _osloveniToast("error", "✗ Tracking se nepodařilo načíst"); return; }
@@ -435,9 +435,7 @@
           var opened = 0, mails = 0;
           var rowsHtml = items.map(function (it) {
             var stav;
-            if (!it.found) {
-              stav = "<span style='color:#888'>řádek nenalezen</span>";
-            } else if (!it.is_email) {
+            if (!it.is_email) {
               stav = "<span style='color:#c9a227'>není e-mail" +
                 (it.typ ? " (" + _oslEsc(it.typ) + ")" : "") + "</span>";
             } else {
@@ -453,7 +451,7 @@
                 stav = "<span style='color:#888'>bez trackingu (neodesláno přes systém)</span>";
               }
             }
-            var kdo = _oslEsc((it && it.firma) || ("#" + (it && it.action_id)));
+            var kdo = _oslEsc((it && it.firma) || (it && it.email) || "(bez názvu)");
             var mail = (it && it.email) ? " <span style='color:#7a90a8'>· " + _oslEsc(it.email) + "</span>" : "";
             return "<div style='padding:8px 4px;border-bottom:1px solid #1c1c1c'>" +
               "<div style='font-weight:600;color:#dfe7ef'>" + kdo + mail + "</div>" +
@@ -528,6 +526,11 @@
             op.value = o[0]; op.textContent = o[1];
             sel.appendChild(op);
           });
+          // Výchozí = Automatický E-mail DE (ID 17), ať omylem neodejde jiná
+          // šablona (Kristy 13.7.2026). Když 17 v seznamu není, nech první.
+          if (list.some(function (o) { return String(o[0]) === "17"; })) {
+            sel.value = "17";
+          }
         }
         _oslFillSablony([["9", "OTEVÍRÁK – první oslovení"], ["10", "PŘIPOMÍNAČ – druhá vlna"]]);
         fetch("/api/v1/erp/crm/osloveni/sablony", { method: "GET", credentials: "include" })
@@ -997,15 +1000,31 @@
         destructive: false,
         requiresRow: true,
         handler: function (ctx) {
-          var ids = (Array.isArray(ctx.rowIds) && ctx.rowIds.length > 0)
-            ? ctx.rowIds.slice()
-            : (ctx.rowData ? [ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID] : []);
-          ids = ids.filter(function (x) { return x != null && x !== ""; });
-          if (ids.length === 0) {
-            alert("⚠ Tracking: nejprve vyber řádek(y) s e-mailem (lze i více).");
+          // Dataset 92 nemá ve výběru id -> nespoléhej na ctx.rowIds (bylo prázdné).
+          // Vezmi vybrané řádky přímo z gridu a pošli e-mail/firmu/typ.
+          var api = ctx.gridApi;
+          var rows = (api && typeof api.getSelectedRows === "function")
+            ? (api.getSelectedRows() || []) : [];
+          if ((!rows || rows.length === 0) && ctx.rowData) rows = [ctx.rowData];
+          if (!rows || rows.length === 0) {
+            alert("⚠ Tracking: nejprve vyber řádek(y) (lze i více — Ctrl/Shift + klik).");
             return Promise.reject(new Error("no_rows"));
           }
-          return _trackingDialog(ids);
+          function _rget(r, needle) {
+            if (!r) return "";
+            for (var k in r) {
+              if (String(k).toLowerCase().indexOf(needle) >= 0) return r[k];
+            }
+            return "";
+          }
+          var payload = rows.map(function (r) {
+            return {
+              email: _rget(r, "mail") || "",
+              firma: _rget(r, "firma") || "",
+              typ: _rget(r, "typ") || "",
+            };
+          });
+          return _trackingDialog(payload);
         },
       },
       // Součet hodin (Claude-28/Jirka 10.7.2026, pro Dušana Havláta): na

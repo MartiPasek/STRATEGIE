@@ -6030,9 +6030,9 @@ async def crm_osloveni_track_status(req: Request) -> JSONResponse:
 @api_router.post("/crm/aktivity/tracking")
 async def crm_aktivity_tracking(req: Request) -> JSONResponse:
     """Tracking otevření pro vybrané řádky přehledu „Aktivity obchodníka".
-    Vstup: {"action_ids":[<st.CRM_Kontakt_Akce.ID>, ...]} = vybrané řádky.
-    Pro každou akci resolve firma/e-mail/typ z DB_EC (MCP), pak stav odeslání +
-    otevření z mod.crm_email_track (poslední odeslání per firma). Auth: člen ERP / rodič."""
+    Dataset 92 nemá ve výběru id → párujeme podle e-mailu. Vstup:
+    {"rows":[{"email","firma","typ"}, ...]}. Stav odeslání + otevření z
+    mod.crm_email_track (poslední odeslání per příjemce). Auth: člen ERP / rodič."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
@@ -6044,85 +6044,50 @@ async def crm_aktivity_tracking(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         body = {}
-    aids = []
-    for x in (body.get("action_ids") or body.get("rowIds") or []):
-        try:
-            aids.append(int(x))
-        except Exception:
-            pass
-    aids = sorted(set(aids))[:50]
-    if not aids:
+    rows_in = body.get("rows") or []
+    if not isinstance(rows_in, list):
+        rows_in = []
+    rows_in = rows_in[:60]
+    if not rows_in:
         return JSONResponse({"ok": True, "items": []})
 
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
-
-    def _g(d, k):
-        dl = {(kk or "").lower(): vv for kk, vv in d.items()}
-        return dl.get(k)
-
-    try:
-        arows = _crm_mcp_rows(mcp,
-            "SELECT a.ID AS aid, a.IDHlav AS fid, a.IDAkce AS idakce, cis.Nazev AS typ, "
-            "a.Email AS email, a.FirmaText AS firma, "
-            "CONVERT(varchar(10), a.DatumAkce, 23) AS datum "
-            "FROM st.CRM_Kontakt_Akce a WITH(NOLOCK) "
-            "LEFT JOIN st.CRM_Kontakt_AkceCis cis WITH(NOLOCK) ON cis.ID = a.IDAkce "
-            "WHERE a.ID IN (" + ",".join(str(i) for i in aids) + ")")
-    except Exception as exc:
-        logger.exception("[crm_aktivity_tracking] resolve %s", exc)
-        return JSONResponse({"ok": False, "error": "Akce se nepodařilo načíst"}, status_code=502)
-
-    meta, fids = {}, []
-    for d in (arows or []):
+    emails = []
+    for r in rows_in:
         try:
-            aid = int(_g(d, "aid"))
+            e = str((r or {}).get("email") or "").strip().lower()
         except Exception:
-            continue
-        fid = _g(d, "fid")
-        try:
-            fid = int(fid) if fid is not None else None
-        except Exception:
-            fid = None
-        meta[aid] = {
-            "fid": fid,
-            "idakce": int(_g(d, "idakce") or 0),
-            "typ": (_g(d, "typ") or "").strip() or None,
-            "email": (_g(d, "email") or "").strip() or None,
-            "firma": (_g(d, "firma") or "").strip() or None,
-            "datum": _g(d, "datum"),
-        }
-        if fid is not None:
-            fids.append(fid)
+            e = ""
+        if e and "@" in e:
+            emails.append(e)
+    emails = list(dict.fromkeys(emails))
 
     trk = {}
-    if fids:
+    if emails:
         from core.database_data import get_data_session as _gds_tk
         from sqlalchemy import text as _sql_tk
         ds = _gds_tk()
         try:
             for r in ds.execute(_sql_tk(
-                "SELECT DISTINCT ON (firma_id) firma_id, sent_at, opened_at, "
-                "COALESCE(open_count,0) AS opens FROM mod.crm_email_track "
-                "WHERE firma_id = ANY(:ids) ORDER BY firma_id, sent_at DESC"),
-                {"ids": sorted(set(fids))}).mappings().all():
-                trk[int(r["firma_id"])] = r
+                "SELECT DISTINCT ON (lower(recipient)) lower(recipient) AS em, "
+                "sent_at, opened_at, COALESCE(open_count,0) AS opens "
+                "FROM mod.crm_email_track "
+                "WHERE lower(recipient) = ANY(:em) "
+                "ORDER BY lower(recipient), sent_at DESC"),
+                {"em": emails}).mappings().all():
+                trk[r["em"]] = r
         finally:
             ds.close()
 
     items = []
-    for aid in aids:
-        m = meta.get(aid)
-        if not m:
-            items.append({"action_id": aid, "found": False})
-            continue
-        t = trk.get(m["fid"]) if m["fid"] is not None else None
+    for r in rows_in:
+        rr = r or {}
+        email = str(rr.get("email") or "").strip()
+        firma = str(rr.get("firma") or "").strip()
+        typ = str(rr.get("typ") or "").strip()
+        t = trk.get(email.lower()) if email else None
         items.append({
-            "action_id": aid, "found": True,
-            "is_email": (m["idakce"] == 1),  # „Email na info"
-            "typ": m["typ"], "firma": m["firma"], "email": m["email"], "datum": m["datum"],
+            "firma": firma or None, "email": email or None, "typ": typ or None,
+            "is_email": ("mail" in typ.lower()),  # „Email na info"
             "has_track": bool(t),
             "sent_at": t["sent_at"].isoformat() if (t and t["sent_at"]) else None,
             "opened_at": t["opened_at"].isoformat() if (t and t["opened_at"]) else None,
@@ -6159,7 +6124,7 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
     ids = sorted(set(ids))
     if not ids:
         return JSONResponse({"ok": False, "error": "Nevybral jsi žádné firmy"}, status_code=400)
-    ids = ids[:100]  # bezpecnostni strop na jeden beh
+    ids = ids[:50]  # strop 50 mailů na jeden běh (Kristy 13.7.2026)
     template_code = str(body.get("template_id") or body.get("template_code") or "9")[:32]
 
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -6273,11 +6238,11 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 inline_imgs.append((_fp, _cid))
     except Exception:
         inline_imgs = []
-    # Rich HTML sablona (inline obrazky, napr. DE #17) -> sync send, cap 5 (proxy
-    # timeout). Textove sablony -> queue_email (worker odesle asynchronne).
-    _rich = bool(inline_imgs)
-    _batch = targets2[:5] if _rich else targets2
-    truncated = _rich and len(targets2) > len(_batch)
+    # Vše přes queue_email (async worker) — i rich DE šablona s inline obrázky.
+    # Worker doresí inline obrázky z de_images podle cid v těle → žádný sync
+    # timeout, takže projde i 50 najednou. (Dříve: rich sync + strop 5.)
+    _batch = targets2
+    truncated = False
 
     sent, errs = 0, []
     ds = _gds_ls()
@@ -6315,16 +6280,10 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 body_html = _sab + _extra
             _subj = (predmet + " — " + firma)[:200]
             try:
-                if _rich:
-                    send_email_or_raise(
-                        to=rec, subject=_subj, body=body_html,
-                        user_id=_CRM_LIVE_FROM_USER, from_identity="user",
-                        html_body=True, inline_images=inline_imgs)
-                else:
-                    queue_email(to=rec, subject=_subj, body=body_html,
-                                user_id=_CRM_LIVE_FROM_USER, from_identity="user",
-                                purpose="user_request")
-                # Trasovani zapis AZ po uspesnem odeslani/zarazeni (demo=false)
+                queue_email(to=rec, subject=_subj, body=body_html,
+                            user_id=_CRM_LIVE_FROM_USER, from_identity="user",
+                            purpose="user_request")
+                # Trasovani zapis AZ po uspesnem zarazeni do fronty (demo=false)
                 ds.execute(_sql_ls(
                     "INSERT INTO mod.crm_email_track "
                     "(token, firma_id, firma, recipient, template_code, demo, requested_by) "

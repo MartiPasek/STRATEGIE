@@ -519,7 +519,7 @@ function renderFaktury(){
   var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+_ftotal+' faktur'+cap+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   if(!_faktury.length){h+='<div class="load" style="padding:16px">Žádné faktury pro tento filtr.</div></div>';b.innerHTML=h;bindFaktChips();return;}
-  h+='<div style="overflow:auto;max-height:72vh"><table><thead><tr>'+
+  h+='<div style="overflow:auto;max-height:calc(100vh - 250px)"><table><thead><tr>'+
     '<th>Real.</th><th>Účt.</th><th>Schv.</th><th>Zákaz</th><th>Řada</th><th>Doklad</th><th></th><th>VS</th><th>Dodavatel</th>'+
     '<th>Splatnost</th><th class="r">Částka</th><th>Měna</th><th>Návrh</th><th class="r">Saldo</th>'+
     '<th>Skonto</th><th>Skonto do</th><th>Dat.úhrady</th><th>V platáku</th><th class="r">Uhrazeno</th>'+

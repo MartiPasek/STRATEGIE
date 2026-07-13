@@ -519,7 +519,6 @@ function faktChips(){
   h+='<span style="width:14px;display:inline-block"></span>';
   [['open','Nezaplacené'],['all','Vše']].forEach(function(o){
     h+='<span class="chip'+(_ffStav===o[0]?' on':'')+'" data-fs="'+o[0]+'">'+o[1]+'</span>';});
-  if(_fAny())h+='<span class="chip" data-fclear="1" style="margin-left:8px">✕ zrušit filtry sloupců</span>';
   return h+'</div>';
 }
 function bindFaktChips(){
@@ -556,7 +555,8 @@ function renderFaktury(){
   var sh=Object.keys(_fsums).map(function(m){return _fsums[m].pocet+'× '+money(_fsums[m].otevreno,m)+' otevř.';}).join(' · ')||'—';
   var cap=(_fshown<_ftotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_fshown+' nejnovějších)</span>'):'';
   var poc=anyF?(list.length+' z '+_ftotal):(''+_ftotal);
-  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+'</div>'+
+  var clr=anyF?' <span class="chip" data-fclear="1" style="font-size:11px;padding:2px 8px;margin-left:10px;vertical-align:middle">✕ zrušit filtry</span>':'';
+  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+clr+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   h+='<div style="overflow:auto;max-height:calc(100vh - 250px)"><table class="fakt"><thead>';
   h+='<tr class="frow">';FCOLS.forEach(function(c){

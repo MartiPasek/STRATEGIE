@@ -32437,6 +32437,18 @@ def platby_navrh_get(req: Request):
         if firma in ("1", "2"):
             params["ff"] = int(firma)
             ffilter = " AND " + _uf + " = :ff "
+        # Hranice splatnosti dle platebních dnů Út/Čt (Peta 13.7.): ber faktury se splatností
+        # do 1 dne po DRUHÉM nejbližším platebním dni (dnešek se počítá jako první, je-li platební).
+        # Po/Út → Čt+1 = např. 17.7.; St/Čt → další Út+1 = např. 22.7. Nahrazuje pevné „+dny předem".
+        import datetime as _pdt
+        _paydays = {1, 3}   # weekday Út=1, Čt=3
+        _p0 = _pdt.date.today()
+        while _p0.weekday() not in _paydays:
+            _p0 += _pdt.timedelta(days=1)
+        _p1 = _p0 + _pdt.timedelta(days=1)
+        while _p1.weekday() not in _paydays:
+            _p1 += _pdt.timedelta(days=1)
+        params["cutoff"] = _p1 + _pdt.timedelta(days=1)
         rows = s.execute(_t(
             # paid = Helios úhrady (oz_uhrady, mirror) + náš úhradový ZÁMEK (platak_uhrada_lock,
             # zapsaný při generování platáku — přežije TRUNCATE mirroru; pojistka proti dvojí
@@ -32452,7 +32464,7 @@ def platby_navrh_get(req: Request):
             "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
             "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
             "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
-            "  AND now()::date >= (p.splatnost::date - (p.dny_pred_platbou||' days')::interval) "
+            "  AND p.splatnost::date <= :cutoff "
             "  AND ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) > 0.5 "
             + ffilter +
             "ORDER BY p.mena, p.splatnost"), params).fetchall()
@@ -32464,7 +32476,7 @@ def platby_navrh_get(req: Request):
                   "cislo": r[7], "popis": (r[8] or "")[:70],
                   "firma": int(r[9]) if r[9] is not None else 1}
             (czk if r[0] == "CZK" else eur).append(it)
-        return {"ok": True,
+        return {"ok": True, "cutoff": params["cutoff"].strftime("%d.%m.%Y"),
                 "czk": {"pocet": len(czk), "suma": round(sum(x["castka"] for x in czk), 2), "polozky": czk},
                 "eur": {"pocet": len(eur), "suma": round(sum(x["castka"] for x in eur), 2), "polozky": eur}}
     finally:

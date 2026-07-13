@@ -148,7 +148,8 @@ function render(d){
     '<div class="b eur"><div class="n">'+money(d.eur.suma,'EUR')+'</div><div class="l">Návrh EUR · '+d.eur.pocet+' faktur</div></div>'+
     '<div class="b"><div class="n">'+(d.czk.pocet+d.eur.pocet)+'</div><div class="l">faktur celkem k platbě</div></div>';
   var btn='<button class="btn wide" onclick="openPlatak()">🧾 Vygeneruj platák (náhled)</button>';
-  document.getElementById('navrhy-body').innerHTML=navrhChips()+btn+tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
+  var cut=d.cutoff?'<div style="margin:6px 0 12px;color:var(--dim);font-size:13px">Zahrnuty faktury se splatností <b style="color:var(--ink)">do '+esc(d.cutoff)+'</b> (dle platebních dnů Út/Čt).</div>':'';
+  document.getElementById('navrhy-body').innerHTML=navrhChips()+btn+cut+tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
   bindNavrhChips();
 }
 function verdiktPill(v){

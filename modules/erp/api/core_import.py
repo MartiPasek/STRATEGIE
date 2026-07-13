@@ -131,7 +131,8 @@ def _read_centrala(ec_form_id: int) -> dict:
         "MAX(CASE WHEN P.Property='Top' THEN P.Value END) AS t, "
         "MAX(CASE WHEN P.Property='Left' THEN P.Value END) AS l, "
         "MAX(CASE WHEN P.Property='Width' THEN P.Value END) AS w, "
-        "MAX(CASE WHEN P.Property='Align' THEN P.Value END) AS align "
+        "MAX(CASE WHEN P.Property='Align' THEN P.Value END) AS align, "
+        "MAX(CASE WHEN P.Property='PageIndex' THEN P.Value END) AS pgidx "
         f"FROM dbo.EC_FormDefEdit e "
         f"LEFT JOIN dbo.EC_FormDefEditProperty P ON P.ID_FormDefEdit = e.ID "
         f"WHERE e.ID_Form = {int(ec_form_id)} AND e.Smazana = 0 "
@@ -251,47 +252,114 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
             d += 1
         return d
 
-    # ── 1) reprodukce CELÉHO stromu type-12 kontejnerů (parent-first) ──────────
+    # ── 1) reprodukce stromu kontejnerů: groupbox/panel (12,13) + pagecontrol (15)
+    #      + tabsheet (16), parent-first. ─────────────────────────────────────────
+    for _need in ("pagecontrol", "tabsheet"):
+        if _need not in by_code:
+            raise RuntimeError(f"fw.comp_type '{_need}' nenalezen")
+    CONT_TYPS = (12, 13, 15, 16)
+    cont_ids = [int(c["cid"]) for c in comps if int(c["typ"]) in CONT_TYPS]
+    cont_set = set(cont_ids)
+
+    # tab (16) → pagecontrol (15): Centrála tu vazbu neukládá (prázdný parent),
+    # ale jde dopočítat z PageIndex. Každý pagecontrol dostane souvislou řadu tabů
+    # 0,1,2,… (mělčí/hlavní pagecontrol bere první); duplicitní index → vnořený.
+    pagectrls = sorted([cid for cid in cont_ids if int(nodes[cid]["typ"]) == 15],
+                       key=lambda cid: (depth_of(cid), cid))
+    tabs = [cid for cid in cont_ids if int(nodes[cid]["typ"]) == 16]
+    tab_pc: dict[int, int] = {}
+    _unassigned = sorted(tabs, key=lambda cid: (as_int(nodes[cid].get("pgidx")), cid))
+    for _pc in pagectrls:
+        _nxt = 0
+        for _ts in list(_unassigned):
+            if as_int(nodes[_ts].get("pgidx")) == _nxt:
+                tab_pc[_ts] = _pc
+                _unassigned.remove(_ts)
+                _nxt += 1
+    for _ts in _unassigned:            # zbytek (kdyby něco) → první pagecontrol
+        if pagectrls:
+            tab_pc[_ts] = pagectrls[0]
+
+    def eff_parent(cid):
+        n = nodes[cid]
+        if int(n["typ"]) == 16:        # tabsheet → jeho pagecontrol (heuristika)
+            return tab_pc.get(cid)
+        return parent_key(n)           # ostatní → skutečný Centrála rodič
+
+    def eff_depth(cid):
+        d, cur, seen = 0, cid, set()
+        while isinstance(cur, int) and cur in cont_set and cur not in seen:
+            seen.add(cur)
+            cur = eff_parent(cur)
+            d += 1
+        return d
+
+    def _type_code_of(typ, cap):
+        if typ == 15:
+            return "pagecontrol"
+        if typ == 16:
+            return "tabsheet"
+        if typ == 13:
+            return "panel"
+        return "groupbox" if cap else "panel"        # typ 12
+
+    def _name_of(typ, cid, cap):
+        if typ == 15:
+            return "pc_centrala_%d" % cid
+        if typ == 16:
+            return "tab_centrala_%d" % cid
+        if typ == 13 or (typ == 12 and not cap):
+            return "panel_centrala_%d" % cid
+        return "gb_centrala_%d" % cid
+
     cont_map: dict[int, int] = {}          # Centrála cid → fw.comp_def.id
     cont_meta: dict[int, dict] = {}         # fw.comp_def.id → {align, cen_h}
     containers = sorted(
-        [c for c in comps if int(c["typ"]) == 12],
-        key=lambda c: (depth_of(int(c["cid"])), as_int(c.get("t")), as_int(c.get("l"))))
+        [nodes[c] for c in cont_ids],
+        key=lambda c: (eff_depth(int(c["cid"])), as_int(c.get("t")), as_int(c.get("l"))))
     for i, gb in enumerate(containers):
         cid = int(gb["cid"])
+        typ = int(gb["typ"])
         cap = (gb.get("cap") or "").strip()
         al = map_align(gb.get("align"))
-        is_panel = not cap                 # bez captionu → strukturální panel
-        type_code = "panel" if is_panel else "groupbox"
-        name = ("panel_centrala_%d" if is_panel else "gb_centrala_%d") % cid
+        type_code = _type_code_of(typ, cap)
+        name = _name_of(typ, cid, cap)
 
-        # rodič = skutečný Centrála rodič-kontejner (pokud reprodukovaný), jinak
-        # klientský panel. (Def/Footer nejsou kontejnery → client_panel.)
-        pk = parent_key(gb)
-        parent_id = cont_map.get(pk) if isinstance(pk, int) else None
+        # rodič = efektivní rodič-kontejner (tab→pagecontrol; jinak Centrála rodič),
+        # pokud reprodukovaný; jinak klientský panel.
+        ep = eff_parent(cid)
+        parent_id = cont_map.get(ep) if isinstance(ep, int) else None
         if not parent_id:
             parent_id = client_panel_id
 
-        # layout: label+rámeček jen pro captioned; align; šířka pásu pro left/right
+        # layout dle typu
         layout_d = {}
-        if cap:
-            layout_d["label"] = cap
-            layout_d["border_mode"] = "top"
-        if al:
-            layout_d["align"] = al
-        wv = as_int(gb.get("w"))
-        if al in ("left", "right") and wv > 0:
-            layout_d["max_width"] = wv
+        if typ == 15:                       # pagecontrol = kontejner záložek, vyplní
+            layout_d["align"] = al or "client"
+        elif typ == 16:                     # tabsheet = stránka, caption = titulek
+            if cap:
+                layout_d["label"] = cap
+        else:                               # groupbox / panel
+            if cap:
+                layout_d["label"] = cap
+                layout_d["border_mode"] = "top"
+            if al:
+                layout_d["align"] = al
+            wv = as_int(gb.get("w"))
+            if al in ("left", "right") and wv > 0:
+                layout_d["max_width"] = wv
         layout = json.dumps(layout_d, ensure_ascii=False)
 
         # obsahuje jen gridy? → placeholder (neaktivní) pro fázi 2
         child_typs = [int(n["typ"]) for n in comps if parent_key(n) == cid]
         only_grids = bool(child_typs) and all(t in (11, 21) for t in child_typs)
 
-        # idempotence: hledej podle obou možných jmen (typ se mohl změnit)
+        # idempotence: najdi existující podle libovolného dřívějšího jména pro cid
+        cand_names = ["gb_centrala_%d" % cid, "panel_centrala_%d" % cid,
+                      "pc_centrala_%d" % cid, "tab_centrala_%d" % cid]
         row = s.execute(_t(
-            "SELECT id FROM fw.comp_def WHERE core_id=:c AND name IN (:n1,:n2)"),
-            {"c": core_id, "n1": name, "n2": "gb_centrala_%d" % cid}).first()
+            "SELECT id FROM fw.comp_def WHERE core_id=:c AND name = ANY(:ns)"),
+            {"c": core_id, "ns": cand_names}).first()
         if row:
             gb_id = int(row[0])
             has_active_child = s.execute(_t(
@@ -334,8 +402,8 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
     mapped_cols: set[str] = set()
     for c in comps:
         typ = int(c["typ"])
-        if typ == 12:
-            continue                       # kontejnery už hotové
+        if typ in (12, 13, 15, 16):
+            continue                       # kontejnery (groupbox/panel/pagecontrol/tabsheet) už hotové
         if typ in (11, 21):
             rep["grids_skipped"] += 1
             continue

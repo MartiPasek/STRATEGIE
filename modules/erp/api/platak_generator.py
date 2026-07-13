@@ -87,7 +87,7 @@ def render_zahr_line(porad, datum_vytv8, castka, mena, up_nazev, up_ulice, up_mi
 
 
 # ------------------------------------------------------------------ konfigurace
-_NAS_UCET = {1: "9251651001", 2: "3047813002"}   # plátcovské CZK účty (EUR jde z CZK)
+_NAS_UCET = {1: "9251651001", 2: "3047813002"}   # plátcovské účty (stejné číslo pro CZK i EUR; měna účtu se řídí měnou platby)
 _FIRMA_KOD = {1: "EC", 2: "ES"}
 _PLATEBNI_DNY = {1, 3}   # Út + Čt (Marti 7.7.)
 
@@ -325,7 +325,7 @@ def _render_item(it, porad, meta):
         op_ulice=_clean(acc.get("org_ulice")) or _clean(acc.get("org_ulice2")),
         op_misto=op_misto, zop_nazev=_clean(acc.get("zorg_nazev")), nas_ucet=nas, iban=iban,
         poplatky="SHA", tit="", cil_zeme=zeme, hlav_id=it["id_fak"], p1=it["vs"], p2="", p3="",
-        p4="", priorita=0, nas_mena="CZK", swift=_clean(acc.get("SWIFTUstavu")),
+        p4="", priorita=0, nas_mena="EUR", swift=_clean(acc.get("SWIFTUstavu")),
         datum_splat=meta["datum_splat6"])
 
 
@@ -422,6 +422,16 @@ async def platak_commit(req: Request):
         gen = [it for it in items if it["plati"] and it["verdikt"] != "chybi"]
         skip_odloz = [it for it in items if not it["plati"]]
         skip_chybi = [it for it in items if it["plati"] and it["verdikt"] == "chybi"]
+        # Zkouška: only_id = vygeneruj platák jen s jednou vybranou fakturou (Peťa 9.7.2026)
+        only_id = (b or {}).get("only_id")
+        if only_id not in (None, "", 0, "0"):
+            try:
+                oid = int(only_id)
+            except Exception:
+                return JSONResponse({"ok": False, "error": "only_id musí být číslo faktury."}, status_code=400)
+            gen = [it for it in gen if it["id_fak"] == oid]
+            if not gen:
+                return JSONResponse({"ok": False, "error": "Zvolená faktura není v návrhu 'platí teď' s účtem (nejde vyzkoušet)."}, status_code=400)
         if not gen:
             return JSONResponse({"ok": False, "error": "Není co vygenerovat (žádná faktura 'platí teď' s účtem)."}, status_code=400)
 

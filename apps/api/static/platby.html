@@ -31,8 +31,8 @@
   .grp .gh .sum{font-weight:800;font-size:16px}
   table{border-collapse:collapse;width:100%;font-size:13px}
   #faktury-body table.fakt th,#faktury-body table.fakt td{border-right:1px solid var(--line)}
-  #faktury-body table.fakt thead th{position:sticky;top:0;background:var(--card);z-index:3;white-space:nowrap}
-  #faktury-body table.fakt thead tr.frow td{position:sticky;top:32px;background:var(--card);z-index:2;padding:2px 3px}
+  #faktury-body table.fakt thead tr.frow td{position:sticky;top:0;background:var(--card);z-index:3;padding:2px 3px}
+  #faktury-body table.fakt thead th{position:sticky;top:30px;background:var(--card);z-index:2;white-space:nowrap}
   #faktury-body table.fakt .frow input,#faktury-body table.fakt .frow select{width:100%;box-sizing:border-box;padding:2px 4px;font-size:11px;border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--ink)}
   th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
   th{background:var(--head);color:#a9c7f0;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
@@ -559,11 +559,12 @@ function renderFaktury(){
   var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   h+='<div style="overflow:auto;max-height:calc(100vh - 250px)"><table class="fakt"><thead>';
-  h+='<tr>';FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+'>'+c.h+'</th>';});h+='</tr>';
   h+='<tr class="frow">';FCOLS.forEach(function(c){
     if(c.t==='b'){h+='<td><select data-fcol="'+c.k+'"><option value="">–</option><option value="1"'+(_fCol[c.k]==='1'?' selected':'')+'>✓</option><option value="0"'+(_fCol[c.k]==='0'?' selected':'')+'>✗</option></select></td>';}
     else{h+='<td><input data-fcol="'+c.k+'" value="'+esc(_fCol[c.k]||'')+'"></td>';}});
-  h+='</tr></thead><tbody>';
+  h+='</tr>';
+  h+='<tr>';FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+'>'+c.h+'</th>';});h+='</tr>';
+  h+='</thead><tbody>';
   if(!list.length){h+='<tr><td colspan="'+FCOLS.length+'" style="padding:16px;color:var(--dim)">Žádná faktura neodpovídá filtru.</td></tr>';}
   list.forEach(function(p){h+='<tr>';FCOLS.forEach(function(c){
     var cls=c.r?'r money':(c.k==='dodavatel'?'dod':'');

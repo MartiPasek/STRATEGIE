@@ -11924,18 +11924,41 @@
           {
             const _lkDs = field.data_source_code || null;
             if (_lkDs) {
+              // case-insensitive resolver klice radku (Centrala props byvaji
+              // UPPERCASE "VALUE" i kdyz SQL sloupec je "Value"). (Kristy 13.7.)
+              const _lkKey = (obj, want) => {
+                if (!obj || want == null) return want;
+                if (want in obj) return want;
+                const wl = String(want).toLowerCase();
+                for (const k in obj) { if (k.toLowerCase() === wl) return k; }
+                return want;
+              };
               const _vCol = fieldLayout.lookup_id_field || "ID";
               const _lCol = fieldLayout.lookup_display_field || "Nazev";
+              // Kaskadovy filtr (Kristy 13.7.): layout.lookup_filter_param = SQL
+              // bind (:IDOrg), lookup_filter_field = sloupec aktualniho zaznamu
+              // (this._spec.data), jehoz hodnota se do ciselniku posle.
+              let _filterQS = "";
+              const _fParam = fieldLayout.lookup_filter_param || null;
+              if (_fParam) {
+                const _fField = fieldLayout.lookup_filter_field || _fParam;
+                const _rec = (this._spec && this._spec.data) || {};
+                const _fv = _rec[_lkKey(_rec, _fField)];
+                if (_fv != null && _fv !== "") {
+                  _filterQS = "&" + encodeURIComponent(_fParam) + "=" +
+                    encodeURIComponent(String(_fv));
+                }
+              }
               const _el = _dropdown(label, value, [], {
                 fieldKey: fieldKey, readonly: readonly, onDirty: onDirty,
               });
               try { if (_el._inst && _el._inst.setLoading) _el._inst.setLoading(true); } catch (e) {}
-              fetch("/api/v1/erp/data/" + encodeURIComponent(_lkDs) + "?limit=1000",
+              fetch("/api/v1/erp/data/" + encodeURIComponent(_lkDs) + "?limit=1000" + _filterQS,
                     { credentials: "include" })
                 .then(r => r.json())
                 .then(j => {
                   const opts = ((j && j.rows) || []).map(row => {
-                    const v = row[_vCol], l = row[_lCol];
+                    const v = row[_lkKey(row, _vCol)], l = row[_lkKey(row, _lCol)];
                     return { value: v != null ? String(v) : "",
                              label: l != null ? String(l) : (v != null ? String(v) : "") };
                   }).filter(o => o.value !== "");

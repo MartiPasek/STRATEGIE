@@ -55,6 +55,8 @@ GENERATOR_PATH = REPO_ROOT / "scripts" / "executable_artifacts" / "vytvorit_edit
 
 # Centrála VLC formuláře jsou převážně PG-mirror / PG zdroje → default PG.
 DEFAULT_DB_CONNECTION_ID = 1  # 1 = PostgreSQL (STRATEGIE)
+# Číselníky formlistů žijí v Centrále (DB_EC, MSSQL) → data_set proti spojení 2.
+CISELNIK_DB_CONNECTION_ID = 2  # 2 = eurosoft_db_ec / DB_EC (Centrála)
 
 # Překlad Centrála typů na kódy, které editační renderer (design_forms.js)
 # skutečně vykreslí jako plnohodnotný prvek. Bez překladu spadnou do
@@ -132,7 +134,13 @@ def _read_centrala(ec_form_id: int) -> dict:
         "MAX(CASE WHEN P.Property='Left' THEN P.Value END) AS l, "
         "MAX(CASE WHEN P.Property='Width' THEN P.Value END) AS w, "
         "MAX(CASE WHEN P.Property='Align' THEN P.Value END) AS align, "
-        "MAX(CASE WHEN P.Property='PageIndex' THEN P.Value END) AS pgidx "
+        "MAX(CASE WHEN P.Property='PageIndex' THEN P.Value END) AS pgidx, "
+        # formlist → lookup (Kristý 13.7.): číselník + zobrazovací/uložený sloupec
+        # + volitelný kaskádový filtr (FilterCondition, např. 'IDOrg = :IDOrg').
+        "MAX(CASE WHEN P.Property='LookupView' THEN P.Value END) AS lv, "
+        "MAX(CASE WHEN P.Property='LookupField' THEN P.Value END) AS lf, "
+        "MAX(CASE WHEN P.Property='LookupDisplay' THEN P.Value END) AS ld, "
+        "MAX(CASE WHEN P.Property='FilterCondition' THEN COALESCE(NULLIF(P.Value,''),P.ValueFMX) END) AS fc "
         f"FROM dbo.EC_FormDefEdit e "
         f"LEFT JOIN dbo.EC_FormDefEditProperty P ON P.ID_FormDefEdit = e.ID "
         f"WHERE e.ID_Form = {int(ec_form_id)} AND e.Smazana = 0 "
@@ -495,6 +503,152 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
     return rep
 
 
+def _inject_ciselnik_filter(base_sql: str, filter_cond: str | None):
+    """Zabuduje Centrála FilterCondition (např. 'IDOrg = :IDOrg') do číselník SQL
+    jako TOLERANTNÍ filtr (když se param nepošle → NULL → vrátí vše).
+
+    Runner (_normalize_params) chybějící bind auto-defaultuje na None, takže
+    `:IDOrg IS NULL OR …` je bezpečné i bez předaného filtru. Obalíme do
+    poddotazu (generické, nezávislé na aliasech), s odstřižením koncového
+    ORDER BY (MSSQL poddotaz ho nepovolí bez TOP).
+
+    Vrací (sql, param, field). Když filtr není → (base_sql, None, None).
+    param = jméno SQL bind proměnné (:param). field = sloupec záznamu editačního
+    formuláře, jehož hodnota se do filtru pošle (default = param).
+    """
+    if not filter_cond or ":" not in filter_cond:
+        return base_sql, None, None
+    m = re.search(r":(\w+)", filter_cond)
+    if not m:
+        return base_sql, None, None
+    param = m.group(1)
+    lhs = filter_cond.split("=", 1)[0].strip()
+    col = lhs.split(".")[-1].strip("[]_ ") or param
+    b = re.sub(r"(?is)\border\s+by\b.*$", "", base_sql).strip().rstrip(";")
+    wrapped = (f"SELECT * FROM (\n{b}\n) _cis "
+               f"WHERE (:{param} IS NULL OR _cis.[{col}] = :{param})")
+    return wrapped, param, (col or param)
+
+
+def _ensure_ciselnik(s, view: int, filter_cond: str | None) -> dict:
+    """Idempotentně založí číselník (fw.data_set + fw.data_source + op select)
+    z Centrála EC_FormDef.SQL_Select podle LookupView. Vrací {code, param, field}.
+
+    code = f'ciselnik_{view}'. SQL se čte ŽIVĚ z Centrály (reuse — žádná ruční
+    kopie). db_connection_id = 2 (DB_EC). Filtr (FilterCondition) se zabuduje
+    tolerantně (viz _inject_ciselnik_filter), takže jeden data_set slouží
+    filtrovaně i nefiltrovaně.
+    """
+    view = int(view)
+    code = f"ciselnik_{view}"
+    hdr = _ec("SELECT CAST(SQL_Select AS nvarchar(max)) AS sqltext "
+              f"FROM dbo.EC_FormDef WHERE ID = {view}")
+    base_sql = (hdr[0].get("sqltext") if hdr else None) or ""
+    if not base_sql.strip():
+        raise RuntimeError(f"číselník LookupView={view}: EC_FormDef nemá SQL_Select")
+    sql_text, param, field = _inject_ciselnik_filter(base_sql, filter_cond)
+
+    dset_row = s.execute(_t("SELECT id FROM fw.data_set WHERE code=:c"), {"c": code}).first()
+    if dset_row:
+        dset_id = int(dset_row[0])
+        s.execute(_t("UPDATE fw.data_set SET sql_text=:sql, db_connection_id=:db WHERE id=:id"),
+                  {"sql": sql_text, "db": CISELNIK_DB_CONNECTION_ID, "id": dset_id})
+    else:
+        dset_id = int(s.execute(_t(
+            "INSERT INTO fw.data_set (code, version, sql_text, db_connection_id, status, is_system, is_immutable) "
+            "VALUES (:c, 1, :sql, :db, 'active', false, false) RETURNING id"
+        ), {"c": code, "sql": sql_text, "db": CISELNIK_DB_CONNECTION_ID}).scalar())
+
+    dsrc_row = s.execute(_t("SELECT id FROM fw.data_source WHERE code=:c"), {"c": code}).first()
+    if dsrc_row:
+        dsrc_id = int(dsrc_row[0])
+    else:
+        dsrc_id = int(s.execute(_t(
+            "INSERT INTO fw.data_source (code, version, name, status, is_system, is_immutable) "
+            "VALUES (:c, 1, :n, 'active', false, false) RETURNING id"
+        ), {"c": code, "n": f"Číselník {view}"}).scalar())
+
+    op_row = s.execute(_t(
+        "SELECT id FROM fw.data_source_op WHERE data_source_id=:ds AND operation_kind='select'"
+    ), {"ds": dsrc_id}).first()
+    if op_row:
+        s.execute(_t("UPDATE fw.data_source_op SET data_set_id=:dset WHERE id=:id"),
+                  {"dset": dset_id, "id": int(op_row[0])})
+    else:
+        s.execute(_t(
+            "INSERT INTO fw.data_source_op (data_source_id, data_set_id, operation_kind, variant_code, sort_order, is_default) "
+            "VALUES (:ds, :dset, 'select', 'default', 10, true)"
+        ), {"ds": dsrc_id, "dset": dset_id})
+    return {"code": code, "dsrc_id": dsrc_id, "param": param, "field": field}
+
+
+def _wire_formlists(s, core_id: int, cen: dict, user_map: dict) -> dict:
+    """Chirurgicky přepne EXISTUJÍCÍ formlist komponenty jádra na lookup a založí
+    jim číselníky z Centrály. NESPOUŠTÍ generátor, NETVOŘÍ nová pole, nesahá na
+    kontejnery — dopad = výhradně formlist pole tohoto core_id.
+
+    Pro každou Centrála komponentu Typ=6 (formlist) s LookupView:
+      1. namapuj FieldName → existující komponentu jádra (stejná logika jako
+         layout: přesná/alias/prefix shoda proti názvům komponent),
+      2. založ/aktualizuj číselník (data_set/source/op) z EC_FormDef[LookupView],
+      3. přepni komponentu na comp_type=lookup + layout (data_source_code,
+         lookup_id_field, lookup_display_field, [lookup_filter_param/field]),
+         nastav data_source_id.
+    """
+    rep = {"formlists_wired": 0, "ciselniky": [], "unmatched": [], "details": []}
+    trows = s.execute(_t("SELECT id, code FROM fw.comp_type")).mappings().all()
+    by_code = {r["code"]: int(r["id"]) for r in trows}
+    if "lookup" not in by_code:
+        raise RuntimeError("fw.comp_type 'lookup' nenalezen")
+    lookup_tid = by_code["lookup"]
+
+    gen = s.execute(_t(
+        "SELECT id, name, root FROM fw.comp_def WHERE core_id=:c"), {"c": core_id}).mappings().all()
+    comp_names = [(g["name"] or "") for g in gen if g["name"] and not g["root"]]
+    by_name = {(g["name"] or "").lower(): g for g in gen if g["name"] and not g["root"]}
+
+    for c in cen["comps"]:
+        if int(c.get("typ") or 0) != 6:
+            continue
+        lv = (c.get("lv") or "").strip()
+        if not lv:
+            continue
+        fld = (c.get("fld") or "").strip()
+        col = _match_field(fld, comp_names, cen["alias_base"], user_map)
+        g = by_name.get((col or "").lower()) if col else None
+        if not g:
+            rep["unmatched"].append(fld or f"lv={lv}")
+            continue
+        try:
+            cis = _ensure_ciselnik(s, int(lv), c.get("fc"))
+        except Exception as _e:
+            rep["details"].append(f"{fld}: číselník {lv} chyba: {str(_e)[:120]}")
+            continue
+        lay = {"data_source_code": cis["code"]}
+        lf = (c.get("lf") or "").strip()
+        ld = (c.get("ld") or "").strip()
+        if lf:
+            lay["lookup_id_field"] = lf
+        if ld:
+            lay["lookup_display_field"] = ld
+        if cis["param"]:
+            lay["lookup_filter_param"] = cis["param"]
+            lay["lookup_filter_field"] = cis["field"]
+        s.execute(_t(
+            "UPDATE fw.comp_def SET type_id=:tid, data_source_id=:ds, "
+            "layout = COALESCE(layout,'{}'::jsonb) || CAST(:lay AS jsonb) "
+            "WHERE id=:id"),
+            {"tid": lookup_tid, "ds": cis["dsrc_id"],
+             "lay": json.dumps(lay, ensure_ascii=False), "id": g["id"]})
+        rep["formlists_wired"] += 1
+        if cis["code"] not in rep["ciselniky"]:
+            rep["ciselniky"].append(cis["code"])
+        rep["details"].append(
+            f"{g['name']} → lookup ({cis['code']}, val={lf or '?'}, disp={ld or '?'}"
+            + (f", filtr {cis['param']}←{cis['field']}" if cis["param"] else "") + ")")
+    return rep
+
+
 def _source_to_select(zdroj: str | None, centrala_sql: str) -> str:
     """Zdroj → čistý edit-select (systém ho obalí `WHERE [ID]=`)."""
     if zdroj:
@@ -596,6 +750,10 @@ def run_core_import(arg: str) -> dict:
             arg = arg.replace(bm.group(0), "")
         rebind = "--rebind" in arg
         arg = arg.replace("--rebind", "")
+        # --formlists = jen chirurgické přepnutí formlist polí na lookup + číselníky
+        # (nespouští generátor, netvoří pole; bezpečné pro už hotová jádra).
+        formlists_only = "--formlists" in arg
+        arg = arg.replace("--formlists", "")
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
@@ -614,6 +772,40 @@ def run_core_import(arg: str) -> dict:
         cen = _read_centrala(ec_form_id)
         code = _slug(cen["nazev"])
         label = cen["nazev"]
+
+        # ── Chirurgický režim --formlists: jen přepnout formlist pole na lookup ──
+        # Jádro už musí existovat (a vzniknout z @@COREIMPORT). Nesahá na generátor,
+        # kontejnery ani ostatní pole → dopad výhradně formlist pole tohoto core.
+        if formlists_only:
+            core_row = s.execute(_t(
+                "SELECT id, COALESCE(created_by_text,''), COALESCE(updated_by_text,'') "
+                "FROM fw.core WHERE code = :c"), {"c": code}).first()
+            if not core_row:
+                return {"ok": False, "error": (
+                    f"--formlists: fw.core code='{code}' neexistuje — nejdřív spusť plný "
+                    f"@@COREIMPORT {ec_form_id}.")}
+            core_id = int(core_row[0])
+            if "@@COREIMPORT" not in (core_row[1] + core_row[2]):
+                return {"ok": False, "error": (
+                    f"--formlists: fw.core code='{code}' (id={core_id}) nevznikl z @@COREIMPORT "
+                    f"— nesahám na cizí jádro.")}
+            frep = _wire_formlists(s, core_id, cen, user_map)
+            s.commit()
+            return {
+                "ok": True,
+                "columns": ["pole", "hodnota"],
+                "rows": [
+                    ["režim", "--formlists (jen lookup wiring)"],
+                    ["ec_form_id", ec_form_id],
+                    ["core_id", core_id],
+                    ["core.code", code],
+                    ["formlistů_na_lookup", frep["formlists_wired"]],
+                    ["číselníky", ", ".join(frep["ciselniky"]) or "—"],
+                    ["nenamapováno", ", ".join(frep["unmatched"]) or "—"],
+                    ["detail", " | ".join(frep["details"]) or "—"],
+                ],
+            }
+
         select_sql = _source_to_select(zdroj, cen["sql_select"])
         # sloupce zdroje (i pro generátor/layout) + normalizace `id` pro form-load
         raw_cols = _fields_of(s, select_sql)

@@ -56,6 +56,22 @@ GENERATOR_PATH = REPO_ROOT / "scripts" / "executable_artifacts" / "vytvorit_edit
 # Centrála VLC formuláře jsou převážně PG-mirror / PG zdroje → default PG.
 DEFAULT_DB_CONNECTION_ID = 1  # 1 = PostgreSQL (STRATEGIE)
 
+# Překlad Centrála typů na kódy, které editační renderer (design_forms.js)
+# skutečně vykreslí jako plnohodnotný prvek. Bez překladu spadnou do
+# „readonly text (?typ)". (Kristý 13.7.2026)
+#   checkbox   → checkbox_modern     richedit*   → memo
+#   dateedit   → date_modern         datetimeedit → date_modern
+# formlist/combobox (potřebují číselník) a filelistbox (soubory) zatím NE —
+# přijdou ve fázi 3/4 spolu s číselníky a soubory.
+_RENDER_CODE_MAP = {
+    "checkbox": "checkbox_modern",
+    "richedit": "memo",
+    "richeditor": "memo",
+    "richeditorv1": "memo",
+    "dateedit": "date_modern",
+    "datetimeedit": "date_modern",
+}
+
 
 # ── pomocníci ────────────────────────────────────────────────────────────────
 
@@ -340,11 +356,15 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         parent_id = cont_map.get(cont_cid, client_panel_id)
         cap = (c.get("cap") or "").strip() or col
         so = as_int(c.get("t")) * 10000 + as_int(c.get("l"))
-        # typ přes centrala_id — jen leaf typy polí (grid/button/groupbox už odfiltrované)
+        # typ přes centrala_id → renderer-podporovaný kód (Kristý 13.7.):
+        # Centrála typ (checkbox/richedit/dateedit…) přeložit na kód, který
+        # editační renderer skutečně vykreslí (checkbox_modern/memo/date_modern…),
+        # jinak spadne do „readonly text (?typ)". Neznámý překlad → původní typ.
         new_type = None
         ct = by_centrala.get(typ)
         if ct and ct["kind"] == "leaf" and ct["code"] not in ("grid", "gridpoldoklad", "button"):
-            new_type = int(ct["id"])
+            tgt = by_code.get(_RENDER_CODE_MAP.get(ct["code"], ct["code"]))
+            new_type = int((tgt or ct)["id"])
         # Šířka z Centrály (bod 2, Kristý 10.7.): Width (px) → layout.max_width.
         # Merge do stávajícího layoutu, ať nepřepíšu always_new_row apod.
         wv = as_int(c.get("w"))

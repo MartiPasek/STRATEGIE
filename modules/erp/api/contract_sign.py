@@ -356,25 +356,32 @@ def sign_img(cid: int, page: int, req: Request, dpi: int = 140):
         p = max(0, int(page))
         _dpi = max(72, min(240, int(dpi or 140)))
         img = None
-        # rasterizér 1: PyMuPDF (fitz)
+        # rasterizér 1 (Kristý 13.7.2026): pypdfium2 s inicializací formulářů —
+        # vykreslí i vizuální podpisové pole (digitální podpis protistrany). Bez
+        # init_forms()/may_draw_forms se podpis v náhledu nezobrazil a mátl uživatele
+        # (vypadalo to jako nepodepsané, i když podpis v souboru je).
         try:
-            import io as _io
-            from PIL import Image as _Img
-            import fitz as _fz
-            _d = _fz.open(stream=bytes(data), filetype="pdf")
-            if p < _d.page_count:
-                pix = _d[p].get_pixmap(dpi=_dpi)
-                img = _Img.open(_io.BytesIO(pix.tobytes("png")))
-            _d.close()
+            import pypdfium2 as _pf
+            _pdf = _pf.PdfDocument(bytes(data))
+            try:
+                _pdf.init_forms()
+            except Exception:
+                pass
+            if p < len(_pdf):
+                img = _pdf[p].render(scale=_dpi / 72.0, may_draw_forms=True).to_pil()
         except Exception:
             img = None
-        # rasterizér 2 (fallback): pypdfium2 — čistý wheel bez systémových závislostí
+        # rasterizér 2 (fallback): PyMuPDF (fitz) s anotacemi
         if img is None:
             try:
-                import pypdfium2 as _pf
-                _pdf = _pf.PdfDocument(bytes(data))
-                if p < len(_pdf):
-                    img = _pdf[p].render(scale=_dpi / 72.0).to_pil()
+                import io as _io
+                from PIL import Image as _Img
+                import fitz as _fz
+                _d = _fz.open(stream=bytes(data), filetype="pdf")
+                if p < _d.page_count:
+                    pix = _d[p].get_pixmap(dpi=_dpi, annots=True)
+                    img = _Img.open(_io.BytesIO(pix.tobytes("png")))
+                _d.close()
             except Exception:
                 img = None
         if img is None:

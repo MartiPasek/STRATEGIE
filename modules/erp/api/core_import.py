@@ -58,6 +58,52 @@ DEFAULT_DB_CONNECTION_ID = 1  # 1 = PostgreSQL (STRATEGIE)
 # Číselníky formlistů žijí v Centrále (DB_EC, MSSQL) → data_set proti spojení 2.
 CISELNIK_DB_CONNECTION_ID = 2  # 2 = eurosoft_db_ec / DB_EC (Centrála)
 
+# Fallback SQL pro číselníky, jejichž EC_FormDef.SQL_Select je prázdný — statické
+# nebo v Delphi skládané přehledy (Centrála je negeneruje do SQL_Select). Primárně
+# se čte ŽIVĚ z Centrály; tohle je záchrana pro tyhle speciální LookupView.
+# (Kristý 13.7.2026 — dodala přesné SQL.) Registr smí růst pro další speciály.
+_CISELNIK_SQL_FALLBACK = {
+    1168: (
+        "SELECT NAME, Value\n"
+        "FROM (\n"
+        "    SELECT 'Rozvaděč - VR' AS NAME,'Rozvaděč' AS Value,1 AS Poradi\n"
+        "    UNION\n"
+        "    SELECT 'Instalace - VR' AS NAME,'Instalace' AS Value,2 AS Poradi\n"
+        "    UNION\n"
+        "    SELECT 'EPLAN - VR' AS NAME,'EPLAN' AS Value,3 AS Poradi\n"
+        "    UNION\n"
+        "    SELECT 'Materiál - PR' AS NAME,'Material' AS Value,4 AS Poradi\n"
+        "    UNION\n"
+        "    SELECT 'Software - SW' AS NAME,'Software' AS Value,5 AS Poradi\n"
+        "    ) List\n"
+        "ORDER BY Poradi"
+    ),
+    1164: (
+        "SELECT\n"
+        " O.ID,\n"
+        " O.JeOdberatel,\n"
+        " O.JeDodavatel,\n"
+        " O.Firma,\n"
+        " E._Zkratka_Nazvu,\n"
+        " O.CisloOrg,\n"
+        " O.DruhyNazev,\n"
+        " O.UliceSCisly,\n"
+        " O.Misto,\n"
+        " O.IdZeme ,\n"
+        " O.PSC,\n"
+        " O.Upozorneni,\n"
+        " DodaciAdr = ISNULL(O.Nazev,'') + char(13) + char(10) + ISNULL(O.UliceSCisly,'') "
+        "+ char(13) + char(10) +  ISNULL(O.IdZeme,'') +  ISNULL(O.PSC,'')+ ' '+ "
+        "ISNULL(O.Misto,'') + char(13) + char(10) + ISNULL(Z.NazevDE,'')\n"
+        " FROM TabCisOrg O\n"
+        "LEFT OUTER JOIN TabCisOrg_EXT E ON O.ID = E.ID\n"
+        "LEFT OUTER JOIN TabJazyky J ON J.Jazyk = O.Jazyk\n"
+        "LEFT OUTER JOIN TabZeme Z ON Z.ISOKod =  O.IdZeme\n"
+        "where O.stav=0\n"
+        "ORDER BY Firma"
+    ),
+}
+
 # Překlad Centrála typů na kódy, které editační renderer (design_forms.js)
 # skutečně vykreslí jako plnohodnotný prvek. Bez překladu spadnou do
 # „readonly text (?typ)". (Kristý 13.7.2026)
@@ -545,7 +591,11 @@ def _ensure_ciselnik(s, view: int, filter_cond: str | None) -> dict:
               f"FROM dbo.EC_FormDef WHERE ID = {view}")
     base_sql = (hdr[0].get("sqltext") if hdr else None) or ""
     if not base_sql.strip():
-        raise RuntimeError(f"číselník LookupView={view}: EC_FormDef nemá SQL_Select")
+        # EC_FormDef.SQL_Select prázdný → statický/skládaný číselník → fallback registr.
+        base_sql = _CISELNIK_SQL_FALLBACK.get(view, "")
+    if not base_sql.strip():
+        raise RuntimeError(f"číselník LookupView={view}: EC_FormDef nemá SQL_Select "
+                           f"a není ve fallback registru")
     sql_text, param, field = _inject_ciselnik_filter(base_sql, filter_cond)
 
     dset_row = s.execute(_t("SELECT id FROM fw.data_set WHERE code=:c"), {"c": code}).first()

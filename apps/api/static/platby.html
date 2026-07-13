@@ -515,6 +515,31 @@ function _ck(v){return v?'<span style="color:#3fb950;font-weight:700">✓</span>
 function dok(d){return (''+(d||'')).replace(/^[A-Za-z]+/,'');}
 function _dnum(s){var m=(''+s).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);return m?(parseInt(m[3],10)*10000+parseInt(m[2],10)*100+parseInt(m[1],10)):null;}
 function _inum(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(parseInt(m[1],10)*10000+parseInt(m[2],10)*100+parseInt(m[3],10)):null;}
+function _isoCz(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+'.'+m[2]+'.'+m[1]):'';}
+function _splatSummary(){var od=_fCol['splatnost_od'],dv=_fCol['splatnost_do'];
+  if(od&&dv)return od===dv?_isoCz(od):(_isoCz(od)+' – '+_isoCz(dv));
+  if(od)return 'od '+_isoCz(od); if(dv)return 'do '+_isoCz(dv); return '';}
+function openSplatFilter(inp){
+  var old=document.getElementById('splat-pop');if(old)old.remove();
+  var r=inp.getBoundingClientRect();
+  var od=_fCol['splatnost_od']||'',dv=_fCol['splatnost_do']||'';
+  var pop=document.createElement('div');pop.id='splat-pop';
+  pop.style.cssText='position:fixed;z-index:100;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;box-shadow:0 10px 34px rgba(0,0,0,.55);width:250px;font-size:13px;color:var(--ink)';
+  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-268))+'px';
+  pop.style.top=(r.bottom+4)+'px';
+  pop.innerHTML='<div style="font-weight:700;margin-bottom:8px">Výběr období – Splatnost</div>'+
+    '<label style="display:block;margin-bottom:6px">Jeden den:<br><input type="date" id="sp-one" style="width:100%"></label>'+
+    '<div style="text-align:center;color:var(--dim);font-size:11px;margin:4px 0">— nebo zadejte rozsah —</div>'+
+    '<label style="display:block;margin-bottom:6px">Datum OD:<br><input type="date" id="sp-od" value="'+esc(od)+'" style="width:100%"></label>'+
+    '<label style="display:block;margin-bottom:10px">Datum DO:<br><input type="date" id="sp-do" value="'+esc(dv)+'" style="width:100%"></label>'+
+    '<div style="display:flex;gap:6px;justify-content:flex-end"><span class="chip" id="sp-clear">vymazat</span><span class="chip" id="sp-cancel">zrušit</span><span class="chip on" id="sp-ok">OK</span></div>';
+  document.body.appendChild(pop);
+  document.getElementById('sp-one').onchange=function(){var v=this.value;document.getElementById('sp-od').value=v;document.getElementById('sp-do').value=v;};
+  document.getElementById('sp-ok').onclick=function(){_fCol['splatnost_od']=document.getElementById('sp-od').value;_fCol['splatnost_do']=document.getElementById('sp-do').value;pop.remove();renderFaktury();};
+  document.getElementById('sp-cancel').onclick=function(){pop.remove();};
+  document.getElementById('sp-clear').onclick=function(){_fCol['splatnost_od']='';_fCol['splatnost_do']='';pop.remove();renderFaktury();};
+  setTimeout(function(){document.addEventListener('click',function _cl(e){if(!pop.contains(e.target)&&e.target!==inp){pop.remove();document.removeEventListener('click',_cl);}});},0);
+}
 function _fAny(){return Object.keys(_fCol).some(function(k){return _fCol[k]!=null&&_fCol[k]!=='';});}
 function faktChips(){
   var h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">';
@@ -570,7 +595,7 @@ function renderFaktury(){
   h+='<div style="overflow:auto;max-height:calc(100vh - 250px)"><table class="fakt"><thead>';
   h+='<tr class="frow">';FCOLS.forEach(function(c){
     if(c.t==='b'){h+='<td><select data-fcol="'+c.k+'"><option value="">–</option><option value="1"'+(_fCol[c.k]==='1'?' selected':'')+'>✓</option><option value="0"'+(_fCol[c.k]==='0'?' selected':'')+'>✗</option></select></td>';}
-    else if(c.t==='date'){h+='<td><div style="display:flex;flex-direction:column;gap:2px"><input type="date" data-fcol="splatnost_od" value="'+esc(_fCol['splatnost_od']||'')+'" title="Splatnost od (vše od tohoto dne)"><input type="date" data-fcol="splatnost_do" value="'+esc(_fCol['splatnost_do']||'')+'" title="Splatnost do (vše do tohoto dne)"></div></td>';}
+    else if(c.t==='date'){h+='<td><input readonly value="'+esc(_splatSummary())+'" placeholder="datum…" onclick="openSplatFilter(this)" style="cursor:pointer" title="Klikni pro výběr data nebo období"></td>';}
     else{h+='<td><input data-fcol="'+c.k+'" value="'+esc(_fCol[c.k]||'')+'"></td>';}});
   h+='</tr>';
   h+='<tr>';FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+'>'+c.h+'</th>';});h+='</tr>';

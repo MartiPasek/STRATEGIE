@@ -8,7 +8,8 @@ prázdná a runtime nástroj ji nezapíše. Tenhle modul dělá tu vazbu DB-ří
 tabulka `fw.edit_form_binding`, kterou frontend při loadu naseeduje do registru.
 Statická mapa zůstává jako fallback/override → zpětně kompatibilní.
 
-grid_code = fw.core.code přehledu (list core). core_id = editační jádro (fw.core).
+grid_code = NÁZEV root comp_def gridu přehledu (page_render.js posílá rootCd.name
+jako gridCode — NE core.code!). core_id = editační jádro (fw.core).
 
 CRUD tlačítka (Nový/Oprava/Smazat) zapíná serverový signál `grid_actions`
 (router.py page-spec), počítaný z `fw.data_source_op` na data source PŘEHLEDU
@@ -75,14 +76,15 @@ def _ensure_prehled_crud_ops(s, grid_code: str, jadro_core_id: int) -> dict:
     NEmodifikujeme (přidáváme jen edit/insert/delete).
     """
     rep = {"prehled_ds": None, "ops": []}
-    # přehled core → aktivní root comp_def s data_source_id
+    # grid_code = NÁZEV root comp_def gridu přehledu (page_render.js posílá
+    # rootCd.name jako gridCode, NE core.code!). Najdi tu komponentu a vezmi
+    # její data_source_id.
     row = s.execute(_t(
-        "SELECT d.data_source_id FROM fw.core c "
-        "JOIN fw.comp_def d ON d.core_id = c.id AND d.is_active = true AND d.root = 1 "
-        "WHERE c.code = :gc AND d.data_source_id IS NOT NULL "
-        "ORDER BY d.sort_order, d.id LIMIT 1"), {"gc": grid_code}).first()
+        "SELECT d.data_source_id FROM fw.comp_def d "
+        "WHERE d.name = :gc AND d.is_active = true AND d.data_source_id IS NOT NULL "
+        "ORDER BY (d.root = 1) DESC, d.sort_order, d.id LIMIT 1"), {"gc": grid_code}).first()
     if not row:
-        return rep  # přehled bez data-source rootu (nemělo by nastat) → nic
+        return rep  # nenalezen grid s tímto názvem + data source → nic
     ds_id = int(row[0])
     rep["prehled_ds"] = ds_id
     # data_set jádra pro edit (nullable, reuse pro konzistenci s @@COREIMPORT)

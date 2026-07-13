@@ -10,7 +10,7 @@
     --czk:#4f9dff;--eur:#a78bfa;--head:#122036;--soft:#101a29;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:14px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px;max-width:1080px;margin:0 auto}
+    font:14px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px;max-width:none;margin:0}
   h1{font-size:22px;margin:0 0 3px;font-weight:800}
   .sub{color:var(--dim);font-size:13px;margin-bottom:16px}
   .kpi{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
@@ -30,6 +30,7 @@
   .cur.c-czk{background:#12294a;color:var(--czk)} .cur.c-eur{background:#241b40;color:var(--eur)}
   .grp .gh .sum{font-weight:800;font-size:16px}
   table{border-collapse:collapse;width:100%;font-size:13px}
+  #faktury-body thead th{position:sticky;top:0;background:var(--card);z-index:2}
   th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
   th{background:var(--head);color:#a9c7f0;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
   td.r,th.r{text-align:right}
@@ -518,7 +519,7 @@ function renderFaktury(){
   var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+_ftotal+' faktur'+cap+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   if(!_faktury.length){h+='<div class="load" style="padding:16px">Žádné faktury pro tento filtr.</div></div>';b.innerHTML=h;bindFaktChips();return;}
-  h+='<div style="overflow-x:auto"><table><thead><tr>'+
+  h+='<div style="overflow:auto;max-height:72vh"><table><thead><tr>'+
     '<th>Real.</th><th>Účt.</th><th>Schv.</th><th>Zákaz</th><th>Řada</th><th>Doklad</th><th></th><th>VS</th><th>Dodavatel</th>'+
     '<th>Splatnost</th><th class="r">Částka</th><th>Měna</th><th>Návrh</th><th class="r">Saldo</th>'+
     '<th>Skonto</th><th>Skonto do</th><th>Dat.úhrady</th><th>V platáku</th><th class="r">Uhrazeno</th>'+

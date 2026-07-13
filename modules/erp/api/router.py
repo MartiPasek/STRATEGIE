@@ -6030,9 +6030,9 @@ async def crm_osloveni_track_status(req: Request) -> JSONResponse:
 @api_router.post("/crm/aktivity/tracking")
 async def crm_aktivity_tracking(req: Request) -> JSONResponse:
     """Tracking otevření pro vybrané řádky přehledu „Aktivity obchodníka".
-    Dataset 92 nemá ve výběru id → párujeme podle e-mailu. Vstup:
-    {"rows":[{"email","firma","typ"}, ...]}. Stav odeslání + otevření z
-    mod.crm_email_track (poslední odeslání per příjemce). Auth: člen ERP / rodič."""
+    Vstup: {"action_ids":[<st.CRM_Kontakt_Akce.ID>, ...]} = vybrané řádky.
+    Pro každou akci resolve firma/e-mail/typ z DB_EC (MCP), pak stav odeslání +
+    otevření z mod.crm_email_track (poslední odeslání per firma). Auth: člen ERP / rodič."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
@@ -6044,50 +6044,85 @@ async def crm_aktivity_tracking(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         body = {}
-    rows_in = body.get("rows") or []
-    if not isinstance(rows_in, list):
-        rows_in = []
-    rows_in = rows_in[:60]
-    if not rows_in:
+    aids = []
+    for x in (body.get("action_ids") or body.get("rowIds") or []):
+        try:
+            aids.append(int(x))
+        except Exception:
+            pass
+    aids = sorted(set(aids))[:50]
+    if not aids:
         return JSONResponse({"ok": True, "items": []})
 
-    emails = []
-    for r in rows_in:
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+
+    def _g(d, k):
+        dl = {(kk or "").lower(): vv for kk, vv in d.items()}
+        return dl.get(k)
+
+    try:
+        arows = _crm_mcp_rows(mcp,
+            "SELECT a.ID AS aid, a.IDHlav AS fid, a.IDAkce AS idakce, cis.Nazev AS typ, "
+            "a.Email AS email, a.FirmaText AS firma, "
+            "CONVERT(varchar(10), a.DatumAkce, 23) AS datum "
+            "FROM st.CRM_Kontakt_Akce a WITH(NOLOCK) "
+            "LEFT JOIN st.CRM_Kontakt_AkceCis cis WITH(NOLOCK) ON cis.ID = a.IDAkce "
+            "WHERE a.ID IN (" + ",".join(str(i) for i in aids) + ")")
+    except Exception as exc:
+        logger.exception("[crm_aktivity_tracking] resolve %s", exc)
+        return JSONResponse({"ok": False, "error": "Akce se nepodařilo načíst"}, status_code=502)
+
+    meta, fids = {}, []
+    for d in (arows or []):
         try:
-            e = str((r or {}).get("email") or "").strip().lower()
+            aid = int(_g(d, "aid"))
         except Exception:
-            e = ""
-        if e and "@" in e:
-            emails.append(e)
-    emails = list(dict.fromkeys(emails))
+            continue
+        fid = _g(d, "fid")
+        try:
+            fid = int(fid) if fid is not None else None
+        except Exception:
+            fid = None
+        meta[aid] = {
+            "fid": fid,
+            "idakce": int(_g(d, "idakce") or 0),
+            "typ": (_g(d, "typ") or "").strip() or None,
+            "email": (_g(d, "email") or "").strip() or None,
+            "firma": (_g(d, "firma") or "").strip() or None,
+            "datum": _g(d, "datum"),
+        }
+        if fid is not None:
+            fids.append(fid)
 
     trk = {}
-    if emails:
+    if fids:
         from core.database_data import get_data_session as _gds_tk
         from sqlalchemy import text as _sql_tk
         ds = _gds_tk()
         try:
             for r in ds.execute(_sql_tk(
-                "SELECT DISTINCT ON (lower(recipient)) lower(recipient) AS em, "
-                "sent_at, opened_at, COALESCE(open_count,0) AS opens "
-                "FROM mod.crm_email_track "
-                "WHERE lower(recipient) = ANY(:em) "
-                "ORDER BY lower(recipient), sent_at DESC"),
-                {"em": emails}).mappings().all():
-                trk[r["em"]] = r
+                "SELECT DISTINCT ON (firma_id) firma_id, sent_at, opened_at, "
+                "COALESCE(open_count,0) AS opens FROM mod.crm_email_track "
+                "WHERE firma_id = ANY(:ids) ORDER BY firma_id, sent_at DESC"),
+                {"ids": sorted(set(fids))}).mappings().all():
+                trk[int(r["firma_id"])] = r
         finally:
             ds.close()
 
     items = []
-    for r in rows_in:
-        rr = r or {}
-        email = str(rr.get("email") or "").strip()
-        firma = str(rr.get("firma") or "").strip()
-        typ = str(rr.get("typ") or "").strip()
-        t = trk.get(email.lower()) if email else None
+    for aid in aids:
+        m = meta.get(aid)
+        if not m:
+            items.append({"action_id": aid, "found": False})
+            continue
+        t = trk.get(m["fid"]) if m["fid"] is not None else None
         items.append({
-            "firma": firma or None, "email": email or None, "typ": typ or None,
-            "is_email": ("mail" in typ.lower()),  # „Email na info"
+            "action_id": aid, "found": True,
+            "is_email": (m["idakce"] == 1),  # „Email na info"
+            "typ": m["typ"], "firma": m["firma"], "email": m["email"], "datum": m["datum"],
             "has_track": bool(t),
             "sent_at": t["sent_at"].isoformat() if (t and t["sent_at"]) else None,
             "opened_at": t["opened_at"].isoformat() if (t and t["opened_at"]) else None,
@@ -6124,7 +6159,7 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
     ids = sorted(set(ids))
     if not ids:
         return JSONResponse({"ok": False, "error": "Nevybral jsi žádné firmy"}, status_code=400)
-    ids = ids[:50]  # strop 50 mailů na jeden běh (Kristy 13.7.2026)
+    ids = ids[:100]  # bezpecnostni strop na jeden beh
     template_code = str(body.get("template_id") or body.get("template_code") or "9")[:32]
 
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -6238,12 +6273,8 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 inline_imgs.append((_fp, _cid))
     except Exception:
         inline_imgs = []
-    # BEZPEČNÝ režim (revert 13.7.2026 po incidentu): rich HTML šablona (DE #17)
-    # -> SYNCHRONNÍ send_email_or_raise s html_body=True + inline obrázky (renderuje
-    # správně). Cap 5 na běh (proxy timeout). Textové šablony -> queue_email (async).
-    # Async cesta pro rich se NEPOUŽÍVÁ — worker posílal HTML jako plain text
-    # (persona_id=None -> žádný HTMLBody) => „html klikiháky". 50 najednou = TODO
-    # bezpečně a otestovaně (napřed demo).
+    # Rich HTML sablona (inline obrazky, napr. DE #17) -> sync send, cap 5 (proxy
+    # timeout). Textove sablony -> queue_email (worker odesle asynchronne).
     _rich = bool(inline_imgs)
     _batch = targets2[:5] if _rich else targets2
     truncated = _rich and len(targets2) > len(_batch)
@@ -32634,7 +32665,8 @@ def platby_faktury_get(req: Request):
             "  COALESCE(p.uziv_ok,0) uziv_ok, p.suma_uhrad, "
             "  to_char(NULLIF(p.dat_uhrady,'')::date,'DD.MM.YYYY') dat_uhrady, "
             "  EXISTS(SELECT 1 FROM tenant.platak_uhrada_lock l WHERE l.id_fak=p.id) v_plataku, "
-            "  EXISTS(SELECT 1 FROM tenant.bank_transaction_raw t WHERE t.par_metoda='platak' AND t.par_doklad_id=p.id) bank_vypis "
+            "  EXISTS(SELECT 1 FROM tenant.bank_transaction_raw t WHERE t.par_metoda='platak' AND t.par_doklad_id=p.id) bank_vypis, "
+            "  p.skonto, to_char(NULLIF(p.skonto_do,'')::date,'DD.MM.YYYY') skonto_do "
             + base +
             " ORDER BY p.splatnost::date DESC NULLS LAST, p.id DESC LIMIT 1000"), params).fetchall()
         out = []
@@ -32652,7 +32684,8 @@ def platby_faktury_get(req: Request):
                         "suma_uhrad": round(float(r[17]), 2) if r[17] is not None else 0.0,
                         "dat_uhrady": r[18] or "", "v_plataku": vp, "bank_vypis": bv,
                         "banka_export": vp, "ceka_vypis": (vp and not bv),
-                        "skonto": "", "skonto_do": ""})
+                        "skonto": (round(float(r[21]), 2) if r[21] is not None else None),
+                        "skonto_do": r[22] or ""})
         agg = s.execute(_t("SELECT p.mena, count(*) n, SUM(" + _open + ") open_sum " + base + " GROUP BY p.mena"),
                         params).fetchall()
         sums = {row[0]: {"pocet": int(row[1]), "otevreno": round(float(row[2] or 0), 2)} for row in agg}

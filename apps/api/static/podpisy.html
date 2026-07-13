@@ -37,8 +37,10 @@
     <option value="EUROSOFT-Control s.r.o."></option>
     <option value="INTERSOFT-Automation s.r.o."></option>
   </datalist>
-  <label>Protistrana — jméno / firma</label><input id="cpn" type="text" placeholder="Jan Novák, Firma s.r.o.">
-  <label>E-mail protistrany</label><input id="cpe" type="text" placeholder="kontakt@firma.cz">
+  <label style="display:flex;gap:8px;align-items:center;margin:14px 0 2px;cursor:pointer"><input type="checkbox" id="selfmode" style="width:auto;margin:0"> Protistrana už podepsala (jen náš podpis)</label>
+  <div id="selfhint" class="mut" style="display:none;margin:0 0 4px">Podepíše jen naše strana. Do pole níže dej e‑mail, kam má po podpisu dorazit finální PDF (např. jednatel, který ho přepošle protistraně).</div>
+  <label id="lblcpn">Protistrana — jméno / firma</label><input id="cpn" type="text" placeholder="Jan Novák, Firma s.r.o.">
+  <label id="lblcpe">E-mail protistrany</label><input id="cpe" type="text" placeholder="kontakt@firma.cz">
   <label>PDF smlouvy</label><input id="file" type="file" accept="application/pdf">
   <button id="create" type="button">Vytvořit obálku</button>
   <div id="cmsg" class="msg"></div>
@@ -64,6 +66,13 @@
       }).join("")+'</div>';
     });
   }
+  document.getElementById("selfmode").addEventListener("change",function(){
+    var on=this.checked;
+    document.getElementById("selfhint").style.display=on?"block":"none";
+    document.getElementById("lblcpn").textContent=on?"Protistrana — jméno / firma (nepovinné)":"Protistrana — jméno / firma";
+    document.getElementById("lblcpe").textContent=on?"E-mail pro doručení podepsaného PDF":"E-mail protistrany";
+    document.getElementById("cpe").placeholder=on?"kam poslat finální PDF (např. m.pasek@eurosoft.com)":"kontakt@firma.cz";
+  });
   document.getElementById("create").addEventListener("click",function(){
     var f=document.getElementById("file").files[0];
     var m=document.getElementById("cmsg");
@@ -73,11 +82,12 @@
     var our=document.getElementById("our").value.trim();
     var cpn=document.getElementById("cpn").value.trim();
     var cpe=document.getElementById("cpe").value.trim();
-    if(!cpn||cpe.indexOf("@")<0){show("err","Vyplň jméno a e-mail protistrany.");return;}
+    var self=document.getElementById("selfmode").checked;
+    if(!self && (!cpn||cpe.indexOf("@")<0)){show("err","Vyplň jméno a e-mail protistrany.");return;}
     var btn=document.getElementById("create");btn.disabled=true;btn.textContent="Nahrávám…";
     var rd=new FileReader();
     rd.onload=function(){
-      api("POST",B+"/create",{title:title,our_party:our,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result)})
+      api("POST",B+"/create",{title:title,our_party:our,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result),mode:(self?"self":"bilateral")})
         .then(function(j){btn.disabled=false;btn.textContent="Vytvořit obálku";
           if(j&&j.ok){show("ok","✓ Vytvořeno.");document.getElementById("file").value="";document.getElementById("title").value="";loadList();SG.open(j.id);}
           else show("err","✗ "+((j&&j.error)||"chyba"));})
@@ -92,17 +102,19 @@
       var e=j.envelope, parties=j.parties||[];
       var ours=parties.filter(function(p){return p.role==="internal";})[0]||{};
       var cp=parties.filter(function(p){return p.role==="counterparty";})[0]||{};
+      var hasCp=parties.some(function(p){return p.role==="counterparty";});
       var h='<div class="card"><b>'+esc(e.title)+'</b> <span class="badge b-'+e.stav+'">'+(STAV[e.stav]||e.stav)+'</span>';
-      h+='<div class="mut" style="margin-top:6px">Protistrana: '+esc(e.counterparty_name||"")+' ('+esc(e.counterparty_email||"")+')</div>';
+      h+='<div class="mut" style="margin-top:6px">'+(hasCp?"Protistrana: ":"Doručit podepsané PDF: ")+esc(e.counterparty_name||"")+(e.counterparty_email?(' ('+esc(e.counterparty_email||"")+')'):"")+'</div>';
       h+='<div style="margin:10px 0"><div>'+(ours.signed?"✓":"○")+' Za nás: '+esc(ours.jmeno||"")+(ours.signed?(' — '+esc(ours.podpis_text||"")):"")+'</div>';
-      h+='<div>'+(cp.signed?"✓":"○")+' Protistrana: '+esc(cp.jmeno||"")+(cp.signed?(' — podepsáno'):"")+'</div></div>';
+      if(hasCp) h+='<div>'+(cp.signed?"✓":"○")+' Protistrana: '+esc(cp.jmeno||"")+(cp.signed?(' — podepsáno'):"")+'</div>';
+      h+='</div>';
       h+='<div id="pdfimgs" style="margin:8px 0;max-height:66vh;overflow:auto;border:1px solid #2a3350;border-radius:8px;background:#20242e;padding:6px"><div class="mut" style="padding:16px;text-align:center">Načítám náhled dokumentu…</div></div>';
       h+='<a class="sec" href="'+B+'/'+id+'/pdf" target="_blank" rel="noopener" style="display:inline-block;padding:8px 12px;text-decoration:none;border-radius:8px">⤓ Otevřít PDF v novém okně</a>';
       if(!ours.signed){
         h+='<label style="display:flex;gap:8px;align-items:center;margin:12px 0 4px;font-size:14px;cursor:pointer"><input type="checkbox" id="reviewChk"> Otevřel(a) jsem si dokument výše a přečetl(a) jsem si ho.</label>';
         h+='<div id="slidewrap" style="position:relative;height:52px;background:#1b2130;border:1px solid #2a3350;border-radius:26px;margin:6px 0;overflow:hidden;user-select:none;touch-action:none;opacity:.45;pointer-events:none"><div id="slidefill" style="position:absolute;left:0;top:0;bottom:0;width:52px;background:rgba(59,130,246,.22);border-radius:26px"></div><div id="slidelbl" style="position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#93a4c9;font-size:14px">Přetažením doprava podepište &#8594;</div><div id="slideh" style="position:absolute;left:3px;top:3px;width:46px;height:46px;border-radius:23px;background:#3b82f6;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:grab">✍️</div></div>';
       }
-      if(e.stav!=="completed") h+='<button onclick="SG.send('+id+')">📧 Odeslat protistraně</button>';
+      if(hasCp && e.stav!=="completed") h+='<button onclick="SG.send('+id+')">📧 Odeslat protistraně</button>';
       h+='<div id="dmsg" class="msg"></div>';
       if((j.log||[]).length){h+='<div class="mut" style="margin-top:12px"><b>Auditní stopa:</b><br>'+j.log.map(function(l){return esc(l.at)+" — "+esc(l.akce)+" — "+esc(l.kdo||"")+(l.ip?(" ("+esc(l.ip)+")"):"");}).join("<br>")+'</div>';}
       h+='</div>';

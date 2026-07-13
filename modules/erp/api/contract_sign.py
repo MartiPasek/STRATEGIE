@@ -90,6 +90,19 @@ def _log(s, tid, cid, akce, kdo, ip, device="", detail=""):
         pass
 
 
+def _notify_sign(s, uid, title, message):
+    """Push na mobil signatáře (fw.mobile_command → appka pollne á 4 s a cinkne).
+    Stejný kanál jako /app/notify. Best-effort, nikdy neshodí založení. (Kristý 13.7.2026)"""
+    if not uid:
+        return
+    try:
+        s.execute(_t("""INSERT INTO fw.mobile_command(app_key,target_user_id,command_type,title,message,created_by)
+            VALUES('mobile', :u, 'claude_msg', :ti, :m, NULL)"""),
+            {"u": int(uid), "ti": (title or "Smlouva k podpisu")[:120], "m": (message or "")[:600]})
+    except Exception:
+        pass
+
+
 def _pdf_resp(data):
     """PDF z DB (bytea) → HTTP odpověď. X-Frame SAMEORIGIN, ať jde vložit do iframe
     v podpisovém portálu (jinak prohlížeč/Caddy vložení odmítne)."""
@@ -164,9 +177,19 @@ async def sign_create(req: Request):
         # PDF ukládáme přímo do DB (bytea) — nezávislé na disku hostitele, přenositelné.
         s.execute(_t("UPDATE tenant.contract_sign SET pdf_orig=:b WHERE id=:c"),
                   {"b": raw, "c": cid})
+        # Kdo za nás podepíše: volitelně vybraný signatář (musí být z okruhu),
+        # jinak zakladatel. Interní signatář = tato osoba → jí se pošle upozornění
+        # na mobil a jí dorazí kopie finálu. (Kristý 13.7.2026)
+        signer_uid = uid
+        try:
+            _su = int(b.get("signer_user_id") or 0)
+            if _su and _su != uid and _can(_su, s):
+                signer_uid = _su
+        except Exception:
+            signer_uid = uid
         # signatáři: interní (my) + protistrana
         s.execute(_t("""INSERT INTO tenant.contract_sign_party(tenant_id,contract_id,role,jmeno,email,user_id,poradi)
-            VALUES(:t,:c,'internal',:j,NULL,:u,1)"""), {"t": tid, "c": cid, "j": _user_name(s, uid), "u": uid})
+            VALUES(:t,:c,'internal',:j,NULL,:u,1)"""), {"t": tid, "c": cid, "j": _user_name(s, signer_uid), "u": signer_uid})
         # counterparty signatář JEN v bilaterálním režimu; v 'self' je příjemce bez podpisu
         if mode != "self":
             s.execute(_t("""INSERT INTO tenant.contract_sign_party(tenant_id,contract_id,role,jmeno,email,poradi)
@@ -174,7 +197,15 @@ async def sign_create(req: Request):
         s.commit()
         _log(s, tid, cid, "created", _user_name(s, uid), _client_ip(req), detail=title)
         s.commit()
-        return {"ok": True, "id": cid}
+        # Upozornění signatáři na mobil (pokud to není sám zakladatel). Nekritické.
+        if signer_uid and signer_uid != uid:
+            _notify_sign(s, signer_uid, "Smlouva k podpisu",
+                         "Čeká na tvůj elektronický podpis: %s. Otevři modul Podpisy smluv a podepiš." % title)
+            try:
+                s.commit()
+            except Exception:
+                pass
+        return {"ok": True, "id": cid, "signer_uid": signer_uid}
     except Exception as exc:
         try:
             s.rollback()
@@ -197,6 +228,24 @@ def sign_list(req: Request):
             to_char(created_at,'DD.MM.YYYY HH24:MI') created FROM tenant.contract_sign
             WHERE tenant_id=:t ORDER BY id DESC LIMIT 200"""), {"t": tid}).mappings().all()
         return {"ok": True, "items": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@contract_router.get("/app/sign/signers")
+def sign_signers(req: Request):
+    """Seznam možných signatářů za nás (rodiče/jednatelé) — pro výběr „kdo podepíše".
+    (Kristý 13.7.2026)"""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        if not _can(uid, s):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t("""SELECT id, trim(coalesce(first_name,'')||' '||coalesce(last_name,'')) nm
+            FROM public.users WHERE COALESCE(is_marti_parent,false)=true
+            ORDER BY nm""")).mappings().all()
+        items = [{"id": r["id"], "name": (r["nm"] or ("uživatel %s" % r["id"]))} for r in rows]
+        return {"ok": True, "items": items, "me": uid}
     finally:
         s.close()
 

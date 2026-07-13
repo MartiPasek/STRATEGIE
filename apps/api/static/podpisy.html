@@ -37,6 +37,8 @@
     <option value="EUROSOFT-Control s.r.o."></option>
     <option value="INTERSOFT-Automation s.r.o."></option>
   </datalist>
+  <label>Kdo za nás podepíše (dostane upozornění na mobil)</label>
+  <select id="signer" style="width:100%;padding:10px 12px;border-radius:8px;background:#0d1017;color:#e6e9ef;border:1px solid #3a4a5a;font-size:14px"></select>
   <label style="display:flex;gap:8px;align-items:center;margin:14px 0 2px;cursor:pointer"><input type="checkbox" id="selfmode" style="width:auto;margin:0"> Protistrana už podepsala (jen náš podpis)</label>
   <div id="selfhint" class="mut" style="display:none;margin:0 0 4px">Podepíše jen naše strana. Do pole níže dej e‑mail, kam má po podpisu dorazit finální PDF (např. jednatel, který ho přepošle protistraně).</div>
   <label id="lblcpn">Protistrana — jméno / firma</label><input id="cpn" type="text" placeholder="Jan Novák, Firma s.r.o.">
@@ -66,6 +68,13 @@
       }).join("")+'</div>';
     });
   }
+  function loadSigners(){
+    api("GET",B+"/signers").then(function(j){
+      var sel=document.getElementById("signer"); if(!sel)return;
+      if(!j||!j.ok||!j.items||!j.items.length){sel.innerHTML='<option value="">(nikdo k výběru)</option>';return;}
+      sel.innerHTML=j.items.map(function(u){return '<option value="'+u.id+'"'+(u.id===j.me?' selected':'')+'>'+esc(u.name)+'</option>';}).join("");
+    }).catch(function(){});
+  }
   document.getElementById("selfmode").addEventListener("change",function(){
     var on=this.checked;
     document.getElementById("selfhint").style.display=on?"block":"none";
@@ -87,7 +96,7 @@
     var btn=document.getElementById("create");btn.disabled=true;btn.textContent="Nahrávám…";
     var rd=new FileReader();
     rd.onload=function(){
-      api("POST",B+"/create",{title:title,our_party:our,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result),mode:(self?"self":"bilateral")})
+      api("POST",B+"/create",{title:title,our_party:our,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result),mode:(self?"self":"bilateral"),signer_user_id:((document.getElementById("signer")||{}).value||"")})
         .then(function(j){btn.disabled=false;btn.textContent="Vytvořit obálku";
           if(j&&j.ok){show("ok","✓ Vytvořeno.");document.getElementById("file").value="";document.getElementById("title").value="";loadList();SG.open(j.id);}
           else show("err","✗ "+((j&&j.error)||"chyba"));})
@@ -174,6 +183,7 @@
     if(D && D.innerHTML && D.innerHTML.replace(/\s/g,"")!==""){ D.innerHTML=""; return true; }
     return false;
   };
+  loadSigners();
   loadList();
 })();
 </script>

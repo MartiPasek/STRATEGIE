@@ -32667,18 +32667,21 @@ def platby_faktury_get(req: Request):
                 "  SELECT id_fak, castka_po_bance AS castka FROM tenant.oz_uhrady WHERE firma=1"
                 "  UNION ALL SELECT id_fak, castka FROM tenant.platak_uhrada_lock) x GROUP BY id_fak) u "
                 "  ON u.id_fak=p.id WHERE " + " AND ".join(conds))
+        s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
+                     "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
+        s.commit()
         rows = s.execute(_t(
             "SELECT p.doklad, " + _uf + " ufirma, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
             "  COALESCE(p.var_symbol,'') vs, p.mena, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
             "  (CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) castka, " + _open + " open_saldo, "
             "  (p.splatnost::date - now()::date) dni, "
             "  p.rada, p.poradove_cislo, COALESCE(p.realizovano,0) realizovano, COALESCE(p.uctovano,0) uctovano, "
-            "  p.fin_schvaleni schvaleno, p.fin_zakaz zakaz, p.navrh_platby navrh, "
+            "  p.fin_schvaleni schvaleno, p.fin_zakaz zakaz, EXISTS(SELECT 1 FROM tenant.platak_navrh n WHERE n.id_fak=p.id) navrh, "
             "  COALESCE(p.uziv_ok,0) uziv_ok, p.suma_uhrad, "
             "  to_char(NULLIF(p.dat_uhrady,'')::date,'DD.MM.YYYY') dat_uhrady, "
             "  EXISTS(SELECT 1 FROM tenant.platak_uhrada_lock l WHERE l.id_fak=p.id) v_plataku, "
             "  EXISTS(SELECT 1 FROM tenant.bank_transaction_raw t WHERE t.par_metoda='platak' AND t.par_doklad_id=p.id) bank_vypis, "
-            "  p.skonto, to_char(NULLIF(p.skonto_do,'')::date,'DD.MM.YYYY') skonto_do "
+            "  p.skonto, to_char(NULLIF(p.skonto_do,'')::date,'DD.MM.YYYY') skonto_do, p.id id_fak "
             + base +
             " ORDER BY p.splatnost::date DESC NULLS LAST, p.id DESC LIMIT 1000"), params).fetchall()
         out = []
@@ -32697,12 +32700,50 @@ def platby_faktury_get(req: Request):
                         "dat_uhrady": r[18] or "", "v_plataku": vp, "bank_vypis": bv,
                         "banka_export": vp, "ceka_vypis": (vp and not bv),
                         "skonto": (round(float(r[21]), 2) if r[21] is not None else None),
-                        "skonto_do": r[22] or ""})
+                        "skonto_do": r[22] or "", "id_fak": int(r[23]) if r[23] is not None else None})
         agg = s.execute(_t("SELECT p.mena, count(*) n, SUM(" + _open + ") open_sum " + base + " GROUP BY p.mena"),
                         params).fetchall()
         sums = {row[0]: {"pocet": int(row[1]), "otevreno": round(float(row[2] or 0), 2)} for row in agg}
         total = int(sum(int(row[1]) for row in agg))
         return {"ok": True, "faktury": out, "sums": sums, "total": total, "shown": len(out)}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/platby/navrh-toggle")
+async def platby_navrh_toggle(req: Request):
+    """Ruční výběr faktur k platbě — zapíše/smaže příznak Návrh v tenant.platak_navrh (vzniká U NÁS, nezrcadlí se z Centrály).
+    Vstup JSON: {ids:[id_fak,...], stav:'on'|'off'}. Scope rodiče+Petra(18)+cockpit. Peta+Claude 13.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        ids = body.get("ids") or []
+        stav = (body.get("stav") or "on").strip()
+        ids = [int(x) for x in ids if str(x).strip() not in ("", "None", "null")]
+        if not ids:
+            return JSONResponse({"ok": False, "error": "žádné faktury"}, status_code=400)
+        s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
+                     "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
+        if stav == "off":
+            s.execute(_t("DELETE FROM tenant.platak_navrh WHERE id_fak = ANY(:ids)"), {"ids": ids})
+        else:
+            _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
+            s.execute(_t(
+                "INSERT INTO tenant.platak_navrh (id_fak, firma, added_by) "
+                "SELECT p.id, " + _uf + ", :uid FROM tenant.oz_pf_platba p "
+                "WHERE p.id = ANY(:ids) ON CONFLICT (id_fak) DO NOTHING"),
+                {"ids": ids, "uid": int(uid)})
+        s.commit()
+        n = s.execute(_t("SELECT count(*) FROM tenant.platak_navrh")).scalar()
+        return {"ok": True, "stav": stav, "dotceno": len(ids), "celkem_navrh": int(n or 0)}
     finally:
         s.close()
 

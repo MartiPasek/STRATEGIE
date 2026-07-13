@@ -71,7 +71,7 @@
   <div class="sub">Vše k platbám po ruce — návrhy k platbě, platáky, importy do banky i výpisy. Saldo počítáme z našich úhrad (Helios do něj nesahá).</div>
   <div id="kpi" class="kpi"></div>
   <div class="tabs">
-    <button class="tab on" data-p="faktury">📄 Faktury</button>
+    <button class="tab on" data-p="faktury">📄 Faktury přijaté</button>
     <button class="tab" data-p="navrhy">📋 Návrhy k platbě</button>
     <button class="tab" data-p="platplat">🧾 Platáky k platbě</button>
     <button class="tab" data-p="importy">⬇️ Importy do banky</button>
@@ -123,7 +123,7 @@ function tableFor(data,cur){
   if(!data.polozky.length){h+='<div class="load" style="padding:16px">Nic k platbě v '+cur+'.</div></div>';return h;}
   h+='<table><thead><tr><th>Doklad</th><th></th><th>Dodavatel</th><th>VS</th><th>Splatnost</th><th></th><th class="r">Částka</th></tr></thead><tbody>';
   data.polozky.forEach(function(p){
-    h+='<tr><td>'+esc(p.doklad)+'</td><td>'+firmaLbl(p.firma)+'</td><td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.vs)+'</td>'+
+    h+='<tr><td>'+esc(dok(p.doklad))+'</td><td>'+firmaLbl(p.firma)+'</td><td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.vs)+'</td>'+
       '<td>'+esc(p.splatnost)+'</td><td>'+dniPill(p.dni)+'</td>'+
       '<td class="r money">'+money(p.castka,cur)+'</td></tr>';
   });
@@ -307,7 +307,7 @@ function renderPlatak(d){
     g.polozky.forEach(function(p){
       var warnTitle=(p.warns&&p.warns.length)?' title="'+esc(p.warns.join(' | '))+'"':'';
       var rowbg=(p.verdikt==='chybi'||p.verdikt==='podezrely')?' style="background:#1e1416"':'';
-      h+='<tr'+rowbg+'><td>'+esc(p.doklad)+'</td><td class="dod">'+esc(p.dodavatel)+'</td>'+
+      h+='<tr'+rowbg+'><td>'+esc(dok(p.doklad))+'</td><td class="dod">'+esc(p.dodavatel)+'</td>'+
         '<td class="mono" style="color:var(--ink)">'+esc(p.ucet||'—')+'</td>'+
         '<td>'+esc(p.splatnost)+'</td>'+
         '<td'+warnTitle+'>'+verdiktPill(p.verdikt)+'</td>'+
@@ -511,6 +511,7 @@ var FCOLS=[
   {k:'banka_export',h:'Export',t:'b'},{k:'ceka_vypis',h:'Čeká výpis',t:'b'},{k:'bank_vypis',h:'Bank.výpis',t:'b'},{k:'uziv_ok',h:'Uživ.OK',t:'b'}
 ];
 function _ck(v){return v?'<span style="color:#3fb950;font-weight:700">✓</span>':'<span style="color:var(--dim)">–</span>';}
+function dok(d){return (''+(d||'')).replace(/^[A-Za-z]+/,'');}
 function _fAny(){return Object.keys(_fCol).some(function(k){return _fCol[k]!=null&&_fCol[k]!=='';});}
 function faktChips(){
   var h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">';
@@ -535,7 +536,7 @@ function _faktMatch(p){
 }
 function _faktCell(p,c){
   if(c.t==='b')return _ck(p[c.k]);
-  if(c.t==='dok')return esc(p.doklad)+' '+firmaLbl(p.firma);
+  if(c.t==='dok')return esc(dok(p.doklad))+' '+firmaLbl(p.firma);
   if(c.t==='m')return money(p.castka,p.mena);
   if(c.t==='mu')return p.suma_uhrad?money(p.suma_uhrad,p.mena):'';
   if(c.t==='sal')return '<span style="color:'+(p.zaplaceno?'var(--dim)':'var(--hot)')+'">'+money(p.saldo,p.mena)+'</span>';

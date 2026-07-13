@@ -652,10 +652,16 @@ def _wire_formlists(s, core_id: int, cen: dict, user_map: dict) -> dict:
         raise RuntimeError("fw.comp_type 'lookup' nenalezen")
     lookup_tid = by_code["lookup"]
 
+    formlist_tid = by_code.get("formlist")
     gen = s.execute(_t(
-        "SELECT id, name, root FROM fw.comp_def WHERE core_id=:c"), {"c": core_id}).mappings().all()
-    comp_names = [(g["name"] or "") for g in gen if g["name"] and not g["root"]]
-    by_name = {(g["name"] or "").lower(): g for g in gen if g["name"] and not g["root"]}
+        "SELECT id, name, root, type_id FROM fw.comp_def WHERE core_id=:c"),
+        {"c": core_id}).mappings().all()
+    # Kandidáti shody = JEN komponenty typu formlist. Jinak by prefix match mohl
+    # trefit stejnojmenné NE-formlist pole (Poznamka → Poznamka11). Formlisty jsou
+    # přesně ta pole, která číselník potřebují — ostatní se nesmí dotknout.
+    cand = [g for g in gen if g["name"] and not g["root"] and g["type_id"] == formlist_tid]
+    comp_names = [(g["name"] or "") for g in cand]
+    by_name = {(g["name"] or "").lower(): g for g in cand}
 
     for c in cen["comps"]:
         if int(c.get("typ") or 0) != 6:
@@ -696,6 +702,26 @@ def _wire_formlists(s, core_id: int, cen: dict, user_map: dict) -> dict:
         rep["details"].append(
             f"{g['name']} → lookup ({cis['code']}, val={lf or '?'}, disp={ld or '?'}"
             + (f", filtr {cis['param']}←{cis['field']}" if cis["param"] else "") + ")")
+
+    # Self-heal: SKRYTÁ (is_active=false) pole omylem navázaná na číselník
+    # (chybný prefix match dřívějšího běhu — např. Poznamka→Poznamka11). Správně
+    # navázané lookupy jsou viditelné; skryté s číselníkem = mis-wire → zpět na
+    # text (edit) a odpoj číselník. Nesahá na aktivní (správné) lookupy.
+    edit_tid = by_code.get("edit")
+    if edit_tid:
+        stale = s.execute(_t(
+            "SELECT id, name FROM fw.comp_def WHERE core_id=:c AND type_id=:lk "
+            "AND is_active=false AND (layout->>'data_source_code') LIKE 'ciselnik%'"),
+            {"c": core_id, "lk": lookup_tid}).mappings().all()
+        for st in stale:
+            s.execute(_t(
+                "UPDATE fw.comp_def SET type_id=:t, data_source_id=NULL, "
+                "layout = (COALESCE(layout,'{}'::jsonb) - 'data_source_code' "
+                "- 'lookup_id_field' - 'lookup_display_field' - 'lookup_filter_param' "
+                "- 'lookup_filter_field') WHERE id=:id"),
+                {"t": edit_tid, "id": st["id"]})
+            rep["reverted"] = rep.get("reverted", 0) + 1
+            rep["details"].append(f"revert {st['name']} → edit (skrytá, odpojen číselník)")
     return rep
 
 

@@ -132,7 +132,7 @@ function tableFor(data,cur){
   return h;
 }
 var _nfFirma='all';
-var _nfSplatDo=(function(){var d=new Date();d.setDate(d.getDate()+7);return d.toISOString().slice(0,10);})();
+var _nfSplatDo=(function(){function _pd(x){var w=x.getDay();return w===2||w===4;}/* Út=2, Čt=4 */var d=new Date();while(!_pd(d))d.setDate(d.getDate()+1);/*1. platební den (dnešek se počítá)*/d.setDate(d.getDate()+1);while(!_pd(d))d.setDate(d.getDate()+1);/*2. platební den*/d.setDate(d.getDate()+1);/*+1 den*/var m=d.getMonth()+1,dd=d.getDate();return d.getFullYear()+'-'+(m<10?'0':'')+m+'-'+(dd<10?'0':'')+dd;})();
 function navrhChips(){
   var opts=[['all','Vše'],['1','EUROSOFT - Control'],['2','EUROSOFT - System']];
   var h='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';

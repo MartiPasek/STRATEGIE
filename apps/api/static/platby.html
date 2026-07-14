@@ -163,8 +163,7 @@ var _platakGen=[];
 function openPlatak(){
   document.getElementById('platakOv').classList.add('on');
   document.getElementById('platak-body').innerHTML=
-    '<div id="platak-gen"></div><div id="platak-preview"><div class="load">Připravuji náhled (čtu účty příjemců z Centrály)…</div></div>';
-  loadVygenerovane();
+    '<div id="platak-preview"><div class="load">Připravuji náhled (čtu účty příjemců z Centrály)…</div></div>';
   fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma)+'&splatnost_do='+encodeURIComponent(_nfSplatDo),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderPlatak)
     .catch(function(){var p=document.getElementById('platak-preview');if(p)p.innerHTML='<div class="load">Chyba náhledu.</div>';});
@@ -175,7 +174,6 @@ function openPlatakReload(){
   if(p){p.innerHTML='<div class="load">Aktualizuji náhled…</div>';
     fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma)+'&splatnost_do='+encodeURIComponent(_nfSplatDo),{credentials:'same-origin'})
       .then(function(r){return r.json();}).then(renderPlatak).catch(function(){});
-    loadVygenerovane();
   }
   loadNavrhy(true);
   var pp=document.getElementById('platplat');if(pp&&pp.classList.contains('on'))loadPlatplat();

@@ -502,7 +502,7 @@ function loadPlataky(force){
       _plataky=d.plataky||[]; if(d.firmy)_firmy=d.firmy; _ptotal=d.total||0; _psums=d.sums||{}; _pshown=d.shown||_plataky.length; renderPlataky();
     }).catch(function(){document.getElementById('plataky-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
-var _ffFirma='all',_ffStav='open',_fCol={},_fActive=null,_faktury=[],_fsums={},_ftotal=0,_fshown=0,_faktSel={},_faktLastIdx=null;
+var _ffFirma='all',_ffStav='open',_fCol={},_fActive=null,_faktury=[],_fsums={},_ftotal=0,_fshown=0,_faktSel={},_faktLastIdx=null,_fSyncAt=null;
 var FCOLS=[
   {k:'realizovano',h:'Real.',t:'b'},{k:'uctovano',h:'Účt.',t:'b'},{k:'schvaleno',h:'Schv.',t:'b'},{k:'zakaz',h:'Zákaz',t:'b'},
   {k:'rada',h:'Řada',t:'t'},{k:'doklad',h:'Doklad',t:'dok'},{k:'vs',h:'VS',t:'t'},{k:'dodavatel',h:'Dodavatel',t:'t'},
@@ -548,7 +548,20 @@ function faktChips(){
   h+='<span style="width:14px;display:inline-block"></span>';
   [['open','Nezaplacené'],['all','Vše']].forEach(function(o){
     h+='<span class="chip'+(_ffStav===o[0]?' on':'')+'" data-fs="'+o[0]+'">'+o[1]+'</span>';});
+  h+='<span style="flex:1"></span>';
+  if(_fSyncAt){h+='<span style="font-size:11.5px;color:var(--dim);margin-right:8px" title="Kdy se naposledy natáhla data z Heliosu (automaticky každých 30 min)">🕓 data z Heliosu: <b style="color:var(--ink)">'+esc(_fSyncAt)+'</b></span>';}
+  h+='<span class="chip" id="fakt-sync-btn" onclick="syncFaktury(this)" title="Přezrcadlí faktury a úhrady z Heliosu právě teď. Automaticky se to děje každých 30 min." style="background:#12294a">🔄 Aktualizovat z Heliosu</span>';
   return h+'</div>';
+}
+function syncFaktury(btn){
+  var _t=btn?btn.textContent:''; if(btn){btn.style.pointerEvents='none';btn.style.opacity='0.6';btn.textContent='⏳ Aktualizuji z Heliosu…';}
+  fetch('/api/v1/erp/app/platby/sync-faktury',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok){alert('Aktualizace se nepovedla: '+((d&&d.error)||'chyba'));
+        if(btn){btn.style.pointerEvents='';btn.style.opacity='';btn.textContent=_t;}return;}
+      loadFaktury(true); // seznam se načte znovu z čerstvě zrcadlených dat (překreslí i tlačítko)
+    }).catch(function(){alert('Chyba spojení při aktualizaci.');
+      if(btn){btn.style.pointerEvents='';btn.style.opacity='';btn.textContent=_t;}});
 }
 function bindFaktChips(){
   document.querySelectorAll('#faktury-body .chip').forEach(function(c){
@@ -723,7 +736,7 @@ function loadFaktury(force){
   fetch('/api/v1/erp/app/platby/faktury?firma='+encodeURIComponent(_ffFirma)+'&stav='+encodeURIComponent(_ffStav),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
-      _faktury=d.faktury||[]; _fsums=d.sums||{}; _ftotal=d.total||0; _fshown=d.shown||_faktury.length;
+      _faktury=d.faktury||[]; _fsums=d.sums||{}; _ftotal=d.total||0; _fshown=d.shown||_faktury.length; _fSyncAt=d.sync_at||null;
       _faktury.sort(function(a,b){var ap=a.zaplaceno?1:0,bp=b.zaplaceno?1:0;if(ap!==bp)return ap-bp;return _dparse(a.splatnost)-_dparse(b.splatnost);});
       renderFaktury();
     }).catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});

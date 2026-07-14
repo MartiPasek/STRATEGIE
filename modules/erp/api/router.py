@@ -32670,7 +32670,12 @@ def platby_faktury_get(req: Request):
                         params).fetchall()
         sums = {row[0]: {"pocet": int(row[1]), "otevreno": round(float(row[2] or 0), 2)} for row in agg}
         total = int(sum(int(row[1]) for row in agg))
-        return {"ok": True, "faktury": out, "sums": sums, "total": total, "shown": len(out)}
+        try:
+            _sync_at = s.execute(_t("SELECT to_char(last_sync_at,'DD.MM. HH24:MI') FROM tenant.oz_mirror_def "
+                                    "WHERE oz_table='oz_pf_platba'")).scalar()
+        except Exception:
+            _sync_at = None
+        return {"ok": True, "faktury": out, "sums": sums, "total": total, "shown": len(out), "sync_at": _sync_at}
     finally:
         s.close()
 
@@ -32723,6 +32728,31 @@ async def platby_navrh_toggle(req: Request):
         return {"ok": True, "stav": stav, "dotceno": len(ids), "zapsano": int(_aff), "role": _role, "celkem_navrh": int(n or 0)}
     finally:
         s.close()
+
+
+@api_router.post("/app/platby/sync-faktury")
+def platby_sync_faktury(req: Request):
+    """Ruční přezrcadlení faktur (oz_pf_platba) + úhrad (oz_uhrady) z Heliosu — tlačítko
+    „🔄 Aktualizovat z Heliosu" v Platebním centru. Automatika jede dál každých 30 min;
+    tohle je refresh na počkání (zálohovka se zrealizuje → hned vidět). Nejdřív úhrady, pak
+    faktury (nová faktura naskočí až s aktuálním saldem). Rodiče + Petra(18) + cockpit. Peta+Claude 14.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    try:
+        from modules.erp.api import oz_mirror as _ozm
+        r_u = _ozm.sync("oz_uhrady", tenant_id=2)
+        r_f = _ozm.sync("oz_pf_platba", tenant_id=2)
+        ok = bool(r_u.get("ok") and r_f.get("ok"))
+        return {"ok": ok, "faktur": r_f.get("vlozeno"), "uhrad": r_u.get("vlozeno"),
+                "error": (r_f.get("error") or r_u.get("error")) if not ok else None}
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": (type(_e).__name__ + ": " + str(_e))[:300]}, status_code=200)
 
 
 @api_router.get("/app/domeny")

@@ -739,7 +739,8 @@ function renderFaktury(){
     else{h+='<td><input data-fcol="'+c.k+'" value="'+esc(_fCol[c.k]||'')+'"></td>';}});
   h+='</tr>';
   var allSel=list.length&&selIds.length===list.length;
-  h+='<tr><th style="width:26px"><input type="checkbox" id="faktSelAll"'+(allSel?' checked':'')+' title="Vybrat vše" style="cursor:pointer"></th>';
+  var _cwSel=_faktColW['_sel']||26;
+  h+='<tr><th data-col="_sel" style="width:'+_cwSel+'px;min-width:'+_cwSel+'px;max-width:'+_cwSel+'px;text-align:center"><input type="checkbox" id="faktSelAll"'+(allSel?' checked':'')+' title="Vybrat vše" style="cursor:pointer"><span class="colgrip" data-col="_sel" title="Táhni pro roztažení/zúžení sloupce"></span></th>';
   FCOLS.forEach(function(c){var _cw=_faktColW[c.k]?(' style="width:'+_faktColW[c.k]+'px;min-width:'+_faktColW[c.k]+'px;max-width:'+_faktColW[c.k]+'px"'):'';h+='<th'+(c.r?' class="r"':'')+' data-col="'+c.k+'"'+_cw+'>'+c.h+'<span class="colgrip" data-col="'+c.k+'" title="Táhni pro roztažení/zúžení sloupce"></span></th>';});h+='</tr>';
   h+='</thead><tbody>';
   if(!list.length){h+='<tr><td colspan="'+(FCOLS.length+1)+'" style="padding:16px;color:var(--dim)">Žádná faktura neodpovídá filtru.</td></tr>';}

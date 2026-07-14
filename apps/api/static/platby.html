@@ -551,7 +551,9 @@ function faktChips(){
   return h+'</div>';
 }
 function bindFaktChips(){
-  document.querySelectorAll('#faktury-body .chip').forEach(function(c){c.onclick=function(){
+  document.querySelectorAll('#faktury-body .chip').forEach(function(c){
+    if(c.dataset.ff==null&&c.dataset.fs==null&&!c.dataset.fclear)return; // jen filtrovaci chipy; NEpřepisuj akční tlačítka (Změna návrhu / Generovat), co mají vlastní onclick
+    c.onclick=function(){
     if(c.dataset.fclear){_fCol={};_fActive=null;renderFaktury();return;}
     if(c.dataset.ff!=null)_ffFirma=c.dataset.ff; if(c.dataset.fs!=null)_ffStav=c.dataset.fs; loadFaktury(true);};});
 }
@@ -613,7 +615,6 @@ function toggleNavrh(ids,on){
     body:JSON.stringify({ids:ids,stav:on?'on':'off'})})
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){alert('Nepovedlo se: '+((d&&d.error)||'chyba'));return;}
-      if(on&&d.zapsano===0){alert('Návrh se NEuložil (zapsáno 0 řádků, role: '+(d.role||'?')+'). Přečti to prosím Claudovi.');}
       var set={};ids.forEach(function(x){set[x]=true;});
       _faktury.forEach(function(p){if(set[p.id_fak])p.navrh=on;});
       renderFaktury();

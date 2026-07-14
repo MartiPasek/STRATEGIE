@@ -197,14 +197,28 @@ _NAVRH_SQL = (
 )
 
 
+def _navrh_cutoff():
+    """Výchozí cutoff jako 'Návrhy k platbě' (Peta 14.7.): splatnost do 1 dne po DRUHÉM
+    nejbližším platebním dni (Út/Čt, dnešek se počítá jako první, je-li platební).
+    Musí sedět s endpointem /app/platby/navrh (router.py)."""
+    _paydays = {1, 3}   # Út=1, Čt=3
+    _p0 = _dt.date.today()
+    while _p0.weekday() not in _paydays:
+        _p0 += _dt.timedelta(days=1)
+    _p1 = _p0 + _dt.timedelta(days=1)
+    while _p1.weekday() not in _paydays:
+        _p1 += _dt.timedelta(days=1)
+    return _p1 + _dt.timedelta(days=1)
+
+
 def _parse_cutoff(v):
-    """ISO 'YYYY-MM-DD' -> date; prazdne/spatne -> dnes+7 (Peta: 'splatnost do')."""
+    """ISO 'YYYY-MM-DD' -> date; prazdne/spatne -> platebni-denni cutoff (jako Navrhy). Peta 14.7."""
     if v:
         try:
             return _dt.date.fromisoformat(str(v)[:10])
         except Exception:
             pass
-    return _dt.date.today() + _dt.timedelta(days=7)
+    return _navrh_cutoff()
 
 
 def _build_groups(s, firma, mena_f, cutoff=None, manual=False):
@@ -214,7 +228,7 @@ def _build_groups(s, firma, mena_f, cutoff=None, manual=False):
     splatnosti) — ruční výběr Peti. Jinak (auto) bere vše se splatností <= cutoff."""
     from sqlalchemy import text as _t
     if cutoff is None:
-        cutoff = _dt.date.today() + _dt.timedelta(days=7)
+        cutoff = _navrh_cutoff()
     if manual:
         # ruční výběr: plať vše označené → aby it["plati"] bylo vždy True, posuň cutoff daleko
         cutoff = _dt.date(9999, 12, 31)

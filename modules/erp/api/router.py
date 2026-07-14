@@ -32695,20 +32695,32 @@ async def platby_navrh_toggle(req: Request):
         ids = [int(x) for x in ids if str(x).strip() not in ("", "None", "null")]
         if not ids:
             return JSONResponse({"ok": False, "error": "žádné faktury"}, status_code=400)
-        s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
-                     "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
-        if stav == "off":
-            s.execute(_t("DELETE FROM tenant.platak_navrh WHERE id_fak = ANY(:ids)"), {"ids": ids})
-        else:
-            _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
-            s.execute(_t(
-                "INSERT INTO tenant.platak_navrh (id_fak, firma, added_by) "
-                "SELECT p.id, " + _uf + ", :uid FROM tenant.oz_pf_platba p "
-                "WHERE p.id = ANY(:ids) ON CONFLICT (id_fak) DO NOTHING"),
-                {"ids": ids, "uid": int(uid)})
-        s.commit()
-        n = s.execute(_t("SELECT count(*) FROM tenant.platak_navrh")).scalar()
-        return {"ok": True, "stav": stav, "dotceno": len(ids), "celkem_navrh": int(n or 0)}
+        try:
+            _role = s.execute(_t("SELECT current_user")).scalar()
+        except Exception:
+            _role = "?"
+        try:
+            s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
+                         "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
+            if stav == "off":
+                _res = s.execute(_t("DELETE FROM tenant.platak_navrh WHERE id_fak = ANY(:ids)"), {"ids": ids})
+            else:
+                _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
+                _res = s.execute(_t(
+                    "INSERT INTO tenant.platak_navrh (id_fak, firma, added_by) "
+                    "SELECT p.id, " + _uf + ", :uid FROM tenant.oz_pf_platba p "
+                    "WHERE p.id = ANY(:ids) ON CONFLICT (id_fak) DO NOTHING"),
+                    {"ids": ids, "uid": int(uid)})
+            s.commit()
+            _aff = _res.rowcount if _res is not None else -1
+            n = s.execute(_t("SELECT count(*) FROM tenant.platak_navrh")).scalar()
+        except Exception as _e:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+            return JSONResponse({"ok": False, "error": "DB[" + str(_role) + "]: " + str(_e)[:400], "role": _role}, status_code=200)
+        return {"ok": True, "stav": stav, "dotceno": len(ids), "zapsano": int(_aff), "role": _role, "celkem_navrh": int(n or 0)}
     finally:
         s.close()
 

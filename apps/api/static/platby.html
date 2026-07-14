@@ -613,6 +613,7 @@ function toggleNavrh(ids,on){
     body:JSON.stringify({ids:ids,stav:on?'on':'off'})})
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){alert('Nepovedlo se: '+((d&&d.error)||'chyba'));return;}
+      if(on&&d.zapsano===0){alert('Návrh se NEuložil (zapsáno 0 řádků, role: '+(d.role||'?')+'). Přečti to prosím Claudovi.');}
       var set={};ids.forEach(function(x){set[x]=true;});
       _faktury.forEach(function(p){if(set[p.id_fak])p.navrh=on;});
       renderFaktury();

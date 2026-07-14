@@ -88,6 +88,19 @@ _RENDER_CODE_MAP = {
 }
 
 
+# Grid položek (Fáze 3b, Kristý 14.7.2026): read-only embedded grid_modern.
+# _GRID_SQL: select SQL číselníku/přehledu položek (LookupView/číslo přehledu).
+# _GRID_SPEC: Centrála grid komponenta (cid, Typ 11/21) → jeho select + filtr.
+# Grid se plní přes /api/v1/erp/data (kind=select) a filtruje na hlavičku
+# (filter_field → posílá se PK editovaného masteru = this._spec.data.id).
+_GRID_SQL = {
+    602: "-- Zabránít čekání na uzamčené tabulky\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED\nSELECT\nV.OK as GenVF,\nP.Poradi,\nP.ID,\nP.IDZboSklad,\nP.IDDoklad,\nP.RegCis,\nP.SkupZbo,\nP.Poznamka,\nP.Nazev1,\nP.Nazev2,\nP.NazevSozNa3,\nP.SlevaZboKmen,\nP.SKP,\nP.CisloZakazky,\nP.CisloZam,\nP.MJ,\nP.Mnozstvi,\nP.MnOdebrane,\nP.JCbezDaniKC,\n(P.JCbezDaniKC*((100-p.SlevaZboKmen)/100))as PoSleveJCbezDaniKC,\n(P.JCbezDaniKC-(P.JCbezDaniKC*((100-p.SlevaZboKmen)/100))) as SlevaJCbezDaniKC,\nP.JCbezDaniVal,\n(P.JCbezDaniVal*((100-p.SlevaZboKmen)/100))as PoSleveJCbezDaniVal,\n(P.JCbezDaniVal-(P.JCbezDaniVal*((100-p.SlevaZboKmen)/100))) as SlevaJCbezDaniVal,\nP.CCbezDaniKC,\n(P.CCbezDaniKC*((100-p.SlevaZboKmen)/100))as PoSleveCCbezDaniKC,\n(P.CCbezDaniKC-(P.CCbezDaniKC*((100-p.SlevaZboKmen)/100))) as SlevaCCbezDaniKC,\nP.CCbezDaniVal,\n(P.CCbezDaniVal*((100-p.SlevaZboKmen)/100))as PoSleveCCbezDaniVal,\n(P.CCbezDaniVal-(P.CCbezDaniVal*((100-p.SlevaZboKmen)/100))) as SlevaCCbezDaniVal,\nP.CCsDPHKC,\nP.CCsDPHVal,\nP.PozadDatDod,\nP.PotvrzDatDod,\nP.DatPorizeni,\nP.Autor,\nP.DatZmeny,\nP.zmenil,\nP.Popis4 as Dodano,\nP.PotvrzDatDod_X,\nP.SazbaDPH,\nP.kurz,\nD.DruhPohybuZbo,\nD.RadaDokladu,\nD.PoradoveCislo,\nD.Prijemce,\nD.CisloOrg AS CisloOrgDoklad,\nD.DatPorizeni,\nD.CisloZakazky AS ZakazkaDokl,\nD.TerminDodavky,\nD.PopisDodavky, D.Splneno,\nD.Realizovano,\nD.Uctovano,\nS.IDKmenZbozi,\nS.MnozSPrijBezVyd as Skladem,\n(case when D.DruhPohybuZbo=0 THEN 'Poíjemka'\nwhen D.DruhPohybuZbo=1 THEN 'Storno poíjmu'\nwhen D.DruhPohybuZbo=2 THEN 'Výdej ze skladu'\nwhen D.DruhPohybuZbo=3 THEN 'Storno výdeje'\nwhen D.DruhPohybuZbo=4 THEN 'Výdej v ev. ceni'\nwhen D.DruhPohybuZbo=5 THEN 'Prubežka'\nwhen D.DruhPohybuZbo=6 THEN 'Objednávka'\nwhen D.DruhPohybuZbo=7 THEN 'Reklamace dod.'\nwhen D.DruhPohybuZbo=8 THEN 'Reklamace odb.'\nwhen D.DruhPohybuZbo=9 THEN 'Exp. poíkaz'\nwhen D.DruhPohybuZbo=10 THEN 'Rezervace'\nwhen D.DruhPohybuZbo=11 THEN 'Nabídka'\nwhen D.DruhPohybuZbo=12 THEN 'Sestava'\nwhen D.DruhPohybuZbo=13 THEN 'Faktura vydaná'\nwhen D.DruhPohybuZbo=14 THEN 'Dobropis vydaný'\nwhen D.DruhPohybuZbo=18 THEN 'Faktura poijatá'\nelse  'NEUVEDENO' end) as Pohyb,\nK.Hmotnost as HmotnostKS\nFROM TabPohybyZbozi AS P\nLEFT OUTER JOIN TabDokladyZbozi D ON P.IDDoklad = D.ID\nLEFT OUTER JOIN TabStavSkladu S ON P.IDZboSklad = S.ID\nLEFT OUTER JOIN TabKmenZbozi K ON S.IDKmenZbozi = K.ID\nLEFT OUTER JOIN EC_TabSeznamID V ON P.ID = V.ID\nWHERE P.IDDoklad = :ID\nORDER BY P.Poradi ASC\n-- Zpět na původní nastavení\nSET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+}
+_GRID_SPEC = {
+    968: {"select_view": 602, "filter_field": "ID", "title": "Položky", "height_px": 360},
+}
+
+
 # ── pomocníci ────────────────────────────────────────────────────────────────
 
 def _ec(sql: str) -> list[dict]:
@@ -702,6 +715,117 @@ def _wire_formlists(s, core_id: int, cen: dict, user_map: dict) -> dict:
     return rep
 
 
+def _ensure_grid_source(s, view: int, sql_text: str) -> dict:
+    """Idempotentně založí zdroj gridu (data_set select + data_source + op select)
+    proti DB_EC. code = f'grid_{view}'. Read-only (jen select)."""
+    view = int(view)
+    code = f"grid_{view}"
+    dset_row = s.execute(_t("SELECT id FROM fw.data_set WHERE code=:c"), {"c": code}).first()
+    if dset_row:
+        dset_id = int(dset_row[0])
+        s.execute(_t("UPDATE fw.data_set SET sql_text=:sql, db_connection_id=:db WHERE id=:id"),
+                  {"sql": sql_text, "db": CISELNIK_DB_CONNECTION_ID, "id": dset_id})
+    else:
+        dset_id = int(s.execute(_t(
+            "INSERT INTO fw.data_set (code, version, sql_text, db_connection_id, status, is_system, is_immutable) "
+            "VALUES (:c, 1, :sql, :db, 'active', false, false) RETURNING id"
+        ), {"c": code, "sql": sql_text, "db": CISELNIK_DB_CONNECTION_ID}).scalar())
+    dsrc_row = s.execute(_t("SELECT id FROM fw.data_source WHERE code=:c"), {"c": code}).first()
+    if dsrc_row:
+        dsrc_id = int(dsrc_row[0])
+    else:
+        dsrc_id = int(s.execute(_t(
+            "INSERT INTO fw.data_source (code, version, name, status, is_system, is_immutable) "
+            "VALUES (:c, 1, :n, 'active', false, false) RETURNING id"
+        ), {"c": code, "n": f"Grid {view}"}).scalar())
+    op_row = s.execute(_t(
+        "SELECT id FROM fw.data_source_op WHERE data_source_id=:ds AND operation_kind='select'"
+    ), {"ds": dsrc_id}).first()
+    if op_row:
+        s.execute(_t("UPDATE fw.data_source_op SET data_set_id=:dset WHERE id=:id"),
+                  {"dset": dset_id, "id": int(op_row[0])})
+    else:
+        s.execute(_t(
+            "INSERT INTO fw.data_source_op (data_source_id, data_set_id, operation_kind, variant_code, sort_order, is_default) "
+            "VALUES (:ds, :dset, 'select', 'default', 10, true)"
+        ), {"ds": dsrc_id, "dset": dset_id})
+    return {"code": code, "dsrc_id": dsrc_id}
+
+
+def _wire_grids(s, core_id: int, cen: dict) -> dict:
+    """Chirurgicky vloží read-only embedded grid_modern do jádra za Centrála gridy
+    (Typ 11/21), pro které je v _GRID_SPEC definice. Grid se umístí do
+    reprodukovaného kontejneru rodiče (stejné místo jako v Centrále). NESAHÁ na
+    ostatní pole/kontejnery. CRUD zatím ne (jen zobrazení)."""
+    rep = {"grids": 0, "details": [], "skipped": []}
+    gm = s.execute(_t("SELECT id FROM fw.comp_type WHERE code='grid_modern'")).first()
+    if not gm:
+        raise RuntimeError("fw.comp_type 'grid_modern' nenalezen")
+    gm_tid = int(gm[0])
+    root = s.execute(_t("SELECT id FROM fw.comp_def WHERE core_id=:c AND root=1 LIMIT 1"),
+                     {"c": core_id}).first()
+    root_id = int(root[0]) if root else None
+
+    def parent_cid(c):
+        p = (c.get("par") or "").strip()
+        if p.lower().startswith("c") and p[1:].isdigit():
+            return int(p[1:])
+        return None
+
+    for c in cen["comps"]:
+        if int(c.get("typ") or 0) not in (11, 21):
+            continue
+        cid = int(c["cid"])
+        spec = _GRID_SPEC.get(cid)
+        if not spec:
+            rep["skipped"].append(f"c{cid} (bez spec)")
+            continue
+        view = spec["select_view"]
+        sql = _GRID_SQL.get(view)
+        if not sql:
+            rep["skipped"].append(f"c{cid} (chybí SQL view {view})")
+            continue
+        src = _ensure_grid_source(s, view, sql)
+        # rodičovský kontejner = reprodukovaný kontejner Centrála rodiče gridu
+        parent_id = None
+        pcid = parent_cid(c)
+        if pcid is not None:
+            names = [f"gb_centrala_{pcid}", f"panel_centrala_{pcid}",
+                     f"pc_centrala_{pcid}", f"tab_centrala_{pcid}"]
+            pr = s.execute(_t(
+                "SELECT id FROM fw.comp_def WHERE core_id=:c AND name = ANY(:ns) LIMIT 1"),
+                {"c": core_id, "ns": names}).first()
+            if pr:
+                parent_id = int(pr[0])
+        if not parent_id:
+            parent_id = root_id
+        lay = {"data_source_code": src["code"],
+               "filter_field": spec.get("filter_field", "ID"),
+               "title": spec.get("title") or "Položky",
+               "height_px": int(spec.get("height_px") or 360)}
+        name = f"grid_centrala_{cid}"
+        ex = s.execute(_t("SELECT id FROM fw.comp_def WHERE core_id=:c AND name=:n"),
+                       {"c": core_id, "n": name}).first()
+        if ex:
+            s.execute(_t(
+                "UPDATE fw.comp_def SET type_id=:t, parent_comp_def_id=:p, is_active=true, "
+                "layout = COALESCE(layout,'{}'::jsonb) || CAST(:lay AS jsonb) WHERE id=:id"),
+                {"t": gm_tid, "p": parent_id, "lay": json.dumps(lay, ensure_ascii=False),
+                 "id": int(ex[0])})
+        else:
+            s.execute(_t(
+                "INSERT INTO fw.comp_def (core_id, type_id, name, caption, layout, is_active, "
+                "sort_order, parent_comp_def_id, region_slot, created_by_text, updated_by_text) "
+                "VALUES (:c, :t, :n, :cap, CAST(:lay AS jsonb), true, :so, :p, 'main', "
+                "'Claude-24 @@COREIMPORT', 'Claude-24 @@COREIMPORT')"),
+                {"c": core_id, "t": gm_tid, "n": name, "cap": spec.get("title") or "Položky",
+                 "lay": json.dumps(lay, ensure_ascii=False), "so": 9000, "p": parent_id})
+        rep["grids"] += 1
+        rep["details"].append(
+            f"{name} → grid_modern ({src['code']}, filtr {lay['filter_field']}←master PK, parent #{parent_id})")
+    return rep
+
+
 def _source_to_select(zdroj: str | None, centrala_sql: str) -> str:
     """Zdroj → čistý edit-select (systém ho obalí `WHERE [ID]=`)."""
     if zdroj:
@@ -807,6 +931,9 @@ def run_core_import(arg: str) -> dict:
         # (nespouští generátor, netvoří pole; bezpečné pro už hotová jádra).
         formlists_only = "--formlists" in arg
         arg = arg.replace("--formlists", "")
+        # --grids = jen vložit read-only embedded grid(y) položek (dle _GRID_SPEC).
+        grids_only = "--grids" in arg
+        arg = arg.replace("--grids", "")
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
@@ -856,6 +983,35 @@ def run_core_import(arg: str) -> dict:
                     ["číselníky", ", ".join(frep["ciselniky"]) or "—"],
                     ["nenamapováno", ", ".join(frep["unmatched"]) or "—"],
                     ["detail", " | ".join(frep["details"]) or "—"],
+                ],
+            }
+
+        # ── Chirurgický režim --grids: jen vložit read-only grid(y) položek ──
+        if grids_only:
+            core_row = s.execute(_t(
+                "SELECT id, COALESCE(created_by_text,''), COALESCE(updated_by_text,'') "
+                "FROM fw.core WHERE code = :c"), {"c": code}).first()
+            if not core_row:
+                return {"ok": False, "error": (
+                    f"--grids: fw.core code='{code}' neexistuje — nejdřív spusť plný "
+                    f"@@COREIMPORT {ec_form_id}.")}
+            core_id = int(core_row[0])
+            if "@@COREIMPORT" not in (core_row[1] + core_row[2]):
+                return {"ok": False, "error": (
+                    f"--grids: fw.core code='{code}' (id={core_id}) nevznikl z @@COREIMPORT.")}
+            grep = _wire_grids(s, core_id, cen)
+            s.commit()
+            return {
+                "ok": True,
+                "columns": ["pole", "hodnota"],
+                "rows": [
+                    ["režim", "--grids (read-only embedded grid)"],
+                    ["ec_form_id", ec_form_id],
+                    ["core_id", core_id],
+                    ["core.code", code],
+                    ["gridů_vloženo", grep["grids"]],
+                    ["detail", " | ".join(grep["details"]) or "—"],
+                    ["přeskočeno", ", ".join(grep["skipped"]) or "—"],
                 ],
             }
 

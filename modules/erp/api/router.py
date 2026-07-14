@@ -37410,6 +37410,32 @@ async def centrala_form_spec_get(ec_form_id: int, req: Request) -> JSONResponse:
             pass
 
 
+@api_router.get("/centrala-form-specs")
+async def centrala_form_specs_list(req: Request) -> JSONResponse:
+    """Seznam definic formularu (fw.centrala_form_spec) + core_id (join fw.core
+    dle code) pro seed ErpSpecForm. Ctou vsichni prihlaseni; tolerantni."""
+    from sqlalchemy import text as _t_cfl
+    from core.database_data import get_data_session as _gds_cfl
+    _get_uid(req)
+    ds = _gds_cfl()
+    try:
+        rows = ds.execute(_t_cfl(
+            "SELECT s.ec_form_id, s.code, s.label, c.id AS core_id "
+            "FROM fw.centrala_form_spec s LEFT JOIN fw.core c ON c.code = s.code")).mappings().all()
+        return JSONResponse({"ok": True, "specs": [dict(r) for r in rows]})
+    except Exception as _cfl_e:
+        try:
+            logger.warning("centrala_form_specs_list failed: %s" % _cfl_e)
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "specs": []})
+    finally:
+        try:
+            ds.close()
+        except Exception:
+            pass
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):
@@ -56652,6 +56678,7 @@ def _render_workspace_page(user_id: int) -> str:
          (context menu, grid header, workspace toolbar). Marti doctrine
          "stejne zobrazit, stejne funkce". -->
     <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/erp_spec_form.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Cell actions Fáze 1 (1.6.2026, Marti: dvojklik na telefon/email/web
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher
          pro grid (onCellDoubleClicked) i form (dblclick na pole). -->

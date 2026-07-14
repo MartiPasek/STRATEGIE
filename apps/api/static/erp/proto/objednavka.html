@@ -72,7 +72,8 @@
 
 <script>
 /* ==== data-driven detail: kresli z fw.centrala_form_spec + zive data ==== */
-const EC_FORM_ID = 10, CORE_ID = 191;
+const EC_FORM_ID = parseInt(new URLSearchParams(location.search).get("ecFormId")||"10",10);
+const CORE_ID = parseInt(new URLSearchParams(location.search).get("coreId")||"191",10);
 const GRID_COLS = [   // kurátorovaný výběr sloupců položek (ostatní jsou v datech)
   {k:"Poradi",t:"#",num:true},{k:"RegCis",t:"Reg. číslo"},{k:"Nazev1",t:"Název"},
   {k:"Mnozstvi",t:"Množství",num:true},{k:"MJ",t:"MJ"},{k:"JCbezDaniKC",t:"JC bez DPH",num:true},

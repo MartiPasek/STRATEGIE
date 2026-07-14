@@ -118,6 +118,20 @@
         );
         return Promise.reject(new Error("no_edit_form_registered"));
       }
+
+      // Data-driven detail (Kristy 14.7.2026): pokud pro toto jadro existuje
+      // definice ve fw.centrala_form_spec, otevri data-driven detail IN-PLACE
+      // misto fw.* formulare. Gated + try/catch fallback (bez specu / pri chybe
+      // pokracuje puvodni DesignFwForm).
+      try {
+        if (global.ErpSpecForm && global.ErpSpecForm.hasCore(coreId)) {
+          if (global.ErpSpecForm.tryOpen({ coreId: coreId, rowId: rowId, mode: mode, gridCode: gridCode })) {
+            return Promise.resolve();
+          }
+        }
+      } catch (_esfErr) {
+        try { console.warn("[ErpGridActions] ErpSpecForm fallback:", _esfErr); } catch (e) {}
+      }
       // Smart re-open guard (31.5.2026, parita s DesignFwForm.open ř.~1346,
       // Marti's volba B = modal stack): blokuj JEN existing se STEJNYM coreId
       // (true double-click re-open). JINY coreId → allow (stacked modal — edit

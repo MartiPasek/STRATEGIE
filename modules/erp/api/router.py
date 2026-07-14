@@ -37381,6 +37381,35 @@ async def edit_form_binding_all(req: Request) -> JSONResponse:
             pass
 
 
+@api_router.get("/centrala-form-spec/{ec_form_id}")
+async def centrala_form_spec_get(ec_form_id: int, req: Request) -> JSONResponse:
+    """Definice formulare z Centraly (fw.centrala_form_spec) pro data-driven
+    renderer. Ctou vsichni prihlaseni; tolerantni k chybejici tabulce/radku.
+    Autor: Claude-24 (Kristy) 14.7.2026."""
+    from sqlalchemy import text as _t_cfs
+    from core.database_data import get_data_session as _gds_cfs
+    _get_uid(req)
+    ds = _gds_cfs()
+    try:
+        row = ds.execute(_t_cfs(
+            "SELECT spec FROM fw.centrala_form_spec WHERE ec_form_id = :e"),
+            {"e": ec_form_id}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "spec_not_found"}, status_code=404)
+        return JSONResponse({"ok": True, "spec": row[0]})
+    except Exception as _cfs_exc:
+        try:
+            logger.warning("centrala_form_spec_get failed: %s" % _cfs_exc)
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(_cfs_exc)[:200]}, status_code=200)
+    finally:
+        try:
+            ds.close()
+        except Exception:
+            pass
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

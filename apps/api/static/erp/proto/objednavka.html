@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="cs" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Přijatá objednávka — detail (data-driven)</title>
+<style>
+  :root[data-theme="dark"]{--bg:#0e1320;--panel:#151b2a;--ink:#e8ecf6;--muted:#93a0bc;--line:#273049;--line-2:#1e2639;--accent:#7d95ff;--accent-soft:#1e2743;--warn:#e6b25a;--chip:#212a42;--input:#111726;--head:#171f30;--rowhover:#1a2135;--dropbg:#121a2b;--dropline:#313d5c;--notebg:#141d33;--noteline:#284067;--ok:#2fbf71;--bad:#ff6b6b;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);--radius:12px;}
+  :root{--bg:#f4f6fb;--panel:#fff;--ink:#1c2333;--muted:#6b7488;--line:#e4e8f0;--line-2:#eef1f6;--accent:#3d5afe;--accent-soft:#eef1ff;--warn:#e8a33d;--chip:#eef1f6;--input:#fcfdff;--head:#fafbfe;--rowhover:#f7f9ff;--dropbg:#fbfcff;--dropline:#c7cfe0;--notebg:#eef3ff;--noteline:#d3e0f7;--ok:#0f9d58;--bad:#d23f3f;--shadow:0 1px 2px rgba(20,30,60,.06),0 8px 24px rgba(20,30,60,.06);--radius:12px;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px 20px 60px}
+  .topbar{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+  .back{color:var(--muted);cursor:pointer;font-weight:600;font-size:13px}.back:hover{color:var(--accent)}
+  .title{font-size:19px;font-weight:680;margin:2px 0 0}
+  .spacer{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--muted);font-weight:600}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--warn)}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer;box-shadow:var(--shadow)}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+  .toggle{border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;width:36px;height:36px;border-radius:9px;font-size:15px;box-shadow:var(--shadow)}
+  #status{font-size:12.5px;padding:9px 13px;border-radius:10px;margin-bottom:14px;border:1px solid var(--noteline);background:var(--notebg);color:var(--muted)}
+  #status.err{border-color:var(--bad);color:var(--bad)}
+  #status.ok{border-color:var(--noteline)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+  .card-h{padding:12px 18px;border-bottom:1px solid var(--line-2);font-weight:680;display:flex;gap:10px;align-items:center}
+  .card-h .sub{font-weight:500;color:var(--muted);font-size:12.5px}
+  .card-b{padding:16px 18px}
+  .fields{display:grid;grid-template-columns:repeat(3,1fr);gap:13px 20px}
+  .f{display:flex;flex-direction:column;gap:5px;min-width:0}.f.span2{grid-column:span 2}
+  .f label{font-size:12px;color:var(--muted);font-weight:600}
+  .ctrl{border:1px solid var(--line);border-radius:9px;padding:8px 11px;background:var(--input);font-size:14px;color:var(--ink);min-height:37px;display:flex;align-items:center;gap:8px}
+  .ctrl input,.ctrl select,.ctrl textarea{border:0;outline:0;background:transparent;width:100%;font:inherit;color:inherit}
+  .ctrl select{cursor:pointer}.ctrl textarea{resize:vertical;min-height:52px}
+  .tag{font-size:10.5px;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 7px;font-weight:700;white-space:nowrap}
+  .tag.f{color:var(--warn);background:transparent;border:1px solid var(--noteline)}
+  .cb{display:flex;align-items:center;gap:9px}.cb input{width:18px;height:18px;accent-color:var(--accent)}
+  .sect{grid-column:span 3;color:var(--muted);font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--line-2);padding-bottom:5px;margin-top:4px}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:0 6px}
+  .tab{padding:11px 15px;font-weight:640;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font-size:13.5px}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .tab .n{background:var(--chip);border-radius:999px;font-size:11px;padding:1px 7px;margin-left:6px}
+  .pane{display:none;padding:16px 18px}.pane.active{display:block}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{background:var(--head);text-align:left;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  thead th.fil{padding:5px 8px;text-transform:none}
+  thead input{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 7px;background:var(--input);color:var(--ink);font-size:12px}
+  tbody td{padding:8px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  tbody tr:hover{background:var(--rowhover)}
+  th.num,td.num{text-align:right}
+  .empty{color:var(--muted);font-size:13px;padding:8px 2px}
+  .drop{border:1.5px dashed var(--dropline);border-radius:12px;padding:22px;text-align:center;color:var(--muted);background:var(--dropbg)}
+  .path{font-size:11.5px;color:var(--muted);margin-top:12px;background:var(--chip);border-radius:8px;padding:8px 11px;display:inline-block;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <span class="back" id="back">← Zpět na seznam</span>
+    <div class="spacer"></div>
+    <button class="toggle" id="themeBtn">🌙</button>
+    <span class="chip"><span class="dot"></span> <span id="stav">Rozpracováno</span></span>
+    <button class="btn">Uložit a nový</button>
+    <button class="btn primary">Uložit</button>
+  </div>
+  <div id="status">Načítám definici a záznam…</div>
+  <h1 class="title" id="rtitle">Přijatá objednávka</h1>
+  <div style="height:12px"></div>
+  <div id="form"></div>
+</div>
+
+<script>
+/* ==== data-driven detail: kresli z fw.centrala_form_spec + zive data ==== */
+const EC_FORM_ID = 10, CORE_ID = 191;
+const GRID_COLS = [   // kurátorovaný výběr sloupců položek (ostatní jsou v datech)
+  {k:"Poradi",t:"#",num:true},{k:"RegCis",t:"Reg. číslo"},{k:"Nazev1",t:"Název"},
+  {k:"Mnozstvi",t:"Množství",num:true},{k:"MJ",t:"MJ"},{k:"JCbezDaniKC",t:"JC bez DPH",num:true},
+  {k:"SlevaZboKmen",t:"Sleva %",num:true},{k:"CCbezDaniKC",t:"Celkem bez DPH",num:true},
+  {k:"SazbaDPH",t:"DPH",num:true},{k:"CisloZakazky",t:"Zakázka"},{k:"PotvrzDatDod",t:"Potvrz. termín"},
+  {k:"Dodano",t:"Dodáno"}
+];
+
+function qs(n){return new URLSearchParams(location.search).get(n);}
+function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
+function setStatus(msg,kind){const s=document.getElementById("status");s.textContent=msg;s.className=kind||"";}
+function ciResolve(obj,want){if(!obj||want==null)return want;if(want in obj)return want;const w=String(want).toLowerCase();for(const k in obj)if(k.toLowerCase()===w)return k;return want;}
+function getVal(data,name){if(!data)return "";const k=ciResolve(data,name);const v=data[k];return v==null?"":v;}
+
+async function jget(url){const r=await fetch(url,{credentials:"include"});if(!r.ok)throw new Error("HTTP "+r.status+" — "+url);return r.json();}
+
+let RECORD={}, LOOKCACHE={};
+
+async function fetchLookup(f){
+  const lk=f.lookup;if(!lk||!lk.source_code)return [];
+  let url="/api/v1/erp/data/"+encodeURIComponent(lk.source_code)+"?limit=1000";
+  if(lk.filter&&lk.filter.param){const fv=getVal(RECORD,lk.filter.field);if(fv!=="")url+="&"+encodeURIComponent(lk.filter.param)+"="+encodeURIComponent(fv);}
+  if(LOOKCACHE[url])return LOOKCACHE[url];
+  try{const j=await jget(url);const rows=(j&&j.rows)||[];LOOKCACHE[url]=rows;return rows;}catch(e){console.warn("lookup",lk.source_code,e);return [];}
+}
+
+function renderField(f){
+  if(f.type==="label")return el("div","sect",f.caption||f.name);
+  const wrap=el("div","f"+(f.type==="memo"?" span2":""));
+  if(f.type==="checkbox"){const row=el("div","cb");const cb=el("input");cb.type="checkbox";const v=getVal(RECORD,f.name);cb.checked=(v===true||v===1||v==="1"||v==="t"||v==="true");row.appendChild(cb);row.appendChild(el("label",null,f.caption||f.name));wrap.appendChild(row);return wrap;}
+  wrap.appendChild(el("label",null,f.caption||f.name));
+  const val=getVal(RECORD,f.name);
+  if(f.type==="lookup"){
+    const c=el("div","ctrl");const sel=el("select");sel.appendChild(el("option",null,"—"));
+    c.appendChild(sel);
+    const badge=el("span");badge.style.display="flex";badge.style.gap="6px";badge.style.flex="none";
+    if(f.lookup){badge.appendChild(el("span","tag",f.lookup.source_code));if(f.lookup.filter)badge.appendChild(el("span","tag f","filtr "+f.lookup.filter.param));}
+    else badge.appendChild(el("span","tag f","číselník nenastaven"));
+    c.appendChild(badge);wrap.appendChild(c);
+    if(f.lookup){fetchLookup(f).then(rows=>{
+      const idf=f.lookup.id_field, df=f.lookup.display_field;
+      sel.innerHTML="";sel.appendChild(el("option",null,"—"));
+      rows.forEach(r=>{const o=el("option");o.value=r[ciResolve(r,idf)]!=null?String(r[ciResolve(r,idf)]):"";o.textContent=r[ciResolve(r,df)]!=null?String(r[ciResolve(r,df)]):o.value;sel.appendChild(o);});
+      if(val!=="")sel.value=String(val);
+      if(sel.selectedIndex<=0&&val!==""){const o=el("option");o.value=String(val);o.textContent=String(val);o.selected=true;sel.appendChild(o);}
+    });}
+    return wrap;
+  }
+  if(f.type==="memo"){const c=el("div","ctrl");const t=el("textarea");t.value=val;c.appendChild(t);wrap.appendChild(c);return wrap;}
+  if(f.type==="file"){const c=el("div","ctrl");c.innerHTML='<span style="color:var(--muted)">📎 '+(f.caption||f.name)+'</span>';wrap.appendChild(c);return wrap;}
+  const c=el("div","ctrl");const i=el("input");i.type="text";i.value=val;c.appendChild(i);wrap.appendChild(c);return wrap;
+}
+function fieldsGrid(list){const g=el("div","fields");list.slice().sort((a,b)=>(a.order||0)-(b.order||0)).forEach(f=>g.appendChild(renderField(f)));return g;}
+
+async function renderGrid(gr,pane){
+  const card=el("div","card");
+  card.appendChild(el("div","card-h",'Položky <span class="sub">— '+gr.source_code+' · filtr '+gr.filter_field+'←hlavička · živě z DB_EC</span>'));
+  const b=el("div","card-b");const host=el("div");host.className="empty";host.textContent="Načítám položky…";b.appendChild(host);card.appendChild(b);pane.appendChild(card);
+  const rowId=qs("rowId")||"";
+  try{
+    const j=await jget("/api/v1/erp/data/"+encodeURIComponent(gr.source_code)+"?"+encodeURIComponent(gr.filter_field)+"="+encodeURIComponent(rowId));
+    const rows=(j&&j.rows)||[];
+    host.className="";host.innerHTML="";
+    if(!rows.length){host.className="empty";host.textContent="Žádné položky pro tento doklad.";return;}
+    const wrapT=el("div");wrapT.style.overflowX="auto";
+    let html='<table><thead><tr>';
+    GRID_COLS.forEach(c=>html+='<th'+(c.num?' class="num"':'')+'>'+c.t+'</th>');
+    html+='</tr><tr>';
+    GRID_COLS.forEach((c,i)=>html+='<th class="fil"><input data-col="'+i+'" placeholder="filtr…"></th>');
+    html+='</tr></thead><tbody></tbody></table>';
+    wrapT.innerHTML=html;host.appendChild(wrapT);
+    const tb=wrapT.querySelector("tbody");
+    function draw(f){tb.innerHTML="";const ff=(f||[]).map(x=>x.toLowerCase());rows.forEach(r=>{
+      const cells=GRID_COLS.map(c=>{const k=ciResolve(r,c.k);const v=r[k];return v==null?"":String(v);});
+      let ok=true;for(let i=0;i<ff.length;i++){if(ff[i]&&!cells[i].toLowerCase().includes(ff[i])){ok=false;break;}}
+      if(!ok)return;
+      const tr=el("tr");cells.forEach((v,i)=>{const td=el("td",GRID_COLS[i].num?"num":null);td.textContent=v;tr.appendChild(td);});tb.appendChild(tr);
+    });}
+    draw();
+    const inputs=[...wrapT.querySelectorAll("thead input")];
+    inputs.forEach(inp=>inp.addEventListener("input",()=>draw(inputs.map(x=>x.value.trim()))));
+    b.insertBefore(el("div",null,'<div style="color:var(--muted);font-size:12px;margin-bottom:8px">Načteno '+rows.length+' položek · pod hlavičkami sloupců je filtr</div>'),host);
+  }catch(e){host.className="empty";host.textContent="Položky se nepodařilo načíst: "+e.message;}
+}
+
+function renderFiles(pane){
+  const card=el("div","card");card.appendChild(el("div","card-h","Adresáře & soubory"));
+  const b=el("div","card-b");b.innerHTML='<div class="drop">📎 Přetáhni soubory sem, nebo <b>klikni pro výběr</b></div><div class="path">Adresář Centrály (dle filelistbox.Directory) — doplní se z definice</div>';
+  card.appendChild(b);pane.appendChild(card);
+}
+
+function renderForm(root,spec){
+  root.innerHTML="";
+  document.getElementById("rtitle").textContent="📦 "+spec.label+" — č. "+(getVal(RECORD,"PoradoveCislo")||qs("rowId")||"");
+  const header=spec.fields.filter(f=>!f.tab&&f.type!=="grid");
+  if(header.length){const card=el("div","card");card.appendChild(el("div","card-h",'Hlavička <span class="sub">— '+header.length+' polí z definice</span>'));const bb=el("div","card-b");bb.appendChild(fieldsGrid(header));card.appendChild(bb);root.appendChild(card);}
+  const tabCard=el("div","card");const tabbar=el("div","tabs");const panesWrap=el("div");
+  (spec.tabs||[]).forEach((t,idx)=>{
+    const tf=spec.fields.filter(f=>f.tab===t.label);
+    const tb=el("div","tab"+(idx===0?" active":""),t.label+(tf.length?' <span class="n">'+tf.length+'</span>':''));
+    const pane=el("div","pane"+(idx===0?" active":""));
+    tb.onclick=()=>{[...tabbar.children].forEach(x=>x.classList.remove("active"));[...panesWrap.children].forEach(x=>x.classList.remove("active"));tb.classList.add("active");pane.classList.add("active");};
+    tabbar.appendChild(tb);
+    if(tf.length)pane.appendChild(fieldsGrid(tf));else pane.appendChild(el("div","empty","(V definici zatím na téhle záložce nejsou pole.)"));
+    if(t.label==="Obecné"&&(spec.grids||[]).length)spec.grids.forEach(gr=>renderGrid(gr,pane));
+    if(t.label==="Adresáře")renderFiles(pane);
+    panesWrap.appendChild(pane);
+  });
+  tabCard.appendChild(tabbar);tabCard.appendChild(panesWrap);root.appendChild(tabCard);
+}
+
+async function boot(){
+  const rowId=qs("rowId");
+  const root=document.documentElement,tb=document.getElementById("themeBtn");
+  function setTheme(d){root.setAttribute("data-theme",d?"dark":"light");tb.textContent=d?"🌙":"☀️";}
+  tb.onclick=()=>setTheme(root.getAttribute("data-theme")!=="dark");setTheme(true);
+  document.getElementById("back").onclick=()=>history.length>1?history.back():alert("Zpět na seznam");
+  try{
+    setStatus("Načítám definici (fw.centrala_form_spec)…");
+    const sp=await jget("/api/v1/erp/centrala-form-spec/"+EC_FORM_ID);
+    if(!sp.ok||!sp.spec)throw new Error("spec: "+(sp.error||"prázdný"));
+    const spec=sp.spec;
+    if(rowId){try{setStatus("Načítám záznam #"+rowId+"…");const rec=await jget("/api/v1/erp/fw-form/by-id/"+CORE_ID+"/"+encodeURIComponent(rowId));RECORD=rec.data||rec.record||rec.row||(rec.spec&&rec.spec.data)||{};}catch(e){console.warn("record",e);RECORD={};}}
+    renderForm(document.getElementById("form"),spec);
+    setStatus("✔ Formulář vykreslen z definice (fw.centrala_form_spec) · "+spec.counts.fields+" polí · "+spec.counts.lookups+" číselníků · "+spec.counts.grids+" grid"+(rowId?(" · záznam #"+rowId):" · bez záznamu (přidej ?rowId=…)"),"ok");
+  }catch(e){setStatus("Chyba: "+e.message+" — jsi přihlášená ve STRATEGII a otevíráš to na stejné doméně?","err");}
+}
+boot();
+</script>
+</body>
+</html>

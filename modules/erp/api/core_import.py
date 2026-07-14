@@ -799,6 +799,12 @@ def _wire_grids(s, core_id: int, cen: dict) -> dict:
                 parent_id = int(pr[0])
         if not parent_id:
             parent_id = root_id
+        # Kontejner gridu mohl být při plném importu založen jako NEAKTIVNÍ
+        # placeholder (obsahoval jen grid → „fáze 2"). Teď do něj dáváme
+        # viditelný grid → reaktivuj ho, jinak se celý panel (a grid) nevykreslí.
+        if parent_id:
+            s.execute(_t("UPDATE fw.comp_def SET is_active=true "
+                         "WHERE id=:id AND is_active=false"), {"id": parent_id})
         lay = {"data_source_code": src["code"],
                "filter_field": spec.get("filter_field", "ID"),
                "title": spec.get("title") or "Položky",

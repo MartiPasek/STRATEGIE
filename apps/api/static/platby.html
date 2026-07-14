@@ -546,8 +546,8 @@ function faktChips(){
   [['all','Vše'],['1','EUROSOFT - Control'],['2','EUROSOFT - System']].forEach(function(o){
     h+='<span class="chip'+(_ffFirma===o[0]?' on':'')+'" data-ff="'+o[0]+'">'+o[1]+'</span>';});
   h+='<span style="width:14px;display:inline-block"></span>';
-  [['open','Nezaplacené'],['all','Vše']].forEach(function(o){
-    h+='<span class="chip'+(_ffStav===o[0]?' on':'')+'" data-fs="'+o[0]+'">'+o[1]+'</span>';});
+  [['open','Nezaplacené'],['all','Vše'],['ceka','🏦 Čeká na výpis']].forEach(function(o){
+    h+='<span class="chip'+(_ffStav===o[0]?' on':'')+'" data-fs="'+o[0]+'" title="'+(o[0]==='ceka'?'Vygenerovaný platák, který ještě nemá potvrzení bankovním výpisem (BV)':'')+'">'+o[1]+'</span>';});
   h+='<span style="flex:1"></span>';
   if(_fSyncAt){h+='<span style="font-size:11.5px;color:var(--dim);margin-right:8px" title="Kdy se naposledy natáhla data z Heliosu (automaticky každých 30 min)">🕓 data z Heliosu: <b style="color:var(--ink)">'+esc(_fSyncAt)+'</b></span>';}
   h+='<span class="chip" id="fakt-sync-btn" onclick="syncFaktury(this)" title="Přezrcadlí faktury a úhrady z Heliosu právě teď. Automaticky se to děje každých 30 min." style="background:#12294a">🔄 Aktualizovat z Heliosu</span>';
@@ -700,10 +700,12 @@ function genVse(btn){
 function renderFaktury(){
   var b=document.getElementById('faktury-body');
   var anyF=_fAny();
+  var cekaMode=(_ffStav==='ceka');
   var list=anyF?_faktury.filter(_faktMatch):_faktury;
-  var sh=Object.keys(_fsums).map(function(m){return _fsums[m].pocet+'× '+money(_fsums[m].otevreno,m)+' otevř.';}).join(' · ')||'—';
-  var cap=(_fshown<_ftotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_fshown+' nejnovějších)</span>'):'';
-  var poc=anyF?(list.length+' z '+_ftotal):(''+_ftotal);
+  if(cekaMode)list=list.filter(function(p){return p.ceka_vypis;});
+  var sh=cekaMode?'v platáku, čeká na potvrzení bankovním výpisem':(Object.keys(_fsums).map(function(m){return _fsums[m].pocet+'× '+money(_fsums[m].otevreno,m)+' otevř.';}).join(' · ')||'—');
+  var cap=(!cekaMode&&_fshown<_ftotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_fshown+' nejnovějších)</span>'):'';
+  var poc=(anyF||cekaMode)?(list.length+(cekaMode?' čeká na výpis':(' z '+_ftotal))):(''+_ftotal);
   var clr=anyF?' <span class="chip" data-fclear="1" style="font-size:11px;padding:2px 8px;margin-left:10px;vertical-align:middle">✕ zrušit filtry</span>':'';
   var selIds=list.filter(function(p){return _faktSel[p.id_fak];}).map(function(p){return p.id_fak;});
   var selBtn=selIds.length?' <span class="chip on" onclick="changeNavrhSelected()" style="font-size:11px;padding:2px 8px;margin-left:10px;vertical-align:middle" title="Označí/odznačí Návrh k platbě u vybraných">✎ Změna návrhu k platbě ('+selIds.length+')</span>':'';
@@ -733,7 +735,7 @@ function renderFaktury(){
 function loadFaktury(force){
   var b=document.getElementById('faktury-body');
   if(force){b.innerHTML=faktChips()+'<div class="load">Načítám…</div>';bindFaktChips();}
-  fetch('/api/v1/erp/app/platby/faktury?firma='+encodeURIComponent(_ffFirma)+'&stav='+encodeURIComponent(_ffStav),{credentials:'same-origin'})
+  fetch('/api/v1/erp/app/platby/faktury?firma='+encodeURIComponent(_ffFirma)+'&stav='+encodeURIComponent(_ffStav==='ceka'?'all':_ffStav),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
       _faktury=d.faktury||[]; _fsums=d.sums||{}; _ftotal=d.total||0; _fshown=d.shown||_faktury.length; _fSyncAt=d.sync_at||null;

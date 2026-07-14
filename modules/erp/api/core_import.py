@@ -940,6 +940,10 @@ def run_core_import(arg: str) -> dict:
         # --grids = jen vložit read-only embedded grid(y) položek (dle _GRID_SPEC).
         grids_only = "--grids" in arg
         arg = arg.replace("--grids", "")
+        # --spec = jen extrahovat definici formuláře do fw.centrala_form_spec
+        # (na frameworku nezávislý, trvalý základ; nesahá na comp_def ani core).
+        spec_only = "--spec" in arg
+        arg = arg.replace("--spec", "")
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
@@ -1018,6 +1022,31 @@ def run_core_import(arg: str) -> dict:
                     ["gridů_vloženo", grep["grids"]],
                     ["detail", " | ".join(grep["details"]) or "—"],
                     ["přeskočeno", ", ".join(grep["skipped"]) or "—"],
+                ],
+            }
+
+        # ── Režim --spec: extrakce definice do fw.centrala_form_spec ──────────
+        # Trvalý, na frameworku nezávislý základ. Nesahá na comp_def ani core —
+        # jen z Centrály přečte definici a uloží ji jako JSON. Přežije jakékoli
+        # rozhodnutí o rendereru / ukládání (Kristý 14.7.).
+        if spec_only:
+            from modules.erp.api import centrala_form_spec as _cfs
+            spec = _cfs.build_spec(cen)
+            counts = _cfs.store(s, ec_form_id, spec)
+            s.commit()
+            return {
+                "ok": True,
+                "columns": ["pole", "hodnota"],
+                "rows": [
+                    ["režim", "--spec (definice → fw.centrala_form_spec)"],
+                    ["ec_form_id", ec_form_id],
+                    ["code", spec.get("code")],
+                    ["label", spec.get("label")],
+                    ["polí", counts["fields"]],
+                    ["z toho lookup", counts["lookups"]],
+                    ["záložky", counts["tabs"]],
+                    ["gridy", counts["grids"]],
+                    ["soubory (filelistbox)", counts["files"]],
                 ],
             }
 

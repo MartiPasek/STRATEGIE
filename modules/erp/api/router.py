@@ -32673,7 +32673,12 @@ def platby_faktury_get(req: Request):
                         params).fetchall()
         sums = {row[0]: {"pocet": int(row[1]), "otevreno": round(float(row[2] or 0), 2)} for row in agg}
         total = int(sum(int(row[1]) for row in agg))
-        return {"ok": True, "faktury": out, "sums": sums, "total": total, "shown": len(out)}
+        try:
+            _sync_at = s.execute(_t("SELECT to_char(last_sync_at,'DD.MM. HH24:MI') FROM tenant.oz_mirror_def "
+                                    "WHERE oz_table='oz_pf_platba'")).scalar()
+        except Exception:
+            _sync_at = None
+        return {"ok": True, "faktury": out, "sums": sums, "total": total, "shown": len(out), "sync_at": _sync_at}
     finally:
         s.close()
 
@@ -32698,22 +32703,59 @@ async def platby_navrh_toggle(req: Request):
         ids = [int(x) for x in ids if str(x).strip() not in ("", "None", "null")]
         if not ids:
             return JSONResponse({"ok": False, "error": "žádné faktury"}, status_code=400)
-        s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
-                     "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
-        if stav == "off":
-            s.execute(_t("DELETE FROM tenant.platak_navrh WHERE id_fak = ANY(:ids)"), {"ids": ids})
-        else:
-            _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
-            s.execute(_t(
-                "INSERT INTO tenant.platak_navrh (id_fak, firma, added_by) "
-                "SELECT p.id, " + _uf + ", :uid FROM tenant.oz_pf_platba p "
-                "WHERE p.id = ANY(:ids) ON CONFLICT (id_fak) DO NOTHING"),
-                {"ids": ids, "uid": int(uid)})
-        s.commit()
-        n = s.execute(_t("SELECT count(*) FROM tenant.platak_navrh")).scalar()
-        return {"ok": True, "stav": stav, "dotceno": len(ids), "celkem_navrh": int(n or 0)}
+        try:
+            _role = s.execute(_t("SELECT current_user")).scalar()
+        except Exception:
+            _role = "?"
+        try:
+            s.execute(_t("CREATE TABLE IF NOT EXISTS tenant.platak_navrh "
+                         "(id_fak bigint PRIMARY KEY, firma int, added_by int, added_at timestamptz DEFAULT now())"))
+            if stav == "off":
+                _res = s.execute(_t("DELETE FROM tenant.platak_navrh WHERE id_fak = ANY(:ids)"), {"ids": ids})
+            else:
+                _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
+                _res = s.execute(_t(
+                    "INSERT INTO tenant.platak_navrh (id_fak, firma, added_by) "
+                    "SELECT p.id, " + _uf + ", :uid FROM tenant.oz_pf_platba p "
+                    "WHERE p.id = ANY(:ids) ON CONFLICT (id_fak) DO NOTHING"),
+                    {"ids": ids, "uid": int(uid)})
+            s.commit()
+            _aff = _res.rowcount if _res is not None else -1
+            n = s.execute(_t("SELECT count(*) FROM tenant.platak_navrh")).scalar()
+        except Exception as _e:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+            return JSONResponse({"ok": False, "error": "DB[" + str(_role) + "]: " + str(_e)[:400], "role": _role}, status_code=200)
+        return {"ok": True, "stav": stav, "dotceno": len(ids), "zapsano": int(_aff), "role": _role, "celkem_navrh": int(n or 0)}
     finally:
         s.close()
+
+
+@api_router.post("/app/platby/sync-faktury")
+def platby_sync_faktury(req: Request):
+    """Ruční přezrcadlení faktur (oz_pf_platba) + úhrad (oz_uhrady) z Heliosu — tlačítko
+    „🔄 Aktualizovat z Heliosu" v Platebním centru. Automatika jede dál každých 30 min;
+    tohle je refresh na počkání (zálohovka se zrealizuje → hned vidět). Nejdřív úhrady, pak
+    faktury (nová faktura naskočí až s aktuálním saldem). Rodiče + Petra(18) + cockpit. Peta+Claude 14.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    try:
+        from modules.erp.api import oz_mirror as _ozm
+        r_u = _ozm.sync("oz_uhrady", tenant_id=2)
+        r_f = _ozm.sync("oz_pf_platba", tenant_id=2)
+        ok = bool(r_u.get("ok") and r_f.get("ok"))
+        return {"ok": ok, "faktur": r_f.get("vlozeno"), "uhrad": r_u.get("vlozeno"),
+                "error": (r_f.get("error") or r_u.get("error")) if not ok else None}
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": (type(_e).__name__ + ": " + str(_e))[:300]}, status_code=200)
 
 
 @api_router.get("/app/domeny")
@@ -37335,6 +37377,61 @@ async def edit_form_binding_all(req: Request) -> JSONResponse:
         except Exception:
             pass
         return JSONResponse({"ok": True, "bindings": {}})
+    finally:
+        try:
+            ds.close()
+        except Exception:
+            pass
+
+
+@api_router.get("/centrala-form-spec/{ec_form_id}")
+async def centrala_form_spec_get(ec_form_id: int, req: Request) -> JSONResponse:
+    """Definice formulare z Centraly (fw.centrala_form_spec) pro data-driven
+    renderer. Ctou vsichni prihlaseni; tolerantni k chybejici tabulce/radku.
+    Autor: Claude-24 (Kristy) 14.7.2026."""
+    from sqlalchemy import text as _t_cfs
+    from core.database_data import get_data_session as _gds_cfs
+    _get_uid(req)
+    ds = _gds_cfs()
+    try:
+        row = ds.execute(_t_cfs(
+            "SELECT spec FROM fw.centrala_form_spec WHERE ec_form_id = :e"),
+            {"e": ec_form_id}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "spec_not_found"}, status_code=404)
+        return JSONResponse({"ok": True, "spec": row[0]})
+    except Exception as _cfs_exc:
+        try:
+            logger.warning("centrala_form_spec_get failed: %s" % _cfs_exc)
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(_cfs_exc)[:200]}, status_code=200)
+    finally:
+        try:
+            ds.close()
+        except Exception:
+            pass
+
+
+@api_router.get("/centrala-form-specs")
+async def centrala_form_specs_list(req: Request) -> JSONResponse:
+    """Seznam definic formularu (fw.centrala_form_spec) + core_id (join fw.core
+    dle code) pro seed ErpSpecForm. Ctou vsichni prihlaseni; tolerantni."""
+    from sqlalchemy import text as _t_cfl
+    from core.database_data import get_data_session as _gds_cfl
+    _get_uid(req)
+    ds = _gds_cfl()
+    try:
+        rows = ds.execute(_t_cfl(
+            "SELECT s.ec_form_id, s.code, s.label, c.id AS core_id "
+            "FROM fw.centrala_form_spec s LEFT JOIN fw.core c ON c.code = s.code")).mappings().all()
+        return JSONResponse({"ok": True, "specs": [dict(r) for r in rows]})
+    except Exception as _cfl_e:
+        try:
+            logger.warning("centrala_form_specs_list failed: %s" % _cfl_e)
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "specs": []})
     finally:
         try:
             ds.close()
@@ -56584,6 +56681,7 @@ def _render_workspace_page(user_id: int) -> str:
          (context menu, grid header, workspace toolbar). Marti doctrine
          "stejne zobrazit, stejne funkce". -->
     <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/erp_spec_form.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Cell actions Fáze 1 (1.6.2026, Marti: dvojklik na telefon/email/web
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher
          pro grid (onCellDoubleClicked) i form (dblclick na pole). -->

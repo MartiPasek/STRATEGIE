@@ -72,7 +72,16 @@
   }
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function ciResolve(o, w) { if (!o || w == null) return w; if (w in o) return w; var wl = String(w).toLowerCase(); for (var k in o) if (k.toLowerCase() === wl) return k; return w; }
-  function getVal(name) { var k = ciResolve(RECORD, name); var v = RECORD[k]; return v == null ? "" : v; }
+  var COLMAP = { "CisloZam": "Resitel", "_datumOBJ": "DatPorizeni", "Splatnost": "PotvrzenyTermin", "StredNaklad": "Stredisko", "PoradoveCislo": "Doklad" };
+  function _findKey(w) { if (w == null) return null; if (w in RECORD) return w; var wl = String(w).toLowerCase(); for (var k in RECORD) if (k.toLowerCase() === wl) return k; return null; }
+  function getVal(name) {
+    if (!name) return "";
+    var cand = [];
+    if (COLMAP[name]) cand.push(COLMAP[name]);
+    cand.push(name); cand.push(name.replace(/^_+/, "")); cand.push(name.replace(/_/g, ""));
+    for (var i = 0; i < cand.length; i++) { var k = _findKey(cand[i]); if (k != null && RECORD[k] != null && RECORD[k] !== "") return RECORD[k]; }
+    return "";
+  }
 
   var GRID_COLS = [
     { k: "Poradi", t: "#", num: true }, { k: "RegCis", t: "Reg. cislo" }, { k: "Nazev1", t: "Nazev" },

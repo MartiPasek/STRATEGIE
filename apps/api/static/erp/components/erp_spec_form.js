@@ -44,7 +44,7 @@
     + ".esf-f label{font-size:12px;color:#93a0bc;font-weight:600;}"
     + ".esf-ctrl{border:1px solid #273049;border-radius:9px;padding:8px 11px;background:#111726;font-size:14px;color:#e8ecf6;min-height:37px;display:flex;align-items:center;gap:8px;}"
     + ".esf-ctrl input,.esf-ctrl select,.esf-ctrl textarea{border:0;outline:0;background:transparent;width:100%;font:inherit;color:inherit;}"
-    + ".esf-ctrl textarea{resize:vertical;min-height:52px;}.esf-ctrl select{cursor:pointer;}"
+    + ".esf-ctrl textarea{resize:vertical;min-height:52px;}.esf-ctrl select{cursor:pointer;}.esf-ctrl select{color:#e8ecf6;}.esf-ctrl select option{background:#151b2a;color:#e8ecf6;}.esf-ctrl select optgroup{background:#151b2a;color:#93a0bc;}"
     + ".esf-tag{font-size:10.5px;color:#7d95ff;background:#1e2743;border-radius:6px;padding:2px 7px;font-weight:700;white-space:nowrap;flex:none;}"
     + ".esf-tag.f{color:#e6b25a;background:transparent;border:1px solid #284067;}"
     + ".esf-chk{display:flex;align-items:center;gap:9px;}.esf-chk input{width:18px;height:18px;accent-color:#7d95ff;}"
@@ -83,6 +83,7 @@
     return "";
   }
 
+  function fmtDate(v){ if(v==null||v==="")return ""; var s=String(v); var m=s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/); if(!m)return s; var d=m[3]+". "+m[2]+". "+m[1]; if(m[4]&&!(m[4]==="00"&&m[5]==="00"))d+=" "+m[4]+":"+m[5]; return d; }
   var GRID_COLS = [
     { k: "Poradi", t: "#", num: true }, { k: "RegCis", t: "Reg. cislo" }, { k: "Nazev1", t: "Nazev" },
     { k: "Mnozstvi", t: "Mnozstvi", num: true }, { k: "MJ", t: "MJ" }, { k: "JCbezDaniKC", t: "JC bez DPH", num: true },
@@ -121,6 +122,7 @@
     }
     if (f.type === "memo") { var cm = el("div", "esf-ctrl"); var t = el("textarea"); t.value = val; cm.appendChild(t); wrap.appendChild(cm); return wrap; }
     if (f.type === "file") { var cf = el("div", "esf-ctrl"); cf.innerHTML = '<span style="color:#93a0bc">soubory: ' + (f.caption || f.name) + '</span>'; wrap.appendChild(cf); return wrap; }
+    if (f.type === "date") { var cdd = el("div", "esf-ctrl"); var di = el("input"); di.type = "text"; di.value = fmtDate(val); cdd.appendChild(di); wrap.appendChild(cdd); return wrap; }
     var ct = el("div", "esf-ctrl"); var i = el("input"); i.type = "text"; i.value = val; ct.appendChild(i); wrap.appendChild(ct); return wrap;
   }
   function fieldsGrid(list) { var g = el("div", "esf-fields"); list.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); }).forEach(function (f) { g.appendChild(renderField(f)); }); return g; }

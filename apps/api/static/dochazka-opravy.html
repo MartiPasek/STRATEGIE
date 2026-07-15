@@ -75,7 +75,7 @@ var CAN_LOCK=false, LIDE=[], CTX=null;
 var REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","zapomenutý oběd/pauza","mezera v docházce","chybný typ záznamu","omylem založený záznam"];
 var TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-function api(m,u,b){var o={method:m,credentials:'include'};if(b){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(b);}return fetch(u,o).then(function(r){return r.json();});}
+function api(m,u,b){var o={method:m,credentials:'include'};if(b){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(b);}return fetch(u,o).then(function(r){return r.json().then(function(j){return j;},function(){return {ok:false,error:(r&&r.status>=500)?('Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli znovu.'):('Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+') — zkus to prosím znovu.')};});},function(){return {ok:false,error:'Nepodařilo se spojit se serverem — zkontroluj připojení a zkus to prosím znovu.'};});}
 function el(h){var d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;}
 function fmtHM(h){var m=Math.round(Number(h||0)*60);return Math.floor(m/60)+':'+((m%60)<10?'0':'')+(m%60);}
 function today(){return new Date().toISOString().slice(0,10);}

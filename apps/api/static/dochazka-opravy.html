@@ -75,6 +75,10 @@
 var CAN_LOCK=false, LIDE=[], CTX=null;
 var REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","zapomenutý oběd/pauza","mezera v docházce","chybný typ záznamu","omylem založený záznam"];
 var TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
+var CINN=null;
+function loadCinn(cb){if(CINN){cb(CINN);return;}api('GET','/api/v1/erp/app/attendance/fix/cinnosti').then(function(j){CINN=(j&&j.cinnosti)||[];cb(CINN);});}
+function mkCin(cur){var w=el('<div style="margin-top:6px;"></div>');w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>'));var s=el('<select class="full"><option value="">— nevybráno —</option></select>');loadCinn(function(list){list.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=(c.icon?c.icon+' ':'')+c.name;if(cur&&c.id===cur)o.selected=true;s.appendChild(o);});});w.appendChild(s);w._sel=s;return w;}
+function cinShow(w,typ){w.style.display=(typ==='work'||typ==='overhead')?'':'none';}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function api(m,u,b){var o={method:m,credentials:'include'};if(b){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(b);}return fetch(u,o).then(function(r){return r.json().then(function(j){return j;},function(){return {ok:false,error:(r&&r.status>=500)?('Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli znovu.'):('Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+') — zkus to prosím znovu.')};});},function(){return {ok:false,error:'Nepodařilo se spojit se serverem — zkontroluj připojení a zkus to prosím znovu.'};});}
 function el(h){var d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;}
@@ -276,17 +280,18 @@ function openDay(uid,name,day){
         var t1=el('<input type="time" value="'+esc(prefZ||'')+'">'),t2=el('<input type="time" value="'+esc(prefK||'')+'">');
         tr.appendChild(t1);tr.appendChild(t2);
         var zk=el('<input class="full" placeholder="🧾 zakázka (jen u práce, nepovinné)" style="margin-top:6px;">');
+        var cinW=mkCin(null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
         var rb=reasonBox();
         var ok=el('<button class="b p full" style="margin-top:8px;">Uložit nový záznam</button>');
         var st=el('<div class="hint"></div>');
-        w.appendChild(sel);w.appendChild(tr);w.appendChild(zk);w.appendChild(rb);w.appendChild(ok);w.appendChild(st);
+        w.appendChild(sel);w.appendChild(tr);w.appendChild(zk);w.appendChild(cinW);w.appendChild(rb);w.appendChild(ok);w.appendChild(st);
         afx.appendChild(w);
         try{afx.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
         ok.addEventListener('click',function(){
           if(!t1.value||!t2.value){st.textContent='Vyplň časy od–do.';return;}
           if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}
           confirmBox(afx,'Přidat '+esc(sel.value)+' '+esc(t1.value)+'–'+esc(t2.value)+' pro <b>'+esc(CTX.name||'')+'</b> ('+esc(dt.value)+')?',function(cw){
-            api('POST','/api/v1/erp/app/attendance/fix/add',{uid:CTX.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||'').trim()||null,reason:rb._input.value.trim()}).then(function(r){
+            api('POST','/api/v1/erp/app/attendance/fix/add',{uid:CTX.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||'').trim()||null,cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
               if(r.ok){render();loadQueue();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
             });
           });
@@ -369,15 +374,16 @@ function openDay(uid,name,day){
             var sel=el('<select class="full" style="margin-top:6px;"></select>');
             TYPES.forEach(function(t){sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>'));});
             var zk=el('<input class="full" value="'+esc(e2.project_ref||'')+'" placeholder="🧾 zakázka (jen u práce)" style="margin-top:6px;">');
+            var cinW=mkCin(null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
             var rb=reasonBox();
             var ok=el('<button class="b p full" style="margin-top:8px;">Uložit opravu</button>');
             var st=el('<div class="hint"></div>');
-            fx.appendChild(tr);fx.appendChild(sel);fx.appendChild(zk);fx.appendChild(rb);fx.appendChild(ok);fx.appendChild(st);
+            fx.appendChild(tr);fx.appendChild(sel);fx.appendChild(zk);fx.appendChild(cinW);fx.appendChild(rb);fx.appendChild(ok);fx.appendChild(st);
             ok.addEventListener('click',function(){
               if(!t1.value||!t2.value){st.textContent='Vyplň oba časy.';return;}
               if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}
               confirmBox(fx,'Opravit záznam z <b>'+esc((e2.zac||'?')+'–'+(e2.kon||'…'))+'</b> na <b>'+esc(t1.value+'–'+t2.value)+((zk.value||'').trim()!==(e2.project_ref||'')?(' · 🧾 '+esc((zk.value||'').trim()||'bez zakázky')):'')+'</b>?',function(cw){
-                api('POST','/api/v1/erp/app/attendance/fix/entry',{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,project_ref:(zk.value||'').trim(),reason:rb._input.value.trim()}).then(function(r){
+                api('POST','/api/v1/erp/app/attendance/fix/entry',{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,project_ref:(zk.value||'').trim(),cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
                   if(r.ok){render();loadQueue();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
                 });
               });

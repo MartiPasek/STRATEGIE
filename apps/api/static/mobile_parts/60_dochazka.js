@@ -1743,6 +1743,10 @@
   // notifikaci a může rozporovat. Lidé sami zpětně needitují.
   var _FIX_REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","zapomenutý oběd/pauza","mezera v docházce","chybný typ záznamu","omylem založený záznam"];
   var _FIX_TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
+  var _FIX_CINN=null;
+  function _fixLoadCinn(cb){ if(_FIX_CINN){cb(_FIX_CINN);return;} api("GET","/api/v1/erp/app/attendance/fix/cinnosti","").then(function(j){ _FIX_CINN=(j&&j.cinnosti)||[]; cb(_FIX_CINN); }); }
+  function _fixMkCin(cur){ var w=el('<div style="margin-top:6px;"></div>'); w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>')); var s=el('<select style="width:100%;"><option value="">— nevybráno —</option></select>'); _fixLoadCinn(function(list){ list.forEach(function(c){ var o=document.createElement("option"); o.value=c.id; o.textContent=(c.icon?c.icon+" ":"")+c.name; if(cur&&c.id===cur)o.selected=true; s.appendChild(o); }); }); w.appendChild(s); w._sel=s; return w; }
+  function _fixCinShow(w,typ){ w.style.display=(typ==="work"||typ==="overhead")?"":"none"; }
   function _fixReasonBox(){
     var w=el('<div style="margin-top:8px;"></div>');
     w.appendChild(el('<div class="hint" style="margin-bottom:4px;">Důvod (povinný):</div>'));
@@ -1954,17 +1958,18 @@
           var t1=el('<input type="time" value="'+esc(prefZ||"")+'" style="width:46%;">'), t2=el('<input type="time" value="'+esc(prefK||"")+'" style="width:46%;">');
           var tr=el('<div style="display:flex;gap:8%;margin-top:6px;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
           var zk=el('<input placeholder="🧾 zakázka (jen u práce, nepovinné)" style="width:100%;margin-top:6px;">');
+          var cinW=_fixMkCin(null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
           var rb=_fixReasonBox();
           var ok=el('<button class="green full" style="margin-top:8px;">Uložit nový záznam</button>');
           var st=el('<div class="hint" style="margin-top:4px;"></div>');
-          w.appendChild(sel); w.appendChild(tr); w.appendChild(zk); w.appendChild(rb); w.appendChild(ok); w.appendChild(st);
+          w.appendChild(sel); w.appendChild(tr); w.appendChild(zk); w.appendChild(cinW); w.appendChild(rb); w.appendChild(ok); w.appendChild(st);
           addFx.appendChild(w);
           try{ addFx.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
           ok.addEventListener("click",function(){
             if(!t1.value||!t2.value){ st.textContent="Vyplň časy od–do."; return; }
             if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
             _fixConfirm(addFx,"Přidat "+esc(sel.value)+" "+esc(t1.value)+"–"+esc(t2.value)+" pro <b>"+esc(ctx.name||"")+"</b> ("+esc(dt.value)+")?",function(cw){
-              api("POST","/api/v1/erp/app/attendance/fix/add",{uid:ctx.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||"").trim()||null,reason:rb._input.value.trim()}).then(function(r){
+              api("POST","/api/v1/erp/app/attendance/fix/add",{uid:ctx.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||"").trim()||null,cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
                 if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
               });
             });
@@ -2045,15 +2050,16 @@
               var sel=el('<select style="width:100%;margin-top:6px;"></select>');
               _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>')); });
               var zk=el('<input value="'+esc(e2.project_ref||"")+'" placeholder="🧾 zakázka (jen u práce)" style="width:100%;margin-top:6px;">');
+              var cinW=_fixMkCin(null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
               var rb=_fixReasonBox();
               var ok=el('<button class="green full" style="margin-top:8px;">Uložit opravu</button>');
               var st=el('<div class="hint" style="margin-top:4px;"></div>');
-              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(zk); fx.appendChild(rb); fx.appendChild(ok); fx.appendChild(st);
+              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(zk); fx.appendChild(cinW); fx.appendChild(rb); fx.appendChild(ok); fx.appendChild(st);
               ok.addEventListener("click",function(){
                 if(!t1.value||!t2.value){ st.textContent="Vyplň oba časy."; return; }
                 if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
                 _fixConfirm(fx,"Opravit záznam z <b>"+esc((e2.zac||"?")+"–"+(e2.kon||"…"))+"</b> na <b>"+esc(t1.value+"–"+t2.value)+((zk.value||"").trim()!==(e2.project_ref||"")?(" · 🧾 "+esc((zk.value||"").trim()||"bez zakázky")):"")+"</b>?",function(cw){
-                  api("POST","/api/v1/erp/app/attendance/fix/entry",{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,project_ref:(zk.value||"").trim(),reason:rb._input.value.trim()}).then(function(r){
+                  api("POST","/api/v1/erp/app/attendance/fix/entry",{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,project_ref:(zk.value||"").trim(),cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
                     if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
                   });
                 });

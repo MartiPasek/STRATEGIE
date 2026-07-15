@@ -1190,6 +1190,150 @@ async def bank_card_update(card_id: int, request: Request):
         s.close()
 
 
+# ── Zrcadlo jednotlivých pokladních dokladů (TabPokladna + TabPolozkyPokl) — Claude-26 15.7.2026 ──
+def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
+    """Zrcadlí doklady jedné pokladny (RadaDokladuPokl) za daný rok z Heliosu do
+    tenant.ec_doklad_pokladna(+_polozka). Idempotentní (ON CONFLICT). Vrací (n_hlavicek, n_polozek)."""
+    rada = str(rada).strip()
+    rok = int(rok)
+    sql_h = (
+        "SELECT ID, RadaDokladuPokl, PoradoveCislo, TypDokladu, StavDokladu, Popis, "
+        "CAST(Poznamka AS nvarchar(4000)) AS Poznamka, Prilohy, "
+        "CONVERT(varchar(10), DatPripad, 23) AS DatPripad, "
+        "CONVERT(varchar(10), DatUctovani, 23) AS DatUctovani, "
+        "CONVERT(varchar(10), DUZP, 23) AS DUZP, "
+        "CONVERT(varchar(19), DatPorizeno, 126) AS DatPorizeno, "
+        "CisloOrg, CisloZam, ParovaciZnak, CisloZakazky, CisloNakladovyOkruh, "
+        "Mena, CastkaMena, StavPokladny, Autor "
+        "FROM dbo.TabPokladna "
+        "WHERE RadaDokladuPokl = '" + rada + "' AND YEAR(DatPripad) = " + str(rok)
+    )
+    nh = 0
+    for d in _mcp_rows(sql_h, db_name):
+        s.execute(_t(
+            "INSERT INTO tenant.ec_doklad_pokladna "
+            "(tenant_id,firma,src_id,rada_pokladny,poradove_cislo,typ_dokladu,stav_dokladu,popis,poznamka,"
+            "prilohy,dat_pripad,dat_uctovani,duzp,dat_porizeno,cislo_org,cislo_zam,parovaci_znak,zakazka,"
+            "naklad_okruh,mena,castka_mena,stav_pokladny,autor,synced_at) VALUES "
+            "(:tn,:f,:sid,:rada,:pc,:typ,:stav,:popis,:pozn,:pril,"
+            "NULLIF(:dprip,'')::date,NULLIF(:duct,'')::date,NULLIF(:duzp,'')::date,NULLIF(:dpor,'')::timestamp,"
+            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:autor,now()) "
+            "ON CONFLICT (firma,src_id) DO UPDATE SET rada_pokladny=EXCLUDED.rada_pokladny,"
+            "poradove_cislo=EXCLUDED.poradove_cislo,typ_dokladu=EXCLUDED.typ_dokladu,stav_dokladu=EXCLUDED.stav_dokladu,"
+            "popis=EXCLUDED.popis,poznamka=EXCLUDED.poznamka,prilohy=EXCLUDED.prilohy,dat_pripad=EXCLUDED.dat_pripad,"
+            "dat_uctovani=EXCLUDED.dat_uctovani,duzp=EXCLUDED.duzp,dat_porizeno=EXCLUDED.dat_porizeno,"
+            "cislo_org=EXCLUDED.cislo_org,cislo_zam=EXCLUDED.cislo_zam,parovaci_znak=EXCLUDED.parovaci_znak,"
+            "zakazka=EXCLUDED.zakazka,naklad_okruh=EXCLUDED.naklad_okruh,mena=EXCLUDED.mena,"
+            "castka_mena=EXCLUDED.castka_mena,stav_pokladny=EXCLUDED.stav_pokladny,autor=EXCLUDED.autor,synced_at=now()"),
+            {"tn": _TENANT, "f": firma, "sid": d.get("id"),
+             "rada": (d.get("radadokladupokl") or "").strip() or None,
+             "pc": d.get("poradovecislo"), "typ": d.get("typdokladu"), "stav": d.get("stavdokladu"),
+             "popis": (d.get("popis") or "").strip() or None, "pozn": (d.get("poznamka") or "").strip() or None,
+             "pril": d.get("prilohy"), "dprip": d.get("datpripad") or "", "duct": d.get("datuctovani") or "",
+             "duzp": d.get("duzp") or "", "dpor": d.get("datporizeno") or "",
+             "org": d.get("cisloorg"), "zam": d.get("cislozam"),
+             "paro": (d.get("parovaciznak") or "").strip() or None, "zak": (d.get("cislozakazky") or "").strip() or None,
+             "nok": (d.get("cislonakladovyokruh") or "").strip() or None, "mena": (d.get("mena") or "").strip() or None,
+             "castka": d.get("castkamena"), "stavp": d.get("stavpokladny"),
+             "autor": (d.get("autor") or "").strip() or None})
+        nh += 1
+    sql_p = (
+        "SELECT p.ID, p.IDPokladna, p.TypPolozky, p.SazbaDPH, p.ZakladDPH, p.CastkaDPH, p.CelkemDPH, "
+        "p.CastkaMena, p.Mena, CAST(p.Popis AS nvarchar(4000)) AS Popis, p.CisloUcet, p.Utvar, p.CisloZakazky "
+        "FROM dbo.TabPolozkyPokl p JOIN dbo.TabPokladna h ON h.ID = p.IDPokladna "
+        "WHERE h.RadaDokladuPokl = '" + rada + "' AND YEAR(h.DatPripad) = " + str(rok)
+    )
+    npoz = 0
+    for d in _mcp_rows(sql_p, db_name):
+        s.execute(_t(
+            "INSERT INTO tenant.ec_doklad_pokladna_polozka "
+            "(tenant_id,firma,src_id,doklad_src_id,rada_pokladny,typ_polozky,ucet,utvar,zakazka,"
+            "sazba_dph,zaklad_dph,castka_dph,celkem_dph,castka_mena,mena,popis,synced_at) VALUES "
+            "(:tn,:f,:sid,:dsid,:rada,:typ,:ucet,:utvar,:zak,:saz,:zdph,:cdph,:cel,:castka,:mena,:popis,now()) "
+            "ON CONFLICT (firma,src_id) DO UPDATE SET doklad_src_id=EXCLUDED.doklad_src_id,"
+            "rada_pokladny=EXCLUDED.rada_pokladny,typ_polozky=EXCLUDED.typ_polozky,ucet=EXCLUDED.ucet,"
+            "utvar=EXCLUDED.utvar,zakazka=EXCLUDED.zakazka,sazba_dph=EXCLUDED.sazba_dph,zaklad_dph=EXCLUDED.zaklad_dph,"
+            "castka_dph=EXCLUDED.castka_dph,celkem_dph=EXCLUDED.celkem_dph,castka_mena=EXCLUDED.castka_mena,"
+            "mena=EXCLUDED.mena,popis=EXCLUDED.popis,synced_at=now()"),
+            {"tn": _TENANT, "f": firma, "sid": d.get("id"), "dsid": d.get("idpokladna"), "rada": rada,
+             "typ": d.get("typpolozky"), "ucet": (d.get("cisloucet") or "").strip() or None,
+             "utvar": (d.get("utvar") or "").strip() or None, "zak": (d.get("cislozakazky") or "").strip() or None,
+             "saz": d.get("sazbadph"), "zdph": d.get("zakladdph"), "cdph": d.get("castkadph"),
+             "cel": d.get("celkemdph"), "castka": d.get("castkamena"), "mena": (d.get("mena") or "").strip() or None,
+             "popis": (d.get("popis") or "").strip() or None})
+        npoz += 1
+    return nh, npoz
+
+
+@bank_router.post("/app/bank/sync-pokl-doklady")
+async def bank_sync_pokl_doklady(request: Request):
+    """Zrcadlí doklady jedné pokladny za rok (?rada=075&rok=2026). Parent-only."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    import datetime as _dtx
+    rada = (request.query_params.get("rada") or "").strip()
+    rok = (request.query_params.get("rok") or "").strip()
+    if not rada:
+        return JSONResponse({"ok": False, "error": "chybí rada pokladny"}, status_code=400)
+    rok_i = int(rok) if rok.isdigit() else _dtx.date.today().year
+    s = _sess()
+    try:
+        nh, npoz = _sync_pokl_doklady_rada(s, "DB_EC", "EC", rada, rok_i)
+        s.commit()
+        return {"ok": True, "hlavicky": nh, "polozky": npoz, "rada": rada, "rok": rok_i}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/bank/pokl-doklady")
+async def bank_pokl_doklady(request: Request):
+    """Doklady jedné pokladny (?rada=075&rok=2026) z našeho zrcadla. Parent-only."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    rada = (request.query_params.get("rada") or "").strip()
+    rok = (request.query_params.get("rok") or "").strip()
+    if not rada:
+        return JSONResponse({"ok": False, "error": "chybí rada pokladny"}, status_code=400)
+    s = _sess()
+    try:
+        where = "firma='EC' AND rada_pokladny=:rada"
+        params = {"rada": rada}
+        if rok.isdigit():
+            where += " AND EXTRACT(YEAR FROM dat_pripad)=:rok"
+            params["rok"] = int(rok)
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT d.src_id, d.poradove_cislo, d.typ_dokladu, d.popis, d.prilohy, "
+            "to_char(d.dat_pripad,'DD.MM.YYYY') AS dat_pripad, "
+            "to_char(d.dat_porizeno,'DD.MM.YYYY HH24:MI') AS dat_porizeno, "
+            "d.castka_mena, d.stav_pokladny, d.mena, d.zakazka, d.naklad_okruh, d.parovaci_znak, "
+            "d.cislo_org, d.autor, d.poznamka, "
+            "(SELECT count(*) FROM tenant.ec_doklad_pokladna_polozka p "
+            " WHERE p.firma='EC' AND p.doklad_src_id=d.src_id) AS pocet_polozek "
+            "FROM tenant.ec_doklad_pokladna d WHERE " + where + " "
+            "ORDER BY d.dat_pripad DESC NULLS LAST, d.poradove_cislo DESC"), params).mappings().all()]
+        for r in rows:
+            for k in ("castka_mena", "stav_pokladny"):
+                if r.get(k) is not None:
+                    r[k] = float(r[k])
+        syncat = s.execute(_t(
+            "SELECT to_char(max(synced_at) AT TIME ZONE 'Europe/Prague','DD.MM.YYYY HH24:MI') "
+            "FROM tenant.ec_doklad_pokladna WHERE firma='EC' AND rada_pokladny=:rada"), {"rada": rada}).scalar()
+        roky = [int(x[0]) for x in s.execute(_t(
+            "SELECT DISTINCT EXTRACT(YEAR FROM dat_pripad)::int AS r "
+            "FROM tenant.ec_doklad_pokladna WHERE firma='EC' AND rada_pokladny=:rada AND dat_pripad IS NOT NULL "
+            "ORDER BY r DESC"), {"rada": rada}).all()]
+        return {"ok": True, "doklady": rows, "sync_at": syncat, "roky": roky, "rada": rada, "rok": rok}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
 # ── Posting engine: párování → živý deník (actor=automat, jistota z předkontace) ──
 @bank_router.post("/app/uctovani/bank-post")
 async def uctovani_bank_post(request: Request):

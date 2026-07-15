@@ -12,7 +12,7 @@
   .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:14px;margin-bottom:16px}
   .card h2{font-size:15px;margin:0 0 10px;color:#cdd9ea}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #232c3b}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #232c3b;vertical-align:top}
   th{color:#8fa3bd;font-weight:600;font-size:12px}
   .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
   .tag.k{background:#3a2b14;color:#f0c674}
@@ -22,6 +22,13 @@
   button{background:#2563eb;color:#fff;border:0;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
   button.sec{background:#27313f}
   button.mini{padding:5px 10px;font-size:12px}
+  .pill{background:#27313f;color:#cdd9ea;border:1px solid #2c3850;border-radius:9px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;margin:0 6px 6px 0}
+  .pill.act{background:#2563eb;color:#fff;border-color:#2563eb}
+  .pill.sm{padding:5px 10px;font-size:12px}
+  .pill.k{border-color:#5a4416}
+  .pill.k.act{background:#b8860b;border-color:#b8860b;color:#1c1400}
+  .firmbar{margin-bottom:10px}
+  .druhbar{margin-bottom:12px}
   .pan{font-family:ui-monospace,Menlo,monospace;letter-spacing:.5px}
   .row-actions{white-space:nowrap}
   .ok{color:#7ee08a}.err{color:#ff8b8b}
@@ -37,19 +44,74 @@
 </div>
 
 <div class="card">
-  <h2>💳 Platební karty <span class="muted" id="cardsHint"></span></h2>
-  <div id="cardsBox">Načítám…</div>
+  <h2>💰 Pokladny a kartové účty</h2>
+  <div class="firmbar" id="firmyBox"></div>
+  <div class="druhbar" id="druhyBox"></div>
+  <div id="obsahBox">Načítám…</div>
 </div>
 
 <div class="card">
-  <h2>💰 Pokladny a kartové účty</h2>
-  <div id="pokBox">Načítám…</div>
+  <h2>💳 Platební karty <span class="muted" id="cardsHint"></span></h2>
+  <div id="cardsBox">Načítám…</div>
 </div>
 
 <script>
 const API='';
 let DATA={pokladny:[],karty:[],kartove_ucty:[]};
+let FIRMA='EC';     // EC | ES
+let SELPOK=null;    // vybraná pokladna (cislo) nebo null = Vše
 async function j(url,opt){const r=await fetch(API+url,Object.assign({credentials:'include'},opt||{}));return r.json();}
+
+function firmaOf(cislo){return (parseInt(cislo,10)||0) < 100 ? 'EC' : 'ES';}
+function firmaLabel(f){return f==='EC' ? 'EUROSOFT‑Control' : 'EUROSOFT‑System';}
+function druhyFirmy(){return DATA.pokladny.filter(p=>firmaOf(p.cislo)===FIRMA).sort((a,b)=>(''+a.cislo).localeCompare(''+b.cislo));}
+
+function renderFirmy(){
+  let h='';
+  ['EC','ES'].forEach(f=>{h+=`<button class="pill${FIRMA===f?' act':''}" onclick="selFirma('${f}')">${firmaLabel(f)}</button>`;});
+  document.getElementById('firmyBox').innerHTML=h;
+}
+function renderDruhy(){
+  const list=druhyFirmy();
+  if(!list.length){document.getElementById('druhyBox').innerHTML='<span class="muted">Žádné pokladny — klikni „Sync z Heliosu".</span>';return;}
+  let h='<button class="pill sm'+(SELPOK===null?' act':'')+'" onclick="selPok(null)">Vše</button>';
+  list.forEach(p=>{
+    const k=p.typ==='kartovy_ucet'?' k':'';
+    h+=`<button class="pill sm${k}${SELPOK===p.cislo?' act':''}" onclick="selPok('${p.cislo}')">${p.cislo} · ${p.nazev}</button>`;
+  });
+  document.getElementById('druhyBox').innerHTML=h;
+}
+function renderObsah(){
+  const list=druhyFirmy();
+  const box=document.getElementById('obsahBox');
+  if(!list.length){box.innerHTML='';return;}
+  if(SELPOK===null){
+    let h='<table><tr><th>Číslo</th><th>Název</th><th>Měna</th><th>Typ</th><th>Účet MD/DAL</th><th>Sborník</th></tr>';
+    list.forEach(p=>{
+      h+=`<tr onclick="selPok('${p.cislo}')" style="cursor:pointer">
+        <td><b>${p.cislo}</b></td><td>${p.nazev}</td>
+        <td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td>
+        <td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td>
+        <td class="muted">${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td>
+        <td class="muted">${p.sbornik||'—'}</td>
+      </tr>`;
+    });
+    h+='</table>';
+    box.innerHTML=h;
+  } else {
+    const p=list.find(x=>x.cislo===SELPOK);
+    if(!p){box.innerHTML='';return;}
+    let h=`<table>
+      <tr><th style="width:110px">Číslo</th><td><b>${p.cislo}</b></td><th style="width:110px">Název</th><td>${p.nazev}</td></tr>
+      <tr><th>Měna</th><td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td><th>Typ</th><td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td></tr>
+      <tr><th>Účet MD/DAL</th><td>${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td><th>Sborník</th><td>${p.sbornik||'—'}</td></tr>
+    </table>
+    <div class="muted" style="margin-top:10px">📄 Jednotlivé pokladní doklady se sem teprve zrcadlí z Heliosu (připravujeme).</div>`;
+    box.innerHTML=h;
+  }
+}
+function selFirma(f){FIRMA=f;SELPOK=null;renderFirmy();renderDruhy();renderObsah();}
+function selPok(c){SELPOK=c;renderDruhy();renderObsah();}
 
 function renderCards(){
   const ku=DATA.kartove_ucty;
@@ -67,7 +129,7 @@ function renderCards(){
       <td class="row-actions"><button class="mini" onclick="saveCard(${c.id},this)">Uložit</button> <span class="msg muted"></span></td>
     </tr>`;
   });
-  h+='</table><div class="muted" style="margin-top:8px">Tip: držitele a střediska doplní Peťa ze svého seznamu. „Plateb" = počet kartových transakcí (KS 1178) na tuto kartu.</div>';
+  h+='</table><div class="muted" style="margin-top:8px">Pozn.: karta je jen platební nástroj — zakázka/středisko se řídí tím, co se koupilo (na položce dokladu), ne držitelem. „Plateb" = počet kartových transakcí (KS 1178) na tuto kartu.</div>';
   document.getElementById('cardsBox').innerHTML=h;
   document.getElementById('cardsHint').textContent='('+DATA.karty.length+')';
 }
@@ -78,25 +140,10 @@ async function saveCard(id,btn){
   const r=await j('/api/v1/erp/app/bank/card/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.ok){msg.textContent='✓ uloženo';msg.className='msg ok';}else{msg.textContent='✗ '+(r.error||'chyba');msg.className='msg err';}
 }
-function renderPok(){
-  if(!DATA.pokladny.length){document.getElementById('pokBox').innerHTML='<div class="muted">Žádné pokladny. Klikni „Sync z Heliosu".</div>';return;}
-  let h='<table><tr><th>Firma</th><th>Číslo</th><th>Název</th><th>Měna</th><th>Typ</th><th>Účet MD/DAL</th><th>Sborník</th></tr>';
-  DATA.pokladny.forEach(p=>{
-    h+=`<tr>
-      <td>${p.firma}</td><td><b>${p.cislo}</b></td><td>${p.nazev}</td>
-      <td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td>
-      <td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td>
-      <td class="muted">${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td>
-      <td class="muted">${p.sbornik||'—'}</td>
-    </tr>`;
-  });
-  h+='</table>';
-  document.getElementById('pokBox').innerHTML=h;
-}
 async function load(){
   const r=await j('/api/v1/erp/app/bank/pokladny');
-  if(!r.ok){document.getElementById('pokBox').innerHTML='<div class="err">'+(r.error||'Nedostupné (přihlas se jako rodič)')+'</div>';return;}
-  DATA=r;renderCards();renderPok();
+  if(!r.ok){document.getElementById('obsahBox').innerHTML='<div class="err">'+(r.error||'Nedostupné (přihlas se jako rodič)')+'</div>';return;}
+  DATA=r;renderFirmy();renderDruhy();renderObsah();renderCards();
 }
 document.getElementById('btnSync').onclick=async function(){
   const m=document.getElementById('syncMsg');m.textContent='Synchronizuji z Heliosu…';

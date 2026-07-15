@@ -1151,7 +1151,11 @@ async def bank_pokladny(request: Request):
             "  AND t.raw->'entryDetails'->'transactionDetails'->>'paymentCardNumber'=c.masked_pan) AS pocet_plateb "
             "FROM tenant.bank_card c ORDER BY c.firma,c.masked_pan")).mappings().all()]
         kartove_ucty = [p for p in pok if p["typ"] == "kartovy_ucet"]
-        return {"ok": True, "pokladny": pok, "karty": karty, "kartove_ucty": kartove_ucty}
+        pokl_sync_at = s.execute(_t(
+            "SELECT to_char(max(synced_at) AT TIME ZONE 'Europe/Prague','DD.MM.YYYY HH24:MI') "
+            "FROM tenant.ec_doklad_pokladna")).scalar()
+        return {"ok": True, "pokladny": pok, "karty": karty, "kartove_ucty": kartove_ucty,
+                "pokl_sync_at": pokl_sync_at}
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
@@ -1282,6 +1286,44 @@ async def bank_sync_pokl_doklady(request: Request):
         nh, npoz = _sync_pokl_doklady_rada(s, "DB_EC", "EC", rada, rok_i)
         s.commit()
         return {"ok": True, "hlavicky": nh, "polozky": npoz, "rada": rada, "rok": rok_i}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+def _sync_pokl_doklady_all(s, rok):
+    """Zrcadlí doklady VŠECH pokladen (z ucet_pokladna) za daný rok. Vrací (n_hlavicek, n_polozek, n_pokladen)."""
+    radas = [r[0] for r in s.execute(_t(
+        "SELECT DISTINCT cislo FROM tenant.ucet_pokladna WHERE cislo IS NOT NULL ORDER BY cislo")).all()]
+    th = tp = 0
+    for rada in radas:
+        nh, npoz = _sync_pokl_doklady_rada(s, "DB_EC", "EC", rada, rok)
+        th += nh
+        tp += npoz
+    return th, tp, len(radas)
+
+
+@bank_router.post("/app/bank/sync-pokl-doklady-all")
+async def bank_sync_pokl_doklady_all(request: Request):
+    """Jedním vrzem: obnoví seznam pokladen (nové naskočí) + zrcadlí doklady všech pokladen za rok. Parent-only."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    import datetime as _dtx
+    rok = (request.query_params.get("rok") or "").strip()
+    rok_i = int(rok) if rok.isdigit() else _dtx.date.today().year
+    s = _sess()
+    try:
+        # 1) obnovit číselník pokladen (aby nové pokladny naskočily samy)
+        ec = _sync_pokladny_firma(s, "DB_EC", "EC")
+        es = _sync_pokladny_firma(s, "DB_IS", "ES")
+        # 2) doklady všech pokladen za rok
+        th, tp, npok = _sync_pokl_doklady_all(s, rok_i)
+        s.commit()
+        return {"ok": True, "pokladen_seznam": ec + es, "hlavicky": th, "polozky": tp,
+                "pokladen": npok, "rok": rok_i}
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)

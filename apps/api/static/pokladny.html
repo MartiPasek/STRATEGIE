@@ -40,11 +40,14 @@
 <a href="/finance" style="display:inline-block;margin:10px 0 4px 14px;color:#2dd4bf;text-decoration:none;font-size:13px;font-weight:700">← Zpět na Finance</a>
 <div class="topbar">
   <div><h1>🏦 Pokladny a karty</h1><div class="sub">Pokladny i kartové účty z Heliosu · registr platebních karet (maskovaný PAN z banky)</div></div>
-  <div><button class="sec" id="btnSync">🔄 Aktualizovat seznam</button> <span id="syncMsg" class="muted"></span></div>
+  <div></div>
 </div>
 
 <div class="card">
-  <h2>💰 Pokladny a kartové účty</h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h2 style="margin:0">💰 Pokladny a kartové účty</h2>
+    <div><span id="syncMsg" class="muted" style="margin-right:8px"></span><button class="sec mini" id="btnSyncAll">🔄 Aktualizovat z Heliosu</button></div>
+  </div>
   <div class="firmbar" id="firmyBox"></div>
   <div class="druhbar" id="druhyBox"></div>
   <div id="obsahBox">Načítám…</div>
@@ -91,10 +94,7 @@ function renderObsah(){
     <tr><th>Měna</th><td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td><th>Typ</th><td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td></tr>
     <tr><th>Účet MD/DAL</th><td>${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td><th>Sborník</th><td>${p.sbornik||'—'}</td></tr>
   </table>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px;gap:10px;flex-wrap:wrap">
-    <div style="font-weight:700;font-size:14px">🧾 Doklady ${ROK}</div>
-    <div><span id="doklSync" class="muted" style="margin-right:8px"></span><button class="sec mini" onclick="syncDoklady('${p.cislo}')">🔄 Aktualizovat z Heliosu</button></div>
-  </div>
+  <div style="font-weight:700;font-size:14px;margin:14px 0 8px">🧾 Doklady ${ROK}</div>
   <div id="doklBox" class="muted">Načítám…</div>`;
   box.innerHTML=h;
   loadDoklady(p.cislo);
@@ -106,10 +106,8 @@ async function loadDoklady(rada){
   const box=document.getElementById('doklBox'); if(!box) return;
   box.innerHTML='<div class="muted">Načítám doklady…</div>';
   const r=await j('/api/v1/erp/app/bank/pokl-doklady?rada='+encodeURIComponent(rada)+'&rok='+ROK);
-  const sync=document.getElementById('doklSync');
   if(!r.ok){box.innerHTML='<div class="err">'+(r.error||'chyba')+'</div>';return;}
-  if(sync) sync.textContent = r.sync_at ? ('🕓 data z Heliosu: '+r.sync_at) : 'zatím nenačteno';
-  if(!r.doklady||!r.doklady.length){box.innerHTML='<div class="muted">Za rok '+ROK+' zatím žádné doklady. Klikni „Aktualizovat z Heliosu".</div>';return;}
+  if(!r.doklady||!r.doklady.length){box.innerHTML='<div class="muted">Za rok '+ROK+' zatím žádné doklady. Klikni nahoře „Aktualizovat z Heliosu".</div>';return;}
   let h='<table><tr><th>Doklad</th><th>Datum</th><th>Popis</th><th style="text-align:right">Částka</th><th>Měna</th><th>Zakázka</th><th style="text-align:right">Zůstatek</th><th title="Počet položek">Pol</th><th title="Přílohy (scan)">📎</th><th>Poznámka</th></tr>';
   r.doklady.forEach(d=>{
     h+='<tr>'+
@@ -127,13 +125,6 @@ async function loadDoklady(rada){
   });
   h+='</table><div class="muted" style="margin-top:6px">'+r.doklady.length+' dokladů · rok '+ROK+'</div>';
   box.innerHTML=h;
-}
-async function syncDoklady(rada){
-  const sync=document.getElementById('doklSync');
-  if(sync){sync.textContent='⏳ Aktualizuji z Heliosu…';}
-  const r=await j('/api/v1/erp/app/bank/sync-pokl-doklady?rada='+encodeURIComponent(rada)+'&rok='+ROK,{method:'POST'});
-  if(!r.ok){if(sync)sync.textContent='✗ '+(r.error||'chyba');return;}
-  loadDoklady(rada);
 }
 function firstDruh(){const l=druhyFirmy();return l.length?l[0].cislo:null;}
 function selFirma(f){FIRMA=f;SELPOK=firstDruh();renderFirmy();renderDruhy();renderObsah();}
@@ -170,16 +161,21 @@ function dedupeCislo(arr){const seen={};const out=[];(arr||[]).forEach(p=>{if(!s
 async function load(){
   const r=await j('/api/v1/erp/app/bank/pokladny');
   if(!r.ok){document.getElementById('obsahBox').innerHTML='<div class="err">'+(r.error||'Nedostupné (přihlas se jako rodič)')+'</div>';return;}
+  const keepFirma=FIRMA, keepPok=SELPOK;
   DATA=r;
   DATA.pokladny=dedupeCislo(DATA.pokladny);
   DATA.kartove_ucty=DATA.pokladny.filter(p=>p.typ==='kartovy_ucet');
-  FIRMA='EC';SELPOK=firstDruh();
+  FIRMA = DATA.pokladny.some(p=>firmaOf(p.cislo)===keepFirma) ? keepFirma : 'EC';
+  SELPOK = (keepPok && druhyFirmy().some(p=>p.cislo===keepPok)) ? keepPok : firstDruh();
+  const m=document.getElementById('syncMsg'); if(m){m.textContent=DATA.pokl_sync_at?('🕓 data z Heliosu: '+DATA.pokl_sync_at):'zatím nenačteno';m.className='muted';}
   renderFirmy();renderDruhy();renderObsah();renderCards();
 }
-document.getElementById('btnSync').onclick=async function(){
-  const m=document.getElementById('syncMsg');m.textContent='Synchronizuji z Heliosu…';
-  const r=await j('/api/v1/erp/app/bank/sync-pokladny',{method:'POST'});
-  if(r.ok){m.textContent='✓ EC: '+r.ec+' · ES: '+r.es+' pokladen';m.className='ok';load();}
+document.getElementById('btnSyncAll').onclick=async function(){
+  const m=document.getElementById('syncMsg');m.textContent='⏳ Aktualizuji z Heliosu…';m.className='muted';
+  const b=this;b.style.pointerEvents='none';b.style.opacity='0.6';
+  const r=await j('/api/v1/erp/app/bank/sync-pokl-doklady-all?rok='+ROK,{method:'POST'});
+  b.style.pointerEvents='';b.style.opacity='';
+  if(r.ok){await load();}
   else{m.textContent='✗ '+(r.error||'chyba');m.className='err';}
 };
 load();

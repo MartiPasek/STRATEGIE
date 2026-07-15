@@ -74,7 +74,7 @@ function renderFirmy(){
 function renderDruhy(){
   const list=druhyFirmy();
   if(!list.length){document.getElementById('druhyBox').innerHTML='<span class="muted">Žádné pokladny — klikni „Sync z Heliosu".</span>';return;}
-  let h='<button class="pill sm'+(SELPOK===null?' act':'')+'" onclick="selPok(null)">Vše</button>';
+  let h='';
   list.forEach(p=>{
     const k=p.typ==='kartovy_ucet'?' k':'';
     h+=`<button class="pill sm${k}${SELPOK===p.cislo?' act':''}" onclick="selPok('${p.cislo}')">${p.cislo} · ${p.nazev}</button>`;
@@ -84,33 +84,18 @@ function renderDruhy(){
 function renderObsah(){
   const list=druhyFirmy();
   const box=document.getElementById('obsahBox');
-  if(!list.length){box.innerHTML='';return;}
-  if(SELPOK===null){
-    let h='<table><tr><th>Číslo</th><th>Název</th><th>Měna</th><th>Typ</th><th>Účet MD/DAL</th><th>Sborník</th></tr>';
-    list.forEach(p=>{
-      h+=`<tr onclick="selPok('${p.cislo}')" style="cursor:pointer">
-        <td><b>${p.cislo}</b></td><td>${p.nazev}</td>
-        <td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td>
-        <td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td>
-        <td class="muted">${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td>
-        <td class="muted">${p.sbornik||'—'}</td>
-      </tr>`;
-    });
-    h+='</table>';
-    box.innerHTML=h;
-  } else {
-    const p=list.find(x=>x.cislo===SELPOK);
-    if(!p){box.innerHTML='';return;}
-    let h=`<table>
-      <tr><th style="width:110px">Číslo</th><td><b>${p.cislo}</b></td><th style="width:110px">Název</th><td>${p.nazev}</td></tr>
-      <tr><th>Měna</th><td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td><th>Typ</th><td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td></tr>
-      <tr><th>Účet MD/DAL</th><td>${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td><th>Sborník</th><td>${p.sbornik||'—'}</td></tr>
-    </table>
-    <div class="muted" style="margin-top:10px">📄 Jednotlivé pokladní doklady se sem teprve zrcadlí z Heliosu (připravujeme).</div>`;
-    box.innerHTML=h;
-  }
+  if(!list.length){box.innerHTML='<div class="muted">Žádné pokladny — klikni „Sync z Heliosu".</div>';return;}
+  const p=list.find(x=>x.cislo===SELPOK)||list[0];
+  let h=`<table>
+    <tr><th style="width:110px">Číslo</th><td><b>${p.cislo}</b></td><th style="width:110px">Název</th><td>${p.nazev}</td></tr>
+    <tr><th>Měna</th><td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td><th>Typ</th><td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td></tr>
+    <tr><th>Účet MD/DAL</th><td>${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td><th>Sborník</th><td>${p.sbornik||'—'}</td></tr>
+  </table>
+  <div class="muted" style="margin-top:10px">📄 Jednotlivé pokladní doklady se sem teprve zrcadlí z Heliosu (připravujeme).</div>`;
+  box.innerHTML=h;
 }
-function selFirma(f){FIRMA=f;SELPOK=null;renderFirmy();renderDruhy();renderObsah();}
+function firstDruh(){const l=druhyFirmy();return l.length?l[0].cislo:null;}
+function selFirma(f){FIRMA=f;SELPOK=firstDruh();renderFirmy();renderDruhy();renderObsah();}
 function selPok(c){SELPOK=c;renderDruhy();renderObsah();}
 
 function renderCards(){
@@ -140,10 +125,15 @@ async function saveCard(id,btn){
   const r=await j('/api/v1/erp/app/bank/card/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.ok){msg.textContent='✓ uloženo';msg.className='msg ok';}else{msg.textContent='✗ '+(r.error||'chyba');msg.className='msg err';}
 }
+function dedupeCislo(arr){const seen={};const out=[];(arr||[]).forEach(p=>{if(!seen[p.cislo]){seen[p.cislo]=1;out.push(p);}});return out;}
 async function load(){
   const r=await j('/api/v1/erp/app/bank/pokladny');
   if(!r.ok){document.getElementById('obsahBox').innerHTML='<div class="err">'+(r.error||'Nedostupné (přihlas se jako rodič)')+'</div>';return;}
-  DATA=r;renderFirmy();renderDruhy();renderObsah();renderCards();
+  DATA=r;
+  DATA.pokladny=dedupeCislo(DATA.pokladny);
+  DATA.kartove_ucty=DATA.pokladny.filter(p=>p.typ==='kartovy_ucet');
+  FIRMA='EC';SELPOK=firstDruh();
+  renderFirmy();renderDruhy();renderObsah();renderCards();
 }
 document.getElementById('btnSync').onclick=async function(){
   const m=document.getElementById('syncMsg');m.textContent='Synchronizuji z Heliosu…';

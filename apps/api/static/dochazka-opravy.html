@@ -253,7 +253,7 @@ function openDay(uid,name,day){
     api('GET','/api/v1/erp/app/attendance/fix/day?uid='+CTX.uid+'&day='+encodeURIComponent(dt.value)).then(function(j){
       box.innerHTML='';
       if(!j.ok){box.innerHTML='<div class="hint">✗ '+esc(j.error||'chyba')+'</div>';return;}
-      if(j.locked)box.appendChild(el('<div class="lockbar">🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné.</div>'));
+      if(j.locked)box.appendChild(el('<div class="lockbar">'+(j.lock_override?'🔓 Období je uzamčeno (mzdy zpracovány) — ty (zámek) opravit můžeš; každá změna se zapíše do auditu.':'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné (odemkne Peťa/Šárka).')+'</div>'));
       // Jirka 12.7.: co člověk hlásí (✋ rozpor dne + rozpory na záznamech) = důležité, NAD tabulkou
       var hlasi=[];
       if(j.dispute&&j.dispute.disputed&&(j.dispute.note||'').trim())hlasi.push('<b>Den:</b> „'+esc(j.dispute.note)+'“');
@@ -290,7 +290,7 @@ function openDay(uid,name,day){
           });
         });
       }
-      if(!j.locked){
+      if(!j.locked||j.lock_override){
         var ab=el('<button class="b g full">➕ Přidat záznam (zapomenutý příchod, mezera v docházce…)</button>');
         afx=el('<div style="margin:8px 0;"></div>');
         box.appendChild(ab);box.appendChild(afx);

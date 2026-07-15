@@ -63,12 +63,22 @@ CISELNIK_DB_CONNECTION_ID = 2  # 2 = eurosoft_db_ec / DB_EC (Centrála)
 # se čte ŽIVĚ z Centrály; tohle je záchrana pro tyhle speciální LookupView.
 # (Kristý 13.7.2026 — dodala přesné SQL.) Registr smí růst pro další speciály.
 _CISELNIK_SQL_FALLBACK = {
-    # Autoritativní SQL číselníků (Kristý 13.7.2026). LookupView číslo NENÍ
-    # EC_FormDef.ID → auto-čtení z Centrály je nespolehlivé; tohle je pravda.
+    # Autoritativni SQL ciselniku (Kristy). LookupView cislo NENI EC_FormDef.ID,
+    # auto-cteni z Centraly je nespolehlive; tohle je pravda.
     104: "-- Swobi 14.8.2023 - Zabránít čekání na uzamčené tabulky\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED\nSELECT\n     Z.CisloZakazky\n    --,Zext._CisloZakazkyIAP\n    ,isnull(oe._zkratka_Nazvu,O.nazev) AS Zkratka\n    ,Z.Nazev       \n    ,Z.DruhyNazev\n    ,ISNULL(M.loginid,M.PrijmeniJmeno) AS Resitel\n    ,M.Cislo AS ResitelCislo\n    ,Z.Stav\n    ,Z.ID\n    ,Z.Ukonceno\n    ,Z.DatPorizeni\n    ,Z.autor\n    ,'Zakazka' as TypDokladu\n    ,2 as Poradi\n    ,Z.DatumKonecReal\n    ,Z.DatumKonecPlan\n    ,CZ.LoginId AS VypnulKontroluDodani\n    ,ISNULL(ZE._KalkHodinyCelkem,0) as kalkulovanoCelkem\n    ,ZE._Sefmonter\n    ,ZE._RealHodiny\n    ,ZE._NehodnotitVMesici\n    ,CONVERT(BIT,ISNULL(ZE._Uzavreno,0)) AS VyhodnoceniUzavreno\n    ,tdz.NavaznaObjednavka\n    ,ZE._DatumKonecZak as DatumKonecZak\n    ,convert(bit,iif(M.loginID = suser_sname(),1,0)) as MojeZakazky\n    ,U.ListUmisteni as UmisteniMaterialu\n    ,Zkousky.ZkouskyDatum\n    ,convert(bit,IIF(isnull(ze._DochPrihlaseni,0)=1 and CONVERT(BIT,ISNULL(ZE._Uzavreno,0))=0,1,0)) as ZakazkaProbiha\n    ,isnull(Zkousky.Stav,0) as ZkouskyStav,convert(bit,isnull(Zkousky.VyzkousenoOk,0)) as ZkouskyVyzkousenoOK\n    ,ZE._DopravaOdDo\n    ,ZE._IDSkupiny\n    ,ZE._Uzavreno\n    ,convert(bit,isnull(ZE._NepocitatNV,0)) as NVnepocitat\n    ,(SELECT LoginId from TabCisZam where Cislo = ISNULL(OdvozPotvrdil, 0)) as OdvozPotvrdil\nFROM TabZakazka Z\n    --LEFT OUTER JOIN TabZakazka_ext Zext ON Zext.ID=Z.ID\n    LEFT OUTER JOIN TabCisOrg O ON Z.Prijemce = O.CisloOrg\n    LEFT OUTER JOIN TabCisOrg_EXT OE on o.id = oe.id \n    LEFT OUTER JOIN TabCisZam M ON M.Cislo = Z.Zodpovida\n    LEFT OUTER JOIN TabZakazka_EXT ZE ON Z.ID = ZE.ID\n    LEFT OUTER JOIN TabCisZam CZ ON ZE._VypnoutKontroluKompletnosti = CZ.Cislo\n    LEFT OUTER JOIN TabDokladyZbozi TDZ ON TDZ.CisloZakazky = Z.CisloZakazky and TDZ.RadaDokladu='920'\n    OUTER APPLY (                        \n                    SELECT STUFF((\n                                SELECT ', ' + xTU.Kod\n                                FROM EC_Zakazky_Umisteni xZU\n                                LEFT OUTER JOIN TabUmisteni xTU on xTU.ID=xZU.IDUmisteni\n                                WHERE xZU.CisloZakazky=Z.CisloZakazky\n                                FOR XML PATH('')\n                                ), 1, 1, '') AS ListUmisteni) U\n    OUTER APPLY (SELECT TOP 1 D.ZkouskyDatum,ZR.Stav,ZR.VyzkousenoOk,OdvozPotvrdil FROM EC_DopravaZakaznikovi D left outer join EC_ZkouseniRozvadecu ZR on ZR.ID=D.ID WHERE D.CisloZakazky=Z.CisloZakazky order by Z.CisloZakazky asc    ) as Zkousky\nORDER BY Poradi,SUBSTRING(Z.CisloZakazky, 1, 2) DESC, Z.ID DESC\n-- Swobi 14.8.2023 - Zabránít čekání na uzamčené tabulky\nSET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+    105: "SELECT (case when O.Stav=0 THEN 'Aktivní'when O.Stav=1 THEN 'Blokovaná'when O.Stav=2 THEN 'Zakázaná'when O.Stav=3 THEN 'Potenciální'else  \n'????????' end) as Stav,\n O.TIN,\n O.ID,\n O.JeOdberatel,\n O.JeDodavatel,      \n O.Firma,\n E._Zkratka_Nazvu AS ZkratkaNazvu,\n O.CisloOrg, \n O.DruhyNazev, \n O.UliceSCisly,\n O.Misto,\n O.IdZeme ,\n O.PSC,\n O.Upozorneni,\n O.Fakturacni,\n O.Prijemce,\n O.MU,\n O.ICO,\n O.DIC,\n O.Jazyk,\n O.Mena,\n O.PlatceDPH,\n O.PlneniBezDPH,\n O.FormaUhrady,\n O.DodaciPodminky,\n O.LhutaSplatnosti, \nO.LhutaSplatnostiDodavatel,convert(nvarchar(2000),O.Poznamka) as poznamka,\n O.PostAddress,\n O.NazevOkresu AS Okres, \nE._Fakturace_v_EUR, \nE._Objednavky_Formular,\nE._Faktury_formular,\nE._Teritorium, \nJ.TiskovyFormObjed,\n J.TiskovyFormFaV,2 as PoradiVSelectu,\nE._DobaDopravy,\nE._DodaniPocetPracDni,\nO.Autor,\nO.DatPorizeni,\n--E._KontrolovatOdeslaniRealizaciVOBJ\nE._DopravuZajistujeZakaznik\nFROM TabCisOrg O\nLEFT OUTER JOIN TabCisOrg_EXT E ON O.ID = E.ID\nLEFT OUTER JOIN TabJazyky J ON J.Jazyk = O.Jazyk\n--WHERE Stav <> 2\nwhere O.stav=0 -- Kristýna 31.10.2025 - ve formlistech ukazovat jen Aktivní\nunion \nselect \nnull,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,\nnull,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1 as PoradiVSelectu,null, null,null,null,null\nORDER BY \nPoradiVSelectu,Firma",
+    111: 'SELECT * FROM TabFormaUhrady',
+    113: 'SELECT * FROM TabFormaDopravy',
+    125: "SELECT TabCisZam.Cislo, TabCisZam.LoginID AS Jmeno FROM TabCisZam\nLEFT OUTER JOIN  TabCisZam_EXT ON TabCisZam_EXT.ID=TabCisZam.ID\nWHERE LoginID <>''\nORDER BY 2",
     376: "SELECT\nO.CisloOrg,(VCisKOsVztahOrgKOs.Prijmeni + ' ' +isnull(VCisKOsVztahOrgKOs.Jmeno,'')) AS PrijmeniJmeno,VCisKOsVztahOrgKOs.ID,TabVztahOrgKOs.BlokovaniEditoru,TabVztahOrgKOs.IDOrg,TabVztahOrgKOs.IDCisKOs,TabVztahOrgKOs.Prednastaveno,VCisKOsVztahOrgKOs.Jmeno,VCisKOsVztahOrgKOs.Prijmeni,TabVztahOrgKOs.Funkce,TabVztahOrgKOs.Poznamka, VKOsEmail.Spojeni AS Email,VKOsEmailPr.Spojeni AS EmailPr,VKOsPevnaLinka.Spojeni AS Pevna,VKOsMobil.Spojeni AS Mobil,VKOsMobilPr.Spojeni AS MobilPr,VKOsFax.Spojeni AS Fax,VKOsWEB.Spojeni AS WEB\nFROM TabVztahOrgKOs\n  LEFT OUTER JOIN TabCisKOs VCisKOsVztahOrgKOs ON VCisKOsVztahOrgKOs.ID=TabVztahOrgKOs.IDCisKOs\n  LEFT OUTER JOIN TabCisKOS_EXT KOE ON VCisKOsVztahOrgKOs.id = KOE.ID\n  LEFT OUTER JOIN TabCisOrg O ON TabVztahOrgKOs.IDOrg = O.ID\n   LEFT OUTER JOIN TabKontakty VKOsEmail ON VCisKOsVztahOrgKOs.ID=VKOsEmail.IDCisKOs  AND VKOsEmail.Druh = 6 AND VKOsEmail.Kam = 0 AND VKOsEmail.IDVztahKOsOrg IS NULL AND VKOsEmail.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsEmailPr ON VCisKOsVztahOrgKOs.ID=VKOsEmailPr.IDCisKOs AND  VKOsEmailPr.Druh = 6 AND VKOsEmailPr.Kam = 1 AND VKOsEmailPr.IDVztahKOsOrg IS NULL AND VKOsEmailPr.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsPevnaLinka ON VCisKOsVztahOrgKOs.ID=VKOsPevnaLinka.IDCisKOs  AND VKOsPevnaLinka.Druh = 1 AND VKOsPevnaLinka.IDVztahKOsOrg IS NULL AND VKOsPevnaLinka.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsMobil ON VCisKOsVztahOrgKOs.ID=VKOsMobil.IDCisKOs  AND VKOsMobil.Druh = 2 AND VKOsMobil.Kam = 0 AND VKOsMobil.IDVztahKOsOrg IS NULL AND VKOsMobil.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsMobilPr ON VCisKOsVztahOrgKOs.ID=VKOsMobilPr.IDCisKOs AND  VKOsMobilPr.Druh = 2 AND VKOsMobilPr.Kam = 1 AND VKOsMobilPr.IDVztahKOsOrg IS NULL AND VKOsMobilPr.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsFax ON VCisKOsVztahOrgKOs.ID=VKOsFax.IDCisKOs AND VKOsFax.Druh = 3 AND VKOsFax.IDVztahKOsOrg IS NULL AND VKOsFax.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsWEB ON VCisKOsVztahOrgKOs.ID=VKOsWEB.IDCisKOs AND VKOsWEB.Druh = 7 AND VKOsWEB.IDVztahKOsOrg IS NULL AND VKOsWEB.Prednastaveno=1\nWHERE ISNULL(KOE._Neaktivni,0) = 0",
+    1130: 'SELECT O.Nazev AS NazevOrg,K.PrijmeniJmeno AS KontakniOsoba ,Z.PrijmeniJmeno AS JmenoZam,D.* FROM EC_DokladyPomTexty D\nleft outer join TabCisOrg O on o.CisloOrg=D.CisloOrg\nLeft outer join TabCisKOs K on k.Cislo=D.CisloKOs\nleft outer join TabCisZam Z on z.cislo=d.CisloZam\nWHERE Druh = 100',
+    1135: 'SELECT O.Nazev AS NazevOrg,K.PrijmeniJmeno AS KontakniOsoba ,Z.PrijmeniJmeno AS JmenoZam,D.* FROM EC_DokladyPomTexty D\nleft outer join TabCisOrg O on o.CisloOrg=D.CisloOrg\nLeft outer join TabCisKOs K on k.Cislo=D.CisloKOs\nleft outer join TabCisZam Z on z.cislo=d.CisloZam\nWHERE Druh = 120',
     1164: "SELECT \n O.ID,\n O.JeOdberatel,\n O.JeDodavatel,\n O.Firma,\n E._Zkratka_Nazvu,\n O.CisloOrg, \n O.DruhyNazev, \n O.UliceSCisly,\n O.Misto,\n O.IdZeme ,\n O.PSC,\n O.Upozorneni,\n DodaciAdr = ISNULL(O.Nazev,'') + char(13) + char(10) + ISNULL(O.UliceSCisly,'') + char(13) + char(10) +  ISNULL(O.IdZeme,'') +  ISNULL(O.PSC,'')+ ' '+ ISNULL(O.Misto,'') + char(13) + char(10) + ISNULL(Z.NazevDE,'')\n FROM TabCisOrg O\nLEFT OUTER JOIN TabCisOrg_EXT E ON O.ID = E.ID\nLEFT OUTER JOIN TabJazyky J ON J.Jazyk = O.Jazyk\nLEFT OUTER JOIN TabZeme Z ON Z.ISOKod =  O.IdZeme\n--WHERE Stav <> 2\nwhere O.stav=0\nORDER BY Firma",
+    1165: "SELECT NAME, Value\nFROM (\n    SELECT 'Česky' AS NAME,'CZ' AS Value,1 AS Poradi\n    UNION\n    SELECT 'Německy' AS NAME,'DE' AS Value,2 AS Poradi\n    UNION\n    SELECT 'Anglicky' AS NAME,'EN' AS Value,3 AS Poradi\n    ) List\nORDER BY Poradi",
+    1166: "SELECT NAME, Value\nFROM (\n    SELECT 'BEZ SLEVY' AS NAME,'D' AS Value,1 AS Poradi\n    UNION\n    SELECT 'SLEVA' AS NAME,'S' AS Value,2 AS Poradi\n    ) List\nORDER BY Poradi",
+    1167: "SELECT NAME, Value\nFROM (\n    SELECT 'KČ' AS NAME,'0' AS Value,1 AS Poradi\n    UNION\n    SELECT 'EUR' AS NAME,'4' AS Value,2 AS Poradi\n    UNION\n    SELECT '' AS NAME,'' AS Value,3 AS Poradi\n    ) List\nORDER BY Poradi",
     1168: "SELECT NAME, Value\nFROM (\n    SELECT 'Rozvaděč - VR' AS NAME,'Rozvaděč' AS Value,1 AS Poradi\n    UNION\n    SELECT 'Instalace - VR' AS NAME,'Instalace' AS Value,2 AS Poradi\n    UNION\n    SELECT 'EPLAN - VR' AS NAME,'EPLAN' AS Value,3 AS Poradi\n    UNION\n    SELECT 'Materiál - PR' AS NAME,'Material' AS Value,4 AS Poradi\n    UNION\n    SELECT 'Software - SW' AS NAME,'Software' AS Value,5 AS Poradi \n    ) List\nORDER BY Poradi",
+    1790: 'SELECT D.DIC,D.VysledekOvereniDIC,O.Nazev,D.* FROM TabDicOrg D\nLEFT OUTER JOIN TabCisOrg O ON D.CISLOoRG = O.CisloOrg\nWHERE D.aktualniDic = 1',
 }
 
 # Překlad Centrála typů na kódy, které editační renderer (design_forms.js)
@@ -832,6 +842,35 @@ def _wire_grids(s, core_id: int, cen: dict) -> dict:
     return rep
 
 
+def _wire_ciselniky(s, cen: dict) -> dict:
+    """Zalozi ciselniky (data_set/source/op) pro VSECHNY roletky formulare
+    (Centrala Typ 6 s LookupView), ktere maji SQL ve fallback registru. Ostatni
+    nahlasi. Idempotentni; reuse _ensure_ciselnik (fallback SQL + volitelny filtr).
+    """
+    rep = {"created": [], "skipped_no_sql": []}
+    seen = set()
+    for c in cen["comps"]:
+        if int(c.get("typ") or 0) != 6:
+            continue
+        lv = (c.get("lv") or "").strip()
+        if not lv:
+            continue
+        view = int(lv)
+        if view in seen:
+            continue
+        seen.add(view)
+        if view not in _CISELNIK_SQL_FALLBACK:
+            rep["skipped_no_sql"].append(view)
+            continue
+        try:
+            cis = _ensure_ciselnik(s, view, c.get("fc"))
+            if cis["code"] not in rep["created"]:
+                rep["created"].append(cis["code"])
+        except Exception as _e:
+            rep["skipped_no_sql"].append("%d(%s)" % (view, str(_e)[:60]))
+    return rep
+
+
 def _source_to_select(zdroj: str | None, centrala_sql: str) -> str:
     """Zdroj → čistý edit-select (systém ho obalí `WHERE [ID]=`)."""
     if zdroj:
@@ -944,6 +983,9 @@ def run_core_import(arg: str) -> dict:
         # (na frameworku nezávislý, trvalý základ; nesahá na comp_def ani core).
         spec_only = "--spec" in arg
         arg = arg.replace("--spec", "")
+        # --ciselniky = zalozit ciselniky pro vsechny roletky formulare (dle registru).
+        ciselniky_only = "--ciselniky" in arg
+        arg = arg.replace("--ciselniky", "")
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
@@ -1047,6 +1089,21 @@ def run_core_import(arg: str) -> dict:
                     ["záložky", counts["tabs"]],
                     ["gridy", counts["grids"]],
                     ["soubory (filelistbox)", counts["files"]],
+                ],
+            }
+
+        # ── Rezim --ciselniky: zalozit vsechny ciselniky formulare ──────────
+        if ciselniky_only:
+            crep = _wire_ciselniky(s, cen)
+            s.commit()
+            return {
+                "ok": True,
+                "columns": ["pole", "hodnota"],
+                "rows": [
+                    ["rezim", "--ciselniky"],
+                    ["ec_form_id", ec_form_id],
+                    ["zalozeno", ", ".join(crep["created"]) or "—"],
+                    ["bez SQL (preskoceno)", ", ".join(str(x) for x in crep["skipped_no_sql"]) or "—"],
                 ],
             }
 

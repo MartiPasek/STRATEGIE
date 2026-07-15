@@ -19243,6 +19243,26 @@ async def att_fix_allowed(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/attendance/fix/cinnosti")
+async def att_fix_cinnosti(req: Request) -> JSONResponse:
+    """Cinnosti pro formular opravy (jen editori) - aktivni vyroba_cinnost."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, name, COALESCE(icon,'') FROM tenant.vyroba_cinnost "
+            "WHERE tenant_id=2 AND active ORDER BY sort_order, name")).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "cinnosti": [{"id": r[0], "name": r[1], "icon": r[2]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/fix/queue")
 async def att_fix_queue(req: Request) -> JSONResponse:
     """Fronta „K vyřešení": nevyřešené anomálie (mimo nepotvrzený den — to je
@@ -19395,6 +19415,10 @@ async def att_fix_entry(req: Request) -> JSONResponse:
     kon = _att_fix_parse_hhmm((body or {}).get("kon"))
     tcode = str((body or {}).get("type_code") or "").strip() or None
     reason = str((body or {}).get("reason") or "").strip()[:300]
+    try:
+        cin_new = int((body or {}).get("cinnost_id") or 0) or None
+    except Exception:
+        cin_new = None
     # Jirka 12.7.: volitelná změna zakázky — klíč chybí = nechat původní (zpětně kompatibilní)
     pref_sent = isinstance(body, dict) and ("project_ref" in body)
     pref_new = (str((body or {}).get("project_ref") or "").strip()[:40] or None) if pref_sent else None
@@ -19508,6 +19532,19 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                              "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
             except Exception:
                 pass
+        if cin_new and new_code in ("work", "overhead"):
+            try:
+                _tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
+                _cn = s.execute(_t("SELECT name, COALESCE(icon,'') FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"), {"c": cin_new}).first()
+                if _tu and _cn:
+                    s.execute(_t(
+                        "UPDATE tenant.work_alloc SET cinnost_id=:ci, cinnost_name=:cn, cinnost_icon=:cic, updated_at=now() "
+                        "WHERE user_id=:u AND started_at >= CAST(:ns AS timestamptz) - interval '1 minute' "
+                        "  AND started_at < CAST(:ne AS timestamptz)"),
+                        {"u": _tu, "ci": cin_new, "cn": _cn[0], "cic": _cn[1],
+                         "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
+            except Exception:
+                pass
         s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
                      "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
                   {"t": _ATT_TENANT, "i": eid})
@@ -19549,6 +19586,10 @@ async def att_fix_add(req: Request) -> JSONResponse:
     zac = _att_fix_parse_hhmm((body or {}).get("zac"))
     kon = _att_fix_parse_hhmm((body or {}).get("kon"))
     tcode = str((body or {}).get("type_code") or "work").strip()
+    try:
+        cin_add = int((body or {}).get("cinnost_id") or 0) or None
+    except Exception:
+        cin_add = None
     pref = str((body or {}).get("project_ref") or "").strip()[:40] or None
     reason = str((body or {}).get("reason") or "").strip()[:300]
     try:
@@ -19610,6 +19651,21 @@ async def att_fix_add(req: Request) -> JSONResponse:
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "ti": tid, "h": hrs,
              "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
              "pr": pref, "n": nn, "u": uid}).scalar()
+        if tcode in ("work", "overhead"):
+            try:
+                _tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
+                _cn = s.execute(_t("SELECT name, COALESCE(icon,'') FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"), {"c": cin_add}).first() if cin_add else None
+                _pn = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c"), {"t": _ATT_TENANT, "c": pref}).scalar() if pref else None
+                if _tu:
+                    s.execute(_t(
+                        "INSERT INTO tenant.work_alloc (tenant_id,user_id,started_at,ended_at,project_ref,project_nazev,"
+                        "cinnost_id,cinnost_name,cinnost_icon,is_rezie,source,created_at,updated_at) "
+                        "VALUES (:t,:u,CAST(:ns AS timestamptz),CAST(:ne AS timestamptz),:pr,:pn,:ci,:cn,:cic,:rz,'manual_fix',now(),now())"),
+                        {"t": _ATT_TENANT, "u": _tu, "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
+                         "pr": pref, "pn": _pn, "ci": cin_add, "cn": (_cn[0] if _cn else None), "cic": (_cn[1] if _cn else None),
+                         "rz": (tcode == "overhead")})
+            except Exception:
+                pass
         _att_fix_audit(s, "add", nid, emp, uid, actor,
                        new_note=(tcode + " " + zac + "–" + kon), detail=reason,
                        old_date=day.isoformat())

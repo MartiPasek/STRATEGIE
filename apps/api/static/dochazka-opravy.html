@@ -118,7 +118,7 @@ function confirmBox(fx,txt,onYes){
   c.appendChild(el('<div>'+txt+'</div>'));
   var br=el('<div class="btns"></div>');
   var y=el('<button class="b p" style="flex:1">Ano</button>'),n=el('<button class="b">Ne</button>');
-  br.appendChild(y);br.appendChild(n);c.appendChild(br);fx.appendChild(c);
+  br.appendChild(y);br.appendChild(n);c.appendChild(br);fx.appendChild(c);try{c.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
   n.addEventListener('click',function(){c.remove();});
   y.addEventListener('click',function(){y.disabled=true;n.disabled=true;onYes(c);});
 }

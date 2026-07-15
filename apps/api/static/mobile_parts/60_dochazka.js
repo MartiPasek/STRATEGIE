@@ -1767,7 +1767,7 @@
     var br=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
     var ano=el('<button class="green sm" style="flex:1;">Ano</button>');
     var ne=el('<button class="ghost sm">Ne</button>');
-    br.appendChild(ano); br.appendChild(ne); cw.appendChild(br); fx.appendChild(cw);
+    br.appendChild(ano); br.appendChild(ne); cw.appendChild(br); fx.appendChild(cw); try{ cw.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
     ne.addEventListener("click",function(){ cw.remove(); });
     ano.addEventListener("click",function(){ ano.disabled=true; ne.disabled=true; onYes(cw); });
   }

@@ -52,6 +52,7 @@
   .tag.run{background:#123c26;color:#8fe0a0}.tag.ec{background:#3b2f12;color:#fbd38d}
   .tag.fx{background:#1d2440;color:#a5b4fc}
   #who{max-width:440px}
+  #right{align-self:flex-start;position:sticky;top:8px}
 </style>
 </head>
 <body>
@@ -248,6 +249,7 @@ function openDay(uid,name,day){
   var dt=dr.input;
   R.appendChild(dr.row);
   var box=el('<div style="margin-top:8px;"></div>');R.appendChild(box);
+  try{R.scrollIntoView({behavior:'smooth',block:'nearest'});}catch(e){}
   function render(){
     box.innerHTML='<div class="hint">Načítám den…</div>';
     api('GET','/api/v1/erp/app/attendance/fix/day?uid='+CTX.uid+'&day='+encodeURIComponent(dt.value)).then(function(j){

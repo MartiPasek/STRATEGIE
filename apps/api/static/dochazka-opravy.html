@@ -309,12 +309,12 @@ function openDay(uid,name,day){
       var poznBelow=[],maCentralu=false;
       function tdc(html,cls,style){var c=document.createElement('td');if(cls)c.className=cls;if(style)c.style.cssText=style;c.innerHTML=html;return c;}
       function hmMin(x){var p=String(x||'').split(':');return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0);}
-      var lastKon=null;  // konec předchozího viditelného záznamu — detekce mezer (Centrála: „Mezery v docházce")
+      var prevZac=null;  // začátek předchozího (pozdějšího) viditelného záznamu — mezery sestupně
       es.forEach(function(e2){
         var gone=(e2.status==='superseded');
         var isDE=(e2.code==='day_end');  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
-        if(!gone&&!isDE&&e2.zac&&lastKon&&(hmMin(e2.zac)-hmMin(lastKon))>=5&&!j.locked){
-          var gz=lastKon,gk=e2.zac;
+        if(!gone&&!isDE&&e2.kon&&prevZac&&(hmMin(prevZac)-hmMin(e2.kon))>=5&&!j.locked){
+          var gz=e2.kon,gk=prevZac;
           var gr=document.createElement('tr');gr.className='gap';
           gr.appendChild(tdc('⋯ mezera '+esc(gz)+'–'+esc(gk)+' (bez záznamu)'));
           gr.firstChild.colSpan=6;
@@ -340,7 +340,7 @@ function openDay(uid,name,day){
         tr0.appendChild(tdc(tg));
         var tdA=tdc('','','text-align:right;white-space:nowrap;');tr0.appendChild(tdA);
         tb.appendChild(tr0);
-        if(!gone&&!isDE&&e2.kon)lastKon=e2.kon;
+        if(!gone&&!isDE&&e2.zac)prevZac=e2.zac;
         if(!(e2.editable&&!e2.running&&e2.zac)){
           // proč tu nejsou tlačítka — ať je editorům jasné, že to není chyba
           var duvod=gone?'storno':(e2.running&&!isDE)?'● běží':(e2.source_system?'🏛 oprava v Centrále':(j.locked?'🔒 uzamčeno':(!e2.zac?'— (absence/automat)':'—')));

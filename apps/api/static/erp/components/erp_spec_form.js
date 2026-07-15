@@ -40,7 +40,7 @@
     + ".esf-ch{padding:12px 18px;border-bottom:1px solid #1e2639;font-weight:680;}.esf-ch .s{font-weight:500;color:#93a0bc;font-size:12.5px;}"
     + ".esf-cb{padding:16px 18px;}"
     + ".esf-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:13px 20px;}"
-    + ".esf-f{display:flex;flex-direction:column;gap:5px;min-width:0;}.esf-f.s2{grid-column:span 2;}"
+    + ".esf-f{display:flex;flex-direction:column;gap:5px;min-width:0;}.esf-f.s2{grid-column:span 2;}.esf-f.full{grid-column:1 / -1;}"
     + ".esf-f label{font-size:12px;color:#93a0bc;font-weight:600;}"
     + ".esf-ctrl{border:1px solid #273049;border-radius:9px;padding:8px 11px;background:#111726;font-size:14px;color:#e8ecf6;min-height:37px;display:flex;align-items:center;gap:8px;}"
     + ".esf-ctrl input,.esf-ctrl select,.esf-ctrl textarea{border:0;outline:0;background:transparent;width:100%;font:inherit;color:inherit;}"
@@ -101,7 +101,8 @@
 
   function renderField(f) {
     if (f.type === "label") return el("div", "esf-sect", f.caption || f.name);
-    var wrap = el("div", "esf-f" + (f.type === "memo" ? " s2" : ""));
+    var _big = (f.type === "memo") || (f.type === "text" && (f.name === "_TextPredPolozkami" || f.name === "_TextZaPolozkami"));
+    var wrap = el("div", "esf-f" + (_big ? " full" : ""));
     if (f.type === "checkbox") { var row = el("div", "esf-chk"); var cb = el("input"); cb.type = "checkbox"; var v = getVal(f.name); cb.checked = (v === true || v === 1 || v === "1" || v === "t" || v === "true"); row.appendChild(cb); row.appendChild(el("label", null, f.caption || f.name)); wrap.appendChild(row); return wrap; }
     wrap.appendChild(el("label", null, f.caption || f.name));
     var val = getVal(f.name);
@@ -120,7 +121,7 @@
       });
       return wrap;
     }
-    if (f.type === "memo") { var cm = el("div", "esf-ctrl"); var t = el("textarea"); t.value = val; cm.appendChild(t); wrap.appendChild(cm); return wrap; }
+    if (_big) { var cm = el("div", "esf-ctrl"); var t = el("textarea"); t.value = val; t.style.minHeight = "120px"; cm.appendChild(t); wrap.appendChild(cm); return wrap; }
     if (f.type === "file") { var cf = el("div", "esf-ctrl"); cf.innerHTML = '<span style="color:#93a0bc">soubory: ' + (f.caption || f.name) + '</span>'; wrap.appendChild(cf); return wrap; }
     if (f.type === "date") { var cdd = el("div", "esf-ctrl"); var di = el("input"); di.type = "text"; di.value = fmtDate(val); cdd.appendChild(di); wrap.appendChild(cdd); return wrap; }
     var ct = el("div", "esf-ctrl"); var i = el("input"); i.type = "text"; i.value = val; ct.appendChild(i); wrap.appendChild(ct); return wrap;

@@ -522,3 +522,40 @@ def sync(oz_table: str, tenant_id: int = 2):
     finally:
         s2.close()
     return {"ok": True, "oz_table": oz_table, "vlozeno": res.get("vlozeno"), "chyb": res.get("chyb")}
+
+
+def extend_inplace(oz_table: str, tenant_id: int = 2):
+    """Rozsiri EXISTUJICI zrcadlo o sloupce, ktere pribyly v ulozenem MSSQL dotazu,
+    BEZ dropu tabulky -- ALTER ADD COLUMN IF NOT EXISTS (bezi jako vlastnik strategie),
+    takze zavisle views (vp_pipeline apod.) zustanou. Nefilluje (to udela @@OZ SYNC).
+    Vhodne, kdyz mirror() nemuze dropnout kvuli zavislostem.
+    Kristy/Claude-24 15.7.2026 (prijate objednavky -- 7 hlavickovych sloupcu do detailu)."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s0 = get_data_session()
+    try:
+        sqlm = s0.execute(_t("SELECT sql_mssql FROM tenant.oz_mirror_def WHERE oz_table=:o"),
+                          {"o": oz_table}).scalar()
+    finally:
+        s0.close()
+    if not sqlm:
+        return {"ok": False, "error": "oz_mirror_def pro %s neexistuje" % oz_table}
+    cols = describe(sqlm)
+    if not cols:
+        return {"ok": False, "error": "sp_describe nevratil sloupce"}
+    s = get_data_session()
+    added = []
+    try:
+        exist = {r[0].lower() for r in s.execute(_t(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='tenant' AND table_name=:t"), {"t": oz_table})}
+        for c in cols:
+            if c["name"].lower() not in exist:
+                s.execute(_t('ALTER TABLE tenant.%s ADD COLUMN IF NOT EXISTS %s %s'
+                             % (oz_table, _qi(c["name"]), c["pg_type"])))
+                added.append("%s %s" % (c["name"], c["pg_type"]))
+        s.execute(_t('GRANT ALL ON tenant.%s TO strategie, "Marti-AI"' % oz_table))
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True, "oz_table": oz_table, "pridano": added, "sloupcu_v_sql": len(cols)}

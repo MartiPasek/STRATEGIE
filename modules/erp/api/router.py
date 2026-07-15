@@ -38889,6 +38889,13 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _fw, _tbl = _ow[1], _ow[2]
                 _thoz.Thread(target=lambda: _ozm(_fw, _tbl, tenant_id=2), daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "fw_code": _fw, "oz_table": _tbl})
+            if _osub == "EXTEND":
+                # @@OZ EXTEND <oz_table> -> ALTER ADD chybejici sloupce (bez DROPu, vlastnik).
+                # Synchronne -> vraci pridane sloupce i pripadnou chybu. Fill pak @@OZ SYNC.
+                if len(_ow) < 2:
+                    return JSONResponse({"ok": False, "error": "@@OZ EXTEND <oz_table>"})
+                from modules.erp.api.oz_mirror import extend_inplace as _oze
+                return JSONResponse(_oze(_ow[1], tenant_id=2))
             if _osub == "MIRRORALL":
                 import threading as _thoza
                 from modules.erp.api.oz_mirror import mirror_all as _ozma

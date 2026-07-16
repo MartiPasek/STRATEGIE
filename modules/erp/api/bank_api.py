@@ -1239,45 +1239,49 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
         "CONVERT(varchar(10), DatUctovani, 23) AS DatUctovani, "
         "CONVERT(varchar(10), DUZP, 23) AS DUZP, "
         "CONVERT(varchar(19), DatPorizeno, 126) AS DatPorizeno, "
+        "CONVERT(varchar(10), DatPorizeni, 23) AS DatPorizeni, "
         "CisloOrg, CisloZam, ParovaciZnak, CisloZakazky, CisloNakladovyOkruh, "
-        "Mena, CastkaMena, StavPokladny, Autor "
+        "Mena, CastkaMena, StavPokladny, Uhrada, SaldoDokladu, CastkaD, Autor "
         "FROM dbo.TabPokladna "
-        "WHERE RadaDokladuPokl = '" + rada + "' AND YEAR(DatPripad) = " + str(rok)
+        "WHERE RadaDokladuPokl = '" + rada + "' AND (YEAR(DatPripad) = " + str(rok) + " OR DatPripad IS NULL)"
     )
     nh = 0
     for d in _mcp_rows(sql_h, db_name):
         s.execute(_t(
             "INSERT INTO tenant.ec_doklad_pokladna "
             "(tenant_id,firma,src_id,rada_pokladny,poradove_cislo,typ_dokladu,stav_dokladu,popis,poznamka,"
-            "prilohy,dat_pripad,dat_uctovani,duzp,dat_porizeno,cislo_org,cislo_zam,parovaci_znak,zakazka,"
-            "naklad_okruh,mena,castka_mena,stav_pokladny,autor,synced_at) VALUES "
+            "prilohy,dat_pripad,dat_uctovani,duzp,dat_porizeno,dat_porizeni,cislo_org,cislo_zam,parovaci_znak,zakazka,"
+            "naklad_okruh,mena,castka_mena,stav_pokladny,uhrada,saldo_dokladu,castka_dokladu,autor,synced_at) VALUES "
             "(:tn,:f,:sid,:rada,:pc,:typ,:stav,:popis,:pozn,:pril,"
-            "NULLIF(:dprip,'')::date,NULLIF(:duct,'')::date,NULLIF(:duzp,'')::date,NULLIF(:dpor,'')::timestamp,"
-            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:autor,now()) "
+            "NULLIF(:dprip,'')::date,NULLIF(:duct,'')::date,NULLIF(:duzp,'')::date,NULLIF(:dpor,'')::timestamp,NULLIF(:dporiz,'')::date,"
+            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:uhr,:saldo,:castkad,:autor,now()) "
             "ON CONFLICT (firma,src_id) DO UPDATE SET rada_pokladny=EXCLUDED.rada_pokladny,"
             "poradove_cislo=EXCLUDED.poradove_cislo,typ_dokladu=EXCLUDED.typ_dokladu,stav_dokladu=EXCLUDED.stav_dokladu,"
             "popis=EXCLUDED.popis,poznamka=EXCLUDED.poznamka,prilohy=EXCLUDED.prilohy,dat_pripad=EXCLUDED.dat_pripad,"
-            "dat_uctovani=EXCLUDED.dat_uctovani,duzp=EXCLUDED.duzp,dat_porizeno=EXCLUDED.dat_porizeno,"
+            "dat_uctovani=EXCLUDED.dat_uctovani,duzp=EXCLUDED.duzp,dat_porizeno=EXCLUDED.dat_porizeno,dat_porizeni=EXCLUDED.dat_porizeni,"
             "cislo_org=EXCLUDED.cislo_org,cislo_zam=EXCLUDED.cislo_zam,parovaci_znak=EXCLUDED.parovaci_znak,"
             "zakazka=EXCLUDED.zakazka,naklad_okruh=EXCLUDED.naklad_okruh,mena=EXCLUDED.mena,"
-            "castka_mena=EXCLUDED.castka_mena,stav_pokladny=EXCLUDED.stav_pokladny,autor=EXCLUDED.autor,synced_at=now()"),
+            "castka_mena=EXCLUDED.castka_mena,stav_pokladny=EXCLUDED.stav_pokladny,"
+            "uhrada=EXCLUDED.uhrada,saldo_dokladu=EXCLUDED.saldo_dokladu,castka_dokladu=EXCLUDED.castka_dokladu,"
+            "autor=EXCLUDED.autor,synced_at=now()"),
             {"tn": _TENANT, "f": firma, "sid": d.get("id"),
              "rada": (d.get("radadokladupokl") or "").strip() or None,
              "pc": d.get("poradovecislo"), "typ": d.get("typdokladu"), "stav": d.get("stavdokladu"),
              "popis": (d.get("popis") or "").strip() or None, "pozn": (d.get("poznamka") or "").strip() or None,
              "pril": d.get("prilohy"), "dprip": d.get("datpripad") or "", "duct": d.get("datuctovani") or "",
-             "duzp": d.get("duzp") or "", "dpor": d.get("datporizeno") or "",
+             "duzp": d.get("duzp") or "", "dpor": d.get("datporizeno") or "", "dporiz": d.get("datporizeni") or "",
              "org": d.get("cisloorg"), "zam": d.get("cislozam"),
              "paro": (d.get("parovaciznak") or "").strip() or None, "zak": (d.get("cislozakazky") or "").strip() or None,
              "nok": (d.get("cislonakladovyokruh") or "").strip() or None, "mena": (d.get("mena") or "").strip() or None,
              "castka": d.get("castkamena"), "stavp": d.get("stavpokladny"),
+             "uhr": d.get("uhrada"), "saldo": d.get("saldodokladu"), "castkad": d.get("castkad"),
              "autor": (d.get("autor") or "").strip() or None})
         nh += 1
     sql_p = (
         "SELECT p.ID, p.IDPokladna, p.TypPolozky, p.SazbaDPH, p.ZakladDPH, p.CastkaDPH, p.CelkemDPH, "
         "p.CastkaMena, p.Mena, CAST(p.Popis AS nvarchar(4000)) AS Popis, p.CisloUcet, p.Utvar, p.CisloZakazky "
         "FROM dbo.TabPolozkyPokl p JOIN dbo.TabPokladna h ON h.ID = p.IDPokladna "
-        "WHERE h.RadaDokladuPokl = '" + rada + "' AND YEAR(h.DatPripad) = " + str(rok)
+        "WHERE h.RadaDokladuPokl = '" + rada + "' AND (YEAR(h.DatPripad) = " + str(rok) + " OR h.DatPripad IS NULL)"
     )
     npoz = 0
     for d in _mcp_rows(sql_p, db_name):
@@ -1386,20 +1390,24 @@ async def bank_pokl_doklady(request: Request):
         where = "firma='EC' AND rada_pokladny=:rada"
         params = {"rada": rada}
         if rok.isdigit():
-            where += " AND EXTRACT(YEAR FROM dat_pripad)=:rok"
+            where += " AND (EXTRACT(YEAR FROM dat_pripad)=:rok OR dat_pripad IS NULL)"
             params["rok"] = int(rok)
         rows = [dict(r) for r in s.execute(_t(
             "SELECT d.src_id, d.poradove_cislo, d.typ_dokladu, d.popis, d.prilohy, "
+            "to_char(d.dat_porizeni,'DD.MM.YYYY') AS dat_porizeni, "
             "to_char(d.dat_pripad,'DD.MM.YYYY') AS dat_pripad, "
+            "to_char(d.dat_uctovani,'DD.MM.YYYY') AS dat_uctovani, "
             "to_char(d.dat_porizeno,'DD.MM.YYYY HH24:MI') AS dat_porizeno, "
-            "d.castka_mena, d.stav_pokladny, d.mena, d.zakazka, d.naklad_okruh, d.parovaci_znak, "
-            "d.cislo_org, d.autor, d.poznamka, "
+            "d.uhrada, d.saldo_dokladu, d.castka_dokladu, d.castka_mena, d.stav_pokladny, d.mena, "
+            "d.zakazka, d.naklad_okruh, d.parovaci_znak, d.cislo_org, d.autor, d.poznamka, "
+            "(SELECT max(p.utvar) FROM tenant.ec_doklad_pokladna_polozka p "
+            " WHERE p.firma='EC' AND p.doklad_src_id=d.src_id AND p.utvar IS NOT NULL) AS utvar, "
             "(SELECT count(*) FROM tenant.ec_doklad_pokladna_polozka p "
             " WHERE p.firma='EC' AND p.doklad_src_id=d.src_id) AS pocet_polozek "
             "FROM tenant.ec_doklad_pokladna d WHERE " + where + " "
-            "ORDER BY d.dat_pripad DESC NULLS LAST, d.poradove_cislo DESC"), params).mappings().all()]
+            "ORDER BY d.poradove_cislo DESC"), params).mappings().all()]
         for r in rows:
-            for k in ("castka_mena", "stav_pokladny"):
+            for k in ("uhrada", "saldo_dokladu", "castka_dokladu", "castka_mena", "stav_pokladny"):
                 if r.get(k) is not None:
                     r[k] = float(r[k])
         syncat = s.execute(_t(

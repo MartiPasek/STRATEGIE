@@ -116,21 +116,27 @@ function esc(s){return (''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&
 function fmt(n){try{return Number(n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2});}catch(e){return n;}}
 // ── Doklady: roztahovatelné + filtrovatelné sloupce (jako přijaté faktury) ──
 const DCOLS=[
-  {k:'poradove_cislo',h:'Doklad'},
-  {k:'dat_pripad',h:'Datum'},
-  {k:'popis',h:'Popis'},
-  {k:'castka_mena',h:'Částka',t:'m',r:1},
-  {k:'mena',h:'Měna'},
-  {k:'zakazka',h:'Zakázka'},
-  {k:'naklad_okruh',h:'Nákl.okruh'},
-  {k:'parovaci_znak',h:'Pár.znak'},
-  {k:'stav_pokladny',h:'Zůstatek',t:'m',r:1},
+  {k:'uctovano',h:'Účt.',t:'chk'},
+  {k:'scan',h:'Scan',t:'chk'},
   {k:'pocet_polozek',h:'Pol',r:1},
-  {k:'prilohy',h:'📎',r:1},
-  {k:'autor',h:'Autor'},
-  {k:'poznamka',h:'Poznámka'}
+  {k:'bv',h:'BV',t:'chk'},
+  {k:'bv_seznam',h:'BV seznam'},
+  {k:'poradove_cislo',h:'Doklad'},
+  {k:'popis',h:'Popis'},
+  {k:'typ_dokladu',h:'Typ dokladu',t:'typ'},
+  {k:'dat_porizeni',h:'Datum pořízení'},
+  {k:'dat_pripad',h:'Datum případu'},
+  {k:'uhrada',h:'Úhrada',t:'m',r:1},
+  {k:'saldo_dokladu',h:'Saldo dokladu',t:'m',r:1},
+  {k:'castka_dokladu',h:'Částka dokladu',t:'m',r:1},
+  {k:'utvar',h:'Útvar'},
+  {k:'zakazka',h:'Číslo zakázky'},
+  {k:'poznamka',h:'Poznámka vše'},
+  {k:'stav_pokladny',h:'Zůstatek',t:'m',r:1},
+  {k:'dat_porizeno',h:'Dat.pořízeno'},
+  {k:'autor',h:'Autor'}
 ];
-const DCOLW_DEF={poradove_cislo:70,dat_pripad:90,popis:210,castka_mena:110,mena:52,zakazka:90,naklad_okruh:90,parovaci_znak:110,stav_pokladny:120,pocet_polozek:46,prilohy:46,autor:90,poznamka:260};
+const DCOLW_DEF={uctovano:44,scan:44,pocet_polozek:44,bv:40,bv_seznam:92,poradove_cislo:66,popis:200,typ_dokladu:98,dat_porizeni:106,dat_pripad:100,uhrada:100,saldo_dokladu:110,castka_dokladu:112,utvar:58,zakazka:104,poznamka:240,stav_pokladny:122,dat_porizeno:122,autor:88};
 let DOKLW=(function(){try{return JSON.parse(localStorage.getItem('pokl_dokl_colw')||'{}')||{};}catch(_){return {};}})();
 let DFIL={}, DACTIVE=null, DOKLADY=[];
 function dcw(k){return DOKLW[k]||DCOLW_DEF[k]||80;}
@@ -138,9 +144,14 @@ function dTotW(){var t=0;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
 function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKLW));}catch(_){}}
 function dcell(d,c){
   if(c.t==='m')return d[c.k]!=null?fmt(d[c.k]):'';
-  if(c.k==='mena')return d.mena==='EUR'?'<span class="eur">EUR</span>':esc(d.mena||'');
-  if(c.k==='prilohy')return d.prilohy?('📎'+(d.prilohy>1?d.prilohy:'')):'';
+  if(c.t==='chk'){
+    if(c.k==='uctovano')return d.dat_uctovani?'<span style="color:#7ee08a">✓</span>':'';
+    if(c.k==='scan')return d.prilohy?('📎'+(d.prilohy>1?d.prilohy:'')):'';
+    return '';
+  }
+  if(c.t==='typ')return d.saldo_dokladu<0?'Výdaj':(d.saldo_dokladu>0?'Příjem':'');
   if(c.k==='poradove_cislo')return '<b>'+esc(d.poradove_cislo==null?'':d.poradove_cislo)+'</b>';
+  if(c.k==='bv_seznam')return '';
   return esc(d[c.k]==null?'':(''+d[c.k]));
 }
 function dmatch(d){

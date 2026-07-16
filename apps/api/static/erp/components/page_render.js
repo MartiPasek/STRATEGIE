@@ -699,6 +699,15 @@
                   _rid = rowData.id != null ? rowData.id : rowData.ID;
                 }
                 if (_rid == null) return;
+                // Data-driven detail (Kristy 16.7.2026): dvojklik otevre ErpSpecForm
+                // detail IN-PLACE stejne jako toolbar Oprava (gate + fallback na
+                // DesignFwForm). Stare fw.* jadro (core 191) se nemaze, jen prestava
+                // byt cilem dvojkliku.
+                try {
+                  if (window.ErpSpecForm && window.ErpSpecForm.hasCore(ga.edit_core_id)) {
+                    if (window.ErpSpecForm.tryOpen({ coreId: ga.edit_core_id, rowId: _rid, mode: "edit" })) return;
+                  }
+                } catch (_esf) { try { console.warn("[page_render dblclick] ErpSpecForm fallback:", _esf); } catch (e) {} }
                 if (typeof window.DesignFwForm !== "function") {
                   console.warn("[page_render dblclick] DesignFwForm not loaded");
                   return;
@@ -727,11 +736,17 @@
               onRowEnter: function(rowData, ev) {
                 const ga = rootCd && rootCd.grid_actions;
                 if (!ga || !ga.edit_core_id) return;
-                if (!rowData || rowData.id == null) return;
+                var _rid = rowData ? (rowData.id != null ? rowData.id : rowData.ID) : null;
+                if (_rid == null) return;
+                try {
+                  if (window.ErpSpecForm && window.ErpSpecForm.hasCore(ga.edit_core_id)) {
+                    if (window.ErpSpecForm.tryOpen({ coreId: ga.edit_core_id, rowId: _rid, mode: "edit" })) return;
+                  }
+                } catch (_esf) { try { console.warn("[page_render enter] ErpSpecForm fallback:", _esf); } catch (e) {} }
                 if (typeof window.DesignFwForm !== "function") return;
                 new window.DesignFwForm({
                   coreId: ga.edit_core_id,
-                  rowId: rowData.id,
+                  rowId: _rid,
                   onSaveSuccess: function() {
                     try {
                       const inst = gridHost.__erpGridInst;

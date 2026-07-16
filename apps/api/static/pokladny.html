@@ -191,4 +191,93 @@ function renderDoklady(){
     h+='</tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div class="muted" style="margin-top:6px">'+rows.length+(anyF?(' z '+DOKLADY.length):'')+' dokladů · rok '+ROK+(anyF?' · <a href="#" id="dclear" style="color:#2
+  h+='<div class="muted" style="margin-top:6px">'+rows.length+(anyF?(' z '+DOKLADY.length):'')+' dokladů · rok '+ROK+(anyF?' · <a href="#" id="dclear" style="color:#2dd4bf;text-decoration:none">zrušit filtr</a>':'')+'</div>';
+  box.innerHTML=h;
+  bindDGrips(); bindDFilters();
+  var dc=document.getElementById('dclear'); if(dc)dc.onclick=function(e){e.preventDefault();DFIL={};DACTIVE=null;renderDoklady();};
+}
+function bindDGrips(){
+  document.querySelectorAll('#doklBox table.dokl thead th .dgrip').forEach(function(g){
+    g.onmousedown=function(e){e.preventDefault();e.stopPropagation();
+      var col=g.dataset.dcol, th=g.parentNode, startX=e.clientX, startW=th.offsetWidth;
+      document.body.style.cursor='col-resize';
+      function mv(ev){var w=Math.max(24,startW+(ev.clientX-startX));DOKLW[col]=w;
+        var c=document.querySelector('#doklBox table.dokl col[data-dcol="'+col+'"]');if(c)c.style.width=w+'px';
+        var tb=document.querySelector('#doklBox table.dokl');if(tb)tb.style.width=dTotW()+'px';}
+      function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);document.body.style.cursor='';saveDCW();}
+      document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
+    g.ondblclick=function(e){e.preventDefault();e.stopPropagation();delete DOKLW[g.dataset.dcol];saveDCW();renderDoklady();};
+  });
+}
+function bindDFilters(){
+  document.querySelectorAll('#doklBox [data-dfcol]').forEach(function(el){
+    var k=el.dataset.dfcol;el.oninput=function(){DFIL[k]=el.value;DACTIVE=k;renderDoklady();};});
+  if(DACTIVE){var e=document.querySelector('#doklBox input[data-dfcol="'+DACTIVE+'"]');
+    if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
+}
+async function loadDoklady(rada){
+  const box=document.getElementById('doklBox'); if(!box) return;
+  box.innerHTML='<div class="muted">Načítám doklady…</div>';
+  DFIL={};DACTIVE=null;
+  const r=await j('/api/v1/erp/app/bank/pokl-doklady?rada='+encodeURIComponent(rada)+'&rok='+ROK);
+  if(!r.ok){box.innerHTML='<div class="err">'+(r.error||'chyba')+'</div>';return;}
+  DOKLADY=r.doklady||[];
+  renderDoklady();
+}
+function firstDruh(){const l=druhyFirmy();return l.length?l[0].cislo:null;}
+function selFirma(f){FIRMA=f;SELPOK=firstDruh();renderFirmy();renderDruhy();renderObsah();}
+function selPok(c){SELPOK=c;renderDruhy();renderObsah();}
+
+function renderCards(){
+  const ku=DATA.kartove_ucty;
+  const opts=['<option value="">—</option>'].concat(ku.map(p=>`<option value="${p.cislo}">${p.cislo} · ${p.nazev} (${p.mena})</option>`)).join('');
+  if(!DATA.karty.length){document.getElementById('cardsBox').innerHTML='<div class="muted">Žádné karty. Spusť načtení transakcí z banky — karty se objeví z plateb.</div>';return;}
+  let h='<table><tr><th>Karta (PAN)</th><th>Profil / název</th><th>Držitel</th><th>Středisko</th><th>Kartový účet</th><th>Plateb</th><th></th></tr>';
+  DATA.karty.forEach(c=>{
+    h+=`<tr data-id="${c.id}">
+      <td class="pan">${c.masked_pan}${c.aktivni?'':' <span class="muted">(neaktivní)</span>'}</td>
+      <td><input data-f="nazev" value="${(c.nazev||'').replace(/"/g,'&quot;')}"></td>
+      <td><input data-f="drzitel" value="${(c.drzitel||'').replace(/"/g,'&quot;')}" placeholder="kdo kartu má"></td>
+      <td><input data-f="stredisko" value="${(c.stredisko||'').replace(/"/g,'&quot;')}" placeholder="středisko"></td>
+      <td><select data-f="pokladna_cislo">${opts.replace('value="'+(c.pokladna_cislo||'')+'"','value="'+(c.pokladna_cislo||'')+'" selected')}</select></td>
+      <td style="text-align:center">${c.pocet_plateb||0}</td>
+      <td class="row-actions"><button class="mini" onclick="saveCard(${c.id},this)">Uložit</button> <span class="msg muted"></span></td>
+    </tr>`;
+  });
+  h+='</table><div class="muted" style="margin-top:8px">Pozn.: karta je jen platební nástroj — zakázka/středisko se řídí tím, co se koupilo (na položce dokladu), ne držitelem. „Plateb" = počet kartových transakcí (KS 1178) na tuto kartu.</div>';
+  document.getElementById('cardsBox').innerHTML=h;
+  document.getElementById('cardsHint').textContent='('+DATA.karty.length+')';
+}
+async function saveCard(id,btn){
+  const tr=btn.closest('tr');const body={};
+  tr.querySelectorAll('[data-f]').forEach(el=>body[el.dataset.f]=el.value);
+  const msg=tr.querySelector('.msg');msg.textContent='…';msg.className='msg muted';
+  const r=await j('/api/v1/erp/app/bank/card/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.ok){msg.textContent='✓ uloženo';msg.className='msg ok';}else{msg.textContent='✗ '+(r.error||'chyba');msg.className='msg err';}
+}
+function dedupeCislo(arr){const seen={};const out=[];(arr||[]).forEach(p=>{if(!seen[p.cislo]){seen[p.cislo]=1;out.push(p);}});return out;}
+async function load(){
+  const r=await j('/api/v1/erp/app/bank/pokladny');
+  if(!r.ok){document.getElementById('obsahBox').innerHTML='<div class="err">'+(r.error||'Nedostupné (přihlas se jako rodič)')+'</div>';return;}
+  const keepFirma=FIRMA, keepPok=SELPOK;
+  DATA=r;
+  DATA.pokladny=dedupeCislo(DATA.pokladny);
+  DATA.kartove_ucty=DATA.pokladny.filter(p=>p.typ==='kartovy_ucet');
+  FIRMA = DATA.pokladny.some(p=>firmaOf(p.cislo)===keepFirma) ? keepFirma : 'EC';
+  SELPOK = (keepPok && druhyFirmy().some(p=>p.cislo===keepPok)) ? keepPok : firstDruh();
+  const m=document.getElementById('syncMsg'); if(m){m.textContent=DATA.pokl_sync_at?('🕓 data z Heliosu: '+DATA.pokl_sync_at):'zatím nenačteno';m.className='muted';}
+  renderFirmy();renderDruhy();renderObsah();renderCards();
+}
+document.getElementById('btnSyncAll').onclick=async function(){
+  const m=document.getElementById('syncMsg');m.textContent='⏳ Aktualizuji z Heliosu…';m.className='muted';
+  const b=this;b.style.pointerEvents='none';b.style.opacity='0.6';
+  const r=await j('/api/v1/erp/app/bank/sync-pokl-doklady-all?rok='+ROK,{method:'POST'});
+  b.style.pointerEvents='';b.style.opacity='';
+  if(r.ok){await load();}
+  else{m.textContent='✗ '+(r.error||'chyba');m.className='err';}
+};
+load();
+</script>
+<script src="/static/nav-back.js"></script>
+</body>
+</html>

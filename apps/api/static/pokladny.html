@@ -116,11 +116,11 @@ function esc(s){return (''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&
 function fmt(n){try{return Number(n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2});}catch(e){return n;}}
 // ── Doklady: roztahovatelné + filtrovatelné sloupce (jako přijaté faktury) ──
 const DCOLS=[
-  {k:'uctovano',h:'Účt.',t:'chk'},
-  {k:'scan',h:'Scan',t:'chk'},
-  {k:'pocet_polozek',h:'Pol',r:1},
-  {k:'bv',h:'BV',t:'chk'},
-  {k:'bv_seznam',h:'BV seznam'},
+  {k:'uctovano',h:'Ú',tt:'Účtováno',t:'chk'},
+  {k:'scan',h:'S',tt:'Scan (naskenovaný papír)',t:'chk'},
+  {k:'pocet_polozek',h:'P',tt:'Počet položek',r:1},
+  {k:'bv',h:'B',tt:'BV (zadané číslo bankovního výpisu)',t:'chk'},
+  {k:'bv_seznam',h:'BV seznam',tt:'Čísla bankovních výpisů'},
   {k:'poradove_cislo',h:'Doklad'},
   {k:'popis',h:'Popis'},
   {k:'typ_dokladu',h:'Typ dokladu',t:'typ'},
@@ -136,7 +136,7 @@ const DCOLS=[
   {k:'dat_porizeno',h:'Dat.pořízeno'},
   {k:'autor',h:'Autor'}
 ];
-const DCOLW_DEF={uctovano:44,scan:44,pocet_polozek:44,bv:40,bv_seznam:92,poradove_cislo:66,popis:200,typ_dokladu:98,dat_porizeni:106,dat_pripad:100,uhrada:100,saldo_dokladu:110,castka_dokladu:112,utvar:58,zakazka:104,poznamka:240,stav_pokladny:122,dat_porizeno:122,autor:88};
+const DCOLW_DEF={uctovano:30,scan:32,pocet_polozek:30,bv:30,bv_seznam:80,poradove_cislo:56,popis:190,typ_dokladu:86,dat_porizeni:94,dat_pripad:94,uhrada:90,saldo_dokladu:98,castka_dokladu:100,utvar:50,zakazka:88,poznamka:220,stav_pokladny:112,dat_porizeno:114,autor:80};
 let DOKLW=(function(){try{return JSON.parse(localStorage.getItem('pokl_dokl_colw')||'{}')||{};}catch(_){return {};}})();
 let DFIL={}, DACTIVE=null, DOKLADY=[];
 function dcw(k){return DOKLW[k]||DCOLW_DEF[k]||80;}
@@ -171,7 +171,7 @@ function renderDoklady(){
   h+='</colgroup><thead><tr class="frow">';
   DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
   h+='</tr><tr>';
-  DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'">'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
+  DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'"'+(c.tt?' title="'+esc(c.tt)+'"':'')+'>'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
   h+='</tr></thead><tbody>';
   rows.forEach(function(d){
     h+='<tr>';

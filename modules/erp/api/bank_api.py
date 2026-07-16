@@ -1069,14 +1069,40 @@ def bank_parovat(request: Request):
 
 # ── Systém pokladen + kartových účtů (zrcadlo Helios TabDruhPokladen) ──
 def _mcp_rows(sql: str, db_name: str):
-    """Read přes EUROSOFT MCP. Vrátí list dictů (lower-case klíče)."""
+    """Read přes EUROSOFT MCP. Vrátí list dictů (lower-case klíče).
+
+    Odolné vůči zaseknuté SSE session: když MCP vrátí prázdnou/nevalidní
+    odpověď (typicky 'JSONDecodeError: line 1 column 1' = stará mrtvá session,
+    která se sama neobnovuje), vynutí reconnect klienta a zkusí ještě jednou.
+    (Claude-26 16.7.2026 — bez toho padal sync pokladen/dokladů na prázdno.)"""
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         raise RuntimeError("EUROSOFT MCP nedostupné")
-    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                             {"sql": sql, "db_name": db_name}, conversation_id=None)
-    r = _json.loads(raw) if isinstance(raw, str) else raw
+
+    def _call_parse():
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": db_name}, conversation_id=None)
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if not raw:
+                return None
+            return _json.loads(raw)
+        return raw
+
+    try:
+        r = _call_parse()
+    except Exception:
+        r = None
+    if r is None:
+        # prázdná/mrtvá odpověď → vynuť čerstvé SSE spojení a zkus ještě jednou
+        try:
+            mcp._reconnect()
+        except Exception:
+            pass
+        r = _call_parse()
+    if r is None:
+        raise RuntimeError("EUROSOFT MCP vrací prázdno i po reconnectu (zkontroluj EC-SERVER2)")
     rows = []
     if isinstance(r, dict):
         if r.get("ok") is False:

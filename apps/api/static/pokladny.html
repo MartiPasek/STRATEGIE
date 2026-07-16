@@ -118,7 +118,7 @@ function fmt(n){try{return Number(n).toLocaleString('cs-CZ',{minimumFractionDigi
 const DCOLS=[
   {k:'uctovano',h:'Ú',tt:'Účtováno',t:'chk'},
   {k:'scan',h:'S',tt:'Scan (naskenovaný papír)',t:'chk'},
-  {k:'pocet_polozek',h:'P',tt:'Počet položek',r:1},
+  {k:'pocet_polozek',h:'P',tt:'Má položku (řádek dokladu)',t:'chk'},
   {k:'bv',h:'B',tt:'BV (zadané číslo bankovního výpisu)',t:'chk'},
   {k:'bv_seznam',h:'BV seznam',tt:'Čísla bankovních výpisů'},
   {k:'poradove_cislo',h:'Doklad'},
@@ -145,8 +145,11 @@ function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKL
 function dcell(d,c){
   if(c.t==='m')return d[c.k]!=null?fmt(d[c.k]):'';
   if(c.t==='chk'){
-    if(c.k==='uctovano')return d.dat_uctovani?'<span style="color:#7ee08a">✓</span>':'';
-    if(c.k==='scan')return d.prilohy?('📎'+(d.prilohy>1?d.prilohy:'')):'';
+    var ck='<span style="color:#7ee08a">✓</span>';
+    if(c.k==='uctovano')return d.dat_uctovani?ck:'';
+    if(c.k==='scan')return d.prilohy?ck:'';
+    if(c.k==='pocet_polozek')return d.pocet_polozek>0?ck:'';
+    if(c.k==='bv')return d.bv?ck:'';
     return '';
   }
   if(c.t==='typ')return d.saldo_dokladu<0?'Výdaj':(d.saldo_dokladu>0?'Příjem':'');

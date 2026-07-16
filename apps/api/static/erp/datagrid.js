@@ -1098,6 +1098,7 @@
         onLayoutChange: null,     // B+5.2: ({layoutId, isDirty}) => void — UI badge update
         enableExport: true,
         enableFilters: true,
+        enableQuickFilter: false,   // opt-in globalni hledani (Kristy 16.7.2026)
         enableEdit: false,
         enableMasterDetail: false,
         detailRenderer: null,
@@ -1189,6 +1190,39 @@
 
     /** Build HTML pro CRUD toolbar — 4 buttons (Novy/Oprava/Smazat/Obnovit)
      *  + optional Save placeholder. */
+    /** Globalni hledani (Kristy 16.7.2026): jednorazova injekce CSS pruhu. */
+    _injectQuickFilterCss() {
+      if (window.__erpQfCssInjected) return;
+      window.__erpQfCssInjected = true;
+      var st = document.createElement('style');
+      st.id = 'erp-qf-css';
+      st.textContent = ".erp-grid-with-quickfilter{display:flex;flex-direction:column;}.erp-grid-with-quickfilter .erp-grid-inner{flex:1 1 auto;min-height:0;}.erp-grid-quickfilter{display:flex;align-items:center;gap:12px;padding:7px 10px;background:#0f1626;border-bottom:1px solid #223049;}.erp-grid-quickfilter .erp-qf-box{position:relative;display:flex;align-items:center;flex:0 0 360px;max-width:360px;}.erp-grid-quickfilter .erp-qf-ico{position:absolute;left:10px;width:15px;height:15px;fill:none;stroke:#4db6e6;stroke-width:2;pointer-events:none;}.erp-grid-quickfilter .erp-qf-input{width:100%;padding:7px 30px 7px 32px;background:#0c1422;border:1px solid #2b6f92;border-radius:8px;color:#e2e9f5;font-size:13px;outline:none;}.erp-grid-quickfilter .erp-qf-input::placeholder{color:#6f7c95;}.erp-grid-quickfilter .erp-qf-input:focus{border-color:#4db6e6;box-shadow:0 0 0 3px rgba(77,182,230,.18);}.erp-grid-quickfilter .erp-qf-clear{position:absolute;right:6px;width:20px;height:20px;border:none;border-radius:5px;background:transparent;color:#8b97b0;cursor:pointer;font-size:13px;line-height:1;}.erp-grid-quickfilter .erp-qf-clear:hover{background:#1a2740;color:#fff;}.erp-grid-quickfilter .erp-qf-count{color:#8b97b0;font-size:12px;white-space:nowrap;}";
+      (document.head || document.documentElement).appendChild(st);
+    }
+
+    /** Napoj vyhledavaci pole na AG-Grid quick-filter (bez diakritiky). */
+    _wireQuickFilter() {
+      if (!this.quickFilterEl || !this.gridApi) return;
+      var self = this;
+      var input = this.quickFilterEl.querySelector('.erp-qf-input');
+      var clear = this.quickFilterEl.querySelector('.erp-qf-clear');
+      var countEl = this.quickFilterEl.querySelector('.erp-qf-count');
+      if (!input) return;
+      function norm(v){ return (v==null?'':String(v)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+      function apply(){
+        var raw = input.value.trim();
+        if (clear) clear.style.display = raw ? '' : 'none';
+        try { self.gridApi.setGridOption('quickFilterText', norm(raw)); } catch (e) {}
+        try {
+          var shown = self.gridApi.getDisplayedRowCount();
+          var tot = 0; self.gridApi.forEachNode(function(){ tot++; });
+          if (countEl) countEl.textContent = raw ? (shown + ' z ' + tot) : '';
+        } catch (e) { if (countEl) countEl.textContent = ''; }
+      }
+      input.addEventListener('input', apply);
+      if (clear) clear.addEventListener('click', function(){ input.value = ''; apply(); input.focus(); });
+    }
+
     _renderCrudToolbarHtml() {
       // REVERT (24.5.2026 vecer pozde, Marti's catch "tu vlevo" myslel
       // native #erpRefreshBtn, ne internal). Internal Obnovit (smooth
@@ -1805,6 +1839,21 @@
         }
       }
 
+      // Globalni hledani (Kristy 16.7.2026) — opt-in pruh nad gridem (quick-filter).
+      if (this.options.enableQuickFilter && (this.options.layoutKey || _renderCrud)) {
+        this.container.classList.add('erp-grid-with-quickfilter');
+        this._injectQuickFilterCss();
+        this.quickFilterEl = document.createElement('div');
+        this.quickFilterEl.className = 'erp-grid-quickfilter';
+        this.quickFilterEl.innerHTML =
+          '<div class="erp-qf-box">'
+          + '<svg viewBox="0 0 24 24" class="erp-qf-ico"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>'
+          + '<input type="text" class="erp-qf-input" autocomplete="off" placeholder="Hledat ve v\u0161ech sloupc\u00edch\u2026">'
+          + '<button type="button" class="erp-qf-clear" title="Vymazat" style="display:none;">\u2715</button>'
+          + '</div>'
+          + '<span class="erp-qf-count"></span>';
+        this.container.appendChild(this.quickFilterEl);
+      }
       if (this.options.layoutKey || _renderCrud) {
         this.container.appendChild(this.gridContainer);
       }
@@ -1954,6 +2003,10 @@
         // applyColumnState order. Fix: maintainColumnOrder:true zachova user-applied
         // order napric updates (AG Grid v26 upgrade guide).
         maintainColumnOrder: true,
+        // Globalni hledani (Kristy 16.7.2026): quick-filter napric vsemi
+        // sloupci vc. skrytych; cache pro rychlost.
+        includeHiddenColumnsInQuickFilter: true,
+        cacheQuickFilter: true,
         // Krok C+ fix #8: initialState bez flicker (pokud caller pre-fetchnul)
         ...(initialColumnState ? {
           initialState: { columnState: initialColumnState },
@@ -1979,6 +2032,12 @@
             // Caller override pres defaultColDefExtra.cellEditor pokud
             // potreba (per-column cellEditor stale wins via columnDefs).
             cellEditor: "erpInlineCellEditor",
+            // Globalni hledani bez diakritiky (Kristy 16.7.2026): normalizuj
+            // hodnotu bunky (mala pismena + strip diakritiky) pro quick-filter.
+            getQuickFilterText: function (p) {
+              var v = (p && p.value != null) ? String(p.value) : "";
+              return v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            },
           }, opts.defaultColDefExtra || {});
           // Internal cellClassRules — append "erp-cell-dirty" reading
           // this._dirtyRows. Caller cellClassRules zachovany pro JINE keys.
@@ -3160,6 +3219,7 @@
       // AG Grid v32+ API: createGrid()
       // B+5.3: AG Grid renders do gridContainer (= container nebo wrapper inner)
       this.gridApi = window.agGrid.createGrid(this.gridContainer, gridOptions);
+      try { this._wireQuickFilter(); } catch (_eqf) { try { console.warn('[ErpDataGrid] quickfilter wire failed:', _eqf); } catch (e) {} }
 
       // If dataUrl, fetch async
       if (opts.dataUrl) {

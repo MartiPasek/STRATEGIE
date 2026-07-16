@@ -10626,6 +10626,93 @@ async def app_kara_score(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── SMS brána watchdog (Claude-24 + Kristý, 16.7.2026) ─────────────────
+# Hlídá, jestli brána reálně odesílá: (a) telefon brány (SIM = SMS_FROM_NUMBER)
+# pravidelně pinguje, (b) fronta sms_outbox se nehromadí. Surfacuje se ve Vedení
+# „Marti-AI hlídá" a proaktivně cinkne rodičům (Marti 1 + Kristý 11) push notifikací.
+_GW_WD_NEXT_TS = 0.0
+
+
+def _sms_gateway_health(session):
+    """Vrátí (healthy: bool, detail: str, phone_min, pend_cnt, pend_old)."""
+    import re as _re_gw
+    from sqlalchemy import text as _t_gw
+    try:
+        from core.config import settings as _cfg_gw
+        gw = _re_gw.sub(r"\D", "", (_cfg_gw.sms_from_number or ""))[-9:]
+    except Exception:
+        gw = ""
+    phone_min = None
+    if gw:
+        try:
+            v = session.execute(_t_gw(
+                "SELECT round(extract(epoch from (now()-max(last_seen_at)))/60)::int "
+                "FROM fw.mobile_device WHERE removed_at IS NULL "
+                "  AND regexp_replace(coalesce(phone_number,''),'[^0-9]','','g') LIKE :p"),
+                {"p": "%" + gw + "%"}).scalar()
+            phone_min = int(v) if v is not None else None
+        except Exception:
+            phone_min = None
+    pend_cnt = 0
+    pend_old = 0
+    try:
+        r = session.execute(_t_gw(
+            "SELECT count(*), COALESCE(round(extract(epoch from (now()-min(created_at)))/60)::int,0) "
+            "FROM public.sms_outbox WHERE status='pending'")).first()
+        if r:
+            pend_cnt = int(r[0] or 0)
+            pend_old = int(r[1] or 0)
+    except Exception:
+        pass
+    phone_down = (phone_min is None) or (phone_min > 20)
+    queue_stuck = (pend_cnt > 0 and pend_old > 10)
+    healthy = not (phone_down or queue_stuck)
+    parts = []
+    if phone_down:
+        parts.append("telefon brány nepingl " + (str(phone_min) + " min" if phone_min is not None else "vůbec"))
+    if queue_stuck:
+        parts.append(str(pend_cnt) + " SMS čeká přes " + str(pend_old) + " min")
+    return healthy, ("; ".join(parts) if parts else "OK"), phone_min, pend_cnt, pend_old
+
+
+def _sms_gateway_watchdog(ds):
+    """Throttle (~10 min) + anti-spam (~4 h): když je brána dole, cinkne rodičům.
+    Volá se z heartbeatu (best-effort). Nesmí shodit volajícího."""
+    global _GW_WD_NEXT_TS
+    import time as _time_gw
+    from sqlalchemy import text as _t_gw
+    now = _time_gw.time()
+    if now < _GW_WD_NEXT_TS:
+        return
+    _GW_WD_NEXT_TS = now + 600
+    healthy, detail, _pm, _pc, _po = _sms_gateway_health(ds)
+    if healthy:
+        return
+    try:
+        recent = ds.execute(_t_gw(
+            "SELECT count(*) FROM fw.mobile_command "
+            "WHERE command_type='claude_msg' AND title LIKE 'SMS brána%' "
+            "  AND created_at > now() - interval '4 hours'")).scalar() or 0
+    except Exception:
+        recent = 1
+    if recent:
+        return
+    title = "SMS brána neodesílá"
+    msg = detail + ". Zkontroluj telefon brány (baterie / online)."
+    for _u in (1, 11):
+        try:
+            ds.execute(_t_gw(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :uid, 'claude_msg', :t, :m, NULL)"),
+                {"uid": _u, "t": title[:120], "m": msg[:600]})
+        except Exception:
+            pass
+    try:
+        ds.commit()
+    except Exception:
+        pass
+
+
 @api_router.get("/app/cockpit/insights")
 async def app_cockpit_insights(req: Request) -> JSONResponse:
     # Marti-AI „hlídá" — provozní signály pro cockpit. Jen rodiče. Bez psychometriky.
@@ -10642,6 +10729,12 @@ async def app_cockpit_insights(req: Request) -> JSONResponse:
         absc = s.execute(_t("SELECT count(*) FROM tenant.att_absence_request WHERE tenant_id=2 AND decided_at IS NULL")).scalar() or 0
         nabor = s.execute(_t("SELECT count(*) FROM tenant.recruit_application a JOIN tenant.recruit_phase p ON p.id=a.phase_id WHERE a.tenant_id=2 AND p.is_active_stage=true")).scalar() or 0
         items = []
+        try:
+            _gwok, _gwdet, _pm, _pc, _po = _sms_gateway_health(s)
+            if not _gwok:
+                items.append({"icon": "📨", "text": "SMS brána neodesílá — " + _gwdet + ". Mrkni na Stav SMS.", "sev": "warn", "go": "sms_stav"})
+        except Exception:
+            pass
         if absc:
             items.append({"icon": "🗓️", "text": str(absc) + " žádostí o absenci čeká na schválení.", "sev": "warn", "go": "absence"})
         if anom:
@@ -17099,6 +17192,11 @@ async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
                                  f"{_hr_inb(_hb_ip) or _hr_sib(_hb_ssid)}"))
             except Exception:
                 pass
+        except Exception:
+            pass
+
+        try:
+            _sms_gateway_watchdog(ds)
         except Exception:
             pass
 

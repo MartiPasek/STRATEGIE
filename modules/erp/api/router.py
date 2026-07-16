@@ -19412,7 +19412,7 @@ def _att_fix_overlap(s, emp, new_start, new_end, exclude_id):
         "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
         "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.id <> :x "
         "  AND e.status NOT IN ('superseded','announced') AND et.code <> 'day_end' "
-        "  AND et.category = 'presence' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
+        "  AND et.category IN ('presence','break','travel') AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
         "  AND date_trunc('minute', e.started_at) < CAST(:ne AS timestamp) AND date_trunc('minute', e.ended_at) > CAST(:ns AS timestamp) LIMIT 1"),
         {"t": _ATT_TENANT, "e": emp, "x": exclude_id or 0,
          "ne": new_end.isoformat(sep=" "), "ns": new_start.isoformat(sep=" ")}).scalar()

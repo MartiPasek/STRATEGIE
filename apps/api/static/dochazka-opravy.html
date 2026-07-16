@@ -61,6 +61,11 @@
   .scb-it.hl,.scb-it:hover{background:rgba(37,99,235,.22)}
   .scb-it.none{color:#8fa3bd;cursor:default}
   .scb-it.none:hover{background:transparent}
+  /* Claude-24 16.7.: fronta „opraveno" + zvýrazněné hlášení chyby */
+  .card.done{border-color:#22c55e;background:#14251b}
+  .donebadge{background:#123c26;color:#8fe0a0;font-size:10.5px;padding:1px 8px;border-radius:8px;margin-left:6px;vertical-align:middle;font-weight:700}
+  .errbar{margin:8px 0 2px;background:rgba(220,38,38,.15);border:1px solid #ef4444;color:#fecaca;border-radius:9px;padding:9px 11px;font-size:14px;font-weight:600;line-height:1.35}
+  .errbar:empty{display:none}
 </style>
 </head>
 <body>
@@ -205,9 +210,12 @@ function loadQueue(){
         });
       });
     }
+    function markDone(c){c.classList.add('done');var hd=c.querySelector('.hd');if(hd)hd.innerHTML+=' <span class="donebadge">✓ opraveno</span>';}
+    function quickDone(c,payload){payload.reason='opraveno v detailu dne';api('POST','/api/v1/erp/app/attendance/fix/resolve',payload).then(function(x){if(x.ok)c.remove();else c._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';});}
     if(rz.length)L.appendChild(el('<div class="sec">✋ ROZPOROVANÉ DNY</div>'));
     rz.forEach(function(r){
       var c=card(r.name,r.day,'„'+(r.note||'')+'“');
+      if(r.opraveno){markDone(c);var bh=el('<button class="b g" title="Označeno jako opravené — jen odebrat z fronty">✓ Hotovo — z fronty</button>');bh.addEventListener('click',function(){quickDone(c,{uid:r.user_id,day:r.day});});c._ar.appendChild(bh);}
       var bo=el('<button class="b g">🛠 Otevřít den</button>');bo.addEventListener('click',function(){openDay(r.user_id,r.name,r.day);});
       var bv=el('<button class="b g">✓ Vyřídit bez opravy</button>');bv.addEventListener('click',function(){resolveUI(c,{uid:r.user_id,day:r.day});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);
@@ -216,6 +224,7 @@ function loadQueue(){
     an.forEach(function(a){
       var ex=(a.rule==='zapomenuty_odchod'&&a.navrh_konec)?('<div class="hint">💡 Poslední aktivita na zakázce: '+esc(a.navrh_konec)+'</div>'):'';
       var c=card(a.name,a.day,a.detail,ex);
+      if(a.opraveno){markDone(c);var bh=el('<button class="b g" title="Označeno jako opravené — jen odebrat z fronty">✓ Hotovo — z fronty</button>');bh.addEventListener('click',function(){quickDone(c,{anomaly_id:a.id});});c._ar.appendChild(bh);}
       var bo=el('<button class="b g">🛠 Otevřít den</button>');bo.addEventListener('click',function(){openDay(a.user_id,a.name,a.day);});
       var bv=el('<button class="b g">✓ V pořádku — vyřídit</button>');bv.addEventListener('click',function(){resolveUI(c,{anomaly_id:a.id});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);
@@ -334,8 +343,8 @@ function openDay(uid,name,day){
         var cinW=mkCin(null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
         var rb=reasonBox();
         var ok=el('<button class="b p full" style="margin-top:8px;">Uložit nový záznam</button>');
-        var st=el('<div class="hint"></div>');
-        w.appendChild(sel);w.appendChild(tr);w.appendChild(zk);w.appendChild(cinW);w.appendChild(rb);w.appendChild(ok);w.appendChild(st);
+        var st=el('<div class="errbar"></div>');
+        w.appendChild(sel);w.appendChild(tr);w.appendChild(zk);w.appendChild(cinW);w.appendChild(rb);w.appendChild(st);w.appendChild(ok);
         afx.appendChild(w);
         try{afx.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
         ok.addEventListener('click',function(){
@@ -428,8 +437,8 @@ function openDay(uid,name,day){
             var cinW=mkCin(e2.cin_id||null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
             var rb=reasonBox();
             var ok=el('<button class="b p full" style="margin-top:8px;">Uložit opravu</button>');
-            var st=el('<div class="hint"></div>');
-            fx.appendChild(tr);fx.appendChild(sel);fx.appendChild(zk);fx.appendChild(cinW);fx.appendChild(rb);fx.appendChild(ok);fx.appendChild(st);
+            var st=el('<div class="errbar"></div>');
+            fx.appendChild(tr);fx.appendChild(sel);fx.appendChild(zk);fx.appendChild(cinW);fx.appendChild(rb);fx.appendChild(st);fx.appendChild(ok);
             ok.addEventListener('click',function(){
               if(!t1.value||!t2.value){st.textContent='Vyplň oba časy.';return;}
               if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}

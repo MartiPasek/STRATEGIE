@@ -6829,6 +6829,8 @@ setTimeout(function(){
     tq.click();
   }
   function _fixOpenDay(uid2,name,day){ window._fixCtx={uid:uid2,name:name||"",day:day}; go("doch_opravy_den"); }
+  function _fixMarkDone(c){try{c.style.borderColor='var(--green)';c.style.background='rgba(16,185,129,.08)';var hd=c.firstChild;if(hd)hd.innerHTML+=' <span style="background:#123c26;color:#8fe0a0;font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700;">✓ opraveno</span>';}catch(e){}}
+  function _fixQuickDone(c,payload){payload.reason='opraveno v detailu dne';api("POST","/api/v1/erp/app/attendance/fix/resolve",payload).then(function(x){if(x&&x.ok){c.remove();}else{c._fx.innerHTML='<div class="hint">✗ '+esc((x&&x.error)||"Nepodařilo se.")+'</div>';}});}
   function _fixQueueLoad(box){
     box.innerHTML='<div class="hint">Načítám frontu…</div>';
     api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(j){
@@ -6849,6 +6851,7 @@ setTimeout(function(){
       if(rz.length) box.appendChild(el('<div class="hint" style="margin:2px 0 6px;font-weight:600;">✋ Rozporované dny</div>'));
       rz.forEach(function(r){
         var c=card(r.name,r.day,"„"+(r.note||"")+"“");
+        if(r.opraveno){_fixMarkDone(c);var bh=el('<button class="green sm">✓ Hotovo — z fronty</button>');bh.addEventListener("click",function(){_fixQuickDone(c,{uid:r.user_id,day:r.day});});c._ar.appendChild(bh);}
         var bo=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">🛠 Otevřít den</button>');
         bo.addEventListener("click",function(){ _fixOpenDay(r.user_id,r.name,r.day); });
         var bv=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✓ Vyřídit bez opravy</button>');
@@ -6868,6 +6871,7 @@ setTimeout(function(){
       an.forEach(function(a){
         var extra=(a.rule==="zapomenuty_odchod"&&a.navrh_konec)?('<div class="hint" style="margin-top:2px;">💡 Poslední aktivita na zakázce: '+esc(a.navrh_konec)+'</div>'):"";
         var c=card(a.name,a.day,a.detail,extra);
+        if(a.opraveno){_fixMarkDone(c);var bh=el('<button class="green sm">✓ Hotovo — z fronty</button>');bh.addEventListener("click",function(){_fixQuickDone(c,{anomaly_id:a.id});});c._ar.appendChild(bh);}
         var bo=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">🛠 Otevřít den</button>');
         bo.addEventListener("click",function(){ _fixOpenDay(a.user_id,a.name,a.day); });
         var bv=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✓ V pořádku — vyřídit</button>');
@@ -6997,8 +7001,8 @@ setTimeout(function(){
           var cinW=_fixMkCin(null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
           var rb=_fixReasonBox();
           var ok=el('<button class="green full" style="margin-top:8px;">Uložit nový záznam</button>');
-          var st=el('<div class="hint" style="margin-top:4px;"></div>');
-          w.appendChild(sel); w.appendChild(tr); w.appendChild(zk); w.appendChild(cinW); w.appendChild(rb); w.appendChild(ok); w.appendChild(st);
+          var st=el('<div class="errbar"></div>');
+          w.appendChild(sel); w.appendChild(tr); w.appendChild(zk); w.appendChild(cinW); w.appendChild(rb); w.appendChild(st); w.appendChild(ok);
           addFx.appendChild(w);
           try{ addFx.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
           ok.addEventListener("click",function(){
@@ -7089,8 +7093,8 @@ setTimeout(function(){
               var cinW=_fixMkCin(e2.cin_id||null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
               var rb=_fixReasonBox();
               var ok=el('<button class="green full" style="margin-top:8px;">Uložit opravu</button>');
-              var st=el('<div class="hint" style="margin-top:4px;"></div>');
-              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(zk); fx.appendChild(cinW); fx.appendChild(rb); fx.appendChild(ok); fx.appendChild(st);
+              var st=el('<div class="errbar"></div>');
+              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(zk); fx.appendChild(cinW); fx.appendChild(rb); fx.appendChild(st); fx.appendChild(ok);
               ok.addEventListener("click",function(){
                 if(!t1.value||!t2.value){ st.textContent="Vyplň oba časy."; return; }
                 if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
@@ -7155,7 +7159,7 @@ setTimeout(function(){
   // ───── PŘIHLÁSIT JAKO (impersonace pro test docházky, Marti 7.6.) ─────
 
 /* Claude-24 16.7.: styl pro searchable roletky (combobox) v mobilu */
-(function(){try{if(document.getElementById('scbCss24'))return;var st=document.createElement('style');st.id='scbCss24';st.textContent='.scb-list{margin-top:4px;max-height:230px;overflow-y:auto;background:#0f1620;border:1px solid var(--bord);border-radius:8px;}.scb-it{padding:10px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;}.scb-it:last-child{border-bottom:0;}.scb-it.hl,.scb-it:active{background:rgba(79,142,247,.20);}.scb-it.none{color:var(--mut);}';document.head.appendChild(st);}catch(e){}})();
+(function(){try{if(document.getElementById('scbCss24'))return;var st=document.createElement('style');st.id='scbCss24';st.textContent='.scb-list{margin-top:4px;max-height:230px;overflow-y:auto;background:#0f1620;border:1px solid var(--bord);border-radius:8px;}.scb-it{padding:10px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;}.scb-it:last-child{border-bottom:0;}.scb-it.hl,.scb-it:active{background:rgba(79,142,247,.20);}.scb-it.none{color:var(--mut);}.errbar{margin:8px 0 2px;background:rgba(224,138,138,.16);border:1px solid var(--red);color:#f3c0c0;border-radius:8px;padding:10px 12px;font-size:14.5px;font-weight:600;line-height:1.35;}.errbar:empty{display:none;}';document.head.appendChild(st);}catch(e){}})();
   function set_imp(){
     app.innerHTML=topbar("Přihlásit jako (test)", true);
     var p=el('<div class="panel"></div>');

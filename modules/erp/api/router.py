@@ -19302,7 +19302,8 @@ async def att_fix_queue(req: Request) -> JSONResponse:
             "SELECT a.id, a.rule, a.detail, a.entry_id, a.employee_id, e.entry_date::text, "
             "       em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
             "       (SELECT to_char(max(w.ended_at),'HH24:MI') FROM tenant.work_alloc w "
-            "         WHERE w.user_id = em.user_id AND w.started_at::date = e.entry_date AND w.ended_at IS NOT NULL) "
+            "         WHERE w.user_id = em.user_id AND w.started_at::date = e.entry_date AND w.ended_at IS NOT NULL), "
+            "       EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
             "FROM tenant.att_anomaly a "
             "JOIN tenant.att_entry e ON e.id = a.entry_id "
             "JOIN tenant.att_employee em ON em.id = a.employee_id "
@@ -19313,7 +19314,8 @@ async def att_fix_queue(req: Request) -> JSONResponse:
             {"t": _ATT_TENANT}).fetchall()
         disp = s.execute(_t(
             "SELECT c.id, c.employee_id, c.day::text, COALESCE(c.note,''), em.user_id, "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
+            "       EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=c.employee_id AND fe.entry_date=c.day AND fe.source='manual_fix' AND fe.status<>'superseded') "
             "FROM tenant.att_day_confirm c "
             "JOIN tenant.att_employee em ON em.id = c.employee_id "
             "LEFT JOIN public.users u ON u.id = em.user_id "
@@ -19327,9 +19329,9 @@ async def att_fix_queue(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True,
             "anomalie": [{"id": r[0], "rule": r[1], "detail": r[2], "entry_id": r[3],
                           "employee_id": r[4], "day": r[5], "user_id": r[6], "name": r[7],
-                          "navrh_konec": r[8]} for r in anom],
+                          "navrh_konec": r[8], "opraveno": bool(r[9])} for r in anom],
             "rozpory": [{"id": r[0], "employee_id": r[1], "day": r[2], "note": r[3],
-                         "user_id": r[4], "name": r[5]} for r in disp]})
+                         "user_id": r[4], "name": r[5], "opraveno": bool(r[6])} for r in disp]})
     finally:
         cm.__exit__(None, None, None)
 

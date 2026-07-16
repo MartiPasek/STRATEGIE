@@ -154,7 +154,7 @@ function dcell(d,c){
   if(c.t==='chk'){
     var ck='<span style="color:#7ee08a">✓</span>';
     if(c.k==='uctovano')return d.dat_uctovani?ck:'';
-    if(c.k==='scan')return d.prilohy?ck:'';
+    if(c.k==='scan')return d.doc_path?('<a href="/api/v1/erp/app/bank/pokl-doklad-pdf?id='+encodeURIComponent(d.src_id)+'" target="_blank" rel="noopener" style="color:#7ee08a;text-decoration:none" title="Otevrit sken (PDF)">✓</a>'):'';
     if(c.k==='pocet_polozek')return d.pocet_polozek>0?ck:'';
     if(c.k==='bv')return (d.bv_seznam!=null&&(''+d.bv_seznam).trim()!=='')?ck:'';
     return '';

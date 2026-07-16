@@ -1242,7 +1242,11 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
         "CONVERT(varchar(10), DatPorizeni, 23) AS DatPorizeni, "
         "CisloOrg, CisloZam, ParovaciZnak, CisloZakazky, CisloNakladovyOkruh, "
         "Mena, CastkaMena, StavPokladny, Uhrada, SaldoDokladu, CastkaD, Autor, "
-        "ext._BVPolPokl AS BVPolPokl "
+        "ext._BVPolPokl AS BVPolPokl, "
+        "(SELECT TOP 1 dok.JmenoACesta FROM dbo.TabDokumVazba v "
+        "JOIN dbo.TabDokumenty dok ON dok.ID = v.IdDok "
+        "WHERE v.IdTab = dbo.TabPokladna.ID AND v.IdentVazby = 4 "
+        "ORDER BY dok.ID DESC) AS DocPath "
         "FROM dbo.TabPokladna "
         "LEFT JOIN dbo.TabPokladna_EXT ext ON ext.ID = dbo.TabPokladna.ID "
         "WHERE RadaDokladuPokl = '" + rada + "' AND (YEAR(DatPripad) = " + str(rok) + " OR DatPripad IS NULL)"
@@ -1253,10 +1257,10 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
             "INSERT INTO tenant.ec_doklad_pokladna "
             "(tenant_id,firma,src_id,rada_pokladny,poradove_cislo,typ_dokladu,stav_dokladu,popis,poznamka,"
             "prilohy,dat_pripad,dat_uctovani,duzp,dat_porizeno,dat_porizeni,cislo_org,cislo_zam,parovaci_znak,zakazka,"
-            "naklad_okruh,mena,castka_mena,stav_pokladny,uhrada,saldo_dokladu,castka_dokladu,bv_seznam,autor,synced_at) VALUES "
+            "naklad_okruh,mena,castka_mena,stav_pokladny,uhrada,saldo_dokladu,castka_dokladu,bv_seznam,doc_path,autor,synced_at) VALUES "
             "(:tn,:f,:sid,:rada,:pc,:typ,:stav,:popis,:pozn,:pril,"
             "NULLIF(:dprip,'')::date,NULLIF(:duct,'')::date,NULLIF(:duzp,'')::date,NULLIF(:dpor,'')::timestamp,NULLIF(:dporiz,'')::date,"
-            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:uhr,:saldo,:castkad,:bvsez,:autor,now()) "
+            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:uhr,:saldo,:castkad,:bvsez,:docp,:autor,now()) "
             "ON CONFLICT (firma,src_id) DO UPDATE SET rada_pokladny=EXCLUDED.rada_pokladny,"
             "poradove_cislo=EXCLUDED.poradove_cislo,typ_dokladu=EXCLUDED.typ_dokladu,stav_dokladu=EXCLUDED.stav_dokladu,"
             "popis=EXCLUDED.popis,poznamka=EXCLUDED.poznamka,prilohy=EXCLUDED.prilohy,dat_pripad=EXCLUDED.dat_pripad,"
@@ -1265,7 +1269,7 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
             "zakazka=EXCLUDED.zakazka,naklad_okruh=EXCLUDED.naklad_okruh,mena=EXCLUDED.mena,"
             "castka_mena=EXCLUDED.castka_mena,stav_pokladny=EXCLUDED.stav_pokladny,"
             "uhrada=EXCLUDED.uhrada,saldo_dokladu=EXCLUDED.saldo_dokladu,castka_dokladu=EXCLUDED.castka_dokladu,"
-            "bv_seznam=EXCLUDED.bv_seznam,autor=EXCLUDED.autor,synced_at=now()"),
+            "bv_seznam=EXCLUDED.bv_seznam,doc_path=EXCLUDED.doc_path,autor=EXCLUDED.autor,synced_at=now()"),
             {"tn": _TENANT, "f": firma, "sid": d.get("id"),
              "rada": (d.get("radadokladupokl") or "").strip() or None,
              "pc": d.get("poradovecislo"), "typ": d.get("typdokladu"), "stav": d.get("stavdokladu"),
@@ -1278,6 +1282,7 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
              "castka": d.get("castkamena"), "stavp": d.get("stavpokladny"),
              "uhr": d.get("uhrada"), "saldo": d.get("saldodokladu"), "castkad": d.get("castkad"),
              "bvsez": ((d.get("bvpolpokl") or "").strip().rstrip(",").strip() or None),
+             "docp": ((d.get("docpath") or "").strip() or None),
              "autor": (d.get("autor") or "").strip() or None})
         nh += 1
     sql_p = (
@@ -1402,7 +1407,7 @@ async def bank_pokl_doklady(request: Request):
             "to_char(d.dat_uctovani,'DD.MM.YYYY') AS dat_uctovani, "
             "to_char(d.dat_porizeno,'DD.MM.YYYY HH24:MI') AS dat_porizeno, "
             "d.uhrada, d.saldo_dokladu, d.castka_dokladu, d.castka_mena, d.stav_pokladny, d.mena, "
-            "d.zakazka, d.naklad_okruh, d.parovaci_znak, d.cislo_org, d.autor, d.poznamka, d.bv_seznam, "
+            "d.zakazka, d.naklad_okruh, d.parovaci_znak, d.cislo_org, d.autor, d.poznamka, d.bv_seznam, d.doc_path, "
             "(SELECT max(p.utvar) FROM tenant.ec_doklad_pokladna_polozka p "
             " WHERE p.firma='EC' AND p.doklad_src_id=d.src_id AND p.utvar IS NOT NULL) AS utvar, "
             "(SELECT count(*) FROM tenant.ec_doklad_pokladna_polozka p "
@@ -1425,6 +1430,73 @@ async def bank_pokl_doklady(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/bank/pokl-doklad-pdf")
+async def pokl_doklad_pdf(request: Request):
+    """Proklik na naskenovaný pokladní doklad (Helios DMS) přes MCP.
+    doc_path se zrcadlí ze sync (TabDokumVazba IdentVazby=4 → TabDokumenty.JmenoACesta)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    sid = (request.query_params.get("id") or "").strip()
+    if not sid:
+        return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _je, base64 as _be, ntpath as _np, mimetypes as _mt
+    import urllib.parse as _up
+    s2 = _sess()
+    try:
+        dp = s2.execute(_t("SELECT doc_path FROM tenant.ec_doklad_pokladna "
+                           "WHERE firma='EC' AND src_id=:i AND doc_path IS NOT NULL AND doc_path<>''"),
+                        {"i": int(sid)}).scalar()
+    except Exception:
+        dp = None
+    finally:
+        s2.close()
+    if not dp:
+        return JSONResponse({"ok": False, "error": "Doklad nemá naskenovaný papír"}, status_code=404)
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"}, status_code=503)
+    try:
+        dp_loc = ("D:\\data" + dp[len("\\\\192.168.30.11\\data"):]) \
+                 if dp.lower().startswith("\\\\192.168.30.11\\data") else dp
+        folder = _np.dirname(dp_loc); fname = _np.basename(dp_loc)
+        if (not fname) or (not fname.lower().endswith(".pdf")):
+            try:
+                lraw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                          {"user_namespace": "ro", "base_override": folder, "subpath": ""},
+                                          conversation_id=None)
+                lr = _je.loads(lraw) if isinstance(lraw, str) else lraw
+                its = (lr.get("items") or lr.get("files") or lr.get("entries") or []) if isinstance(lr, dict) else (lr or [])
+                for it in its:
+                    nm = (it.get("name") or it.get("filename") or it.get("path")) if isinstance(it, dict) else it
+                    if nm and str(nm).lower().endswith(".pdf"):
+                        fname = str(nm); break
+            except Exception:
+                pass
+        if not fname:
+            return JSONResponse({"ok": False, "error": "Ve složce dokladu není PDF: " + dp}, status_code=404)
+        raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                  {"user_namespace": "ro", "base_override": folder,
+                                   "path": fname, "encoding": "base64"}, conversation_id=None)
+        r2 = _je.loads(raw2) if isinstance(raw2, str) else raw2
+        if isinstance(r2, dict) and r2.get("ok") is False:
+            return JSONResponse({"ok": False, "error": "Soubor nenalezen/nečitelný: " + dp}, status_code=404)
+        b64 = (r2.get("content") or r2.get("data") or "") if isinstance(r2, dict) else str(r2)
+        data = _be.b64decode(b64) if b64 else b""
+        if not data:
+            return JSONResponse({"ok": False, "error": "Soubor prázdný"}, status_code=404)
+        ctype = _mt.guess_type(fname)[0] or "application/octet-stream"
+        disp = "inline" if ctype == "application/pdf" or ctype.startswith("image/") else "attachment"
+        _ext = _np.splitext(fname)[1] or ".bin"
+        _ascii = ("pokl" + sid) + _ext
+        cd = "%s; filename=\"%s\"; filename*=UTF-8''%s" % (disp, _ascii, _up.quote(fname))
+        return Response(content=data, media_type=ctype, headers={"Content-Disposition": cd})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Čtení skenu selhalo: %s: %s" % (type(exc).__name__, str(exc)[:200]),
+                             "doc_path": dp}, status_code=502)
 
 
 # ── Posting engine: párování → živý deník (actor=automat, jistota z předkontace) ──

@@ -1241,7 +1241,13 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
         "CONVERT(varchar(19), DatPorizeno, 126) AS DatPorizeno, "
         "CONVERT(varchar(10), DatPorizeni, 23) AS DatPorizeni, "
         "CisloOrg, CisloZam, ParovaciZnak, CisloZakazky, CisloNakladovyOkruh, "
-        "Mena, CastkaMena, StavPokladny, Uhrada, SaldoDokladu, CastkaD, Autor "
+        "Mena, CastkaMena, StavPokladny, Uhrada, SaldoDokladu, CastkaD, Autor, "
+        "STUFF((SELECT DISTINCT ', ' + CAST(h2.CisloVypisu AS varchar(20)) "
+        "FROM dbo.TabPolozkyPokl pol "
+        "JOIN dbo.TabBankVypisR r ON r.ID = pol.IDBankVypisR "
+        "JOIN dbo.TabBankVypisH h2 ON h2.ID = r.IDHlava "
+        "WHERE pol.IDPokladna = dbo.TabPokladna.ID "
+        "FOR XML PATH('')), 1, 2, '') AS BVSeznam "
         "FROM dbo.TabPokladna "
         "WHERE RadaDokladuPokl = '" + rada + "' AND (YEAR(DatPripad) = " + str(rok) + " OR DatPripad IS NULL)"
     )
@@ -1251,10 +1257,10 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
             "INSERT INTO tenant.ec_doklad_pokladna "
             "(tenant_id,firma,src_id,rada_pokladny,poradove_cislo,typ_dokladu,stav_dokladu,popis,poznamka,"
             "prilohy,dat_pripad,dat_uctovani,duzp,dat_porizeno,dat_porizeni,cislo_org,cislo_zam,parovaci_znak,zakazka,"
-            "naklad_okruh,mena,castka_mena,stav_pokladny,uhrada,saldo_dokladu,castka_dokladu,autor,synced_at) VALUES "
+            "naklad_okruh,mena,castka_mena,stav_pokladny,uhrada,saldo_dokladu,castka_dokladu,bv_seznam,autor,synced_at) VALUES "
             "(:tn,:f,:sid,:rada,:pc,:typ,:stav,:popis,:pozn,:pril,"
             "NULLIF(:dprip,'')::date,NULLIF(:duct,'')::date,NULLIF(:duzp,'')::date,NULLIF(:dpor,'')::timestamp,NULLIF(:dporiz,'')::date,"
-            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:uhr,:saldo,:castkad,:autor,now()) "
+            ":org,:zam,:paro,:zak,:nok,:mena,:castka,:stavp,:uhr,:saldo,:castkad,:bvsez,:autor,now()) "
             "ON CONFLICT (firma,src_id) DO UPDATE SET rada_pokladny=EXCLUDED.rada_pokladny,"
             "poradove_cislo=EXCLUDED.poradove_cislo,typ_dokladu=EXCLUDED.typ_dokladu,stav_dokladu=EXCLUDED.stav_dokladu,"
             "popis=EXCLUDED.popis,poznamka=EXCLUDED.poznamka,prilohy=EXCLUDED.prilohy,dat_pripad=EXCLUDED.dat_pripad,"
@@ -1263,7 +1269,7 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
             "zakazka=EXCLUDED.zakazka,naklad_okruh=EXCLUDED.naklad_okruh,mena=EXCLUDED.mena,"
             "castka_mena=EXCLUDED.castka_mena,stav_pokladny=EXCLUDED.stav_pokladny,"
             "uhrada=EXCLUDED.uhrada,saldo_dokladu=EXCLUDED.saldo_dokladu,castka_dokladu=EXCLUDED.castka_dokladu,"
-            "autor=EXCLUDED.autor,synced_at=now()"),
+            "bv_seznam=EXCLUDED.bv_seznam,autor=EXCLUDED.autor,synced_at=now()"),
             {"tn": _TENANT, "f": firma, "sid": d.get("id"),
              "rada": (d.get("radadokladupokl") or "").strip() or None,
              "pc": d.get("poradovecislo"), "typ": d.get("typdokladu"), "stav": d.get("stavdokladu"),
@@ -1275,6 +1281,7 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
              "nok": (d.get("cislonakladovyokruh") or "").strip() or None, "mena": (d.get("mena") or "").strip() or None,
              "castka": d.get("castkamena"), "stavp": d.get("stavpokladny"),
              "uhr": d.get("uhrada"), "saldo": d.get("saldodokladu"), "castkad": d.get("castkad"),
+             "bvsez": (d.get("bvseznam") or "").strip() or None,
              "autor": (d.get("autor") or "").strip() or None})
         nh += 1
     sql_p = (
@@ -1399,7 +1406,7 @@ async def bank_pokl_doklady(request: Request):
             "to_char(d.dat_uctovani,'DD.MM.YYYY') AS dat_uctovani, "
             "to_char(d.dat_porizeno,'DD.MM.YYYY HH24:MI') AS dat_porizeno, "
             "d.uhrada, d.saldo_dokladu, d.castka_dokladu, d.castka_mena, d.stav_pokladny, d.mena, "
-            "d.zakazka, d.naklad_okruh, d.parovaci_znak, d.cislo_org, d.autor, d.poznamka, "
+            "d.zakazka, d.naklad_okruh, d.parovaci_znak, d.cislo_org, d.autor, d.poznamka, d.bv_seznam, "
             "(SELECT max(p.utvar) FROM tenant.ec_doklad_pokladna_polozka p "
             " WHERE p.firma='EC' AND p.doklad_src_id=d.src_id AND p.utvar IS NOT NULL) AS utvar, "
             "(SELECT count(*) FROM tenant.ec_doklad_pokladna_polozka p "

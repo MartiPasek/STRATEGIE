@@ -154,12 +154,11 @@ function dcell(d,c){
     if(c.k==='uctovano')return d.dat_uctovani?ck:'';
     if(c.k==='scan')return d.prilohy?ck:'';
     if(c.k==='pocet_polozek')return d.pocet_polozek>0?ck:'';
-    if(c.k==='bv')return d.bv?ck:'';
+    if(c.k==='bv')return d.bv_seznam?ck:'';
     return '';
   }
   if(c.t==='typ')return d.saldo_dokladu<0?'Výdaj':(d.saldo_dokladu>0?'Příjem':'');
   if(c.k==='poradove_cislo')return '<b>'+esc(d.poradove_cislo==null?'':d.poradove_cislo)+'</b>';
-  if(c.k==='bv_seznam')return '';
   return esc(d[c.k]==null?'':(''+d[c.k]));
 }
 function dmatch(d){

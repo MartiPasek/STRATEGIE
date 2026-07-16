@@ -34,6 +34,17 @@
   .ok{color:#7ee08a}.err{color:#ff8b8b}
   .muted{color:#8295ad;font-size:12px}
   .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .doklwrap{overflow:auto;max-height:calc(100vh - 300px);border:1px solid #232c3b;border-radius:8px}
+  table.dokl{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
+  table.dokl th,table.dokl td{border-right:1px solid #232c3b;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
+  table.dokl thead tr.frow td{position:sticky;top:0;background:#19202e;z-index:3;padding:2px 3px;border-bottom:0}
+  table.dokl thead th{position:sticky;top:26px;background:#19202e;z-index:2;color:#8fa3bd;font-size:11px;font-weight:600;text-align:left}
+  table.dokl th{position:relative}
+  table.dokl th.r,table.dokl td.r{text-align:right}
+  table.dokl thead th .dgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:5;user-select:none}
+  table.dokl thead th .dgrip:hover{background:#2563eb;opacity:.6}
+  table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 5px;font-size:11px;border:1px solid #2c3850;border-radius:5px;background:#0f1622;color:#e8edf6}
+  table.dokl tbody tr:hover{background:#131d2b}
 </style>
 </head>
 <body>
@@ -102,29 +113,95 @@ function renderObsah(){
 const ROK=(new Date()).getFullYear();
 function esc(s){return (''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fmt(n){try{return Number(n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2});}catch(e){return n;}}
+// ── Doklady: roztahovatelné + filtrovatelné sloupce (jako přijaté faktury) ──
+const DCOLS=[
+  {k:'poradove_cislo',h:'Doklad'},
+  {k:'dat_pripad',h:'Datum'},
+  {k:'popis',h:'Popis'},
+  {k:'castka_mena',h:'Částka',t:'m',r:1},
+  {k:'mena',h:'Měna'},
+  {k:'zakazka',h:'Zakázka'},
+  {k:'naklad_okruh',h:'Nákl.okruh'},
+  {k:'parovaci_znak',h:'Pár.znak'},
+  {k:'stav_pokladny',h:'Zůstatek',t:'m',r:1},
+  {k:'pocet_polozek',h:'Pol',r:1},
+  {k:'prilohy',h:'📎',r:1},
+  {k:'autor',h:'Autor'},
+  {k:'poznamka',h:'Poznámka'}
+];
+const DCOLW_DEF={poradove_cislo:70,dat_pripad:90,popis:210,castka_mena:110,mena:52,zakazka:90,naklad_okruh:90,parovaci_znak:110,stav_pokladny:120,pocet_polozek:46,prilohy:46,autor:90,poznamka:260};
+let DOKLW=(function(){try{return JSON.parse(localStorage.getItem('pokl_dokl_colw')||'{}')||{};}catch(_){return {};}})();
+let DFIL={}, DACTIVE=null, DOKLADY=[];
+function dcw(k){return DOKLW[k]||DCOLW_DEF[k]||80;}
+function dTotW(){var t=0;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
+function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKLW));}catch(_){}}
+function dcell(d,c){
+  if(c.t==='m')return d[c.k]!=null?fmt(d[c.k]):'';
+  if(c.k==='mena')return d.mena==='EUR'?'<span class="eur">EUR</span>':esc(d.mena||'');
+  if(c.k==='prilohy')return d.prilohy?('📎'+(d.prilohy>1?d.prilohy:'')):'';
+  if(c.k==='poradove_cislo')return '<b>'+esc(d.poradove_cislo==null?'':d.poradove_cislo)+'</b>';
+  return esc(d[c.k]==null?'':(''+d[c.k]));
+}
+function dmatch(d){
+  return DCOLS.every(function(c){
+    var f=DFIL[c.k]; if(f==null||f==='')return true;
+    var v=(d[c.k]==null?'':(''+d[c.k])).toLowerCase();
+    return v.indexOf((''+f).toLowerCase())>=0;
+  });
+}
+function dAnyFilter(){return Object.keys(DFIL).some(function(k){return DFIL[k]!=null&&DFIL[k]!=='';});}
+function renderDoklady(){
+  const box=document.getElementById('doklBox'); if(!box) return;
+  if(!DOKLADY.length){box.innerHTML='<div class="muted">Za rok '+ROK+' zatím žádné doklady. Klikni nahoře „Aktualizovat z Heliosu".</div>';return;}
+  var rows=DOKLADY.filter(dmatch), anyF=dAnyFilter();
+  var h='<div class="doklwrap"><table class="dokl" style="width:'+dTotW()+'px"><colgroup>';
+  DCOLS.forEach(function(c){h+='<col data-dcol="'+c.k+'" style="width:'+dcw(c.k)+'px">';});
+  h+='</colgroup><thead><tr class="frow">';
+  DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'" placeholder="filtr"></td>';});
+  h+='</tr><tr>';
+  DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'">'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
+  h+='</tr></thead><tbody>';
+  rows.forEach(function(d){
+    h+='<tr>';
+    DCOLS.forEach(function(c){
+      var ti=(c.k==='poznamka'||c.k==='popis')?' title="'+esc(d[c.k]||'')+'"':'';
+      h+='<td'+(c.r?' class="r"':'')+ti+'>'+dcell(d,c)+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div class="muted" style="margin-top:6px">'+rows.length+(anyF?(' z '+DOKLADY.length):'')+' dokladů · rok '+ROK+(anyF?' · <a href="#" id="dclear" style="color:#2dd4bf;text-decoration:none">zrušit filtr</a>':'')+'</div>';
+  box.innerHTML=h;
+  bindDGrips(); bindDFilters();
+  var dc=document.getElementById('dclear'); if(dc)dc.onclick=function(e){e.preventDefault();DFIL={};DACTIVE=null;renderDoklady();};
+}
+function bindDGrips(){
+  document.querySelectorAll('#doklBox table.dokl thead th .dgrip').forEach(function(g){
+    g.onmousedown=function(e){e.preventDefault();e.stopPropagation();
+      var col=g.dataset.dcol, th=g.parentNode, startX=e.clientX, startW=th.offsetWidth;
+      document.body.style.cursor='col-resize';
+      function mv(ev){var w=Math.max(24,startW+(ev.clientX-startX));DOKLW[col]=w;
+        var c=document.querySelector('#doklBox table.dokl col[data-dcol="'+col+'"]');if(c)c.style.width=w+'px';
+        var tb=document.querySelector('#doklBox table.dokl');if(tb)tb.style.width=dTotW()+'px';}
+      function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);document.body.style.cursor='';saveDCW();}
+      document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
+    g.ondblclick=function(e){e.preventDefault();e.stopPropagation();delete DOKLW[g.dataset.dcol];saveDCW();renderDoklady();};
+  });
+}
+function bindDFilters(){
+  document.querySelectorAll('#doklBox [data-dfcol]').forEach(function(el){
+    var k=el.dataset.dfcol;el.oninput=function(){DFIL[k]=el.value;DACTIVE=k;renderDoklady();};});
+  if(DACTIVE){var e=document.querySelector('#doklBox input[data-dfcol="'+DACTIVE+'"]');
+    if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
+}
 async function loadDoklady(rada){
   const box=document.getElementById('doklBox'); if(!box) return;
   box.innerHTML='<div class="muted">Načítám doklady…</div>';
+  DFIL={};DACTIVE=null;
   const r=await j('/api/v1/erp/app/bank/pokl-doklady?rada='+encodeURIComponent(rada)+'&rok='+ROK);
   if(!r.ok){box.innerHTML='<div class="err">'+(r.error||'chyba')+'</div>';return;}
-  if(!r.doklady||!r.doklady.length){box.innerHTML='<div class="muted">Za rok '+ROK+' zatím žádné doklady. Klikni nahoře „Aktualizovat z Heliosu".</div>';return;}
-  let h='<table><tr><th>Doklad</th><th>Datum</th><th>Popis</th><th style="text-align:right">Částka</th><th>Měna</th><th>Zakázka</th><th style="text-align:right">Zůstatek</th><th title="Počet položek">Pol</th><th title="Přílohy (scan)">📎</th><th>Poznámka</th></tr>';
-  r.doklady.forEach(d=>{
-    h+='<tr>'+
-      '<td><b>'+(d.poradove_cislo||'')+'</b></td>'+
-      '<td class="muted">'+(d.dat_pripad||'—')+'</td>'+
-      '<td>'+esc(d.popis||'')+'</td>'+
-      '<td style="text-align:right">'+(d.castka_mena!=null?fmt(d.castka_mena):'')+'</td>'+
-      '<td>'+(d.mena==='EUR'?'<span class="eur">EUR</span>':esc(d.mena||''))+'</td>'+
-      '<td class="muted">'+esc(d.zakazka||'')+'</td>'+
-      '<td style="text-align:right;color:#9fb0c8">'+(d.stav_pokladny!=null?fmt(d.stav_pokladny):'')+'</td>'+
-      '<td style="text-align:center">'+(d.pocet_polozek||0)+'</td>'+
-      '<td style="text-align:center">'+(d.prilohy?('📎'+(d.prilohy>1?d.prilohy:'')):'')+'</td>'+
-      '<td class="muted" title="'+esc(d.poznamka||'')+'">'+esc((d.poznamka||'').substring(0,40))+'</td>'+
-    '</tr>';
-  });
-  h+='</table><div class="muted" style="margin-top:6px">'+r.doklady.length+' dokladů · rok '+ROK+'</div>';
-  box.innerHTML=h;
+  DOKLADY=r.doklady||[];
+  renderDoklady();
 }
 function firstDruh(){const l=druhyFirmy();return l.length?l[0].cislo:null;}
 function selFirma(f){FIRMA=f;SELPOK=firstDruh();renderFirmy();renderDruhy();renderObsah();}

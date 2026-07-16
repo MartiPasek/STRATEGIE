@@ -80,6 +80,9 @@ var CINN=null;
 function loadCinn(cb){if(CINN){cb(CINN);return;}api('GET','/api/v1/erp/app/attendance/fix/cinnosti').then(function(j){CINN=(j&&j.cinnosti)||[];cb(CINN);});}
 function mkCin(cur){var w=el('<div style="margin-top:6px;"></div>');w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>'));var s=el('<select class="full"><option value="">— nevybráno —</option></select>');loadCinn(function(list){list.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=(c.icon?c.icon+' ':'')+c.name;if(cur&&c.id===cur)o.selected=true;s.appendChild(o);});});w.appendChild(s);w._sel=s;return w;}
 function cinShow(w,typ){w.style.display=(typ==='work'||typ==='overhead')?'':'none';}
+var ZAK=null;
+function loadZak(cb){if(ZAK){cb(ZAK);return;}api('GET','/api/v1/erp/app/attendance/fix/zakazky').then(function(j){ZAK=(j&&j.zakazky)||[];cb(ZAK);});}
+function mkZak(cur){var s=el('<select class="full" style="margin-top:6px;"><option value="">— zakázka (jen u práce) —</option></select>');if(cur){var op=document.createElement('option');op.value=cur;op.textContent=cur;op.selected=true;s.appendChild(op);}loadZak(function(list){while(s.options.length>1)s.remove(1);var found=false;list.forEach(function(z){var o=document.createElement('option');o.value=z.cislo;o.textContent=z.cislo+(z.nazev?(' — '+z.nazev):'');if(cur&&z.cislo===cur){o.selected=true;found=true;}s.appendChild(o);});if(cur&&!found){var oe=document.createElement('option');oe.value=cur;oe.textContent=cur+' (mimo seznam)';oe.selected=true;s.appendChild(oe);}});return s;}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function api(m,u,b){var o={method:m,credentials:'include'};if(b){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(b);}return fetch(u,o).then(function(r){return r.json().then(function(j){return j;},function(){return {ok:false,error:(r&&r.status>=500)?('Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli znovu.'):('Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+') — zkus to prosím znovu.')};});},function(){return {ok:false,error:'Nepodařilo se spojit se serverem — zkontroluj připojení a zkus to prosím znovu.'};});}
 function el(h){var d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;}
@@ -280,7 +283,7 @@ function openDay(uid,name,day){
         var tr=el('<div class="btns"></div>');
         var t1=el('<input type="time" value="'+esc(prefZ||'')+'">'),t2=el('<input type="time" value="'+esc(prefK||'')+'">');
         tr.appendChild(t1);tr.appendChild(t2);
-        var zk=el('<input class="full" placeholder="🧾 zakázka (jen u práce, nepovinné)" style="margin-top:6px;">');
+        var zk=mkZak(null);
         var cinW=mkCin(null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
         var rb=reasonBox();
         var ok=el('<button class="b p full" style="margin-top:8px;">Uložit nový záznam</button>');
@@ -375,7 +378,7 @@ function openDay(uid,name,day){
             tr.appendChild(t1);tr.appendChild(t2);
             var sel=el('<select class="full" style="margin-top:6px;"></select>');
             TYPES.forEach(function(t){sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>'));});
-            var zk=el('<input class="full" value="'+esc(e2.project_ref||'')+'" placeholder="🧾 zakázka (jen u práce)" style="margin-top:6px;">');
+            var zk=mkZak(e2.project_ref||null);
             var cinW=mkCin(e2.cin_id||null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
             var rb=reasonBox();
             var ok=el('<button class="b p full" style="margin-top:8px;">Uložit opravu</button>');

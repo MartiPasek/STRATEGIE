@@ -1747,6 +1747,9 @@
   function _fixLoadCinn(cb){ if(_FIX_CINN){cb(_FIX_CINN);return;} api("GET","/api/v1/erp/app/attendance/fix/cinnosti","").then(function(j){ _FIX_CINN=(j&&j.cinnosti)||[]; cb(_FIX_CINN); }); }
   function _fixMkCin(cur){ var w=el('<div style="margin-top:6px;"></div>'); w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>')); var s=el('<select style="width:100%;"><option value="">— nevybráno —</option></select>'); _fixLoadCinn(function(list){ list.forEach(function(c){ var o=document.createElement("option"); o.value=c.id; o.textContent=(c.icon?c.icon+" ":"")+c.name; if(cur&&c.id===cur)o.selected=true; s.appendChild(o); }); }); w.appendChild(s); w._sel=s; return w; }
   function _fixCinShow(w,typ){ w.style.display=(typ==="work"||typ==="overhead")?"":"none"; }
+  var _FIX_ZAK=null;
+  function _fixLoadZak(cb){ if(_FIX_ZAK){cb(_FIX_ZAK);return;} api("GET","/api/v1/erp/app/attendance/fix/zakazky","").then(function(j){ _FIX_ZAK=(j&&j.zakazky)||[]; cb(_FIX_ZAK); }); }
+  function _fixMkZak(cur){ var s=el('<select style="width:100%;margin-top:6px;"><option value="">— zakázka (jen u práce) —</option></select>'); if(cur){ var op=document.createElement("option"); op.value=cur; op.textContent=cur; op.selected=true; s.appendChild(op); } _fixLoadZak(function(list){ while(s.options.length>1)s.remove(1); var found=false; list.forEach(function(z){ var o=document.createElement("option"); o.value=z.cislo; o.textContent=z.cislo+(z.nazev?(" — "+z.nazev):""); if(cur&&z.cislo===cur){o.selected=true;found=true;} s.appendChild(o); }); if(cur&&!found){ var oe=document.createElement("option"); oe.value=cur; oe.textContent=cur+" (mimo seznam)"; oe.selected=true; s.appendChild(oe); } }); return s; }
   function _fixReasonBox(){
     var w=el('<div style="margin-top:8px;"></div>');
     w.appendChild(el('<div class="hint" style="margin-bottom:4px;">Důvod (povinný):</div>'));
@@ -1957,7 +1960,7 @@
           _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'">'+t[1]+'</option>')); });
           var t1=el('<input type="time" value="'+esc(prefZ||"")+'" style="width:46%;">'), t2=el('<input type="time" value="'+esc(prefK||"")+'" style="width:46%;">');
           var tr=el('<div style="display:flex;gap:8%;margin-top:6px;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
-          var zk=el('<input placeholder="🧾 zakázka (jen u práce, nepovinné)" style="width:100%;margin-top:6px;">');
+          var zk=_fixMkZak(null);
           var cinW=_fixMkCin(null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
           var rb=_fixReasonBox();
           var ok=el('<button class="green full" style="margin-top:8px;">Uložit nový záznam</button>');
@@ -2050,7 +2053,7 @@
               var tr=el('<div style="display:flex;gap:8%;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
               var sel=el('<select style="width:100%;margin-top:6px;"></select>');
               _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>')); });
-              var zk=el('<input value="'+esc(e2.project_ref||"")+'" placeholder="🧾 zakázka (jen u práce)" style="width:100%;margin-top:6px;">');
+              var zk=_fixMkZak(e2.project_ref||null);
               var cinW=_fixMkCin(e2.cin_id||null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
               var rb=_fixReasonBox();
               var ok=el('<button class="green full" style="margin-top:8px;">Uložit opravu</button>');

@@ -19263,6 +19263,26 @@ async def att_fix_cinnosti(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/attendance/fix/zakazky")
+async def att_fix_zakazky(req: Request) -> JSONResponse:
+    """Pichatelne zakazky pro formular opravy (jen editori)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT cislo, COALESCE(nazev,''), COALESCE(typ,'') FROM tenant.zakazka "
+            "WHERE tenant_id=2 AND pichatelna=true ORDER BY (typ='REZIE') DESC, cislo")).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "zakazky": [{"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/fix/queue")
 async def att_fix_queue(req: Request) -> JSONResponse:
     """Fronta „K vyřešení": nevyřešené anomálie (mimo nepotvrzený den — to je

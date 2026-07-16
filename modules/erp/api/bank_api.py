@@ -1348,14 +1348,22 @@ async def bank_sync_pokl_doklady_all(request: Request):
     rok_i = int(rok) if rok.isdigit() else _dtx.date.today().year
     s = _sess()
     try:
-        # 1) obnovit číselník pokladen (aby nové pokladny naskočily samy)
-        ec = _sync_pokladny_firma(s, "DB_EC", "EC")
-        es = _sync_pokladny_firma(s, "DB_IS", "ES")
-        # 2) doklady všech pokladen za rok
+        # 1) obnovit číselník pokladen (aby nové pokladny naskočily samy).
+        #    Best-effort per DB — výpadek/nedostupnost jedné firmy NEsmí zabít
+        #    natažení dokladů. (MCP přijímá jen DB_EC / DB_ST; ES = DB_ST, dřív DB_IS.)
+        seznam = 0
+        seznam_chyby = []
+        for _db, _f in (("DB_EC", "EC"), ("DB_ST", "ES")):
+            try:
+                seznam += _sync_pokladny_firma(s, _db, _f)
+            except Exception as _e:
+                seznam_chyby.append("%s(%s): %s" % (_f, _db, str(_e)[:100]))
+        # 2) doklady všech pokladen za rok (zdroj DB_EC)
         th, tp, npok = _sync_pokl_doklady_all(s, rok_i)
         s.commit()
-        return {"ok": True, "pokladen_seznam": ec + es, "hlavicky": th, "polozky": tp,
-                "pokladen": npok, "rok": rok_i}
+        return {"ok": True, "pokladen_seznam": seznam,
+                "seznam_chyby": (seznam_chyby or None),
+                "hlavicky": th, "polozky": tp, "pokladen": npok, "rok": rok_i}
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)

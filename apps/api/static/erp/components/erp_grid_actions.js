@@ -124,7 +124,7 @@
       // misto fw.* formulare. Gated + try/catch fallback (bez specu / pri chybe
       // pokracuje puvodni DesignFwForm).
       try {
-        if (global.ErpSpecForm && global.ErpSpecForm.hasCore(coreId)) {
+        if (!extra.forceLegacy && global.ErpSpecForm && global.ErpSpecForm.hasCore(coreId)) {
           if (global.ErpSpecForm.tryOpen({ coreId: coreId, rowId: rowId, mode: mode, gridCode: gridCode })) {
             return Promise.resolve();
           }
@@ -1119,8 +1119,8 @@
       kalkulace_jadro: {
         key: "kalkulace_jadro",
         icon: "🧮",
-        label: "Kalkulace jádro",
-        hint: "Otevřít kartu kalkulace pro vybraný řádek (Alt+M)",
+        label: "Položky kalkulace",
+        hint: "Otevřít Položky kalkulace — staré jádro (Alt+M)",
         shortcut: "Alt+M",
         cssClass: "erp-action-kalkulace-jadro",
         destructive: false,
@@ -1137,7 +1137,7 @@
           }
           return _openFwEditForm(
             ctx.gridCode, rid, "edit", ctx.refreshFn,
-            { overrideCoreId: 188 }  // 188 = kalkulace_jadro (fw.core)
+            { overrideCoreId: 188, forceLegacy: true }  // 188 = staré jádro (Položky kalkulace → DesignFwForm, obchází ErpSpecForm)
           );
         },
       },

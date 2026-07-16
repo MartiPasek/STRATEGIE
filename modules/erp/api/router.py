@@ -19373,7 +19373,7 @@ async def att_fix_day(req: Request) -> JSONResponse:
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
             "AND e.status <> 'announced' "
-            "ORDER BY e.started_at DESC NULLS LAST, e.id DESC"),
+            "ORDER BY e.started_at ASC NULLS LAST, e.id ASC"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": tuid}).fetchall()
         jm = _user_jmeno(s, tuid)
         # Jirka 12.7.: rozpor dne (co člověk napsal přes ✋ Nesedí) — do panelu nad tabulkou

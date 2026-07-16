@@ -1991,12 +1991,12 @@
         var poznBelow=[], maCentralu=false;
         function tdc(html,style){ var c=document.createElement('td'); if(style)c.style.cssText=style; c.innerHTML=html; return c; }
         function hmMin(x){ var p=String(x||"").split(":"); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
-        var prevZac=null;  // začátek předchozího (pozdějšího) viditelného záznamu — mezery sestupně
+        var prevKon=null;  // konec předchozího (dřívějšího) viditelného záznamu — mezery vzestupně
         es.forEach(function(e2){
           var gone=(e2.status==="superseded");
           var isDE=(e2.code==="day_end");  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
-          if(!gone&&!isDE&&e2.kon&&prevZac&&(hmMin(prevZac)-hmMin(e2.kon))>=5&&!j.locked){
-            var gz=e2.kon, gk=prevZac;
+          if(!gone&&!isDE&&e2.zac&&prevKon&&(hmMin(e2.zac)-hmMin(prevKon))>=5&&!j.locked){
+            var gz=prevKon, gk=e2.zac;
             var gr=document.createElement('tr');
             var g1=tdc('⋯ mezera '+esc(gz)+'–'+esc(gk)+' (bez záznamu)','border-bottom:1px dashed var(--bord);color:var(--mut);font-size:11.5px;padding:4px 6px;');
             g1.colSpan=3;
@@ -2023,7 +2023,7 @@
           tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
           var tdA=tdc('',TD+'text-align:right;white-space:nowrap;'); tr0.appendChild(tdA);
           tb.appendChild(tr0);
-          if(!gone&&!isDE&&e2.zac) prevZac=e2.zac;
+          if(!gone&&!isDE&&e2.kon) prevKon=e2.kon;
           if(!(e2.editable&&!e2.running&&e2.zac)){
             // proč tu nejsou tlačítka — ať je jasné, že to není chyba
             var duvod=gone?"storno":(e2.running&&!isDE)?"● běží":(e2.source_system?"🏛 v Centrále":(j.locked?"🔒":(!e2.zac?"—":"—")));

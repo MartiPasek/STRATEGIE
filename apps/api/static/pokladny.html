@@ -34,7 +34,11 @@
   .ok{color:#7ee08a}.err{color:#ff8b8b}
   .muted{color:#8295ad;font-size:12px}
   .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-  .doklwrap{overflow:auto;max-height:calc(100vh - 300px);border:1px solid #2a3546;border-radius:8px}
+  .doklwrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 320px);border:1px solid #2a3546;border-radius:8px}
+  .doklwrap::-webkit-scrollbar{height:15px;width:15px}
+  .doklwrap::-webkit-scrollbar-track{background:#0f1622;border-radius:8px}
+  .doklwrap::-webkit-scrollbar-thumb{background:#41546f;border-radius:8px;border:3px solid #0f1622}
+  .doklwrap::-webkit-scrollbar-thumb:hover{background:#5473a0}
   table.dokl{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
   table.dokl th,table.dokl td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
   table.dokl thead tr.frow td{position:sticky;top:0;z-index:3;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
@@ -44,7 +48,7 @@
   table.dokl th.r,table.dokl td.r{text-align:right}
   table.dokl thead th .dgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:5;user-select:none}
   table.dokl thead th .dgrip:hover{background:#2563eb;opacity:.6}
-  table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #5f8fc9;border-radius:5px;background:#bcd4f2;color:#12233d}
+  table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #aec6de;border-radius:5px;background:#dbe7f2;color:#33465c}
   table.dokl tbody tr:hover{background:#131d2b}
 </style>
 </head>

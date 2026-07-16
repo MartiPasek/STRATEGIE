@@ -1242,13 +1242,9 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
         "CONVERT(varchar(10), DatPorizeni, 23) AS DatPorizeni, "
         "CisloOrg, CisloZam, ParovaciZnak, CisloZakazky, CisloNakladovyOkruh, "
         "Mena, CastkaMena, StavPokladny, Uhrada, SaldoDokladu, CastkaD, Autor, "
-        "STUFF((SELECT DISTINCT ', ' + CAST(h2.CisloVypisu AS varchar(20)) "
-        "FROM dbo.TabPolozkyPokl pol "
-        "JOIN dbo.TabBankVypisR r ON r.ID = pol.IDBankVypisR "
-        "JOIN dbo.TabBankVypisH h2 ON h2.ID = r.IDHlava "
-        "WHERE pol.IDPokladna = dbo.TabPokladna.ID "
-        "FOR XML PATH('')), 1, 2, '') AS BVSeznam "
+        "ext._BVPolPokl AS BVPolPokl "
         "FROM dbo.TabPokladna "
+        "LEFT JOIN dbo.TabPokladna_EXT ext ON ext.ID = dbo.TabPokladna.ID "
         "WHERE RadaDokladuPokl = '" + rada + "' AND (YEAR(DatPripad) = " + str(rok) + " OR DatPripad IS NULL)"
     )
     nh = 0
@@ -1281,7 +1277,7 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
              "nok": (d.get("cislonakladovyokruh") or "").strip() or None, "mena": (d.get("mena") or "").strip() or None,
              "castka": d.get("castkamena"), "stavp": d.get("stavpokladny"),
              "uhr": d.get("uhrada"), "saldo": d.get("saldodokladu"), "castkad": d.get("castkad"),
-             "bvsez": (d.get("bvseznam") or "").strip() or None,
+             "bvsez": ((d.get("bvpolpokl") or "").strip().rstrip(",").strip() or None),
              "autor": (d.get("autor") or "").strip() or None})
         nh += 1
     sql_p = (

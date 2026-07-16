@@ -589,9 +589,9 @@
               // — definice v fw komponente. + enableSaveButton: true (master jen).
               gridActions: _gridActionsForCtx || null,
               enableSaveButton: true,
-              // Globalni hledani (Kristy 16.7.2026) — PILOT: zatim jen prehled
-              // Poptavky (vp_poptavky). Rozsireni na vsechny = smazat podminku.
-              enableQuickFilter: !!(rootCd && rootCd.data_source_code === "vp_poptavky"),
+              // Globalni hledani (Kristy 16.7.2026) — zapnuto pro VSECHNY prehledy
+              // s napojenym data_source (po pilotu na Poptavkach schvalila Kristy).
+              enableQuickFilter: !!(rootCd && rootCd.data_source_code),
               // Faze 2-B wire (24.5.2026 vecer pozde, Marti's "Zatim ji mas
               // zvenku fw"): ErpDataGrid._handleSaveClick volá tento callback.
               // payload: [{rowId, fields: {col: newVal}, expected_updated_at}]

@@ -54,6 +54,13 @@
   #who{max-width:440px}
   #left{flex:0 1 300px;min-width:0}
   #right{align-self:flex-start;position:sticky;top:8px;flex:1 1 0;min-width:0}
+  /* Claude-24 16.7.: searchable combobox pro roletky (Typ/Zakázka/Činnost) */
+  .scb-list{margin-top:3px;max-height:220px;overflow-y:auto;background:#0f1620;border:1px solid #2e3a4c;border-radius:9px}
+  .scb-it{padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);font-size:13.5px}
+  .scb-it:last-child{border-bottom:0}
+  .scb-it.hl,.scb-it:hover{background:rgba(37,99,235,.22)}
+  .scb-it.none{color:#8fa3bd;cursor:default}
+  .scb-it.none:hover{background:transparent}
 </style>
 </head>
 <body>
@@ -78,11 +85,52 @@ var REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý př
 var TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
 var CINN=null;
 function loadCinn(cb){if(CINN){cb(CINN);return;}api('GET','/api/v1/erp/app/attendance/fix/cinnosti').then(function(j){CINN=(j&&j.cinnosti)||[];cb(CINN);});}
-function mkCin(cur){var w=el('<div style="margin-top:6px;"></div>');w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>'));var s=el('<select class="full"><option value="">— nevybráno —</option></select>');loadCinn(function(list){list.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=(c.icon?c.icon+' ':'')+c.name;if(cur&&c.id===cur)o.selected=true;s.appendChild(o);});});w.appendChild(s);w._sel=s;return w;}
+function mkCombo(items,opts){
+  opts=opts||{};
+  var root=el('<div class="scb" style="'+(opts.style||'margin-top:6px;')+'"></div>');
+  var inp=el('<input type="text" autocomplete="off" style="width:100%;" placeholder="'+esc(opts.ph||'Hledat…')+'">');
+  var list=el('<div class="scb-list" style="display:none;"></div>');
+  root.appendChild(inp);root.appendChild(list);
+  var _items=(items||[]).slice(),_val='',_open=false,_hl=-1,_filt=[];
+  function fold(s){s=String(s==null?'':s).toLowerCase();try{return s.normalize('NFD').replace(/[̀-ͯ]/g,'');}catch(e){return s;}}
+  function labelOf(v){for(var i=0;i<_items.length;i++){if(String(_items[i].v)===String(v))return _items[i].t;}return (v?String(v):'');}
+  function setVal(v,fire){_val=(v==null?'':v);inp.value=labelOf(_val);if(fire)root.dispatchEvent(new Event('change'));}
+  Object.defineProperty(root,'value',{configurable:true,get:function(){return _val;},set:function(v){setVal(v,false);}});
+  root._input=inp;
+  root._setItems=function(arr){_items=(arr||[]).slice();if(_open)draw(inp.value);else inp.value=labelOf(_val);};
+  function close(){list.style.display='none';_open=false;_hl=-1;}
+  function draw(q){
+    var f=fold(q);_filt=[];
+    if(opts.empty)_filt.push({v:'',t:(opts.emptyText||'— nevybráno —'),none:true});
+    for(var i=0;i<_items.length;i++){var it=_items[i];if(!f||fold(it.t+' '+it.v).indexOf(f)>=0)_filt.push(it);}
+    list.innerHTML='';
+    if(!_filt.length){list.appendChild(el('<div class="scb-it none">nic nenalezeno</div>'));return;}
+    _filt.forEach(function(it,i){
+      var d=el('<div class="scb-it'+(it.none?' none':'')+(i===_hl?' hl':'')+'">'+esc(it.t||'')+'</div>');
+      d.addEventListener('mousedown',function(ev){ev.preventDefault();setVal(it.v,true);close();try{inp.blur();}catch(e){}});
+      list.appendChild(d);
+    });
+  }
+  function open(all){_open=true;list.style.display='block';draw(all?'':inp.value);}
+  inp.addEventListener('focus',function(){_hl=-1;if(inp.select)try{inp.select();}catch(e){}open(true);});
+  inp.addEventListener('input',function(){_hl=-1;open(false);});
+  inp.addEventListener('blur',function(){setTimeout(function(){inp.value=labelOf(_val);close();},150);});
+  inp.addEventListener('change',function(ev){ev.stopPropagation();});
+  inp.addEventListener('keydown',function(ev){
+    if(ev.key==='ArrowDown'){if(!_open){open(true);}else{_hl=Math.min(_filt.length-1,_hl+1);draw(inp.value);}ev.preventDefault();}
+    else if(ev.key==='ArrowUp'){if(_open){_hl=Math.max(0,_hl-1);draw(inp.value);ev.preventDefault();}}
+    else if(ev.key==='Enter'){if(_open){var p=_filt[_hl>=0?_hl:0];if(p){setVal(p.v,true);close();}ev.preventDefault();}}
+    else if(ev.key==='Escape'){inp.value=labelOf(_val);close();}
+  });
+  if(opts.initial!=null&&opts.initial!=='')setVal(opts.initial,false);
+  return root;
+}
+function mkTyp(cur){return mkCombo(TYPES.map(function(t){return {v:t[0],t:t[1]};}),{ph:'🔍 typ…',initial:(cur||TYPES[0][0])});}
+function mkCin(cur){var w=el('<div style="margin-top:6px;"></div>');w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>'));var c=mkCombo([],{ph:'🔍 činnost…',empty:true,emptyText:'— nevybráno —',style:'margin-top:0;'});loadCinn(function(list){c._setItems(list.map(function(x){return {v:x.id,t:(x.icon?x.icon+' ':'')+x.name};}));if(cur)c.value=cur;});w.appendChild(c);w._sel=c;return w;}
 function cinShow(w,typ){w.style.display=(typ==='work'||typ==='overhead')?'':'none';}
 var ZAK=null;
 function loadZak(cb){if(ZAK){cb(ZAK);return;}api('GET','/api/v1/erp/app/attendance/fix/zakazky').then(function(j){ZAK=(j&&j.zakazky)||[];cb(ZAK);});}
-function mkZak(cur){var s=el('<select class="full" style="margin-top:6px;"><option value="">— zakázka (jen u práce) —</option></select>');if(cur){var op=document.createElement('option');op.value=cur;op.textContent=cur;op.selected=true;s.appendChild(op);}loadZak(function(list){while(s.options.length>1)s.remove(1);var found=false;list.forEach(function(z){var o=document.createElement('option');o.value=z.cislo;o.textContent=z.cislo+(z.nazev?(' — '+z.nazev):'');if(cur&&z.cislo===cur){o.selected=true;found=true;}s.appendChild(o);});if(cur&&!found){var oe=document.createElement('option');oe.value=cur;oe.textContent=cur+' (mimo seznam)';oe.selected=true;s.appendChild(oe);}});return s;}
+function mkZak(cur){var c=mkCombo([],{ph:'🔍 zakázka (číslo/název)…',empty:true,emptyText:'— zakázka (jen u práce) —'});if(cur){c._setItems([{v:cur,t:cur}]);c.value=cur;}loadZak(function(list){var its=list.map(function(z){return {v:z.cislo,t:z.cislo+(z.nazev?(' — '+z.nazev):'')};});var found=false;list.forEach(function(z){if(cur&&z.cislo===cur)found=true;});if(cur&&!found)its.unshift({v:cur,t:cur+' (mimo seznam)'});c._setItems(its);if(cur)c.value=cur;});return c;}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function api(m,u,b){var o={method:m,credentials:'include'};if(b){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(b);}return fetch(u,o).then(function(r){return r.json().then(function(j){return j;},function(){return {ok:false,error:(r&&r.status>=500)?('Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli znovu.'):('Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+') — zkus to prosím znovu.')};});},function(){return {ok:false,error:'Nepodařilo se spojit se serverem — zkontroluj připojení a zkus to prosím znovu.'};});}
 function el(h){var d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;}
@@ -278,8 +326,7 @@ function openDay(uid,name,day){
         if(!afx)return;
         afx.innerHTML='';
         var w=el('<div class="card"></div>');
-        var sel=el('<select class="full"></select>');
-        TYPES.forEach(function(t){sel.appendChild(el('<option value="'+t[0]+'"'+(prefTyp===t[0]?' selected':'')+'>'+t[1]+'</option>'));});
+        var sel=mkTyp(prefTyp);
         var tr=el('<div class="btns"></div>');
         var t1=el('<input type="time" value="'+esc(prefZ||'')+'">'),t2=el('<input type="time" value="'+esc(prefK||'')+'">');
         tr.appendChild(t1);tr.appendChild(t2);
@@ -376,8 +423,7 @@ function openDay(uid,name,day){
             var tr=el('<div class="btns"></div>');
             var t1=el('<input type="time" value="'+esc(e2.zac||'')+'">'),t2=el('<input type="time" value="'+esc(e2.kon||'')+'">');
             tr.appendChild(t1);tr.appendChild(t2);
-            var sel=el('<select class="full" style="margin-top:6px;"></select>');
-            TYPES.forEach(function(t){sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>'));});
+            var sel=mkTyp(e2.code);
             var zk=mkZak(e2.project_ref||null);
             var cinW=mkCin(e2.cin_id||null);cinShow(cinW,sel.value);sel.addEventListener('change',function(){cinShow(cinW,sel.value);});
             var rb=reasonBox();

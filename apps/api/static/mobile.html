@@ -6738,11 +6738,52 @@ setTimeout(function(){
   var _FIX_TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
   var _FIX_CINN=null;
   function _fixLoadCinn(cb){ if(_FIX_CINN){cb(_FIX_CINN);return;} api("GET","/api/v1/erp/app/attendance/fix/cinnosti","").then(function(j){ _FIX_CINN=(j&&j.cinnosti)||[]; cb(_FIX_CINN); }); }
-  function _fixMkCin(cur){ var w=el('<div style="margin-top:6px;"></div>'); w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>')); var s=el('<select style="width:100%;"><option value="">— nevybráno —</option></select>'); _fixLoadCinn(function(list){ list.forEach(function(c){ var o=document.createElement("option"); o.value=c.id; o.textContent=(c.icon?c.icon+" ":"")+c.name; if(cur&&c.id===cur)o.selected=true; s.appendChild(o); }); }); w.appendChild(s); w._sel=s; return w; }
+  function _fixMkCombo(items,opts){
+    opts=opts||{};
+    var root=el('<div class="scb" style="'+(opts.style||'margin-top:6px;')+'"></div>');
+    var inp=el('<input type="text" autocomplete="off" style="width:100%;" placeholder="'+esc(opts.ph||'Hledat…')+'">');
+    var list=el('<div class="scb-list" style="display:none;"></div>');
+    root.appendChild(inp);root.appendChild(list);
+    var _items=(items||[]).slice(),_val='',_open=false,_hl=-1,_filt=[];
+    function fold(s){s=String(s==null?'':s).toLowerCase();try{return s.normalize('NFD').replace(/[̀-ͯ]/g,'');}catch(e){return s;}}
+    function labelOf(v){for(var i=0;i<_items.length;i++){if(String(_items[i].v)===String(v))return _items[i].t;}return (v?String(v):'');}
+    function setVal(v,fire){_val=(v==null?'':v);inp.value=labelOf(_val);if(fire)root.dispatchEvent(new Event('change'));}
+    Object.defineProperty(root,'value',{configurable:true,get:function(){return _val;},set:function(v){setVal(v,false);}});
+    root._input=inp;
+    root._setItems=function(arr){_items=(arr||[]).slice();if(_open)draw(inp.value);else inp.value=labelOf(_val);};
+    function close(){list.style.display='none';_open=false;_hl=-1;}
+    function draw(q){
+      var f=fold(q);_filt=[];
+      if(opts.empty)_filt.push({v:'',t:(opts.emptyText||'— nevybráno —'),none:true});
+      for(var i=0;i<_items.length;i++){var it=_items[i];if(!f||fold(it.t+' '+it.v).indexOf(f)>=0)_filt.push(it);}
+      list.innerHTML='';
+      if(!_filt.length){list.appendChild(el('<div class="scb-it none">nic nenalezeno</div>'));return;}
+      _filt.forEach(function(it,i){
+        var d=el('<div class="scb-it'+(it.none?' none':'')+(i===_hl?' hl':'')+'">'+esc(it.t||'')+'</div>');
+        d.addEventListener('mousedown',function(ev){ev.preventDefault();setVal(it.v,true);close();try{inp.blur();}catch(e){}});
+        list.appendChild(d);
+      });
+    }
+    function open(all){_open=true;list.style.display='block';draw(all?'':inp.value);}
+    inp.addEventListener('focus',function(){_hl=-1;if(inp.select)try{inp.select();}catch(e){}open(true);});
+    inp.addEventListener('input',function(){_hl=-1;open(false);});
+    inp.addEventListener('blur',function(){setTimeout(function(){inp.value=labelOf(_val);close();},150);});
+    inp.addEventListener('change',function(ev){ev.stopPropagation();});
+    inp.addEventListener('keydown',function(ev){
+      if(ev.key==='ArrowDown'){if(!_open){open(true);}else{_hl=Math.min(_filt.length-1,_hl+1);draw(inp.value);}ev.preventDefault();}
+      else if(ev.key==='ArrowUp'){if(_open){_hl=Math.max(0,_hl-1);draw(inp.value);ev.preventDefault();}}
+      else if(ev.key==='Enter'){if(_open){var p=_filt[_hl>=0?_hl:0];if(p){setVal(p.v,true);close();}ev.preventDefault();}}
+      else if(ev.key==='Escape'){inp.value=labelOf(_val);close();}
+    });
+    if(opts.initial!=null&&opts.initial!=='')setVal(opts.initial,false);
+    return root;
+  }
+  function _fixMkTyp(cur){return _fixMkCombo(_FIX_TYPES.map(function(t){return {v:t[0],t:t[1]};}),{ph:'🔍 typ…',initial:(cur||_FIX_TYPES[0][0])});}
+  function _fixMkCin(cur){ var w=el('<div style="margin-top:6px;"></div>'); w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>')); var c=_fixMkCombo([],{ph:'🔍 činnost…',empty:true,emptyText:'— nevybráno —',style:'margin-top:0;'}); _fixLoadCinn(function(list){ c._setItems(list.map(function(x){return {v:x.id,t:(x.icon?x.icon+' ':'')+x.name};})); if(cur)c.value=cur; }); w.appendChild(c); w._sel=c; return w; }
   function _fixCinShow(w,typ){ w.style.display=(typ==="work"||typ==="overhead")?"":"none"; }
   var _FIX_ZAK=null;
   function _fixLoadZak(cb){ if(_FIX_ZAK){cb(_FIX_ZAK);return;} api("GET","/api/v1/erp/app/attendance/fix/zakazky","").then(function(j){ _FIX_ZAK=(j&&j.zakazky)||[]; cb(_FIX_ZAK); }); }
-  function _fixMkZak(cur){ var s=el('<select style="width:100%;margin-top:6px;"><option value="">— zakázka (jen u práce) —</option></select>'); if(cur){ var op=document.createElement("option"); op.value=cur; op.textContent=cur; op.selected=true; s.appendChild(op); } _fixLoadZak(function(list){ while(s.options.length>1)s.remove(1); var found=false; list.forEach(function(z){ var o=document.createElement("option"); o.value=z.cislo; o.textContent=z.cislo+(z.nazev?(" — "+z.nazev):""); if(cur&&z.cislo===cur){o.selected=true;found=true;} s.appendChild(o); }); if(cur&&!found){ var oe=document.createElement("option"); oe.value=cur; oe.textContent=cur+" (mimo seznam)"; oe.selected=true; s.appendChild(oe); } }); return s; }
+  function _fixMkZak(cur){ var c=_fixMkCombo([],{ph:'🔍 zakázka (číslo/název)…',empty:true,emptyText:'— zakázka (jen u práce) —'}); if(cur){ c._setItems([{v:cur,t:cur}]); c.value=cur; } _fixLoadZak(function(list){ var its=list.map(function(z){return {v:z.cislo,t:z.cislo+(z.nazev?(' — '+z.nazev):'')};}); var found=false; list.forEach(function(z){ if(cur&&z.cislo===cur)found=true; }); if(cur&&!found)its.unshift({v:cur,t:cur+' (mimo seznam)'}); c._setItems(its); if(cur)c.value=cur; }); return c; }
   function _fixReasonBox(){
     var w=el('<div style="margin-top:8px;"></div>');
     w.appendChild(el('<div class="hint" style="margin-bottom:4px;">Důvod (povinný):</div>'));
@@ -6949,8 +6990,7 @@ setTimeout(function(){
           if(j.locked&&!j.lock_override)return;
           addFx.innerHTML="";
           var w=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;"></div>');
-          var sel=el('<select style="width:100%;"></select>');
-          _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'">'+t[1]+'</option>')); });
+          var sel=_fixMkTyp(null);
           var t1=el('<input type="time" value="'+esc(prefZ||"")+'" style="width:46%;">'), t2=el('<input type="time" value="'+esc(prefK||"")+'" style="width:46%;">');
           var tr=el('<div style="display:flex;gap:8%;margin-top:6px;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
           var zk=_fixMkZak(null);
@@ -7044,8 +7084,7 @@ setTimeout(function(){
               var t1=el('<input type="time" value="'+esc(e2.zac||"")+'" style="width:46%;">');
               var t2=el('<input type="time" value="'+esc(e2.kon||"")+'" style="width:46%;">');
               var tr=el('<div style="display:flex;gap:8%;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
-              var sel=el('<select style="width:100%;margin-top:6px;"></select>');
-              _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>')); });
+              var sel=_fixMkTyp(e2.code);
               var zk=_fixMkZak(e2.project_ref||null);
               var cinW=_fixMkCin(e2.cin_id||null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
               var rb=_fixReasonBox();
@@ -7114,6 +7153,9 @@ setTimeout(function(){
     load();
   }
   // ───── PŘIHLÁSIT JAKO (impersonace pro test docházky, Marti 7.6.) ─────
+
+/* Claude-24 16.7.: styl pro searchable roletky (combobox) v mobilu */
+(function(){try{if(document.getElementById('scbCss24'))return;var st=document.createElement('style');st.id='scbCss24';st.textContent='.scb-list{margin-top:4px;max-height:230px;overflow-y:auto;background:#0f1620;border:1px solid var(--bord);border-radius:8px;}.scb-it{padding:10px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;}.scb-it:last-child{border-bottom:0;}.scb-it.hl,.scb-it:active{background:rgba(79,142,247,.20);}.scb-it.none{color:var(--mut);}';document.head.appendChild(st);}catch(e){}})();
   function set_imp(){
     app.innerHTML=topbar("Přihlásit jako (test)", true);
     var p=el('<div class="panel"></div>');

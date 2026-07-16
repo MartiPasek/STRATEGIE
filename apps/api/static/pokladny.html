@@ -149,14 +149,14 @@ function dTotW(){var t=0;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
 function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKLW));}catch(_){}}
 function bvNums(p){if(!p)return [];var m=(''+p).match(/BV\s?\d+/gi)||[];var out=[],seen={};m.forEach(function(x){var n=x.replace(/BV\s?/i,'');if(!seen[n]){seen[n]=1;out.push(n);}});return out;}
 function dcell(d,c){
-  if(c.k==='bv_seznam')return esc(bvNums(d.poznamka).join(', '));
+  if(c.k==='bv_seznam')return '';
   if(c.t==='m')return d[c.k]!=null?fmt(d[c.k]):'';
   if(c.t==='chk'){
     var ck='<span style="color:#7ee08a">✓</span>';
     if(c.k==='uctovano')return d.dat_uctovani?ck:'';
     if(c.k==='scan')return d.prilohy?ck:'';
     if(c.k==='pocet_polozek')return d.pocet_polozek>0?ck:'';
-    if(c.k==='bv')return bvNums(d.poznamka).length?ck:'';
+    if(c.k==='bv')return '';
     return '';
   }
   if(c.t==='typ')return d.saldo_dokladu<0?'Výdaj':(d.saldo_dokladu>0?'Příjem':'');

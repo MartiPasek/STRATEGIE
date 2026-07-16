@@ -1233,7 +1233,7 @@ def _sync_pokl_doklady_rada(s, db_name, firma, rada, rok):
     rada = str(rada).strip()
     rok = int(rok)
     sql_h = (
-        "SELECT ID, RadaDokladuPokl, PoradoveCislo, TypDokladu, StavDokladu, Popis, "
+        "SELECT dbo.TabPokladna.ID, RadaDokladuPokl, PoradoveCislo, TypDokladu, StavDokladu, Popis, "
         "CAST(Poznamka AS nvarchar(4000)) AS Poznamka, Prilohy, "
         "CONVERT(varchar(10), DatPripad, 23) AS DatPripad, "
         "CONVERT(varchar(10), DatUctovani, 23) AS DatUctovani, "

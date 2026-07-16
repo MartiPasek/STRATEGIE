@@ -2424,3 +2424,41 @@ Tým STRATEGIE
         to=to, subject=subject, body=body,
         persona_id=persona_id,
     )
+
+
+def send_phone_verify_code_email(
+    to: str,
+    code: str,
+    first_name: str | None = None,
+    gender: str | None = None,
+) -> bool:
+    """
+    Aktivační ověřovací kód e-mailem — fallback k SMS bráně (Claude-24 + Kristý,
+    15.7.2026). Zrcadlo přepnutí loginu na e-mail z 6.6.: aktivace nového uživatele
+    nesmí viset na nespolehlivé SMS bráně (Android relay). Posílá se STEJNÝ 6místný
+    kód jako do SMS (z fw.phone_verify_code), platí 10 minut.
+    """
+    from shared.czech import to_vocative
+
+    vocative = to_vocative(first_name, gender).strip() if first_name else ""
+    greeting = f"Ahoj {vocative}," if vocative else "Ahoj,"
+
+    subject = "Ověřovací kód — STRATEGIE"
+    body = f"""{greeting}
+
+tvůj ověřovací kód pro aktivaci účtu v systému STRATEGIE je:
+
+    {code}
+
+Zadej ho na stránce, kde ses zastavil(a) při aktivaci. Kód platí 10 minut.
+
+Pokud jsi o aktivaci nežádal(a), tento e-mail klidně ignoruj.
+
+S pozdravem,
+Tým STRATEGIE
+"""
+    persona_id = _get_default_persona_id()
+    return send_email(
+        to=to, subject=subject, body=body,
+        persona_id=persona_id,
+    )

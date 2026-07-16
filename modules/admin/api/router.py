@@ -4,6 +4,7 @@ Admin API router (Phase 7.11).
 Parent-only operace: backup databazi (zatim) + misto pro budouci admin tooly.
 """
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from core.logging import get_logger
 from modules.admin.application import backup_service
@@ -61,3 +62,60 @@ def backup_databases(req: Request):
         f"files={len(result.get('files') or [])}"
     )
     return result
+
+
+class ActivateUserRequest(BaseModel):
+    user_id: int
+
+
+@router.post("/activate-user")
+def activate_user(body: ActivateUserRequest, req: Request):
+    """
+    Ruční aktivace pending uživatele BEZ SMS ověření (Claude-24 + Kristý,
+    15.7.2026). Pojistka, když SMS brána vypadne a nový člověk uvízne na
+    aktivačním kroku: parent překlopí users.status pending->active a
+    user_tenants.membership_status invited->active (stejné jako dřívější ruční
+    SQL přes schvalovací banner, teď jedním guarded klikem). Parent-only.
+
+    Vrací: {ok, user_id, activated: bool, was_status}
+      - activated=False + was_status='active' = uživatel už byl aktivní (no-op).
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+    target = int(body.user_id)
+
+    from core.database_core import get_core_session
+    from sqlalchemy import text as _t
+
+    s = get_core_session()
+    try:
+        cur = s.execute(
+            _t("SELECT status FROM public.users WHERE id=:i"),
+            {"i": target}).scalar()
+        if cur is None:
+            raise HTTPException(status_code=404,
+                                detail=f"Uživatel id={target} neexistuje.")
+        activated = False
+        if cur == "pending":
+            s.execute(_t("UPDATE public.users SET status='active' "
+                         "WHERE id=:i AND status='pending'"), {"i": target})
+            s.execute(_t("UPDATE public.user_tenants SET membership_status='active' "
+                         "WHERE user_id=:i AND membership_status='invited'"),
+                      {"i": target})
+            activated = True
+        s.commit()
+    except HTTPException:
+        s.rollback()
+        raise
+    except Exception as e:
+        s.rollback()
+        logger.error(f"ADMIN | activate-user failed | target={target} | "
+                     f"by={uid} | {e}")
+        raise HTTPException(status_code=500, detail="Aktivace selhala.")
+    finally:
+        s.close()
+
+    logger.info(f"ADMIN | activate-user | target={target} | by={uid} | "
+                f"activated={activated} | was={cur}")
+    return {"ok": True, "user_id": target, "activated": activated,
+            "was_status": cur}

@@ -127,11 +127,26 @@
     ul.appendChild(el('<li style="border:none;color:var(--mut);font-size:12.5px;padding:2px 4px 8px;">'+us.length+' uživatelů</li>'));
     if(!us.length){ ul.appendChild(el('<li style="color:var(--mut);border:none;">Nikdo.</li>')); return; }
     us.forEach(function(u){
-      ul.appendChild(el('<li style="display:flex;align-items:center;gap:10px;">'
+      var li=el('<li style="display:flex;align-items:center;gap:10px;">'
         +'<span style="width:30px;height:30px;border-radius:50%;background:#1a2533;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none;">'+vyInitial(u.jmeno)+'</span>'
         +'<span style="min-width:0;flex:1;"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(u.parent?"👑 ":"")+esc(u.jmeno)+'</b>'
         +'<span style="color:var(--mut);font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(u.tenanty||"")+'</span></span>'
-        +((u.status&&u.status!=="active")?'<span style="font-size:11px;color:#caa14a;flex:none;">'+esc(u.status)+'</span>':'')+'</li>'));
+        +((u.status&&u.status!=="active")?'<span style="font-size:11px;color:#caa14a;flex:none;">'+esc(u.status)+'</span>':'')+'</li>');
+      // Pending uživatel → parent ho může aktivovat BEZ SMS (pojistka při výpadku
+      // SMS brány; Claude-24 + Kristý 15.7.2026). /admin/activate-user je parent-only.
+      if(u.status==="pending" && u.user_id){
+        var ab=el('<button class="green" style="flex:none;padding:5px 10px;font-size:12px;white-space:nowrap;">✅ Aktivovat</button>');
+        ab.addEventListener("click",function(){
+          if(!confirm("Aktivovat uživatele „"+(u.jmeno||("#"+u.user_id))+"“ bez SMS ověření?")) return;
+          ab.disabled=true; ab.textContent="⏳…";
+          api("POST","/api/v1/admin/activate-user",{user_id:u.user_id}).then(function(r){
+            if(r&&r.ok){ ab.textContent=r.activated?"✅ Aktivováno":"✓ Už aktivní"; setTimeout(function(){ auLoad(); },700); }
+            else { ab.disabled=false; ab.textContent="✅ Aktivovat"; alert("Chyba: "+((r&&(r.detail||r.error))||"?")); }
+          }).catch(function(){ ab.disabled=false; ab.textContent="✅ Aktivovat"; alert("Chyba spojení."); });
+        });
+        li.appendChild(ab);
+      }
+      ul.appendChild(li);
     });
   }
 

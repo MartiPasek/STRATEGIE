@@ -1608,12 +1608,74 @@ def phone_verify_start(body: PhoneVerifyStartRequest, req: Request) -> dict:
     finally:
         session.close()
 
-    queue_sms(to=phone,
-              body=f"STRATEGIE: overovaci kod {code}. Plati 10 minut.",
-              purpose="phone_verify", user_id=uid)
+    # Doručení kódu — e-mailový fallback (Claude-24 + Kristý, 15.7.2026).
+    # SMS brána (Android relay) je nespolehlivá, aktivace nesmí viset jen na ní.
+    # Stejně jako login (přepnut na e-mail 6.6.) posíláme aktivační kód PRIMÁRNĚ
+    # e-mailem; SMS zůstává jako best-effort (queue_sms sám no-opne, když je
+    # SMS brána vypnutá). Stejný 6místný kód, /phone-verify/confirm ho ověří
+    # bez ohledu na kanál doručení.
+    email_addr = None
+    first_name = None
+    gender = None
+    _s2 = get_core_session()
+    try:
+        _ec = (_s2.query(UserContact)
+               .filter_by(user_id=uid, contact_type="email", status="active")
+               .order_by(UserContact.is_primary.desc())
+               .first())
+        email_addr = _ec.contact_value if _ec else None
+        _u = _s2.query(User).filter_by(id=uid).first()
+        if _u:
+            first_name = _u.first_name
+            gender = getattr(_u, "gender", None)
+    except Exception as e:
+        logger.error(f"PHONE_VERIFY | email lookup failed | user_id={uid} | {e}")
+    finally:
+        _s2.close()
+
+    email_ok = False
+    if email_addr:
+        try:
+            from modules.notifications.application.email_service import (
+                send_phone_verify_code_email,
+            )
+            email_ok = bool(send_phone_verify_code_email(
+                email_addr, code, first_name, gender))
+        except Exception as e:
+            logger.error(f"PHONE_VERIFY | email send failed | user_id={uid} | {e}")
+
+    # Best-effort SMS (když je brána zapnutá). Nesmí shodit endpoint.
+    sms_ok = False
+    try:
+        _res = queue_sms(
+            to=phone,
+            body=f"STRATEGIE: overovaci kod {code}. Plati 10 minut.",
+            purpose="phone_verify", user_id=uid)
+        sms_ok = bool(_res and _res.get("status") in ("pending", "sent"))
+    except Exception as e:
+        logger.error(f"PHONE_VERIFY | sms queue failed | user_id={uid} | {e}")
+
+    channel = ("both" if (email_ok and sms_ok)
+               else "email" if email_ok
+               else "sms" if sms_ok
+               else "none")
+    if channel == "none":
+        raise HTTPException(
+            status_code=502,
+            detail="Nepodařilo se odeslat ověřovací kód. Zkus to prosím znovu.")
+
+    def _mask_email(e: str | None) -> str | None:
+        if not e or "@" not in e:
+            return None
+        loc, _, dom = e.partition("@")
+        head = loc[0] if loc else ""
+        return f"{head}{'*' * max(1, len(loc) - 1)}@{dom}"
+
     log_event(action="phone_verify_started", user_id=uid,
-              extra_metadata={"phone": phone})
-    return {"status": "sms_sent"}
+              extra_metadata={"phone": phone, "channel": channel})
+    return {"status": "code_sent", "channel": channel,
+            "email_masked": _mask_email(email_addr) if email_ok else None,
+            "sms_sent": sms_ok}
 
 
 @router.post("/phone-verify/confirm")

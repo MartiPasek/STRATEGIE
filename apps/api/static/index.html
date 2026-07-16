@@ -3295,7 +3295,7 @@
     // Dynamicky postavene UI uvnitr resetScreen -- telefon -> SMS kod -> active.
     function showPhoneVerifyStep() {
       rTitle.textContent = 'Ověření mobilu';
-      rSub.textContent = 'Zadej své mobilní číslo, pošleme ti SMS s ověřovacím kódem.';
+      rSub.textContent = 'Zadej své mobilní číslo. Ověřovací kód ti pošleme e‑mailem (a když SMS brána jede, i SMS).';
       rPw.style.display = 'none'; rPwc.style.display = 'none'; rBtn.style.display = 'none';
       const wrap = document.createElement('div');
       wrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;width:100%';
@@ -3303,7 +3303,7 @@
       phoneIn.type = 'tel'; phoneIn.placeholder = '+420 777 123 456';
       phoneIn.className = rPw.className;
       const codeIn = document.createElement('input');
-      codeIn.type = 'text'; codeIn.placeholder = 'Kód z SMS';
+      codeIn.type = 'text'; codeIn.placeholder = 'Ověřovací kód';
       codeIn.inputMode = 'numeric'; codeIn.maxLength = 6;
       codeIn.className = rPw.className; codeIn.style.display = 'none';
       const vBtn = document.createElement('button');
@@ -3325,11 +3325,17 @@
             const d2 = await r.json().catch(() => ({}));
             if (!r.ok) {
               rMsg.style.color = '#e07070';
-              rMsg.textContent = (typeof d2.detail === 'string') ? d2.detail : 'Odeslání SMS selhalo.';
+              rMsg.textContent = (typeof d2.detail === 'string') ? d2.detail : 'Odeslání ověřovacího kódu selhalo.';
               vBtn.disabled = false; return;
             }
             rMsg.style.color = '#7cd99e';
-            rMsg.textContent = 'SMS odeslána. Zadej kód ze zprávy.';
+            var _ch = d2 && d2.channel;
+            var _dst = (d2 && d2.email_masked) ? (' na ' + d2.email_masked) : '';
+            rMsg.textContent = (_ch === 'sms')
+              ? 'Kód jsme poslali SMS. Zadej ho níže.'
+              : (_ch === 'both')
+                ? ('Kód jsme poslali e‑mailem' + _dst + ' i SMS. Zadej ho níže.')
+                : ('Kód jsme poslali e‑mailem' + _dst + '. Zadej ho níže.');
             phoneIn.disabled = true; codeIn.style.display = ''; codeIn.focus();
             vBtn.textContent = 'Ověřit kód'; stage = 'code'; vBtn.disabled = false;
           } else {

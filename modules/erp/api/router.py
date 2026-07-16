@@ -19345,12 +19345,16 @@ async def att_fix_day(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
             "       e.hours, e.project_ref, e.note, et.label, et.code, et.category, "
-            "       e.status, e.is_active, COALESCE(e.source_system,''), COALESCE(e.source,'') "
+            "       e.status, e.is_active, COALESCE(e.source_system,''), COALESCE(e.source,''), "
+            "       (SELECT w.cinnost_name FROM tenant.work_alloc w WHERE w.user_id=:u AND w.cinnost_name IS NOT NULL "
+            "          AND w.started_at >= e.started_at - interval '1 minute' AND w.started_at < COALESCE(e.ended_at, e.started_at + interval '1 minute') ORDER BY w.started_at LIMIT 1), "
+            "       (SELECT w.cinnost_id FROM tenant.work_alloc w WHERE w.user_id=:u AND w.cinnost_id IS NOT NULL "
+            "          AND w.started_at >= e.started_at - interval '1 minute' AND w.started_at < COALESCE(e.ended_at, e.started_at + interval '1 minute') ORDER BY w.started_at LIMIT 1) "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
             "AND e.status <> 'announced' "
             "ORDER BY e.started_at DESC NULLS LAST, e.id DESC"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": tuid}).fetchall()
         jm = _user_jmeno(s, tuid)
         # Jirka 12.7.: rozpor dne (co člověk napsal přes ✋ Nesedí) — do panelu nad tabulkou
         disp = s.execute(_t(
@@ -19365,7 +19369,7 @@ async def att_fix_day(req: Request) -> JSONResponse:
              "hours": (float(r[3]) if r[3] is not None else None),
              "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
              "status": r[9], "running": bool(r[10] and not r[2]),
-             "source_system": r[11], "source": r[12],
+             "source_system": r[11], "source": r[12], "cin_name": r[13], "cin_id": r[14],
              "editable": ((not locked) or _lock_ovr) and (not r[11]) and r[9] != "superseded"} for r in rows]})
     finally:
         cm.__exit__(None, None, None)

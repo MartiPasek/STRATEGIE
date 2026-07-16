@@ -2014,6 +2014,7 @@
           var tdT=tdc('',TD);
           tdT.appendChild(el('<div style="font-weight:600;">'+(isDE?'🫡 Odchod':esc(e2.typ||""))+badge+'</div>'));
           if(!isDE&&e2.project_ref) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">🧾 '+esc(e2.project_ref)+'</div>'));
+          if(!isDE&&e2.cin_name) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">🔧 '+esc(e2.cin_name)+'</div>'));
           tr0.appendChild(tdT);
           tr0.appendChild(tdc(e2.zac?(esc(e2.zac)+(isDE?'':("–"+esc(e2.kon||"…")))):"—",TD+'white-space:nowrap;font-variant-numeric:tabular-nums;'));
           tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
@@ -2050,7 +2051,7 @@
               var sel=el('<select style="width:100%;margin-top:6px;"></select>');
               _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>')); });
               var zk=el('<input value="'+esc(e2.project_ref||"")+'" placeholder="🧾 zakázka (jen u práce)" style="width:100%;margin-top:6px;">');
-              var cinW=_fixMkCin(null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
+              var cinW=_fixMkCin(e2.cin_id||null); _fixCinShow(cinW,sel.value); sel.addEventListener("change",function(){ _fixCinShow(cinW,sel.value); });
               var rb=_fixReasonBox();
               var ok=el('<button class="green full" style="margin-top:8px;">Uložit opravu</button>');
               var st=el('<div class="hint" style="margin-top:4px;"></div>');

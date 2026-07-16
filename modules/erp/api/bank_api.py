@@ -1080,9 +1080,12 @@ def _mcp_rows(sql: str, db_name: str):
     if mcp is None:
         raise RuntimeError("EUROSOFT MCP nedostupné")
 
+    _last = {"raw": None}
+
     def _call_parse():
         raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
                                  {"sql": sql, "db_name": db_name}, conversation_id=None)
+        _last["raw"] = raw
         if isinstance(raw, str):
             raw = raw.strip()
             if not raw:
@@ -1090,19 +1093,22 @@ def _mcp_rows(sql: str, db_name: str):
             return _json.loads(raw)
         return raw
 
-    try:
-        r = _call_parse()
-    except Exception:
-        r = None
-    if r is None:
-        # prázdná/mrtvá odpověď → vynuť čerstvé SSE spojení a zkus ještě jednou
+    r = None
+    for _attempt in (1, 2):
+        try:
+            r = _call_parse()
+        except Exception:
+            r = None
+        if r is not None:
+            break
         try:
             mcp._reconnect()
         except Exception:
             pass
-        r = _call_parse()
     if r is None:
-        raise RuntimeError("EUROSOFT MCP vrací prázdno i po reconnectu (zkontroluj EC-SERVER2)")
+        _rawtxt = _last["raw"]
+        _rawtxt = (str(_rawtxt)[:200] if _rawtxt is not None else "None")
+        raise RuntimeError("MCP dotaz selhal (db=%s) — surová odpoved=%r" % (db_name, _rawtxt))
     rows = []
     if isinstance(r, dict):
         if r.get("ok") is False:

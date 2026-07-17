@@ -2,7 +2,6 @@
 
 > oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-
 # Mzdy — měsíční uzávěrka a zaúčtování (runbook)
 
 Cloud Helios **iNuvio**, DB **UCTO_EC** (EUROSOFT‑Control) / **UCTO_ES** (EUROSOFT‑System).
@@ -138,6 +137,5 @@ FROM UCTO_EC.dbo.TabMzdObd WHERE Rok=2026 AND Mesic BETWEEN 5 AND 8 ORDER BY Mes
   odesílá **datovkou** (regulatorně na člověku). Pozor: **ošetřovné se vyplácí přes samostatnou
   žádost o ošetřovné, ne přes JMHZ** — vyloučené doby v JMHZ dávku nespouští.
 - Zálohové tabulky v MOST po ověření **uklízet** (`_bak_…`), ať se nehromadí.
-
 
 

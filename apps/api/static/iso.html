@@ -387,7 +387,7 @@ function loadIncidents(){
     var rows=j.incidents||[];
     var h='<div class="hint" style="margin-bottom:6px">Evidence bezpečnostních událostí (ISO/IEC 27001 A.5.24–A.5.28): záznam, klasifikace (C/I/A), časová osa, dopad, kořenová příčina a nápravná/preventivní opatření (CAPA). Každá změna má auditní stopu.</div>';
     if(!RO){
-      if(!rows.length){h+='<div class="c" style="background:rgba(251,191,36,.08);border:1px solid #fbbf24"><b>⚡ Rychlý start:</b> zapsat dnešní výpadek (17.7.) do registru jedním klikem, včetně 6 opatření CAPA. <div style="margin-top:6px"><button class="btn sm" onclick="incSeedToday()">Založit INC-2026-07-17-01</button></div></div>';}
+      if(!rows.length){h+='<div class="c" style="background:rgba(251,191,36,.08);border:1px solid #fbbf24"><b>⚡ Rychlý start:</b> zapsat dnešní výpadek (17.7.) do registru jedním klikem, včetně 6 opatření CAPA. <div style="margin-top:6px"><button class="btn sm" id="incSeedBtn" onclick="incSeedToday()">Založit INC-2026-07-17-01</button> <span id="incSeedMsg" class="hint"></span></div></div>';}
       h+='<div style="margin-bottom:8px"><button class="btn sm ghost" onclick="incFormTgl()">+ Nový incident</button></div>'+incFormHtml();
     }
     if(!rows.length){h+='<div class="hint">Zatím žádné incidenty v registru.</div>';}
@@ -416,10 +416,16 @@ function loadIncidents(){
           +'</div>';
       });
       if(!RO){
-        h+='<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="btn sm ghost" onclick="incActAdd('+i.id+')">+ přidat opatření</button>'
+        h+='<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="btn sm ghost" onclick="incActFormTgl('+i.id+')">+ přidat opatření</button>'
           +'<span class="hint">stav:</span><select onchange="incSetStav('+i.id+',this.value)" style="font-size:12px">'
           +["novy","reseni","vyreseno","uzavreno"].map(function(s){return '<option value="'+s+'"'+(s===i.stav?" selected":"")+'>'+(INC_STAV[s]?INC_STAV[s][0]:s)+'</option>';}).join("")
-          +'</select></div>';
+          +'</select></div>'
+          +'<div id="actform_'+i.id+'" style="display:none;margin-top:6px;padding:8px;background:#0f1830;border:1px solid var(--bord);border-radius:8px"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+          +'<select id="af_typ_'+i.id+'"><option value="napravne">nápravné</option><option value="preventivni">preventivní</option></select>'
+          +'<input id="af_nazev_'+i.id+'" placeholder="Popis opatření" style="flex:1;min-width:180px">'
+          +'<input id="af_vl_'+i.id+'" placeholder="Vlastník" style="width:110px">'
+          +'<input id="af_term_'+i.id+'" type="date">'
+          +'<button class="btn sm" onclick="incActSave('+i.id+')">Uložit</button></div></div>';
       }
       h+='</div></div></div>';
     });
@@ -456,14 +462,12 @@ function incSave(){
     if(r&&r.ok){loadIncidents();}else{document.getElementById("if_msg").textContent=(r&&r.error)||"chyba";}
   });
 }
-function incSetStav(iid,stav){api("/api/v1/erp/app/iso/incident-save","POST",{id:iid,stav:stav}).then(function(r){if(r&&r.ok)loadIncidents();else alert((r&&r.error)||"chyba");});}
-function incActDone(id,stav){api("/api/v1/erp/app/iso/incident-action-save","POST",{id:id,stav:stav}).then(function(r){if(r&&r.ok)loadIncidents();else alert((r&&r.error)||"chyba");});}
-function incActAdd(iid){
-  var nazev=prompt("Popis opatření (CAPA):");if(nazev==null||!nazev.trim())return;
-  var typ=confirm("OK = preventivní, Zrušit = nápravné")?"preventivni":"napravne";
-  var vlastnik=prompt("Vlastník (nepovinné):")||"";
-  var termin=prompt("Termín YYYY-MM-DD (nepovinné):")||"";
-  api("/api/v1/erp/app/iso/incident-action-save","POST",{incident_id:iid,typ:typ,nazev:nazev.trim(),vlastnik:vlastnik,termin:termin||null}).then(function(r){if(r&&r.ok)loadIncidents();else alert((r&&r.error)||"chyba");});
+function incSetStav(iid,stav){api("/api/v1/erp/app/iso/incident-save","POST",{id:iid,stav:stav}).then(function(r){if(r&&r.ok)loadIncidents();});}
+function incActDone(id,stav){api("/api/v1/erp/app/iso/incident-action-save","POST",{id:id,stav:stav}).then(function(r){if(r&&r.ok)loadIncidents();});}
+function incActFormTgl(iid){var e=document.getElementById("actform_"+iid);if(e)e.style.display=(e.style.display==="none"?"block":"none");}
+function incActSave(iid){
+  var nazev=_iv("af_nazev_"+iid);if(!nazev.trim())return;
+  api("/api/v1/erp/app/iso/incident-action-save","POST",{incident_id:iid,typ:_iv("af_typ_"+iid),nazev:nazev.trim(),vlastnik:_iv("af_vl_"+iid),termin:_iv("af_term_"+iid)||null}).then(function(r){if(r&&r.ok)loadIncidents();});
 }
 function incSeedToday(){
   var inc={ev_cislo:"INC-2026-07-17-01",nazev:"Výpadek dostupnosti strategie-ai.com (ERP + mobilní aplikace)",
@@ -483,13 +487,14 @@ function incSeedToday(){
     ["preventivni","Doplnit runbook + kontakt a SLA na poskytovatele (ČMIS) do dokumentace","",""],
     ["napravne","Uvolnění systémového disku C: APP serveru (Windows Update cache + WinSxS) + týdenní automatický úklid (STRATEGIE-DiskCleanup)","Marti / Claude","hotovo"]
   ];
-  if(!confirm("Založit dnešní výpadek INC-2026-07-17-01 do registru včetně 6 opatření CAPA?"))return;
+  var btn=document.getElementById("incSeedBtn"),msg=document.getElementById("incSeedMsg");
+  if(btn)btn.disabled=true; if(msg)msg.textContent="Zakládám…";
   api("/api/v1/erp/app/iso/incident-save","POST",inc).then(function(r){
-    if(!r||!r.ok){alert("chyba: "+((r&&r.error)||"?"));return;}
+    if(!r||!r.ok){if(msg)msg.textContent="chyba: "+((r&&r.error)||"?");if(btn)btn.disabled=false;return;}
     var iid=r.id,chain=Promise.resolve();
     acts.forEach(function(a){chain=chain.then(function(){return api("/api/v1/erp/app/iso/incident-action-save","POST",{incident_id:iid,typ:a[0],nazev:a[1],vlastnik:a[2],stav:a[3]||"otevreno"});});});
-    chain.then(function(){loadIncidents();});
-  });
+    chain.then(function(){if(msg)msg.textContent="✅ založeno";loadIncidents();}).catch(function(){loadIncidents();});
+  }).catch(function(){if(msg)msg.textContent="chyba spojení";if(btn)btn.disabled=false;});
 }
 load();
 </script>

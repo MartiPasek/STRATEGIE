@@ -814,6 +814,134 @@ async def iso_tisax_update(req: Request):
         s.close()
 
 
+# ════════════════════════ REGISTR INCIDENTŮ (ISMS, A.5.24–A.5.28) ════════════════════════
+
+def _incidents_payload(s, tenant_id):
+    incs = s.execute(_t("""SELECT id, ev_cislo, nazev, kategorie, zavaznost, stav, system,
+        to_char(vznik_at,'DD.MM.YYYY HH24:MI') AS vznik,
+        to_char(detekce_at,'DD.MM.YYYY HH24:MI') AS detekce,
+        to_char(obnoveni_at,'DD.MM.YYYY HH24:MI') AS obnoveni,
+        popis, pricina, dopad, reseni, ohlasil, zpracoval,
+        to_char(created_at,'DD.MM.YYYY HH24:MI') AS zalozeno
+        FROM tenant.iso_incident WHERE tenant_id=:t
+        ORDER BY vznik_at DESC NULLS LAST, id DESC"""), {"t": tenant_id}).mappings().all()
+    acts = s.execute(_t("""SELECT id, incident_id, typ, nazev, vlastnik, stav,
+        to_char(termin,'DD.MM.YYYY') AS termin,
+        to_char(done_at,'DD.MM.YYYY') AS done_kdy, poradi
+        FROM tenant.iso_incident_action WHERE tenant_id=:t
+        ORDER BY incident_id, poradi, id"""), {"t": tenant_id}).mappings().all()
+    by = {}
+    for a in acts:
+        by.setdefault(a["incident_id"], []).append(dict(a))
+    out = []
+    for i in incs:
+        d = dict(i); d["akce"] = by.get(i["id"], [])
+        out.append(d)
+    return out
+
+
+@iso_router.get("/app/iso/incidents")
+def iso_incidents(req: Request):
+    """Registr bezpečnostních incidentů (parent RW / člen RO)."""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        return {"ok": True, "incidents": _incidents_payload(s, tid), "ro": (not _is_parent(uid))}
+    finally:
+        s.close()
+
+
+def _next_ev_cislo(s, tid):
+    import datetime as _dt
+    pref = "INC-%s-" % _dt.date.today().strftime("%Y-%m-%d")
+    n = s.execute(_t("SELECT count(*) c FROM tenant.iso_incident WHERE tenant_id=:t AND ev_cislo LIKE :p"),
+                  {"t": tid, "p": pref + "%"}).first().c
+    return "%s%02d" % (pref, n + 1)
+
+
+@iso_router.post("/app/iso/incident-save")
+async def iso_incident_save(req: Request):
+    """Založí/upraví incident (parent). Bez id = nový (ev_cislo auto, když nezadán)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        cols = ("nazev", "kategorie", "zavaznost", "stav", "system", "vznik_at", "detekce_at",
+                "obnoveni_at", "popis", "pricina", "dopad", "reseni", "ohlasil", "zpracoval")
+        iid = b.get("id")
+        if iid:
+            fields, params = [], {"id": int(iid), "t": tid}
+            for k in (("ev_cislo",) + cols):
+                if k in b:
+                    fields.append("%s=:%s" % (k, k)); params[k] = (b[k] if b[k] not in ("",) else None)
+            if fields:
+                s.execute(_t("UPDATE tenant.iso_incident SET %s, updated_at=now() WHERE id=:id AND tenant_id=:t"
+                             % ",".join(fields)), params)
+                s.commit()
+            akce = "incident_update"
+        else:
+            ev = (b.get("ev_cislo") or "").strip() or _next_ev_cislo(s, tid)
+            params = {"t": tid, "u": uid, "ev": ev}
+            for k in cols:
+                params[k] = (b.get(k) or None)
+            row = s.execute(_t("""INSERT INTO tenant.iso_incident
+                (tenant_id,ev_cislo,nazev,kategorie,zavaznost,stav,system,vznik_at,detekce_at,obnoveni_at,
+                 popis,pricina,dopad,reseni,ohlasil,zpracoval,created_by)
+                VALUES(:t,:ev,:nazev,:kategorie,:zavaznost,COALESCE(:stav,'novy'),:system,:vznik_at,:detekce_at,
+                 :obnoveni_at,:popis,:pricina,:dopad,:reseni,:ohlasil,:zpracoval,:u)
+                RETURNING id"""), params).first()
+            iid = row.id
+            s.commit()
+            akce = "incident_new"
+        _log(s, tid, _user_name(s, uid), akce, (b.get("ev_cislo") or None), _client_ip(req))
+        return {"ok": True, "id": int(iid)}
+    finally:
+        s.close()
+
+
+@iso_router.post("/app/iso/incident-action-save")
+async def iso_incident_action_save(req: Request):
+    """Založí/upraví nápravnou/preventivní (CAPA) akci k incidentu (parent)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        aid = b.get("id")
+        if aid:
+            fields, params = [], {"id": int(aid), "t": tid}
+            for k in ("typ", "nazev", "vlastnik", "termin", "stav", "poradi"):
+                if k in b:
+                    fields.append("%s=:%s" % (k, k)); params[k] = (b[k] if b[k] not in ("",) else None)
+            if "stav" in b:
+                fields.append("done_at=CASE WHEN :stav='hotovo' THEN now() ELSE NULL END")
+            if fields:
+                s.execute(_t("UPDATE tenant.iso_incident_action SET %s, updated_at=now() WHERE id=:id AND tenant_id=:t"
+                             % ",".join(fields)), params)
+                s.commit()
+        else:
+            s.execute(_t("""INSERT INTO tenant.iso_incident_action
+                (tenant_id,incident_id,typ,nazev,vlastnik,termin,stav,poradi)
+                VALUES(:t,:iid,COALESCE(:typ,'napravne'),:nazev,:vlastnik,:termin,
+                       COALESCE(:stav,'otevreno'),COALESCE(:poradi,0))"""),
+                {"t": tid, "iid": int(b["incident_id"]), "typ": b.get("typ"), "nazev": b.get("nazev"),
+                 "vlastnik": b.get("vlastnik"), "termin": (b.get("termin") or None),
+                 "stav": b.get("stav"), "poradi": b.get("poradi")})
+            s.commit()
+        _log(s, tid, _user_name(s, uid), "incident_action", None, _client_ip(req))
+        return {"ok": True}
+    finally:
+        s.close()
+
+
 _DOC_STORE_ROOT = os.environ.get("STRATEGIE_DOC_STORE") or r"D:\Data\STRATEGIE\Dokumenty"
 
 

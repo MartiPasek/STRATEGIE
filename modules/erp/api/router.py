@@ -61621,8 +61621,17 @@ def _g2007_znalost_upsert_work(oblast, slug, nadpis, zdroj, uroven, typ):
             cleaned = zdroj
         except Exception as _ce:
             cleaned = "chyba uklidu: %s" % str(_ce)[:200]
+    # Re-index do vektorů (sémantické hledání) — best-effort, ať přispěná znalost
+    # je hned dohledatelná přes /app/g2007/search. Neblokuje výsledek.
+    reindexovano = None
+    try:
+        from modules.erp.api.g2007_vectors import reindex_by_kod as _reidx
+        reindexovano = _reidx(kod)
+    except Exception as _re:
+        reindexovano = "chyba reindex: %s" % str(_re)[:200]
     return {"ok": True, "id": znid, "kod": kod, "oblast": oblast, "zdroj": g2007_zdroj,
             "projekce": g2007_zdroj, "uklizeno_docs_z": cleaned,
+            "reindexovano_chunku": reindexovano,
             "export_souboru": exp.get("souboru") if isinstance(exp, dict) else None}
 
 

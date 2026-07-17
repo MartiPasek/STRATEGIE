@@ -146,12 +146,15 @@ function render(){
     +'<div id="cad"><div class="hint">Načítám…</div></div></div>';
   // CVE — kontrola zranitelností závislostí
   h+='<h2>🛡️ Kontrola zranitelností (CVE)</h2><div class="c" id="cveBox"><div class="hint">Načítám…</div></div>';
+  // REGISTR INCIDENTŮ
+  h+='<h2>🚨 Registr incidentů (ISMS)</h2><div class="c" id="incidents"><div class="hint">Načítám…</div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
   // FEEDBACK INBOX
   h+='<h2>💬 Dotazy a připomínky (od lidí i auditorů)</h2><div class="c" id="fbinbox"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
   loadCadence();
+  loadIncidents();
   if(!j.ro){loadAud();loadFeedback();loadVault();loadCve();}else{lockRO();}
 }
 function lockRO(){
@@ -370,6 +373,124 @@ function audCreate(){
   });
 }
 function audRevoke(id){if(!confirm("Zrušit tento auditorský přístup?"))return;api("/api/v1/erp/app/iso/auditor/revoke","POST",{id:id}).then(()=>loadAud());}
+// ── REGISTR INCIDENTŮ ──
+var INC_KAT={dostupnost:"Dostupnost",duvernost:"Důvěrnost",integrita:"Integrita"};
+var INC_ZAV={nizka:["nízká","#8fa0b4"],stredni:["střední","#fbbf24"],vysoka:["vysoká","#fb923c"],kriticka:["kritická","#f87171"]};
+var INC_STAV={novy:["nový","#fbbf24"],reseni:["řešení","#4f8ef7"],vyreseno:["vyřešeno","#34d399"],uzavreno:["uzavřeno","#34d399"]};
+var ACT_STAV={otevreno:["otevřeno","#fbbf24"],probiha:["probíhá","#4f8ef7"],hotovo:["hotovo","#34d399"]};
+function _iv(id){var e=document.getElementById(id);return e?e.value:"";}
+function loadIncidents(){
+  var el=document.getElementById("incidents");if(!el)return;
+  var RO=!!(DATA&&DATA.ro);
+  api("/api/v1/erp/app/iso/incidents").then(function(j){
+    if(!j||!j.ok){el.innerHTML='<div class="hint">'+esc((j&&j.error)||"chyba")+'</div>';return;}
+    var rows=j.incidents||[];
+    var h='<div class="hint" style="margin-bottom:6px">Evidence bezpečnostních událostí (ISO/IEC 27001 A.5.24–A.5.28): záznam, klasifikace (C/I/A), časová osa, dopad, kořenová příčina a nápravná/preventivní opatření (CAPA). Každá změna má auditní stopu.</div>';
+    if(!RO){
+      if(!rows.length){h+='<div class="c" style="background:rgba(251,191,36,.08);border:1px solid #fbbf24"><b>⚡ Rychlý start:</b> zapsat dnešní výpadek (17.7.) do registru jedním klikem, včetně 6 opatření CAPA. <div style="margin-top:6px"><button class="btn sm" onclick="incSeedToday()">Založit INC-2026-07-17-01</button></div></div>';}
+      h+='<div style="margin-bottom:8px"><button class="btn sm ghost" onclick="incFormTgl()">+ Nový incident</button></div>'+incFormHtml();
+    }
+    if(!rows.length){h+='<div class="hint">Zatím žádné incidenty v registru.</div>';}
+    rows.forEach(function(i){
+      var zv=INC_ZAV[i.zavaznost]||["",""],sv=INC_STAV[i.stav]||["",""];
+      h+='<div class="row"><div class="grow">'
+        +'<div class="nm">'+esc(i.ev_cislo)+' — '+esc(i.nazev)+' '
+          +'<span class="pill" style="background:rgba(255,255,255,.06);color:'+sv[1]+'">'+esc(sv[0]||i.stav||"")+'</span> '
+          +'<span class="pill" style="background:rgba(255,255,255,.06);color:'+zv[1]+'">'+esc(zv[0]||i.zavaznost||"")+'</span> '
+          +'<span class="pill" style="background:rgba(143,160,180,.16);color:#8fa0b4">'+esc(INC_KAT[i.kategorie]||i.kategorie||"")+'</span></div>'
+        +(i.system?'<div class="meta">🖥 '+esc(i.system)+'</div>':'')
+        +'<div class="meta">🕐 vznik '+esc(i.vznik||"—")+' · detekce '+esc(i.detekce||"—")+' · obnoveno '+esc(i.obnoveni||"—")+'</div>'
+        +(i.popis?'<div class="meta" style="margin-top:4px"><b>Popis:</b> '+esc(i.popis)+'</div>':'')
+        +(i.pricina?'<div class="meta"><b>Kořenová příčina:</b> '+esc(i.pricina)+'</div>':'')
+        +(i.dopad?'<div class="meta"><b>Dopad:</b> '+esc(i.dopad)+'</div>':'')
+        +(i.reseni?'<div class="meta"><b>Vyřešení:</b> '+esc(i.reseni)+'</div>':'')
+        +'<div class="meta">👤 nahlásil: '+esc(i.ohlasil||"—")+' · zpracoval: '+esc(i.zpracoval||"—")+'</div>'
+        +'<div style="margin-top:6px"><div class="hint" style="font-weight:700">Nápravná a preventivní opatření (CAPA):</div>';
+      (i.akce||[]).forEach(function(a){
+        var as=ACT_STAV[a.stav]||["",""];
+        h+='<div class="meta" style="display:flex;gap:8px;align-items:center;padding:2px 0">'
+          +'<span class="pill" style="background:rgba(255,255,255,.06);color:'+as[1]+'">'+esc(as[0]||a.stav||"")+'</span> '
+          +'<span class="hint">'+(a.typ==="preventivni"?"preventivní":"nápravné")+'</span> '
+          +'<span style="flex:1">'+esc(a.nazev)+(a.vlastnik?' <i style="color:#8fa0b4">— '+esc(a.vlastnik)+'</i>':'')+(a.termin?' <span class="hint">(termín '+esc(a.termin)+')</span>':'')+'</span>'
+          +(RO?"":'<button class="btn sm '+(a.stav==="hotovo"?"ghost":"")+'" onclick="incActDone('+a.id+',\''+(a.stav==="hotovo"?"otevreno":"hotovo")+'\')">'+(a.stav==="hotovo"?"vrátit":"✓ hotovo")+'</button>')
+          +'</div>';
+      });
+      if(!RO){
+        h+='<div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="btn sm ghost" onclick="incActAdd('+i.id+')">+ přidat opatření</button>'
+          +'<span class="hint">stav:</span><select onchange="incSetStav('+i.id+',this.value)" style="font-size:12px">'
+          +["novy","reseni","vyreseno","uzavreno"].map(function(s){return '<option value="'+s+'"'+(s===i.stav?" selected":"")+'>'+(INC_STAV[s]?INC_STAV[s][0]:s)+'</option>';}).join("")
+          +'</select></div>';
+      }
+      h+='</div></div></div>';
+    });
+    el.innerHTML=h;
+  }).catch(function(){el.innerHTML='<div class="hint">chyba načtení</div>';});
+}
+function incFormHtml(){
+  return '<div id="incForm" class="c" style="display:none;background:#0f1830">'
+    +'<div style="display:flex;flex-wrap:wrap;gap:6px">'
+    +'<input id="if_nazev" placeholder="Název incidentu" style="flex:1;min-width:220px">'
+    +'<select id="if_kat"><option value="dostupnost">Dostupnost</option><option value="duvernost">Důvěrnost</option><option value="integrita">Integrita</option></select>'
+    +'<select id="if_zav"><option value="nizka">nízká</option><option value="stredni">střední</option><option value="vysoka" selected>vysoká</option><option value="kriticka">kritická</option></select>'
+    +'<select id="if_stav"><option value="novy">nový</option><option value="reseni">řešení</option><option value="vyreseno">vyřešeno</option><option value="uzavreno">uzavřeno</option></select></div>'
+    +'<input id="if_system" placeholder="Dotčený systém" style="width:100%;margin-top:6px">'
+    +'<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">'
+    +'<label class="hint">vznik <input id="if_vznik" type="datetime-local"></label>'
+    +'<label class="hint">detekce <input id="if_detekce" type="datetime-local"></label>'
+    +'<label class="hint">obnoveno <input id="if_obnoveni" type="datetime-local"></label></div>'
+    +'<textarea id="if_popis" placeholder="Popis" style="width:100%;margin-top:6px;min-height:40px;background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px"></textarea>'
+    +'<textarea id="if_pricina" placeholder="Kořenová příčina" style="width:100%;margin-top:6px;min-height:40px;background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px"></textarea>'
+    +'<textarea id="if_dopad" placeholder="Dopad" style="width:100%;margin-top:6px;min-height:40px;background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px"></textarea>'
+    +'<textarea id="if_reseni" placeholder="Vyřešení" style="width:100%;margin-top:6px;min-height:40px;background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px"></textarea>'
+    +'<div style="display:flex;gap:6px;margin-top:6px"><input id="if_ohlasil" placeholder="Nahlásil"><input id="if_zpracoval" placeholder="Zpracoval"></div>'
+    +'<div style="margin-top:8px"><button class="btn sm" onclick="incSave()">Uložit incident</button> <span id="if_msg" class="hint"></span></div></div>';
+}
+function incFormTgl(){var e=document.getElementById("incForm");if(e)e.style.display=(e.style.display==="none"?"block":"none");}
+function incSave(){
+  var b={nazev:_iv("if_nazev"),kategorie:_iv("if_kat"),zavaznost:_iv("if_zav"),stav:_iv("if_stav"),system:_iv("if_system"),
+    vznik_at:_iv("if_vznik")||null,detekce_at:_iv("if_detekce")||null,obnoveni_at:_iv("if_obnoveni")||null,
+    popis:_iv("if_popis"),pricina:_iv("if_pricina"),dopad:_iv("if_dopad"),reseni:_iv("if_reseni"),
+    ohlasil:_iv("if_ohlasil"),zpracoval:_iv("if_zpracoval")};
+  if(!b.nazev){document.getElementById("if_msg").textContent="vyplň název";return;}
+  api("/api/v1/erp/app/iso/incident-save","POST",b).then(function(r){
+    if(r&&r.ok){loadIncidents();}else{document.getElementById("if_msg").textContent=(r&&r.error)||"chyba";}
+  });
+}
+function incSetStav(iid,stav){api("/api/v1/erp/app/iso/incident-save","POST",{id:iid,stav:stav}).then(function(r){if(r&&r.ok)loadIncidents();else alert((r&&r.error)||"chyba");});}
+function incActDone(id,stav){api("/api/v1/erp/app/iso/incident-action-save","POST",{id:id,stav:stav}).then(function(r){if(r&&r.ok)loadIncidents();else alert((r&&r.error)||"chyba");});}
+function incActAdd(iid){
+  var nazev=prompt("Popis opatření (CAPA):");if(nazev==null||!nazev.trim())return;
+  var typ=confirm("OK = preventivní, Zrušit = nápravné")?"preventivni":"napravne";
+  var vlastnik=prompt("Vlastník (nepovinné):")||"";
+  var termin=prompt("Termín YYYY-MM-DD (nepovinné):")||"";
+  api("/api/v1/erp/app/iso/incident-action-save","POST",{incident_id:iid,typ:typ,nazev:nazev.trim(),vlastnik:vlastnik,termin:termin||null}).then(function(r){if(r&&r.ok)loadIncidents();else alert((r&&r.error)||"chyba");});
+}
+function incSeedToday(){
+  var inc={ev_cislo:"INC-2026-07-17-01",nazev:"Výpadek dostupnosti strategie-ai.com (ERP + mobilní aplikace)",
+    kategorie:"dostupnost",zavaznost:"vysoka",stav:"uzavreno",
+    system:"STRATEGIE — ERP web + mobilní aplikace (strategie-ai.com); APP server Windows, privátní 10.200.188.11, veřejná 185.219.169.86",
+    vznik_at:"2026-07-17T01:04",detekce_at:"2026-07-17T07:30",obnoveni_at:"2026-07-17T09:00",
+    popis:"Web ERP i mobilní aplikace byly plošně nedostupné z internetu pro všechny externí uživatele. Příchozí TCP 443 a 80 se z internetu k serveru nedostávaly.",
+    pricina:"Filtrování příchozího TCP 443/80 na hraně poskytovatele sítě (ČMIS); počátek cca 01:04 odpovídá nočním změnám na jejich straně. Server, DNS, certifikát, aplikace, DB i Windows Firewall vyloučeny — server po celou dobu lokálně vracel HTTP 200 s platným TLS 1.3, z jiného stroje ICMP ping procházel (~5 ms), ale TCP 443 vypršel.",
+    dopad:"Dostupnost — úplný externí výpadek cca 8 h (z toho ~6,5 h než byl zjištěn, chyběl externí monitoring). Důvěrnost a integrita bez dopadu; žádná data nevyzrazena, nezměněna ani ztracena. Nejde o porušení ochrany osobních údajů.",
+    reseni:"Obnovením průchodnosti příchozího 443/80 na straně poskytovatele; služba naskočila v 09:00 bez zásahu na serveru. Během incidentu dostupnost demonstrována interně (lokální hosts na serveru).",
+    ohlasil:"Petra (nahlášeno ráno)",zpracoval:"Marti Pašek / Claude"};
+  var acts=[
+    ["preventivni","Externí monitoring dostupnosti s alarmem (SMS/e-mail/push) — výpadek by byl znám v 01:05 místo ráno","",""],
+    ["preventivni","Odolná hrana před serverem (Cloudflare) — skrytí origin IP, ochrana proti filtraci na IP úrovni, servisní stránka místo chyby","",""],
+    ["preventivni","Redundance / failover (druhá síťová cesta nebo poskytovatel + health-checked failover DNS); záloha DB mimo hlavní stroj","",""],
+    ["preventivni","Offline režim kritických funkcí v PWA (docházka) — cache + fronta","",""],
+    ["preventivni","Doplnit runbook + kontakt a SLA na poskytovatele (ČMIS) do dokumentace","",""],
+    ["napravne","Uvolnění systémového disku C: APP serveru (Windows Update cache + WinSxS) + týdenní automatický úklid (STRATEGIE-DiskCleanup)","Marti / Claude","hotovo"]
+  ];
+  if(!confirm("Založit dnešní výpadek INC-2026-07-17-01 do registru včetně 6 opatření CAPA?"))return;
+  api("/api/v1/erp/app/iso/incident-save","POST",inc).then(function(r){
+    if(!r||!r.ok){alert("chyba: "+((r&&r.error)||"?"));return;}
+    var iid=r.id,chain=Promise.resolve();
+    acts.forEach(function(a){chain=chain.then(function(){return api("/api/v1/erp/app/iso/incident-action-save","POST",{incident_id:iid,typ:a[0],nazev:a[1],vlastnik:a[2],stav:a[3]||"otevreno"});});});
+    chain.then(function(){loadIncidents();});
+  });
+}
 load();
 </script>
 <script src="/static/nav-back.js"></script>

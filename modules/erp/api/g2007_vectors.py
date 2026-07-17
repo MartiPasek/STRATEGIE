@@ -137,15 +137,23 @@ def _search_work(query, oblast, k):
         return {"ok": False, "error": "embed_query %s: %s" % (type(e).__name__, str(e)[:300])}
     sg = get_session()
     try:
-        sql = ("SELECT z.kod, z.nadpis, o.kod AS oblast, "
-               "ROUND((1 - (v.embedding <=> CAST(:qv AS vector)))::numeric, 3) AS shoda, "
-               "LEFT(ch.text, 240) AS ukazka "
-               "FROM g2007.znalost_vector v "
-               "JOIN g2007.znalost_chunk ch ON ch.id=v.chunk_id "
-               "JOIN g2007.znalost z ON z.id=ch.znalost_id "
-               "JOIN g2007.znalost_oblast o ON o.id=z.oblast_id "
-               "WHERE z.stav='aktivni' " + ("AND o.kod=:ob " if oblast else "") +
-               "ORDER BY v.embedding <=> CAST(:qv AS vector) LIMIT :k")
+        # DISTINCT ON (z.id) → nejlepší chunk každé znalosti; vnější dotaz pak
+        # seřadí tyto reprezentanty podle podobnosti a vezme top-k. Bez toho by
+        # top-k vracelo více chunků jedné znalosti (balast).
+        sql = ("SELECT kod, nadpis, oblast, "
+               "ROUND((1 - dist)::numeric, 3) AS shoda, ukazka "
+               "FROM ("
+               "  SELECT DISTINCT ON (z.id) z.id AS zid, z.kod, z.nadpis, o.kod AS oblast, "
+               "    (v.embedding <=> CAST(:qv AS vector)) AS dist, "
+               "    LEFT(ch.text, 240) AS ukazka "
+               "  FROM g2007.znalost_vector v "
+               "  JOIN g2007.znalost_chunk ch ON ch.id=v.chunk_id "
+               "  JOIN g2007.znalost z ON z.id=ch.znalost_id "
+               "  JOIN g2007.znalost_oblast o ON o.id=z.oblast_id "
+               "  WHERE z.stav='aktivni' " + ("AND o.kod=:ob " if oblast else "") +
+               "  ORDER BY z.id, dist"
+               ") sub "
+               "ORDER BY dist LIMIT :k")
         params = {"qv": qlit, "k": int(k)}
         if oblast:
             params["ob"] = oblast

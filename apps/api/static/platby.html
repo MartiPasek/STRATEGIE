@@ -514,7 +514,7 @@ function loadPlataky(force){
       _plataky=d.plataky||[]; if(d.firmy)_firmy=d.firmy; _ptotal=d.total||0; _psums=d.sums||{}; _pshown=d.shown||_plataky.length; renderPlataky();
     }).catch(function(){document.getElementById('plataky-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
-var _ffFirma='all',_ffStav='open',_fCol={},_fActive=null,_faktury=[],_fsums={},_ftotal=0,_fshown=0,_faktSel={},_faktLastIdx=null,_fSyncAt=null,_faktColW=(function(){try{return JSON.parse(localStorage.getItem('fakt_colw')||'{}')||{};}catch(_){return {};}})();
+var _ffFirma='all',_ffStav='open',_fCol={},_fActive=null,_faktury=[],_fsums={},_ftotal=0,_fshown=0,_faktSel={},_faktLastIdx=null,_fSyncAt=null,_faktColW={};
 var FCOLS=[
   {k:'realizovano',h:'R',t:'b',tt:'Realizováno'},{k:'uctovano',h:'Ú',t:'b',tt:'Účtováno'},{k:'schvaleno',h:'S',t:'b',tt:'Schváleno'},{k:'zakaz',h:'Z',t:'b',tt:'Zákaz'},
   {k:'rada',h:'Řada',t:'t'},{k:'doklad',h:'Doklad',t:'dok'},{k:'vs',h:'VS',t:'t'},{k:'dodavatel',h:'Dodavatel',t:'t'},
@@ -526,7 +526,6 @@ var FCOLS=[
 var _faktColDef={_sel:30,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:87,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
 function _colw(k){return _faktColW[k]||_faktColDef[k]||60;}
 function _faktTotW(){var t=_colw('_sel');FCOLS.forEach(function(c){t+=_colw(c.k);});return t;}
-function _saveColW(){try{localStorage.setItem('fakt_colw',JSON.stringify(_faktColW));}catch(_){}}
 function _ck(v){return v?'<span style="color:#3fb950;font-weight:700">✓</span>':'<span style="color:var(--dim)">–</span>';}
 function dok(d){return (''+(d||'')).replace(/^[A-Za-z]+/,'');}
 function _dnum(s){var m=(''+s).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);return m?(parseInt(m[3],10)*10000+parseInt(m[2],10)*100+parseInt(m[1],10)):null;}
@@ -727,10 +726,10 @@ function bindColResize(){
         var tb=document.querySelector('#faktury-body table.fakt');
         if(tb)tb.style.width=_faktTotW()+'px';
       }
-      function _up(){ document.removeEventListener('mousemove',_mv); document.removeEventListener('mouseup',_up); document.body.style.cursor=''; _saveColW(); }
+      function _up(){ document.removeEventListener('mousemove',_mv); document.removeEventListener('mouseup',_up); document.body.style.cursor=''; }
       document.addEventListener('mousemove',_mv); document.addEventListener('mouseup',_up);
     };
-    g.ondblclick=function(e){ e.preventDefault(); e.stopPropagation(); delete _faktColW[g.dataset.col]; _saveColW(); renderFaktury(); };
+    g.ondblclick=function(e){ e.preventDefault(); e.stopPropagation(); delete _faktColW[g.dataset.col]; renderFaktury(); };
   });
 }
 function renderFaktury(){

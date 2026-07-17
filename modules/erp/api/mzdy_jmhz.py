@@ -70,6 +70,14 @@ OD_MAP = [
     ("OD_NeomluvenaAbs", "neomluveneAbsence"),
 ]
 
+# ZMR — zaměstnání malého rozsahu / dohody BEZ účasti na pojištění. ELDP kód dle druhu vztahu:
+# DPP → T++, DPČ → A++ (oficiální ČSSZ vzory TS 1.4 036 / 021). Helios u nich drží v TabMzJmhzEldp
+# PRÁZDNÝ Kod a druh vztahu tam není → explicitní mapa (potvrzeno s Marti 17.7.2026: Senft #374 i
+# Herejtová #525 = DPP → T++). Default mimo mapu = T++ (DPP). TODO: až bude Marti-AI mít přístup
+# do UCTO_EC/ES, odvodit druh vztahu z Helios (TabMzJmhzPP / pojistný vztah) a mapu zrušit.
+ZMR_KOD = {("EC", 374): "T++", ("EC", 525): "T++"}
+ZMR_KOD_DEFAULT = "T++"
+
 
 def _r(x):
     return int(round(x))
@@ -106,6 +114,11 @@ def compute_person_amounts(p):
             a["zakladniSleva"] = int(p.get("zakladniSleva_real"))
         else:
             a["zakladniSleva"] = SLEVA_POPLATNIK if proh else 0
+        if p.get("zmr"):  # ZMR / dohoda bez účasti — nulové SP i ZP (čistá/daň zůstává z Heliosu)
+            a["sp_zam"] = 0
+            a["sp_firma"] = 0
+            a["zp_zam"] = 0
+            a["zp_firma"] = 0
         return a
 
     # --- fallback: derivace z hrubé (bez Helios hodnot) ---
@@ -169,6 +182,25 @@ def _person_form(a, rok, mesic, dni_v_mesici):
                 _p.append("<form:%s>%d</form:%s>" % (_el, _v, _el))
         odec_xml = "\n\t\t\t\t\t\t\t<form:odecitaneDny>" + "".join(_p) + "</form:odecitaneDny>"
 
+    # --- ZMR (zaměstnání malého rozsahu / DPP bez účasti na pojištění) ---
+    # Detekce: prázdný Kod v Helios ELDP (attach_eldp → zmr=True, eldp_kod=T++/A++). Struktura
+    # dle oficiálních ČSSZ vzorů (TS 1.4 036 DPP / 021 DPČ): vyměř. základ jen prijemNepojistenaCinnost,
+    # BEZ vymerovaciZakladParagraf5; SP i ZP = 0 (řeší compute_person_amounts); ELDP bez vyl./odečít. dob.
+    if bool(a.get("zmr")):
+        vyl_xml = ""
+        odec_xml = ""
+        vz_par5_xml = ("\t\t\t\t<form:vymerovaciZaklad>\n"
+                       "\t\t\t\t\t<form:prijemNepojistenaCinnost>%d</form:prijemNepojistenaCinnost>\n"
+                       "\t\t\t\t</form:vymerovaciZaklad>" % h)
+    else:
+        vz_par5_xml = ("\t\t\t\t<form:vymerovaciZaklad>\n"
+                       "\t\t\t\t\t<form:castkaOdvodPojistneho>%d</form:castkaOdvodPojistneho>\n"
+                       "\t\t\t\t\t<form:prijemNepojistenaCinnost>0</form:prijemNepojistenaCinnost>\n"
+                       "\t\t\t\t</form:vymerovaciZaklad>\n"
+                       "\t\t\t\t<form:vymerovaciZakladParagraf5>\n"
+                       "\t\t\t\t\t<form:pismenoA>%d</form:pismenoA>\n"
+                       "\t\t\t\t</form:vymerovaciZakladParagraf5>" % (h, h))
+
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>
 \t\t\t<n1:idFormulare>{uuid.uuid4()}</n1:idFormulare>
@@ -209,13 +241,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t\t<form:pojisteniOd>{mstart}</form:pojisteniOd>
 \t\t\t\t\t<form:pojisteniDo>{mend}</form:pojisteniDo>
 \t\t\t\t</form:trvani>
-\t\t\t\t<form:vymerovaciZaklad>
-\t\t\t\t\t<form:castkaOdvodPojistneho>{h}</form:castkaOdvodPojistneho>
-\t\t\t\t\t<form:prijemNepojistenaCinnost>0</form:prijemNepojistenaCinnost>
-\t\t\t\t</form:vymerovaciZaklad>
-\t\t\t\t<form:vymerovaciZakladParagraf5>
-\t\t\t\t\t<form:pismenoA>{h}</form:pismenoA>
-\t\t\t\t</form:vymerovaciZakladParagraf5>
+{vz_par5_xml}
 \t\t\t\t<form:eldpSeznam>
 \t\t\t\t\t<form:eldp>
 \t\t\t\t\t\t<form:kod>{eldp_kod}</form:kod>
@@ -289,7 +315,8 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
     amt = [compute_person_amounts(p) for p in persons]
     dan_celkem = sum(a["danZalohaPoSleve"] for a in amt)
     bonus_celkem = sum(a.get("danBonus", 0) for a in amt)
-    zaklad_zam_a = sum(_r(float(a["hruba"])) for a in amt)
+    # ZMR / dohody bez účasti se nezapočítávají do vyměř. základu zaměstnavatele (PVPOJ)
+    zaklad_zam_a = sum(_r(float(a["hruba"])) for a in amt if not a.get("zmr"))
     poj_firma_a = sum(a["sp_firma"] for a in amt)
     poj_zam = sum(a["sp_zam"] for a in amt)
     poj_celkem = poj_firma_a + poj_zam
@@ -569,15 +596,25 @@ def attach_eldp(persons, firma, rok, mesic):
                     a["od_celkem"] += od_cel
     except Exception:
         agg = {}
+    fu = (firma or "").upper()
     for p in persons:
         zid = int(p.get("zid") or 0)
         a = agg.get(zid)
         if a is not None:
-            p["eldp_kod"] = a["kod"]
-            p["eldp_vd"] = a["vd"]
-            p["eldp_od"] = a["od"]
-            p["eldp_vd_celkem"] = a["vd_celkem"]
-            p["eldp_od_celkem"] = a["od_celkem"]
+            kod = (a["kod"] or "").strip()
+            if not kod:  # prázdný Kod v Helios ELDP → ZMR / dohoda bez účasti na pojištění
+                p["zmr"] = True
+                p["eldp_kod"] = ZMR_KOD.get((fu, int(p.get("cislo") or 0)), ZMR_KOD_DEFAULT)
+                p["eldp_vd"] = {}
+                p["eldp_od"] = {}
+                p["eldp_vd_celkem"] = 0
+                p["eldp_od_celkem"] = 0
+            else:
+                p["eldp_kod"] = kod
+                p["eldp_vd"] = a["vd"]
+                p["eldp_od"] = a["od"]
+                p["eldp_vd_celkem"] = a["vd_celkem"]
+                p["eldp_od_celkem"] = a["od_celkem"]
             p["eldp_zdroj"] = "helios"
     return persons
 
@@ -632,6 +669,9 @@ def generate_and_validate(firma, rok, mesic, prod=False):
         _k = (p.get("eldp_kod") or "").strip() or "1++"
         _kod_dist[_k] = _kod_dist.get(_k, 0) + 1
     eldp_helios = sum(1 for p in ps if p.get("eldp_zdroj") == "helios")
+    zmr_osoby = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full"),
+                  "kod": p.get("eldp_kod"), "hruba": p.get("hruba")}
+                 for p in ps if p.get("zmr")]
     vd_osoby = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full"),
                  "kod": (p.get("eldp_kod") or "").strip() or "1++",
                  "vd": p.get("eldp_vd"), "od": p.get("eldp_od") or None}
@@ -644,6 +684,7 @@ def generate_and_validate(firma, rok, mesic, prod=False):
         "ocr_pocet": len(ocr_osoby), "ocr_osoby": ocr_osoby,
         "eldp_helios": eldp_helios, "eldp_kod_dist": _kod_dist,
         "vd_pocet": len(vd_osoby), "vd_osoby": vd_osoby,
+        "zmr_pocet": len(zmr_osoby), "zmr_osoby": zmr_osoby,
         "vysledky": res.get("vysledky", []),
     }
 

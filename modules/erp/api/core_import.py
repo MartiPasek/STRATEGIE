@@ -79,6 +79,8 @@ _CISELNIK_SQL_FALLBACK = {
     1167: "SELECT NAME, Value\nFROM (\n    SELECT 'KČ' AS NAME,'0' AS Value,1 AS Poradi\n    UNION\n    SELECT 'EUR' AS NAME,'4' AS Value,2 AS Poradi\n    UNION\n    SELECT '' AS NAME,'' AS Value,3 AS Poradi\n    ) List\nORDER BY Poradi",
     1168: "SELECT NAME, Value\nFROM (\n    SELECT 'Rozvaděč - VR' AS NAME,'Rozvaděč' AS Value,1 AS Poradi\n    UNION\n    SELECT 'Instalace - VR' AS NAME,'Instalace' AS Value,2 AS Poradi\n    UNION\n    SELECT 'EPLAN - VR' AS NAME,'EPLAN' AS Value,3 AS Poradi\n    UNION\n    SELECT 'Materiál - PR' AS NAME,'Material' AS Value,4 AS Poradi\n    UNION\n    SELECT 'Software - SW' AS NAME,'Software' AS Value,5 AS Poradi \n    ) List\nORDER BY Poradi",
     1790: 'SELECT D.DIC,D.VysledekOvereniDIC,O.Nazev,D.* FROM TabDicOrg D\nLEFT OUTER JOIN TabCisOrg O ON D.CISLOoRG = O.CisloOrg\nWHERE D.aktualniDic = 1',
+    107: "SELECT DISTINCT\nKO.ID,KO.BlokovaniEditoru,KO.AdrZeme,KO.StatniPrislus,KO.Cislo,KO.Prijmeni,KO.Jmeno, (KO.Prijmeni + ' ' +isnull(KO.Jmeno,'')) AS PrijmeniJmeno, KO.TitulPred, KO.TitulZa,VKOsOrg11.CisloOrg,convert(bit,VKOsOrg11.Stav) as StavOrg, VKOsOrg11.Nazev AS Organizace,VKOsVOrgKOs11.Funkce,VKOsOrg11.NazevOkresu as Okres,VKOsOrg11.Misto AS Město, VKOsEmail.Spojeni AS Email,VKOsEmailPr.Spojeni AS EmailPr,VKOsPevnaLinka.Spojeni AS Pevna,VKOsMobil.Spojeni AS Mobil,VKOsMobilPr.Spojeni AS MobilPr,VKOsFax.Spojeni AS Fax,VKOsWEB.Spojeni AS WEB,ISNULL(KOe._neaktivni,0) AS Neaktivni,2 as PoradiVSelectu, VKOsOrg11.id as IDOrg\n,(KO.Prijmeni + ' ' +isnull(KO.Jmeno,'')) + ', Email: ' + ISNULL(VKOsEmail.Spojeni,'') + ', Tel:' + COALESCE(VKOsPevnaLinka.Spojeni, VKOsMobil.Spojeni, VKOsMobilPr.Spojeni, '') As KontaktText,\nISNULL(VKOsOrg11.Stav,0) as VKOsOrg11_Stav, KO.autor, KO.datPorizeni \nFROM TabCisKOs KO\n  LEFT OUTER JOIN TabCisKOs_EXT KOe ON KOe.ID=KO.ID\n   LEFT OUTER JOIN TabCisOrg VKOsOrg11 ON VKOsOrg11.id in (SELECT TabVztahOrgKOs.IDOrg FROM TabVztahOrgKOs WHERE TabVztahOrgKOs.IDCisKOs=KO.ID )\n   LEFT OUTER JOIN TabVztahOrgKOs VKOsVOrgKOs11 ON VKOsVOrgKOs11.ID in (SELECT vok.ID FROM TabVztahOrgKOs vok WHERE vok.IDCisKOs=KO.ID )\n   LEFT OUTER JOIN TabKontakty VKOsEmail ON KO.ID=VKOsEmail.IDCisKOs  AND VKOsEmail.Druh = 6 AND VKOsEmail.Kam = 0 AND VKOsEmail.IDVztahKOsOrg IS NULL AND VKOsEmail.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsEmailPr ON KO.ID=VKOsEmailPr.IDCisKOs AND  VKOsEmailPr.Druh = 6 AND VKOsEmailPr.Kam = 1 AND VKOsEmailPr.IDVztahKOsOrg IS NULL AND VKOsEmailPr.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsPevnaLinka ON KO.ID=VKOsPevnaLinka.IDCisKOs  AND VKOsPevnaLinka.Druh = 1 AND VKOsPevnaLinka.IDVztahKOsOrg IS NULL AND VKOsPevnaLinka.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsMobil ON KO.ID=VKOsMobil.IDCisKOs  AND VKOsMobil.Druh = 2 AND VKOsMobil.Kam = 0 AND VKOsMobil.IDVztahKOsOrg IS NULL AND VKOsMobil.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsMobilPr ON KO.ID=VKOsMobilPr.IDCisKOs AND  VKOsMobilPr.Druh = 2 AND VKOsMobilPr.Kam = 1 AND VKOsMobilPr.IDVztahKOsOrg IS NULL AND VKOsMobilPr.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsFax ON KO.ID=VKOsFax.IDCisKOs AND VKOsFax.Druh = 3 AND VKOsFax.IDVztahKOsOrg IS NULL AND VKOsFax.Prednastaveno=1\n   LEFT OUTER JOIN TabKontakty VKOsWEB ON KO.ID=VKOsWEB.IDCisKOs AND VKOsWEB.Druh = 7 AND VKOsWEB.IDVztahKOsOrg IS NULL AND VKOsWEB.Prednastaveno=1\nWHERE (ISNULL(KOe._neaktivni,0)<>1) --AND (ISNULL(VKOsOrg11.Stav,0)<>1) -- and   VKOsOrg11.CisloOrg = 2292\nunion\nSELECT null,null,null,null,null,null,null,null, null,null,null,null, null,null,null,null, null,null,null,null,null,null,null,null,1 as PoradiVSelectu,null,null,null, null, null\nORDER BY PoradivSelectu,KO.PRIJMENI",
+    13006: 'SELECT \nID\n,Nazev\n,Autor\n,DatPorizeni \nFROM EC_Vytizeni_SkupinyZakazniku\nUNION ALL\nSELECT \nNULL AS ID\n,NULL AS Nazev\n,NULL AS Autor\n,NULL AS DatPorizeni',
 }
 
 # Překlad Centrála typů na kódy, které editační renderer (design_forms.js)
@@ -105,9 +107,11 @@ _RENDER_CODE_MAP = {
 # (filter_field → posílá se PK editovaného masteru = this._spec.data.id).
 _GRID_SQL = {
     602: "-- Zabránít čekání na uzamčené tabulky\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED\nSELECT\nV.OK as GenVF,\nP.Poradi,\nP.ID,\nP.IDZboSklad,\nP.IDDoklad,\nP.RegCis,\nP.SkupZbo,\nP.Poznamka,\nP.Nazev1,\nP.Nazev2,\nP.NazevSozNa3,\nP.SlevaZboKmen,\nP.SKP,\nP.CisloZakazky,\nP.CisloZam,\nP.MJ,\nP.Mnozstvi,\nP.MnOdebrane,\nP.JCbezDaniKC,\n(P.JCbezDaniKC*((100-p.SlevaZboKmen)/100))as PoSleveJCbezDaniKC,\n(P.JCbezDaniKC-(P.JCbezDaniKC*((100-p.SlevaZboKmen)/100))) as SlevaJCbezDaniKC,\nP.JCbezDaniVal,\n(P.JCbezDaniVal*((100-p.SlevaZboKmen)/100))as PoSleveJCbezDaniVal,\n(P.JCbezDaniVal-(P.JCbezDaniVal*((100-p.SlevaZboKmen)/100))) as SlevaJCbezDaniVal,\nP.CCbezDaniKC,\n(P.CCbezDaniKC*((100-p.SlevaZboKmen)/100))as PoSleveCCbezDaniKC,\n(P.CCbezDaniKC-(P.CCbezDaniKC*((100-p.SlevaZboKmen)/100))) as SlevaCCbezDaniKC,\nP.CCbezDaniVal,\n(P.CCbezDaniVal*((100-p.SlevaZboKmen)/100))as PoSleveCCbezDaniVal,\n(P.CCbezDaniVal-(P.CCbezDaniVal*((100-p.SlevaZboKmen)/100))) as SlevaCCbezDaniVal,\nP.CCsDPHKC,\nP.CCsDPHVal,\nP.PozadDatDod,\nP.PotvrzDatDod,\nP.DatPorizeni,\nP.Autor,\nP.DatZmeny,\nP.zmenil,\nP.Popis4 as Dodano,\nP.PotvrzDatDod_X,\nP.SazbaDPH,\nP.kurz,\nD.DruhPohybuZbo,\nD.RadaDokladu,\nD.PoradoveCislo,\nD.Prijemce,\nD.CisloOrg AS CisloOrgDoklad,\nD.DatPorizeni,\nD.CisloZakazky AS ZakazkaDokl,\nD.TerminDodavky,\nD.PopisDodavky, D.Splneno,\nD.Realizovano,\nD.Uctovano,\nS.IDKmenZbozi,\nS.MnozSPrijBezVyd as Skladem,\n(case when D.DruhPohybuZbo=0 THEN 'Poíjemka'\nwhen D.DruhPohybuZbo=1 THEN 'Storno poíjmu'\nwhen D.DruhPohybuZbo=2 THEN 'Výdej ze skladu'\nwhen D.DruhPohybuZbo=3 THEN 'Storno výdeje'\nwhen D.DruhPohybuZbo=4 THEN 'Výdej v ev. ceni'\nwhen D.DruhPohybuZbo=5 THEN 'Prubežka'\nwhen D.DruhPohybuZbo=6 THEN 'Objednávka'\nwhen D.DruhPohybuZbo=7 THEN 'Reklamace dod.'\nwhen D.DruhPohybuZbo=8 THEN 'Reklamace odb.'\nwhen D.DruhPohybuZbo=9 THEN 'Exp. poíkaz'\nwhen D.DruhPohybuZbo=10 THEN 'Rezervace'\nwhen D.DruhPohybuZbo=11 THEN 'Nabídka'\nwhen D.DruhPohybuZbo=12 THEN 'Sestava'\nwhen D.DruhPohybuZbo=13 THEN 'Faktura vydaná'\nwhen D.DruhPohybuZbo=14 THEN 'Dobropis vydaný'\nwhen D.DruhPohybuZbo=18 THEN 'Faktura poijatá'\nelse  'NEUVEDENO' end) as Pohyb,\nK.Hmotnost as HmotnostKS\nFROM TabPohybyZbozi AS P\nLEFT OUTER JOIN TabDokladyZbozi D ON P.IDDoklad = D.ID\nLEFT OUTER JOIN TabStavSkladu S ON P.IDZboSklad = S.ID\nLEFT OUTER JOIN TabKmenZbozi K ON S.IDKmenZbozi = K.ID\nLEFT OUTER JOIN EC_TabSeznamID V ON P.ID = V.ID\nWHERE P.IDDoklad = :ID\nORDER BY P.Poradi ASC\n-- Zpět na původní nastavení\nSET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+    601: "SELECT\nP.Poradi,\nP.ID,\nP.IDZboSklad,\nP.IDDoklad,\nP.RegCis,\nP.SkupZbo,\nP.Poznamka,\nP.Nazev1,\nP.Nazev2,\nP.NazevSozNa3,\nP.SlevaZboKmen,\nP.SKP,\nP.CisloZakazky,\nP.CisloZam,\nP.MJ,\nP.Mnozstvi,\nP.MnOdebrane,\nP.JCbezDaniKC,\n(P.JCbezDaniKC*((100-p.SlevaZboKmen)/100))as PoSleveJCbezDaniKC,\n(P.JCbezDaniKC-(P.JCbezDaniKC*((100-p.SlevaZboKmen)/100))) as SlevaJCbezDaniKC,\nP.JCbezDaniVal,\n(P.JCbezDaniVal*((100-p.SlevaZboKmen)/100))as PoSleveJCbezDaniVal,\n(P.JCbezDaniVal-(P.JCbezDaniVal*((100-p.SlevaZboKmen)/100))) as SlevaJCbezDaniVal,\nP.CCbezDaniKC,\n(P.CCbezDaniKC*((100-p.SlevaZboKmen)/100))as PoSleveCCbezDaniKC,\n(P.CCbezDaniKC-(P.CCbezDaniKC*((100-p.SlevaZboKmen)/100))) as SlevaCCbezDaniKC,\nP.CCbezDaniVal,\n(P.CCbezDaniVal*((100-p.SlevaZboKmen)/100))as PoSleveCCbezDaniVal,\n(P.CCbezDaniVal-(P.CCbezDaniVal*((100-p.SlevaZboKmen)/100))) as SlevaCCbezDaniVal,\nP.PozadDatDod,\nP.PotvrzDatDod,\nP.DatPorizeni,\nP.Autor,\nP.DatZmeny,\nP.zmenil,\nP.Popis4 as Dodano,\nP.PotvrzDatDod_X,\nP.SazbaDPH,\nD.DruhPohybuZbo,\nD.RadaDokladu,\nD.PoradoveCislo,\nD.Prijemce,\nD.CisloOrg AS CisloOrgDoklad,\nD.DatPorizeni,\nD.CisloZakazky AS ZakazkaDokl,\nD.TerminDodavky,\nD.PopisDodavky, D.Splneno,\nD.Realizovano,\nD.Uctovano,\nS.IDKmenZbozi,\nS.MnozSPrijBezVyd as Skladem,\n(case when D.DruhPohybuZbo=0 THEN 'Poíjemka'\nwhen D.DruhPohybuZbo=1 THEN 'Storno poíjmu'\nwhen D.DruhPohybuZbo=2 THEN 'Výdej ze skladu'\nwhen D.DruhPohybuZbo=3 THEN 'Storno výdeje'\nwhen D.DruhPohybuZbo=4 THEN 'Výdej v ev. ceni'\nwhen D.DruhPohybuZbo=5 THEN 'Prubežka'\nwhen D.DruhPohybuZbo=6 THEN 'Objednávka'\nwhen D.DruhPohybuZbo=7 THEN 'Reklamace dod.'\nwhen D.DruhPohybuZbo=8 THEN 'Reklamace odb.'\nwhen D.DruhPohybuZbo=9 THEN 'Exp. poíkaz'\nwhen D.DruhPohybuZbo=10 THEN 'Rezervace'\nwhen D.DruhPohybuZbo=11 THEN 'Nabídka'\nwhen D.DruhPohybuZbo=12 THEN 'Sestava'\nwhen D.DruhPohybuZbo=13 THEN 'Faktura vydaná'\nwhen D.DruhPohybuZbo=14 THEN 'Dobropis vydaný'\nwhen D.DruhPohybuZbo=18 THEN 'Faktura poijatá'\nelse  'NEUVEDENO' end) as Pohyb\nFROM TabPohybyZbozi AS P\nLEFT OUTER JOIN TabDokladyZbozi D ON P.IDDoklad = D.ID\nLEFT OUTER JOIN TabStavSkladu S ON P.IDZboSklad = S.ID\nWHERE P.IDDoklad = :ID\nORDER BY P.Poradi ASC",
 }
 _GRID_SPEC = {
     968: {"select_view": 602, "filter_field": "ID", "title": "Položky", "height_px": 360},
+    1028: {"select_view": 601, "filter_field": "ID", "title": "Položky", "height_px": 360},
 }
 
 
@@ -986,6 +990,12 @@ def run_core_import(arg: str) -> dict:
         # --ciselniky = zalozit ciselniky pro vsechny roletky formulare (dle registru).
         ciselniky_only = "--ciselniky" in arg
         arg = arg.replace("--ciselniky", "")
+        # --code <slug> = prepis kodu specu (napojeni na jiny core nez slug nazvu; Kristy 17.7.2026)
+        import re as _rec
+        _mco = _rec.search(r"--code\s+(\S+)", arg)
+        code_override = _mco.group(1) if _mco else None
+        if _mco:
+            arg = arg[:_mco.start()] + " " + arg[_mco.end():]
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
@@ -1074,6 +1084,17 @@ def run_core_import(arg: str) -> dict:
         if spec_only:
             from modules.erp.api import centrala_form_spec as _cfs
             spec = _cfs.build_spec(cen)
+            if code_override:
+                spec["code"] = code_override
+            _gsrc = []
+            for _g in spec.get("grids", []):
+                _sv = _g.get("select_view")
+                if _sv and _GRID_SQL.get(_sv):
+                    try:
+                        _r = _ensure_grid_source(s, int(_sv), _GRID_SQL[_sv])
+                        _gsrc.append(_r.get("code") or ("grid_%s" % _sv))
+                    except Exception as _ge:
+                        _gsrc.append("grid_%s CHYBA %s" % (_sv, str(_ge)[:60]))
             counts = _cfs.store(s, ec_form_id, spec)
             s.commit()
             return {
@@ -1083,6 +1104,7 @@ def run_core_import(arg: str) -> dict:
                     ["režim", "--spec (definice → fw.centrala_form_spec)"],
                     ["ec_form_id", ec_form_id],
                     ["code", spec.get("code")],
+                    ["grid_zdroje", ", ".join(_gsrc) or "—"],
                     ["label", spec.get("label")],
                     ["polí", counts["fields"]],
                     ["z toho lookup", counts["lookups"]],

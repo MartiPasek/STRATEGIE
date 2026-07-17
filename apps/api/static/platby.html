@@ -523,7 +523,7 @@ var FCOLS=[
   {k:'v_plataku',h:'V platáku',t:'b'},{k:'suma_uhrad',h:'Uhrazeno',t:'mu',r:1},
   {k:'banka_export',h:'Export',t:'b'},{k:'ceka_vypis',h:'Čeká výpis',t:'b'},{k:'bank_vypis',h:'Bank.výpis',t:'b'},{k:'uziv_ok',h:'Uživ.OK',t:'b'}
 ];
-var _faktColDef={_sel:30,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:120,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
+var _faktColDef={_sel:30,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:87,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
 function _colw(k){return _faktColW[k]||_faktColDef[k]||60;}
 function _faktTotW(){var t=_colw('_sel');FCOLS.forEach(function(c){t+=_colw(c.k);});return t;}
 function _saveColW(){try{localStorage.setItem('fakt_colw',JSON.stringify(_faktColW));}catch(_){}}

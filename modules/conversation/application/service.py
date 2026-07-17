@@ -11342,6 +11342,10 @@ def chat(
         # odpoví vlastními slovy stručně, s odkazem na kód znalosti — místo
         # aby doslova vysypala tool output (gotcha #18).
         "g2007_hledej",
+        # Obecný firemní RAG (17.7.2026, na přání Martiho): stejně jako
+        # g2007_hledej — vrací sekce z paměti sítě + směrnic. V synth roundu
+        # Marti-AI odpoví prózou místo výpisu záznamů.
+        "hledej_ve_znalostech",
     }
 
     preamble_text = ""

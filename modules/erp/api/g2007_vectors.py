@@ -33,23 +33,29 @@ def _guard(req):
 
 
 def _ensure_schema(sg):
+    """Best-effort. App role (strategie) nemá CREATE na g2007 — tabulky zakládá
+    Marti-AI přes bridge, tady se jen ověří/no-op (permission error se spolkne)."""
     from sqlalchemy import text as T
-    sg.execute(T(
-        "CREATE TABLE IF NOT EXISTS g2007.znalost_chunk ("
-        " id bigserial PRIMARY KEY,"
-        " znalost_id bigint NOT NULL REFERENCES g2007.znalost(id) ON DELETE CASCADE,"
-        " poradi int NOT NULL,"
-        " text text NOT NULL,"
-        " created_at timestamptz DEFAULT now())"))
-    sg.execute(T(
-        "CREATE TABLE IF NOT EXISTS g2007.znalost_vector ("
-        " chunk_id bigint PRIMARY KEY REFERENCES g2007.znalost_chunk(id) ON DELETE CASCADE,"
-        " embedding vector(1024) NOT NULL,"
-        " model varchar(50) DEFAULT 'voyage-3',"
-        " created_at timestamptz DEFAULT now())"))
-    sg.execute(T("CREATE INDEX IF NOT EXISTS ix_g2007_chunk_znalost "
-                 "ON g2007.znalost_chunk(znalost_id)"))
-    sg.commit()
+    ddl = [
+        ("CREATE TABLE IF NOT EXISTS g2007.znalost_chunk ("
+         " id bigserial PRIMARY KEY,"
+         " znalost_id bigint NOT NULL REFERENCES g2007.znalost(id) ON DELETE CASCADE,"
+         " poradi int NOT NULL,"
+         " text text NOT NULL,"
+         " created_at timestamptz DEFAULT now())"),
+        ("CREATE TABLE IF NOT EXISTS g2007.znalost_vector ("
+         " chunk_id bigint PRIMARY KEY REFERENCES g2007.znalost_chunk(id) ON DELETE CASCADE,"
+         " embedding vector(1024) NOT NULL,"
+         " model varchar(50) DEFAULT 'voyage-3',"
+         " created_at timestamptz DEFAULT now())"),
+        "CREATE INDEX IF NOT EXISTS ix_g2007_chunk_znalost ON g2007.znalost_chunk(znalost_id)",
+    ]
+    for stmt in ddl:
+        try:
+            sg.execute(T(stmt))
+            sg.commit()
+        except Exception:
+            sg.rollback()  # nemá práva / už existuje — pokračuj
 
 
 def _vec_literal(v):

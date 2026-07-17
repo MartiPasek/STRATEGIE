@@ -31,14 +31,23 @@
   .cur.c-czk{background:#12294a;color:var(--czk)} .cur.c-eur{background:#241b40;color:var(--eur)}
   .grp .gh .sum{font-weight:800;font-size:16px}
   table{border-collapse:collapse;width:100%;font-size:13px}
-  #faktury-body table.fakt{table-layout:fixed}
-  #faktury-body table.fakt th,#faktury-body table.fakt td{border-right:1px solid var(--line);overflow:hidden;text-overflow:ellipsis}
-  #faktury-body table.fakt tbody td{white-space:nowrap}
-  #faktury-body table.fakt thead tr.frow td{position:sticky;top:0;background:var(--card);z-index:3;padding:2px 3px}
-  #faktury-body table.fakt thead th{position:sticky;top:30px;background:var(--card);z-index:2;white-space:nowrap}
+  #faktury-body .doklwrap{overflow:auto;max-height:calc(100vh - 250px);border:1px solid #2a3546;border-radius:8px}
+  #faktury-body .doklwrap::-webkit-scrollbar{height:15px;width:15px}
+  #faktury-body .doklwrap::-webkit-scrollbar-track{background:#0f1622;border-radius:8px}
+  #faktury-body .doklwrap::-webkit-scrollbar-thumb{background:#41546f;border-radius:8px;border:3px solid #0f1622}
+  #faktury-body .doklwrap::-webkit-scrollbar-thumb:hover{background:#5473a0}
+  #faktury-body table.fakt{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
+  #faktury-body table.fakt th,#faktury-body table.fakt td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
+  #faktury-body table.fakt thead tr.frow td{position:sticky;top:0;z-index:3;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
+  #faktury-body table.fakt thead th{position:sticky;top:29px;z-index:2;background:#1c2636;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid #34506f}
+  #faktury-body table.fakt tbody td{color:#f4f7fc}
+  #faktury-body table.fakt th{position:relative}
+  #faktury-body table.fakt th.r,#faktury-body table.fakt td.r{text-align:right}
   #faktury-body table.fakt thead th .colgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:5;user-select:none}
-  #faktury-body table.fakt thead th .colgrip:hover{background:var(--accent);opacity:.6}
-  #faktury-body table.fakt .frow input,#faktury-body table.fakt .frow select{width:100%;box-sizing:border-box;padding:2px 4px;font-size:11px;border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--ink)}
+  #faktury-body table.fakt thead th .colgrip:hover{background:#2563eb;opacity:.6}
+  #faktury-body table.fakt .frow input,#faktury-body table.fakt .frow select{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #7f96b0;border-radius:5px;background:#9fb2c8;color:#1b2738}
+  #faktury-body table.fakt .frow input::placeholder{color:#41546b}
+  #faktury-body table.fakt tbody tr:hover{background:#131d2b}
   th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
   th{background:var(--head);color:#a9c7f0;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
   td.r,th.r{text-align:right}
@@ -514,7 +523,7 @@ var FCOLS=[
   {k:'v_plataku',h:'V platáku',t:'b'},{k:'suma_uhrad',h:'Uhrazeno',t:'mu',r:1},
   {k:'banka_export',h:'Export',t:'b'},{k:'ceka_vypis',h:'Čeká výpis',t:'b'},{k:'bank_vypis',h:'Bank.výpis',t:'b'},{k:'uziv_ok',h:'Uživ.OK',t:'b'}
 ];
-var _faktColDef={_sel:30,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:84,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
+var _faktColDef={_sel:30,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:120,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
 function _colw(k){return _faktColW[k]||_faktColDef[k]||60;}
 function _faktTotW(){var t=_colw('_sel');FCOLS.forEach(function(c){t+=_colw(c.k);});return t;}
 function _saveColW(){try{localStorage.setItem('fakt_colw',JSON.stringify(_faktColW));}catch(_){}}
@@ -740,7 +749,7 @@ function renderFaktury(){
   var genBtn=navrhN?' <span class="chip" onclick="openGenPopup()" style="font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle;background:#1f6feb;color:#fff;border-color:#1f6feb" title="Vygeneruj platební příkazy z faktur označených Návrh">🧾 Generovat platební příkazy ('+navrhN+')</span>':'';
   var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+clr+selBtn+genBtn+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
-  h+='<div style="overflow:auto;max-height:calc(100vh - 250px)"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
+  h+='<div class="doklwrap"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
   FCOLS.forEach(function(c){h+='<col data-col="'+c.k+'" style="width:'+_colw(c.k)+'px">';});
   h+='</colgroup><thead>';
   h+='<tr class="frow"><td></td>';FCOLS.forEach(function(c){

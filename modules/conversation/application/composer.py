@@ -4760,6 +4760,22 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
              "## Grafy (Krok 0)", ""]
         for g in grows:
             R.append(f"- **{g['kod']}** — {g['nazev'] or ''}")
+        R += ["", "## Jak přispět znalost (pro Claudy i Marti-AI)", "",
+              "G2007 je hlavní sdílená znalostní báze. **Zdroj pravdy = DB `g2007.znalost`**, "
+              "tenhle strom je jen projekce. Přispění je **jeden krok** endpointem "
+              "(parent/cockpit, bez schvalovacího banneru):", "",
+              "```", "POST /api/v1/erp/app/g2007/znalost-upsert",
+              '{ "oblast": "<kod>", "slug": "<slug>", "nadpis": "<titulek>",',
+              '  "zdroj": "docs/Z_<soubor>.md" }', "```", "",
+              "Endpoint: přečte `docs/Z_<soubor>.md` → UPSERT do `g2007.znalost` "
+              "(kód `doc-<oblast>-<slug>`) → export DB do `g2007/` → **uklidí `docs/Z_` inbox**. "
+              "Postup: 1) napiš znalost jako `docs/Z_<slug>.md` a deployni ji, 2) zavolej endpoint, "
+              "3) hotovo — v DB, promítnuté sem, a `docs/Z_` uklizený.", "",
+              "Editace = zase jen dropni `docs/Z_<slug>.md` se stejným slugem → endpoint přepíše.",
+              "", f"Oblasti (kód): {', '.join('`' + o['kod'] + '`' for o in orows)}.",
+              "", "> Ruční cesta (fallback): INSERT do `g2007.znalost` přes most (`db=pg` → banner) "
+              "+ `GET /g2007/export?git=1`.",
+              "> Vektorizace (sémantické hledání nad znalostmi) zatím NENÍ — navazující krok."]
         w("README.md", "\n".join(R) + "\n")
     finally:
         s.close()

@@ -11337,6 +11337,11 @@ def chat(
         # misto opisu raw IDs. Plus pri skipped (wrong_tenant) ji navede
         # vysvetlit user proc.
         "delete_documents",
+        # G2007 hledání (17.7.2026): nosná báze vrací raw seznam znalostí
+        # (nadpis + kód + úryvek). V synth roundu Marti-AI nálezy PŘEČTE a
+        # odpoví vlastními slovy stručně, s odkazem na kód znalosti — místo
+        # aby doslova vysypala tool output (gotcha #18).
+        "g2007_hledej",
     }
 
     preamble_text = ""

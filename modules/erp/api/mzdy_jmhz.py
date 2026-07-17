@@ -47,6 +47,29 @@ ZP_FIRMA = 0.090
 ZALOHA = 0.15
 SLEVA_POPLATNIK = 2570
 
+# ELDP — mapování Helios sloupců TabMzJmhzEldp → XSD elementy, V POŘADÍ XSD
+# (formCommonTypes.xsd: vylouceneDnyType / odecitaneDnyType). BOD 4.
+VD_MAP = [
+    ("VD_DocasnaPN", "docasNeschopnost"),
+    ("VD_PPM", "penezitaPomocMaterstvi"),
+    ("VD_OCR", "osetrovaniClenaRodiny"),
+    ("VD_Otcovska", "otcovska"),
+    ("VD_Paragraf_16", "vyloucenePar16"),
+    ("VD_Paragraf_18", "vyloucenePar18"),
+    ("VD_OmluvenaNeprit", "omluvenaNepritomnost"),
+    ("VD_PracNechopnost", "pracovniNeschopnost"),
+    ("VD_VyplaceniDavek", "vyplaceniDavek"),
+]
+OD_MAP = [
+    ("OD_DocasnaPN", "pracovniNeschopnost"),
+    ("OD_PPM", "materstvi"),
+    ("OD_OCR_s_narokem", "osetrovaniSNarokem"),
+    ("OD_OCR_bez_naroku", "osetrovaniBezNaroku"),
+    ("OD_Otcovska", "otcovska"),
+    ("OD_NeplaceneVolno", "neplaceneVolno"),
+    ("OD_NeomluvenaAbs", "neomluveneAbsence"),
+]
+
 
 def _r(x):
     return int(round(x))
@@ -110,8 +133,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
     odprac_dny = int(a.get("odprac_dny", dni_v_mesici))
     odprac_hod = int(a.get("odprac_hodin", fond_h))
 
-    # --- OČR (BOD 2 plní ocr_dny / ocr_hodiny) ---
-    ocr_dny = int(a.get("ocr_dny", 0) or 0)
+    # --- neodpracované hodiny OČR (z docházky; hodiny = pracovní, doplněk k VD dnům) ---
     ocr_hodiny = float(a.get("ocr_hodiny", 0) or 0)
     hod_ocr_xml = ""
     if ocr_hodiny:
@@ -120,17 +142,32 @@ def _person_form(a, rok, mesic, dni_v_mesici):
                        "\n\t\t\t\t\t<form:hodinyNeodpracCelkem>%s</form:hodinyNeodpracCelkem>"
                        "\n\t\t\t\t\t<form:hodinyNeodpracOcr>%s</form:hodinyNeodpracOcr>"
                        "\n\t\t\t\t</form:neodpracovaneHodiny>" % (_oh, _oh))
+
+    # --- ELDP z Heliosu (BOD 4): typ prac. poměru (Kod) + vyloučené/odečitatelné doby ---
+    # Autoritativní zdroj = TabMzJmhzEldp (mzdové karty). Kód: 1++ běžný PP, S++ jednatel,
+    # prázdný → DPP malého rozsahu (fallback 1++, viz pozn. u attach_eldp). Kategorie
+    # vyloučených/odečítaných dnů se skládají v POŘADÍ XSD (VD_MAP / OD_MAP).
+    eldp_kod = (a.get("eldp_kod") or "").strip() or "1++"
+    vd = a.get("eldp_vd") or {}
+    vd_celkem = int(a.get("eldp_vd_celkem", 0) or 0)
     vyl_xml = ""
+    if vd_celkem or any(vd.values()):
+        _p = ["<form:vylouceneDobyCelkem>%d</form:vylouceneDobyCelkem>" % vd_celkem]
+        for _col, _el in VD_MAP:
+            _v = int(vd.get(_el, 0) or 0)
+            if _v:
+                _p.append("<form:%s>%d</form:%s>" % (_el, _v, _el))
+        vyl_xml = "\n\t\t\t\t\t\t\t<form:vylouceneDny>" + "".join(_p) + "</form:vylouceneDny>"
+    od = a.get("eldp_od") or {}
+    od_celkem = int(a.get("eldp_od_celkem", 0) or 0)
     odec_xml = ""
-    if ocr_dny:
-        vyl_xml = ("\n\t\t\t\t\t\t\t<form:vylouceneDny>"
-                   "<form:vylouceneDobyCelkem>%d</form:vylouceneDobyCelkem>"
-                   "<form:osetrovaniClenaRodiny>%d</form:osetrovaniClenaRodiny>"
-                   "</form:vylouceneDny>" % (ocr_dny, ocr_dny))
-        odec_xml = ("\n\t\t\t\t\t\t\t<form:odecitaneDny>"
-                    "<form:odecitaneDobyCelkem>%d</form:odecitaneDobyCelkem>"
-                    "<form:osetrovaniSNarokem>%d</form:osetrovaniSNarokem>"
-                    "</form:odecitaneDny>" % (ocr_dny, ocr_dny))
+    if od_celkem or any(od.values()):
+        _p = ["<form:odecitaneDobyCelkem>%d</form:odecitaneDobyCelkem>" % od_celkem]
+        for _col, _el in OD_MAP:
+            _v = int(od.get(_el, 0) or 0)
+            if _v:
+                _p.append("<form:%s>%d</form:%s>" % (_el, _v, _el))
+        odec_xml = "\n\t\t\t\t\t\t\t<form:odecitaneDny>" + "".join(_p) + "</form:odecitaneDny>"
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>
@@ -181,7 +218,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t</form:vymerovaciZakladParagraf5>
 \t\t\t\t<form:eldpSeznam>
 \t\t\t\t\t<form:eldp>
-\t\t\t\t\t\t<form:kod>1++</form:kod>
+\t\t\t\t\t\t<form:kod>{eldp_kod}</form:kod>
 \t\t\t\t\t\t<form:platnostOd>{mstart}</form:platnostOd>
 \t\t\t\t\t\t<form:platnostDo>{mend}</form:platnostDo>
 \t\t\t\t\t\t<form:pocetDnu>{dni_v_mesici}</form:pocetDnu>
@@ -476,11 +513,81 @@ def attach_dane(persons, firma, rok, mesic):
     return persons
 
 
+def attach_eldp(persons, firma, rok, mesic):
+    """BOD 4 — typ pracovního poměru (Kod) + vyloučené/odečitatelné doby z Heliosu
+    (TabMzJmhzEldp = ELDP na mzdové kartě, UCTO_EC/UCTO_ES). Autoritativní zdroj.
+    Klíč = CisZam_ID (=zid = TabZamVyp.ZamestnanecId = TabCisZam.ID, shodně s TabMzJmhzPP
+    u attach_identifikatory). Kód: 1++ běžný PP, S++ společník/jednatel, prázdný → DPP
+    malého rozsahu bez účasti na pojištění (ve formuláři fallback 1++, dořeší se dle
+    chování Heliosu). Kategorie VD/OD se sčítají přes všechny ELDP segmenty osoby v měsíci."""
+    from modules.erp.api import router as _r
+    cloud_db = _r._firma_cloud_db(firma)
+    ro = _r._mssql188_query("SELECT IdObdobi FROM " + cloud_db +
+                            ".dbo.TabMzdObd WHERE Rok=" + str(int(rok)) +
+                            " AND Mesic=" + str(int(mesic)))
+    if not (ro.get("ok") and ro.get("rows")):
+        return persons
+    idobd = int(ro["rows"][0][0])
+    cols = [c for c, _ in VD_MAP] + [c for c, _ in OD_MAP]
+    sel = ", ".join("CAST(ISNULL(e." + c + ",0) AS int)" for c in cols)
+    q = ("SELECT e.CisZam_ID, ISNULL(RTRIM(e.Kod),''), "
+         "CAST(ISNULL(e.VD_Celkem,0) AS int), CAST(ISNULL(e.OD_Celkem,0) AS int), " + sel +
+         " FROM " + cloud_db + ".dbo.TabMzJmhzEldp e WHERE e.IdObdobi=" + str(idobd))
+    agg = {}
+    try:
+        r = _r._mssql188_query(q)
+        if r.get("ok") and r.get("rows"):
+            for v in r["rows"]:
+                zid = int(v[0] or 0)
+                kod = (v[1] or "").strip()
+                vd_cel = int(v[2] or 0)
+                od_cel = int(v[3] or 0)
+                base = 4
+                vd = {}
+                for i, (_c, el) in enumerate(VD_MAP):
+                    dv = int(v[base + i] or 0)
+                    if dv:
+                        vd[el] = vd.get(el, 0) + dv
+                od = {}
+                obase = base + len(VD_MAP)
+                for i, (_c, el) in enumerate(OD_MAP):
+                    dv = int(v[obase + i] or 0)
+                    if dv:
+                        od[el] = od.get(el, 0) + dv
+                a = agg.get(zid)
+                if a is None:
+                    agg[zid] = {"kod": kod, "vd": vd, "od": od,
+                                "vd_celkem": vd_cel, "od_celkem": od_cel}
+                else:  # více ELDP segmentů v měsíci → sčítat doby, kód = první neprázdný
+                    if not a["kod"] and kod:
+                        a["kod"] = kod
+                    for el, dv in vd.items():
+                        a["vd"][el] = a["vd"].get(el, 0) + dv
+                    for el, dv in od.items():
+                        a["od"][el] = a["od"].get(el, 0) + dv
+                    a["vd_celkem"] += vd_cel
+                    a["od_celkem"] += od_cel
+    except Exception:
+        agg = {}
+    for p in persons:
+        zid = int(p.get("zid") or 0)
+        a = agg.get(zid)
+        if a is not None:
+            p["eldp_kod"] = a["kod"]
+            p["eldp_vd"] = a["vd"]
+            p["eldp_od"] = a["od"]
+            p["eldp_vd_celkem"] = a["vd_celkem"]
+            p["eldp_od_celkem"] = a["od_celkem"]
+            p["eldp_zdroj"] = "helios"
+    return persons
+
+
 def prepare_persons(firma, rok, mesic):
     ps = load_persons_helios(firma, rok, mesic)
     ps = attach_identifikatory(ps, firma, rok, mesic)
     ps = attach_absence(ps, firma, rok, mesic)
     ps = attach_dane(ps, firma, rok, mesic)
+    ps = attach_eldp(ps, firma, rok, mesic)
     for p in ps:
         p["jmeno_full"] = ("%s %s" % (p.get("jmeno", ""), p.get("prijmeni", ""))).strip()
         p.setdefault("obec", "Plzeň")
@@ -511,16 +618,32 @@ def generate_and_validate(firma, rok, mesic, prod=False):
             v["ident_zdroj"] = p.get("ident_zdroj")
             if p.get("ocr_dny"):
                 v["ocr_dny"] = p.get("ocr_dny")
+            _k = (p.get("eldp_kod") or "").strip() or "1++"
+            v["eldp_kod"] = _k
+            if p.get("eldp_vd"):
+                v["eldp_vd"] = p.get("eldp_vd")
     ok_cnt = sum(1 for v in res.get("vysledky", []) if v.get("ok"))
     ident_helios = sum(1 for p in ps if p.get("ident_zdroj") == "helios")
     ocr_osoby = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full"), "dny": p.get("ocr_dny")}
                  for p in ps if p.get("ocr_dny")]
+    # ELDP přehled (BOD 4): rozložení kódů + osoby s vyloučenou dobou
+    _kod_dist = {}
+    for p in ps:
+        _k = (p.get("eldp_kod") or "").strip() or "1++"
+        _kod_dist[_k] = _kod_dist.get(_k, 0) + 1
+    eldp_helios = sum(1 for p in ps if p.get("eldp_zdroj") == "helios")
+    vd_osoby = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full"),
+                 "kod": (p.get("eldp_kod") or "").strip() or "1++",
+                 "vd": p.get("eldp_vd"), "od": p.get("eldp_od") or None}
+                for p in ps if p.get("eldp_vd") or p.get("eldp_od")]
     return {
         "ok": res.get("ok"), "firma": (firma or "").upper(), "rok": rok, "mesic": mesic,
         "prostredi": ("PRODUKCE" if prod else "test"),
         "pocet": len(ps), "ok_pocet": ok_cnt, "chyb": len(ps) - ok_cnt,
         "ident_helios": ident_helios, "ident_placeholder": len(ps) - ident_helios,
         "ocr_pocet": len(ocr_osoby), "ocr_osoby": ocr_osoby,
+        "eldp_helios": eldp_helios, "eldp_kod_dist": _kod_dist,
+        "vd_pocet": len(vd_osoby), "vd_osoby": vd_osoby,
         "vysledky": res.get("vysledky", []),
     }
 

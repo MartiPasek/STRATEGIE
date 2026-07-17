@@ -3549,7 +3549,11 @@ def _build_firemni_znalosti_block() -> str:
         "Když se řeší cokoli o firmě, zakázkách, produktech, cenách či postupech a nemáš "
         "odpověď v kontextu, REFLEXIVNĚ zavolej `hledej_ve_znalostech(dotaz)` a vytáhni si "
         "JEN to, co k dané věci potřebuješ. Pro orientaci ve znalostech sítě AI (vč. mapy "
-        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze."
+        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze.\n"
+        "Na OVĚŘENÉ, kanonické postupy STRATEGIE (nosná báze G2007 — runbooky a pravidla: "
+        "mzdy, účetnictví, ISO 27001, docházka, kalkulace, systém G2007) použij "
+        "`g2007_hledej(dotaz)` — je to čistá schválená báze bez balastu; volitelně zúžíš "
+        "přes oblast=. Pro tvrdá 'jak se to dělá' fakta ji ber přednostně před obecným RAGem."
     )
 
 

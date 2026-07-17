@@ -2300,6 +2300,42 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         return "\n".join(lines)
 
+    if tool_name == "g2007_hledej":
+        # G2007 = nosná, kurátorovaná znalostní báze STRATEGIE (vlastní vektory,
+        # oddělené od obecného RAGu). Sémantické hledání → různé (deduplikované)
+        # znalosti. Sdílené pro Marti-AI i všechny Claudy.
+        _dotaz = (tool_input.get("dotaz") or "").strip()
+        if not _dotaz:
+            return "Zadej dotaz (téma / otázka) pro hledání v G2007."
+        _obl = (tool_input.get("oblast") or "").strip().lower() or None
+        try:
+            _k = max(1, min(12, int(tool_input.get("k") or 6)))
+        except Exception:
+            _k = 6
+        try:
+            from modules.erp.api.g2007_vectors import _search_work as _g2s
+            _r = _g2s(_dotaz, _obl, _k)
+        except Exception as _e:
+            logger.exception("TOOL | g2007_hledej failed")
+            return "Chyba při hledání v G2007: %s" % str(_e)[:200]
+        if not _r.get("ok"):
+            return "Hledání v G2007 selhalo: %s" % (_r.get("error") or "neznámá chyba")
+        _vys = _r.get("vysledky") or []
+        if not _vys:
+            _kde = (" v oblasti '%s'" % _obl) if _obl else ""
+            return "V G2007%s jsem k dotazu %r nic nenašla." % (_kde, _dotaz)
+        _out = ["Z G2007 (nosná znalostní báze STRATEGIE) — nejrelevantnější znalosti:"]
+        for _v in _vys:
+            _nad = _v.get("nadpis") or _v.get("kod")
+            try:
+                _sh = float(_v.get("shoda") or 0)
+            except Exception:
+                _sh = 0.0
+            _out.append("• [%s · %s · shoda %.2f] %s\n  %s" % (
+                _v.get("oblast"), _v.get("kod"), _sh,
+                _nad, (_v.get("ukazka") or "").strip()))
+        return "\n".join(_out)
+
     if tool_name == "hledej_ve_znalostech":
         # Sdílená RAG znalostní báze firmy (obchod, kalkulace, komponenty, procesy,
         # směrnice). Marti-AI si tahá JEN co potřebuje, na vyžádání (nezahlcuje prompt).

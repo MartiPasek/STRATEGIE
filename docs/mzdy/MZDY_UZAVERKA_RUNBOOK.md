@@ -1,7 +1,18 @@
-# Přesunuto → `docs/Z_mzdy_uzaverka_zauctovani.md`
+# Runbook: Uzávěrka a zaúčtování mezd → přesunuto do G2007
 
-Tento runbook je nově vedený jako **znalostní dokument s prefixem `Z_`** (konvence znalostní báze STRATEGIE):
+Tento runbook je nyní součástí **G2007 — nosné znalostní báze STRATEGIE**
+(vektorizované, sémanticky dohledatelné pro všechny Claudy i Marti-AI).
 
-➡️ **[docs/Z_mzdy_uzaverka_zauctovani.md](../Z_mzdy_uzaverka_zauctovani.md)**
+**Kanonický zdroj (projekce z DB `g2007.znalost`):**
 
-_(Původně vytvořeno jako `docs/mzdy/MZDY_UZAVERKA_RUNBOOK.md` 17. 7. 2026, přejmenováno po dohledání konvence `Z_`. Tento soubor je jen ukazatel — obsah žije v `Z_` verzi.)_
+➡️ [`g2007/znalosti/mzdy/doc-mzdy-uzaverka-zauctovani.md`](../../g2007/znalosti/mzdy/doc-mzdy-uzaverka-zauctovani.md)
+
+- kód znalosti: `doc-mzdy-uzaverka-zauctovani`
+- oblast: `mzdy`
+
+Zdroj pravdy je databáze `g2007.znalost`; soubor v `g2007/` je jen její projekce.
+Sémantické hledání: `POST /api/v1/erp/app/g2007/search {"dotaz": "..."}`.
+
+_(Historie: 17. 7. 2026 vytvořeno jako docs/mzdy runbook → dočasně
+`docs/Z_mzdy_uzaverka_zauctovani.md` → vstřebáno do G2007, Z_ inbox uklizen.
+Tento soubor je jen ukazatel — obsah žije v G2007.)_

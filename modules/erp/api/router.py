@@ -61173,104 +61173,110 @@ def _render_workspace_page(user_id: int) -> str:
           while (safety-- > 0 && tabsBarEl.scrollWidth > tabsBarEl.clientWidth + 2) {
             const before = tabsState.tabs.length;
             _evictOldestTab(true);  // single-step mode
-      
+            if (tabsState.tabs.length === before) break;  // nelze dál (vse pinned/active)
+            // Re-render po každém splice — DOM musí reflect aktuální state
+            // pro další scrollWidth check (synchronně, ne v rAF).
+            _renderTabsBarSync();
+          }
+        });
+      }
+      // Sync helper — volá se uvnitř overflow loop. Nesmí volat
+      // _scheduleOverflowEviction znovu (infinite recursion guard).
+      function _renderTabsBarSync() {
+        const wasScheduled = _overflowEvictionScheduled;
+        _overflowEvictionScheduled = true;
+        renderTabsBar();
+        _overflowEvictionScheduled = wasScheduled;
+      }
 
-# ── G2007 znalost upsert (Claude 17.7.2026) — přispěj znalost jedním krokem ─────────
-# docs/Z_<slug>.md → UPSERT g2007.znalost → export DB do g2007/ (+git) → úklid docs/Z_.
-# Zdroj pravdy textu = Z_ soubor při zápisu, dál DB; g2007/ = projekce. Rodiče + cockpit.
-def _g2007_repo_root():
-    import os as _os
-    return _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+      // Phase 38.4 (11.5.2026 vecer): LRU eviction — zavre nejstarsi
+      // unpinned non-active tab kdyz tabs.length > MAX_TABS_VISIBLE,
+      // nebo (singleStep=true) jen jeden krok pro overflow eviction.
+      function _evictOldestTab(singleStep) {
+        while (singleStep || tabsState.tabs.length > MAX_TABS_VISIBLE) {
+          // Najdi nejstarsi non-pinned, non-active
+          let oldestIdx = -1;
+          let oldestTime = Infinity;
+          for (let i = 0; i < tabsState.tabs.length; i++) {
+            const t = tabsState.tabs[i];
+            if (i === tabsState.activeIndex) continue;
+            if (t.pinned === true) continue;
+            const accessTime = t.lastAccessedAt || 0;
+            if (accessTime < oldestTime) {
+              oldestTime = accessTime;
+              oldestIdx = i;
+            }
+          }
+          if (oldestIdx < 0) break;  // vse pinned nebo jen aktivni
+          const victim = tabsState.tabs[oldestIdx];
+          try {
+            fetch("/api/v1/erp/tabs/" + encodeURIComponent(victim.cislo), {
+              method: "DELETE", credentials: "include"
+            });
+          } catch (e) {}
+          try { ErpRefresh.forget(victim.cislo); } catch (e) {}
+          tabsState.tabs.splice(oldestIdx, 1);
+          if (tabsState.activeIndex > oldestIdx) {
+            tabsState.activeIndex--;
+          }
+          if (singleStep) return;  // overflow eviction = jeden krok
+        }
+      }
 
+      async function _loadTabData(tab) {
+        // Phase 22.5.2026: po cislo_def drop refactor — tab.cislo je teď
+        // VŽDY menu_node.id (positive integer). Žádný negative synthetic
+        // range, žádný Centrála 1 legacy. Sjednocená render cesta přes
+        // _renderTabIntoMain (System view / FW přehled / Design form
+        // dispatch dle node typu).
+        tab.data = { _system: true };  // sentinel pro renderTabIntoMain
+        _renderTabIntoMain(tab);
+        if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
+      }
 
-def _g2007_znalost_upsert_work(oblast, slug, nadpis, zdroj, uroven, typ):
-    import os as _os, subprocess as _sp
-    from sqlalchemy import text as _t
-    repo_root = _g2007_repo_root()
-    if not (zdroj.startswith("docs/") and _os.path.basename(zdroj).lower().startswith("z_")
-            and zdroj.endswith(".md")):
-        return {"ok": False, "error": "zdroj musi byt docs/Z_*.md"}
-    src_path = _os.path.join(repo_root, zdroj.replace("/", _os.sep))
-    if not _os.path.isfile(src_path):
-        return {"ok": False, "error": "zdroj neexistuje na serveru: %s (deployni Z_ napred)" % zdroj}
-    with open(src_path, "r", encoding="utf-8") as _f:
-        obsah = _f.read()
-    kod = "doc-%s-%s" % (oblast, slug)
-    g2007_zdroj = "g2007/znalosti/%s/%s.md" % (oblast, kod)
-    from core.database import get_session as _gg
-    sg = _gg()
-    try:
-        oid = sg.execute(_t("SELECT id FROM g2007.znalost_oblast WHERE kod=:k"), {"k": oblast}).scalar()
-        if not oid:
-            return {"ok": False, "error": "neznama oblast '%s' (viz g2007.znalost_oblast)" % oblast}
-        exists = sg.execute(_t("SELECT id FROM g2007.znalost WHERE kod=:k"), {"k": kod}).scalar()
-        if exists:
-            sg.execute(_t("UPDATE g2007.znalost SET oblast_id=:o, uroven=:u, typ=:t, nadpis=:n, "
-                          "obsah=:c, zdroj=:z, stav='aktivni', verze_schvalena=true, updated_at=now() "
-                          "WHERE kod=:k"),
-                       {"o": oid, "u": uroven, "t": typ, "n": nadpis, "c": obsah, "z": g2007_zdroj, "k": kod})
-            znid = exists
-        else:
-            znid = sg.execute(_t("INSERT INTO g2007.znalost (oblast_id, uroven, typ, kod, nadpis, obsah, "
-                                 "zdroj, stav, verze, verze_schvalena) "
-                                 "VALUES (:o,:u,:t,:k,:n,:c,:z,'aktivni','V1.0',true) RETURNING id"),
-                              {"o": oid, "u": uroven, "t": typ, "k": kod, "n": nadpis, "c": obsah,
-                               "z": g2007_zdroj}).scalar()
-        sg.commit()
-    except Exception as _exc:
-        try:
-            sg.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": "DB upsert %s: %s" % (type(_exc).__name__, str(_exc)[:300])}
-    finally:
-        sg.close()
-    from modules.conversation.application.composer import export_g2007_docs as _exp_fn
-    exp = _exp_fn(repo_root, do_git=True)
-    proj_path = _os.path.join(repo_root, g2007_zdroj.replace("/", _os.sep))
-    cleaned = None
-    if _os.path.isfile(proj_path):
-        try:
-            _os.remove(src_path)
-            _sp.run(["git", "-C", repo_root, "add", "--", zdroj], capture_output=True, text=True, timeout=30)
-            _sp.run(["git", "-C", repo_root, "commit", "-m", "g2007: uklid inbox %s (vstrebano)" % zdroj],
-                    capture_output=True, text=True, timeout=30)
-            _sp.run(["git", "-C", repo_root, "push", "origin", "main"], capture_output=True, text=True, timeout=60)
-            cleaned = zdroj
-        except Exception as _ce:
-            cleaned = "chyba uklidu: %s" % str(_ce)[:200]
-    return {"ok": True, "id": znid, "kod": kod, "oblast": oblast, "zdroj": g2007_zdroj,
-            "projekce": g2007_zdroj, "uklizeno_docs_z": cleaned,
-            "export_souboru": exp.get("souboru") if isinstance(exp, dict) else None}
+      function _renderTabIntoMain(tab) {
+        // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
+        if (currentJadro) closeJadroPane();
 
+        // Etapa F Krok 2 (24.5.2026 vecer pozde, Marti's directive
+        // "MY NESMIME PRI PREPINANI ZALOZEK gridu recreate prehledy"):
+        // per-tab persistent DOM pane architecture. Cached pane = no
+        // recreate, grid state drzi prirozene v DOM/AG Grid.
+        const paneId = String(tab.itemId != null ? tab.itemId : tab.cislo);
 
-@api_router.post("/app/g2007/znalost-upsert")
-async def g2007_znalost_upsert(req: Request):
-    """Prispej znalost do g2007 jednim krokem. Body: {oblast, slug, nadpis, zdroj, uroven?, typ?}."""
-    from starlette.concurrency import run_in_threadpool as _rtp
-    from core.database_data import get_data_session as _gd
-    uid = _uid_from_token_or_cookie(req)
-    sd = _gd()
-    try:
-        if not (uid and (_is_parent(sd, uid) or _is_cockpit(sd, uid))):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    finally:
-        sd.close()
-    try:
-        b = await req.json()
-    except Exception:
-        b = {}
-    oblast = str((b or {}).get("oblast") or "").strip().lower()
-    slug = str((b or {}).get("slug") or "").strip().lower()
-    nadpis = str((b or {}).get("nadpis") or "").strip()
-    zdroj = str((b or {}).get("zdroj") or "").strip()
-    uroven = str((b or {}).get("uroven") or "obor").strip()
-    typ = str((b or {}).get("typ") or "dokument").strip()
-    if not (oblast and slug and nadpis and zdroj):
-        return JSONResponse({"ok": False, "error": "chybi oblast/slug/nadpis/zdroj"}, status_code=200)
-    out = await _rtp(_g2007_znalost_upsert_work, oblast, slug, nadpis, zdroj, uroven, typ)
-    return JSONResponse(out, status_code=200)
-.
+        // Hide all OTHER existing panes (siblings)
+        mainContent.querySelectorAll('.erp-tab-pane').forEach(function (p) {
+          if (p.dataset.tabPaneId !== paneId) {
+            p.setAttribute('hidden', '');
+          }
+        });
+
+        // Check for cached pane (already built v predchozim switchu/openu)
+        let pane = mainContent.querySelector(
+          '.erp-tab-pane[data-tab-pane-id="' + paneId + '"]'
+        );
+        if (pane) {
+          // CACHED — just unhide, grid state preserved (scroll, selection,
+          // filters, sort, expand). activeErpDataGrid pointer update pro
+          // backward compat (sizeColumnsToFit calls, closeTab destroy).
+          pane.removeAttribute('hidden');
+          activeErpDataGrid = pane._erpGridInstance || null;
+          // Etapa F Krok 2 HOTFIX (Marti's catch "vedle Tvoje Marti zmizelo
+          // CRUD"): external toolbarHost (#erpGridActionsHost) je shared
+          // DOM — po cache hit treba re-populate s tohoto gridu CRUD
+          // buttons + re-wire handlers (predtim mohly byt overwritten
+          // jinym tab gridem). Internal toolbar = per-pane DOM, no-op.
+          if (activeErpDataGrid && typeof activeErpDataGrid._repopulateCrudToolbar === "function") {
+            try { activeErpDataGrid._repopulateCrudToolbar(); } catch (_eRepop) {}
+          }
+          // Etapa F Krok 2 HOTFIX 2 (24.5.2026 vecer pozde, Marti's catch
+          // "sjednoti siri bunek napric celym gridem"): DROP sizeColumnsToFit
+          // call po cache hit. Method IGNORUJE disableColumnFlex doctrine
+          // (Marti's task #436 master-detail Volba A — saved widths drzi
+          // jen pokud disableColumnFlex=true) a sjednocuje widths k
+          // container width. AG Grid v32+ ma built-in ResizeObserver,
+          // detekuje display:none -> flex transition sam — explicit call
+          // byl zbytecny + skodlivy.
           return;
         }
 
@@ -61549,3 +61555,100 @@ def _render_error_page(title: str, msg: str) -> str:
         content=content,
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )
+
+
+# ── G2007 znalost upsert (Claude 17.7.2026) — přispěj znalost jedním krokem ─────────
+# docs/Z_<slug>.md → UPSERT g2007.znalost → export DB do g2007/ (+git) → úklid docs/Z_.
+# Zdroj pravdy textu = Z_ soubor při zápisu, dál DB; g2007/ = projekce. Rodiče + cockpit.
+def _g2007_repo_root():
+    import os as _os
+    return _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+
+
+def _g2007_znalost_upsert_work(oblast, slug, nadpis, zdroj, uroven, typ):
+    import os as _os, subprocess as _sp
+    from sqlalchemy import text as _t
+    repo_root = _g2007_repo_root()
+    if not (zdroj.startswith("docs/") and _os.path.basename(zdroj).lower().startswith("z_")
+            and zdroj.endswith(".md")):
+        return {"ok": False, "error": "zdroj musi byt docs/Z_*.md"}
+    src_path = _os.path.join(repo_root, zdroj.replace("/", _os.sep))
+    if not _os.path.isfile(src_path):
+        return {"ok": False, "error": "zdroj neexistuje na serveru: %s (deployni Z_ napred)" % zdroj}
+    with open(src_path, "r", encoding="utf-8") as _f:
+        obsah = _f.read()
+    kod = "doc-%s-%s" % (oblast, slug)
+    g2007_zdroj = "g2007/znalosti/%s/%s.md" % (oblast, kod)
+    from core.database import get_session as _gg
+    sg = _gg()
+    try:
+        oid = sg.execute(_t("SELECT id FROM g2007.znalost_oblast WHERE kod=:k"), {"k": oblast}).scalar()
+        if not oid:
+            return {"ok": False, "error": "neznama oblast '%s' (viz g2007.znalost_oblast)" % oblast}
+        exists = sg.execute(_t("SELECT id FROM g2007.znalost WHERE kod=:k"), {"k": kod}).scalar()
+        if exists:
+            sg.execute(_t("UPDATE g2007.znalost SET oblast_id=:o, uroven=:u, typ=:t, nadpis=:n, "
+                          "obsah=:c, zdroj=:z, stav='aktivni', verze_schvalena=true, updated_at=now() "
+                          "WHERE kod=:k"),
+                       {"o": oid, "u": uroven, "t": typ, "n": nadpis, "c": obsah, "z": g2007_zdroj, "k": kod})
+            znid = exists
+        else:
+            znid = sg.execute(_t("INSERT INTO g2007.znalost (oblast_id, uroven, typ, kod, nadpis, obsah, "
+                                 "zdroj, stav, verze, verze_schvalena) "
+                                 "VALUES (:o,:u,:t,:k,:n,:c,:z,'aktivni','V1.0',true) RETURNING id"),
+                              {"o": oid, "u": uroven, "t": typ, "k": kod, "n": nadpis, "c": obsah,
+                               "z": g2007_zdroj}).scalar()
+        sg.commit()
+    except Exception as _exc:
+        try:
+            sg.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "DB upsert %s: %s" % (type(_exc).__name__, str(_exc)[:300])}
+    finally:
+        sg.close()
+    from modules.conversation.application.composer import export_g2007_docs as _exp_fn
+    exp = _exp_fn(repo_root, do_git=True)
+    proj_path = _os.path.join(repo_root, g2007_zdroj.replace("/", _os.sep))
+    cleaned = None
+    if _os.path.isfile(proj_path):
+        try:
+            _os.remove(src_path)
+            _sp.run(["git", "-C", repo_root, "add", "--", zdroj], capture_output=True, text=True, timeout=30)
+            _sp.run(["git", "-C", repo_root, "commit", "-m", "g2007: uklid inbox %s (vstrebano)" % zdroj],
+                    capture_output=True, text=True, timeout=30)
+            _sp.run(["git", "-C", repo_root, "push", "origin", "main"], capture_output=True, text=True, timeout=60)
+            cleaned = zdroj
+        except Exception as _ce:
+            cleaned = "chyba uklidu: %s" % str(_ce)[:200]
+    return {"ok": True, "id": znid, "kod": kod, "oblast": oblast, "zdroj": g2007_zdroj,
+            "projekce": g2007_zdroj, "uklizeno_docs_z": cleaned,
+            "export_souboru": exp.get("souboru") if isinstance(exp, dict) else None}
+
+
+@api_router.post("/app/g2007/znalost-upsert")
+async def g2007_znalost_upsert(req: Request):
+    """Prispej znalost do g2007 jednim krokem. Body: {oblast, slug, nadpis, zdroj, uroven?, typ?}."""
+    from starlette.concurrency import run_in_threadpool as _rtp
+    from core.database_data import get_data_session as _gd
+    uid = _uid_from_token_or_cookie(req)
+    sd = _gd()
+    try:
+        if not (uid and (_is_parent(sd, uid) or _is_cockpit(sd, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        sd.close()
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    oblast = str((b or {}).get("oblast") or "").strip().lower()
+    slug = str((b or {}).get("slug") or "").strip().lower()
+    nadpis = str((b or {}).get("nadpis") or "").strip()
+    zdroj = str((b or {}).get("zdroj") or "").strip()
+    uroven = str((b or {}).get("uroven") or "obor").strip()
+    typ = str((b or {}).get("typ") or "dokument").strip()
+    if not (oblast and slug and nadpis and zdroj):
+        return JSONResponse({"ok": False, "error": "chybi oblast/slug/nadpis/zdroj"}, status_code=200)
+    out = await _rtp(_g2007_znalost_upsert_work, oblast, slug, nadpis, zdroj, uroven, typ)
+    return JSONResponse(out, status_code=200)

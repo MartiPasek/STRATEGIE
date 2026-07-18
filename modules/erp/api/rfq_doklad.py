@@ -132,33 +132,64 @@ def smaz_vydana_poptavka(doklad_id: int) -> dict:
     return {"ok": True, "message": (rows[0].get("Message") if rows else None)}
 
 
-# ── UPDATE běžných fieldů hlavičky (povoleno napřímo) ───────────────────────
-def update_poptavka_fields(
+# ── UPDATE běžných fieldů, které se na poptávce reálně vyplňují ──────────────
+# Header (TabDokladyZbozi): CisloOrg=dodavatel, TerminDodavkyDat=pož. termín, Mena, CisloZakazky.
+# EXT (TabDokladyZbozi_EXT): _OznPrjZakaznik = "Název poptávky" (popis co poptáváme).
+def update_poptavka_header(
     doklad_id: int,
     cislo_org: str | None = None,
-    popis: str | None = None,
-    text1: str | None = None,
-    poznamka: str | None = None,
+    termin_dat: str | None = None,   # 'YYYY-MM-DD'
     mena: str | None = None,
+    cislo_zakazky: str | None = None,
 ) -> dict:
     sets = []
     if cislo_org is not None:
         sets.append("CisloOrg = %s" % _q(cislo_org))
-    if popis is not None:
-        sets.append("PopisDodavky = %s" % _q(popis))
-    if text1 is not None:
-        sets.append("Text1 = %s" % _q(text1))
-    if poznamka is not None:
-        sets.append("Poznamka = %s" % _q(poznamka))
+    if termin_dat is not None:
+        sets.append("TerminDodavkyDat = %s" % _q(termin_dat))
+        sets.append("TerminDodavkyDat_X = 0")
     if mena is not None:
         sets.append("Mena = %s" % _q(mena))
+    if cislo_zakazky is not None:
+        sets.append("CisloZakazky = %s" % _q(cislo_zakazky))
     if not sets:
-        return {"ok": False, "error": "žádné pole k updatu"}
+        return {"ok": False, "error": "žádné pole hlavičky k updatu"}
     sql = "UPDATE TabDokladyZbozi SET %s WHERE ID = %d" % (", ".join(sets), int(doklad_id))
     res = _ec_raw(sql)
     if not res.get("ok"):
         return {"ok": False, "error": res.get("message") or res.get("error")}
     return {"ok": True}
+
+
+def update_poptavka_ext(doklad_id: int, nazev_poptavky: str) -> dict:
+    """_OznPrjZakaznik (Název poptávky) — UPDATE, nebo INSERT řádku EXT když chybí."""
+    did = int(doklad_id)
+    sql = (
+        "IF EXISTS(SELECT 1 FROM TabDokladyZbozi_EXT WHERE ID=%d) "
+        "UPDATE TabDokladyZbozi_EXT SET _OznPrjZakaznik=%s WHERE ID=%d "
+        "ELSE INSERT INTO TabDokladyZbozi_EXT(ID, _OznPrjZakaznik) VALUES(%d, %s)"
+        % (did, _q(nazev_poptavky), did, did, _q(nazev_poptavky))
+    )
+    res = _ec_raw(sql)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("message") or res.get("error")}
+    return {"ok": True}
+
+
+def read_poptavka(doklad_id: int) -> dict:
+    """Přečti poptávku tak, jak ji vidí přehled (header + EXT název)."""
+    did = int(doklad_id)
+    sql = (
+        "SELECT dbo.EC_GetDoklad(d.ID) AS doklad, d.CisloOrg, org.Nazev AS firma, "
+        "de._OznPrjZakaznik AS nazev_poptavky, "
+        "CONVERT(varchar(10),d.TerminDodavkyDat,23) AS termin, d.Mena, d.CisloZakazky, d.Autor "
+        "FROM TabDokladyZbozi d "
+        "LEFT JOIN TabCisOrg org ON d.CisloOrg=org.CisloOrg "
+        "LEFT JOIN TabDokladyZbozi_EXT de ON de.ID=d.ID WHERE d.ID=%d" % did
+    )
+    res = _ec_raw(sql)
+    rows = res.get("rows") or []
+    return rows[0] if rows else {}
 
 
 def _header(doklad_id: int) -> dict:
@@ -238,6 +269,26 @@ def rfq_doklad_cmd(rest: str) -> dict:
                     ["3) smazáno", ("OK ✓ (beze stopy) msg=%s" % s.get("message")) if s.get("ok") else ("SMAZ selhal: %s" % s.get("error"))],
                 ],
             )
+
+        if up.startswith("FILL"):
+            import datetime as _dt
+            g = gen_vydana_poptavka()
+            if not g.get("ok"):
+                return _err("GEN selhal: %s" % g.get("error"))
+            did = g.get("ident")
+            termin = (_dt.date.today() + _dt.timedelta(days=14)).isoformat()
+            uh = update_poptavka_header(did, cislo_org="252", termin_dat=termin, mena="EUR")
+            ue = update_poptavka_ext(did, "TEST poptávka STRATEGIE — díly rozváděče (Claude ID23)")
+            r = read_poptavka(did)
+            steps = []
+            steps.append(["1) vygenerováno", "ID=%s  doklad=%s" % (did, r.get("doklad"))])
+            steps.append(["2) header UPDATE", "OK ✓" if uh.get("ok") else ("SELHAL: %s" % uh.get("error"))])
+            steps.append(["3) EXT název UPDATE", "OK ✓" if ue.get("ok") else ("SELHAL: %s" % ue.get("error"))])
+            steps.append(["4) čtení zpět — dodavatel", "%s (CisloOrg=%s)" % (r.get("firma"), r.get("CisloOrg"))])
+            steps.append(["4) čtení zpět — název poptávky", str(r.get("nazev_poptavky"))])
+            steps.append(["4) čtení zpět — termín / měna", "%s / %s" % (r.get("termin"), r.get("Mena"))])
+            steps.append(["→ úklid", "@@RFQDOKLAD SMAZ %s" % did])
+            return _out(["krok", "hodnota"], steps)
 
         if up.startswith("GEN"):
             g = gen_vydana_poptavka()

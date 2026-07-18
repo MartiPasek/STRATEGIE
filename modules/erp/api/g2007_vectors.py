@@ -10,6 +10,8 @@ Endpointy (parent/cockpit):
   POST /api/v1/erp/app/g2007/search  {dotaz, oblast?, k?}  — sémantické hledání
 Volá se i z upsertu (re-index po zápisu znalosti). Claude 17.7.2026.
 """
+import os
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -98,6 +100,55 @@ def reindex_by_kod(kod):
         return index_znalost(sg, row[0], row[1])
     finally:
         sg.close()
+
+
+def _upsert_work(oblast, kod, nadpis, obsah, zdroj, typ, uroven):
+    """Ruční upsert (kod NEMÁ unique constraint → SELECT → UPDATE/INSERT) + re-index.
+    Vzor GO řádku: tenant NULL, uroven 'system', typ 'dokument', verze 'V1.0', schválená, aktivní."""
+    from sqlalchemy import text as T
+    from core.database import get_session
+    sg = get_session()
+    try:
+        _ensure_schema(sg)
+        oid = sg.execute(T("SELECT id FROM g2007.znalost_oblast WHERE kod=:o"),
+                         {"o": oblast}).scalar()
+        if not oid:
+            return {"ok": False, "error": "neznámá oblast '%s'" % oblast}
+        existing = sg.execute(T("SELECT id FROM g2007.znalost WHERE kod=:k"),
+                              {"k": kod}).fetchone()
+        if existing:
+            zid = existing[0]
+            sg.execute(T("UPDATE g2007.znalost SET nadpis=:n, obsah=:ob, zdroj=:zd, "
+                         "oblast_id=:oid, typ=:tp, uroven=:ur, stav='aktivni', "
+                         "updated_at=now() WHERE id=:i"),
+                       {"n": nadpis, "ob": obsah, "zd": zdroj, "oid": oid,
+                        "tp": typ, "ur": uroven, "i": zid})
+            action = "updated"
+        else:
+            zid = sg.execute(T(
+                "INSERT INTO g2007.znalost (tenant_id, oblast_id, uroven, typ, kod, "
+                " nadpis, obsah, zdroj, verze, verze_schvalena, stav, created_at, updated_at) "
+                "VALUES (NULL, :oid, :ur, :tp, :k, :n, :ob, :zd, 'V1.0', true, 'aktivni', "
+                " now(), now()) RETURNING id"),
+                {"oid": oid, "ur": uroven, "tp": typ, "k": kod,
+                 "n": nadpis, "ob": obsah, "zd": zdroj}).scalar()
+            action = "inserted"
+        sg.commit()
+    except Exception as e:
+        try:
+            sg.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:400])}
+    finally:
+        sg.close()
+    # re-index (vlastní session, best-effort — chyba indexu nezhodí zápis)
+    try:
+        n_chunk = reindex_by_kod(kod)
+    except Exception as e:
+        return {"ok": True, "kod": kod, "akce": action, "znalost_id": zid,
+                "chunku": -1, "index_warn": "%s: %s" % (type(e).__name__, str(e)[:200])}
+    return {"ok": True, "kod": kod, "akce": action, "znalost_id": zid, "chunku": n_chunk}
 
 
 def _index_work(only_id):
@@ -202,4 +253,54 @@ async def g2007_search(req: Request):
     if not query:
         return JSONResponse({"ok": False, "error": "chybí dotaz"}, status_code=200)
     out = await run_in_threadpool(_search_work, query, oblast, k)
+    return JSONResponse(out, status_code=200)
+
+
+@g2007_vec_router.post("/app/g2007/znalost-upsert")
+async def g2007_znalost_upsert(req: Request):
+    """Zapíše/aktualizuje znalost v g2007.znalost z md souboru v repu + re-index.
+
+    Body: {oblast, nadpis, zdroj, kod?|slug?, typ?, uroven?}
+      - oblast = kód oblasti (např. 'system-g2007')
+      - zdroj  = cesta k md v repu, jen 'docs/**.md' (bez '..')
+      - kod    = explicitní kód (např. 'doc-go-120-…'); bez něj se odvodí 'doc-<oblast>-<slug>'
+    Dostavěno 18.7.2026 (Claude C23, zevnitř) — endpoint dřív jen dokumentovaný, nikdy nepostavený.
+    """
+    uid, ok = _guard(req)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    b = b or {}
+    oblast = str(b.get("oblast") or "").strip()
+    nadpis = str(b.get("nadpis") or "").strip()
+    zdroj = str(b.get("zdroj") or "").strip().replace("\\", "/")
+    slug = str(b.get("slug") or "").strip()
+    kod = str(b.get("kod") or "").strip()
+    typ = str(b.get("typ") or "dokument").strip() or "dokument"
+    uroven = str(b.get("uroven") or "system").strip() or "system"
+    if not oblast or not nadpis or not zdroj:
+        return JSONResponse({"ok": False, "error": "povinné: oblast, nadpis, zdroj"},
+                            status_code=200)
+    if not kod:
+        if not slug:
+            return JSONResponse({"ok": False, "error": "chybí kod nebo slug"}, status_code=200)
+        kod = "doc-%s-%s" % (oblast, slug)
+    # bezpečné čtení: jen docs/**.md v repu, žádné traversal
+    if ".." in zdroj or not zdroj.startswith("docs/") or not zdroj.endswith(".md"):
+        return JSONResponse({"ok": False, "error": "zdroj musí být 'docs/**.md' bez '..'"},
+                            status_code=200)
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    path = os.path.abspath(os.path.join(root, zdroj))
+    if not path.startswith(root + os.sep) or not os.path.isfile(path):
+        return JSONResponse({"ok": False, "error": "soubor nenalezen: %s" % zdroj},
+                            status_code=200)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            obsah = f.read()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": "čtení selhalo: %s" % e}, status_code=200)
+    out = await run_in_threadpool(_upsert_work, oblast, kod, nadpis, obsah, zdroj, typ, uroven)
     return JSONResponse(out, status_code=200)

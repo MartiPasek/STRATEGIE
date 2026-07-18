@@ -470,3 +470,71 @@ def compute_from_cmd(rest: str) -> dict:
                  "chybi": "cena:%d koef:%d nenal:%d" % (s["chybi_cena"], s["chybi_koef"], s["nenalezeno"])})
     res["rows"] = rows
     return res
+
+
+# ── Produkční profily ABSAUGWERK (Claude C23, 18.7.2026) ──────────────────────
+# Z reálných kalkulací: EK262940 (FLEX+) + EK263380 SMART NASS. cislo_org=10077.
+PROFILY = {
+    "flex": {
+        "nazev": "ABSAUGWERK · FLEX+ Schaltschrank",
+        "cislo_org": 10077, "vkm": 14.5, "arb": 28.0, "marze": 12.0,
+        "projekt": 180.0, "revize": 90.0, "transport": 60.0, "floor": {},
+    },
+    "nass": {
+        "nazev": "ABSAUGWERK · SMART NASS Steuerung",
+        "cislo_org": 10077, "vkm": 11.0, "arb": 28.0, "marze": 8.0,
+        "projekt": 0.0, "revize": 0.0, "transport": 0.0,
+        "floor": {"1.1": 1170, "2.2": 1170, "3.0": 1170, "4.0": 1200, "5.5": 1300,
+                  "7.5": 1320, "11": 1500, "15": 1550, "18.5": 1700, "22": 1800},
+    },
+}
+
+
+def compute_profile(bom, profil_kod, kw=None):
+    """Produkční kalkulace přes pojmenovaný profil (sazby+marže+floor+přirážky)."""
+    p = PROFILY.get((profil_kod or "").lower())
+    if not p:
+        return {"ok": False, "error": "neznámý profil '%s' (známé: %s)" % (profil_kod, ", ".join(PROFILY))}
+    res = compute(bom, p.get("cislo_org"), p["vkm"], p["arb"], 1.0, p["marze"])
+    s = res["souhrn"]
+    fixni = p["projekt"] + p["revize"] + p["transport"]
+    gesamt = round(s["celkem_s_marzi"] + fixni, 2)
+    floor = p.get("floor", {}).get(str(kw)) if kw is not None else None
+    floor_hit = bool(floor and gesamt < floor)
+    if floor_hit:
+        gesamt = float(floor)
+    res["profil"] = {"kod": profil_kod, "nazev": p["nazev"], "vkm": p["vkm"], "arb": p["arb"],
+                     "marze": p["marze"], "projekt": p["projekt"], "revize": p["revize"],
+                     "transport": p["transport"], "floor": floor, "floor_hit": floor_hit}
+    res["gesamt"] = gesamt
+    res["nabidnout"] = round(gesamt / 10.0) * 10
+    rows = res.get("rows") or []
+    rows.append({"reg_cis": "== GESAMT ==", "nazev": p["nazev"][:26], "ks": None,
+                 "CC": None, "rabat": None, "cena": s["material"], "VKM": s["vkm"],
+                 "Arbeit": s["arbeit"], "hod": s["hodiny"], "radek": gesamt,
+                 "chybi": ("FLOOR %s!" % floor if floor_hit else "-")})
+    res["rows"] = rows
+    return res
+
+
+def compute_profile_from_cmd(rest: str) -> dict:
+    """@@KALKABS profil=nass kw=15 | REGCIS*QTY, REGCIS*QTY, …"""
+    profil = None; kw = None
+    head, _, body = rest.partition("|")
+    for tok in head.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            if k == "profil": profil = v.strip()
+            elif k == "kw": kw = v.strip()
+    bom = []
+    for part in body.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        reg, q = (part.rsplit("*", 1) if "*" in part else (part, "1"))
+        try:
+            qn = float(q)
+        except Exception:
+            qn = 1.0
+        bom.append({"reg_cis": reg.strip(), "qty": qn})
+    return compute_profile(bom, profil, kw)

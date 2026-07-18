@@ -39503,6 +39503,11 @@ async def diag_sql(req: Request) -> JSONResponse:
 
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
+    # Produkcni kalkulace pres profil ABSAUGWERK (Claude C23 18.7.2026).
+    #   @@KALKABS profil=nass kw=15 | REGCIS*QTY, ...  (MUSI byt pred @@KALK - prefix)
+    if sql.upper().startswith("@@KALKABS"):
+        from modules.erp.api.kalkulace_engine import compute_profile_from_cmd as _cpc
+        return JSONResponse(_cpc(sql[len("@@KALKABS"):].strip()))
     if sql.upper().startswith("@@KALK"):
         import traceback as _tbk
         try:

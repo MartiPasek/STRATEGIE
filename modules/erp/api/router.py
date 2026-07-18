@@ -38743,7 +38743,17 @@ async def diag_sql(req: Request) -> JSONResponse:
         from core.database_data import get_data_session as _gdo
         from sqlalchemy import text as _to
         parts = sql.split()
-        _dom = parts[1].upper() if len(parts) > 1 else ""
+        # Univerzální objektiv (gap #1, 18.7.2026): volitelný token @<entita>
+        # (@claude / @marti-ai) → táž orientace, jiný objektiv. Bez tokenu beze změny.
+        _ent = ""
+        _kdo = ""
+        _domtok = []
+        for _p in parts[1:]:
+            if _p.startswith("@"):
+                _ent = _p[1:].strip()
+            else:
+                _domtok.append(_p)
+        _dom = _domtok[0].upper() if _domtok else ""
         _s = _gdo()
         try:
             r = _s.execute(_to(
@@ -38763,13 +38773,21 @@ async def diag_sql(req: Request) -> JSONResponse:
                 if _kh:
                     _kmap = "\n\n=== MAPA JEDNOTEK (natáhni plný obsah: @@KNOW <název>) ===\n" + "\n".join(
                         ["- %s — %s" % (x[0], x[1]) for x in _kh])
+            if _ent:
+                _er = _s.execute(_to(
+                    "SELECT nazev, popis FROM g2007.entita "
+                    "WHERE lower(nazev)=lower(:e) AND stav='aktivni' LIMIT 1"), {"e": _ent}).first()
+                if _er:
+                    _kdo = "=== KDO JSI (objektiv) ===\n%s\n\n" % (_er[1] or _er[0])
+                else:
+                    _kdo = "=== KDO JSI (objektiv) ===\n(entita '%s' není v g2007.entita)\n\n" % _ent
         finally:
             _s.close()
         if not r:
             return JSONResponse({"ok": True, "columns": ["orient"],
                                  "rows": [["Doména '%s' nenalezena. Dostupné: %s" % (_dom, ", ".join(dostupne))]]})
-        _txt = ("DOMÉNA: %s (%s)\nDostupné domény: %s\n\n=== IDENTITA ===\n%s\n\n=== ZNALOSTI ===\n%s\n\n=== TOOLY ===\n%s%s"
-                % (r[0] or "(obecná)", r[1] or "", ", ".join(dostupne),
+        _txt = ("%sDOMÉNA: %s (%s)\nDostupné domény: %s\n\n=== IDENTITA ===\n%s\n\n=== ZNALOSTI ===\n%s\n\n=== TOOLY ===\n%s%s"
+                % (_kdo, r[0] or "(obecná)", r[1] or "", ", ".join(dostupne),
                    r[2] or "", r[3] or "", r[4] or "", _kmap))
         _rows = [[_txt[i:i + 150]] for i in range(0, len(_txt), 150)]
         return JSONResponse({"ok": True, "columns": ["orient"], "rows": _rows})

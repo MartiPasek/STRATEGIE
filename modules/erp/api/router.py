@@ -39508,6 +39508,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@KALKABS"):
         from modules.erp.api.kalkulace_engine import compute_profile_from_cmd as _cpc
         return JSONResponse(_cpc(sql[len("@@KALKABS"):].strip()))
+    # @@KALKREGCIS SYNC|LIST [f]|BUILD <vyrobce> <cislo>  → EC_RegCisDEF prevodnik (Vize 1 etapa A, C23 18.7.)
+    if sql.upper().startswith("@@KALKREGCIS"):
+        from modules.erp.api.kalkulace_engine import regcis_cmd as _krc
+        return JSONResponse(_krc(sql[len("@@KALKREGCIS"):].strip()))
     if sql.upper().startswith("@@KALK"):
         import traceback as _tbk
         try:

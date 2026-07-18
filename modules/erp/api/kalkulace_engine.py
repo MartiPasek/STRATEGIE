@@ -538,3 +538,123 @@ def compute_profile_from_cmd(rest: str) -> dict:
             qn = 1.0
         bom.append({"reg_cis": reg.strip(), "qty": qn})
     return compute_profile(bom, profil, kw)
+
+
+# ── RegCisHeo převodník (EC_RegCisDEF → Cloud) — Vize 1 etapa A (Claude C23, 18.7.2026) ──
+# Naše objednací číslo = "<PREFIX> <obj. číslo výrobce>" (SIE 6ES7…). EC_RegCisDEF (přehled 127)
+# mapuje Vyrobce → RegCisZkratka (prefix) + normalizační pravidla. Zrcadlíme do tenant.kalk_regcis_def.
+
+def _regcis_ensure_table(sd):
+    from sqlalchemy import text as _t
+    sd.execute(_t(
+        "CREATE TABLE IF NOT EXISTS tenant.kalk_regcis_def ("
+        " ec_id int PRIMARY KEY, vyrobce text, zkratka text, obsahuje_text text,"
+        " priklad_vyr text, priklad_helios text, velka_pismena text, zadne_mezery text,"
+        " nahradit_o_za_0 text, doplnit_nulami_na int, pouziva_alt text,"
+        " synced_at timestamptz NOT NULL DEFAULT now())"))
+    sd.execute(_t("CREATE INDEX IF NOT EXISTS ix_kalk_regcis_zkratka ON tenant.kalk_regcis_def (zkratka)"))
+
+
+def sync_regcis_def() -> dict:
+    """Zrcadlí EC_RegCisDEF (DB_EC) → tenant.kalk_regcis_def. Idempotentní (DELETE+INSERT)."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    rows = _ec(
+        "SELECT ID, Vyrobce, RegCisZkratka, ObsahujeText, PrikladRegCisVyrobce, PrikladRegCisHelios,"
+        " VsechnaVelkaPismena, ZadneMezery, NahraditOza0, DoplnitNulamiZlevaNa,"
+        " PouzivaTakeAlternativRegCis FROM EC_RegCisDEF")
+    sd = get_data_session()
+    try:
+        _regcis_ensure_table(sd)
+        sd.execute(_t("DELETE FROM tenant.kalk_regcis_def"))
+        n = 0
+        for r in rows:
+            def _s(v):
+                return None if v is None else str(v).strip()
+            sd.execute(_t(
+                "INSERT INTO tenant.kalk_regcis_def (ec_id,vyrobce,zkratka,obsahuje_text,priklad_vyr,"
+                "priklad_helios,velka_pismena,zadne_mezery,nahradit_o_za_0,doplnit_nulami_na,pouziva_alt) "
+                "VALUES (:i,:v,:z,:o,:pv,:ph,:vp,:zm,:no,:dn,:pa)"),
+                {"i": _int(r.get("ID")), "v": _s(r.get("Vyrobce")), "z": _s(r.get("RegCisZkratka")),
+                 "o": _s(r.get("ObsahujeText")), "pv": _s(r.get("PrikladRegCisVyrobce")),
+                 "ph": _s(r.get("PrikladRegCisHelios")), "vp": _s(r.get("VsechnaVelkaPismena")),
+                 "zm": _s(r.get("ZadneMezery")), "no": _s(r.get("NahraditOza0")),
+                 "dn": _int(r.get("DoplnitNulamiZlevaNa")), "pa": _s(r.get("PouzivaTakeAlternativRegCis"))})
+            n += 1
+        sd.commit()
+        return {"ok": True, "vlozeno": n}
+    except Exception:
+        sd.rollback()
+        raise
+    finally:
+        sd.close()
+
+
+def _truthy(v) -> bool:
+    return str(v).strip().lower() in ("1", "true", "ano", "y", "yes", "x") if v is not None else False
+
+
+def regcis_build(vyrobce: str, raw_code: str) -> dict:
+    """Z (výrobce + syrové obj. číslo) složí RegCisHeo = '<zkratka> <normalizovaný kód>'
+    dle pravidel EC_RegCisDEF. Výrobce se hledá dle vyrobce/zkratky/ObsahujeText (case-insens.)."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    v = (vyrobce or "").strip()
+    code = (raw_code or "").strip()
+    sd = get_data_session()
+    try:
+        row = sd.execute(_t(
+            "SELECT zkratka, velka_pismena, zadne_mezery, nahradit_o_za_0, doplnit_nulami_na "
+            "FROM tenant.kalk_regcis_def "
+            "WHERE upper(vyrobce)=upper(:v) OR upper(zkratka)=upper(:v) "
+            "   OR (obsahuje_text IS NOT NULL AND obsahuje_text<>'' AND upper(:v) LIKE '%'||upper(obsahuje_text)||'%') "
+            "ORDER BY CASE WHEN upper(zkratka)=upper(:v) THEN 0 WHEN upper(vyrobce)=upper(:v) THEN 1 ELSE 2 END "
+            "LIMIT 1"), {"v": v}).first()
+    finally:
+        sd.close()
+    if not row:
+        return {"ok": False, "error": "výrobce '%s' není v EC_RegCisDEF (spusť @@KALKREGCIS SYNC)" % v}
+    zkratka, velka, mezery, oza0, dopl = row
+    c = code
+    if _truthy(velka):
+        c = c.upper()
+    if _truthy(oza0):
+        c = c.replace("O", "0").replace("o", "0")
+    if _truthy(mezery):
+        c = c.replace(" ", "")
+    if dopl and str(dopl).isdigit() and int(dopl) > 0:
+        c = c.zfill(int(dopl))
+    regcisheo = ("%s %s" % (zkratka, c)).strip()
+    return {"ok": True, "regcisheo": regcisheo, "zkratka": zkratka, "kod": c}
+
+
+def regcis_cmd(rest: str) -> dict:
+    """@@KALKREGCIS SYNC | LIST [filtr] | BUILD <vyrobce> <syrove_cislo>"""
+    parts = (rest or "").split(None, 2)
+    sub = (parts[0].upper() if parts else "LIST")
+    if sub == "SYNC":
+        return sync_regcis_def()
+    if sub == "BUILD":
+        if len(parts) < 3:
+            return {"ok": False, "error": "@@KALKREGCIS BUILD <vyrobce> <syrove_cislo>"}
+        return regcis_build(parts[1], parts[2])
+    # LIST
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    q = (parts[1].strip() if len(parts) > 1 else "")
+    sd = get_data_session()
+    try:
+        where = ""
+        params = {}
+        if q:
+            where = "WHERE upper(vyrobce) LIKE :q OR upper(zkratka) LIKE :q"
+            params["q"] = "%" + q.upper() + "%"
+        rr = sd.execute(_t(
+            "SELECT vyrobce, zkratka, obsahuje_text, doplnit_nulami_na FROM tenant.kalk_regcis_def "
+            + where + " ORDER BY zkratka LIMIT 200"), params).fetchall()
+        cnt = sd.execute(_t("SELECT count(*) FROM tenant.kalk_regcis_def")).scalar()
+    finally:
+        sd.close()
+    return {"ok": True, "columns": ["vyrobce", "zkratka", "obsahuje_text", "doplnit_nulami_na"],
+            "rows": [[a, b, c, str(d) if d is not None else ""] for (a, b, c, d) in rr],
+            "celkem": cnt}

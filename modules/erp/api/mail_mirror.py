@@ -218,6 +218,27 @@ def sync_user(uid: int, limit: int = 300, with_attachments: bool = True, tenant_
     return {"user_id": uid, "vysledky": out}
 
 
+def sync_user_job(uid: int, limit: int = 100, tenant_id: int = 2) -> dict:
+    """Adapter pro mirror_job: sloz vysledky sync_user do (ok/rows/_msg), aby
+    planovac VIDEL chybu EWS a pocet NOVYCH zprav (ne user_id). Bez tohoto
+    _mirror_run_job bral ok=True vzdy a rows=user_id -> zeleny job i pri padu
+    fetchu. Claude C23 18.7.2026 (bod 2: job musi rikat pravdu)."""
+    r = sync_user(uid, limit=limit, tenant_id=tenant_id)
+    vys = r.get("vysledky") or []
+    errs = [v for v in vys if v.get("error")]
+    nove = sum(int(v.get("nove") or 0) for v in vys)
+    zprac = sum(int(v.get("zpracovano") or 0) for v in vys)
+    if errs:
+        _m = "EWS CHYBA -> " + "; ".join(
+            "%s: %s" % (v.get("slozka"), v.get("error")) for v in errs)
+    else:
+        _m = ", ".join(
+            "%s nove=%s/zprac=%s" % (v.get("slozka"), v.get("nove"), v.get("zpracovano"))
+            for v in vys)
+    return {"ok": (not errs), "done": True, "nove": nove,
+            "zpracovano": zprac, "_msg": _m[:580]}
+
+
 def sync_user_bg(uid: int, limit: int = 300, with_attachments: bool = True, tenant_id: int = 2,
                  since=None):
     """Spustí sync na pozadí (kvůli 30s timeoutu mostu)."""

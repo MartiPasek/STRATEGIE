@@ -26026,12 +26026,12 @@ def _mirror_run_job(job_key):
                                           fromlist=["sync_all"]).sync_all(tenant_id=2),
         # Mail zrcadlo — inkrementální sync schránky (Claude-23 3.7.2026). Bere posl. 100/složka.
         "sync_mail_eliska": lambda: __import__("modules.erp.api.mail_mirror",
-                                               fromlist=["sync_user"]).sync_user(34, limit=100),
+                                               fromlist=["sync_user_job"]).sync_user_job(34, limit=100),
         # Claude-27 7.7.2026: průběžný sync p.zeman (30, CRM) + projects (111, VP).
         "sync_mail_pzeman": lambda: __import__("modules.erp.api.mail_mirror",
-                                               fromlist=["sync_user"]).sync_user(30, limit=100),
+                                               fromlist=["sync_user_job"]).sync_user_job(30, limit=100),
         "sync_mail_projects": lambda: __import__("modules.erp.api.mail_mirror",
-                                                 fromlist=["sync_user"]).sync_user(111, limit=100),
+                                                 fromlist=["sync_user_job"]).sync_user_job(111, limit=100),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

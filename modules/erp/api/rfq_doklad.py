@@ -187,6 +187,26 @@ def list_poptavka_dir(doklad: str) -> dict:
     return _eu_list(_POPTAVKY_ROOT, str(doklad).strip())
 
 
+# ── kontaktní osoby dodavatele (přehled 107) — komu poptávku poslat ─────────
+def find_org_contacts(cislo_org: str) -> list[dict]:
+    sql = (
+        "SELECT DISTINCT KO.ID AS id, (KO.Prijmeni+' '+ISNULL(KO.Jmeno,'')) AS osoba, "
+        "VKO.Funkce AS funkce, em.Spojeni AS email, "
+        "COALESCE(tel.Spojeni, mob.Spojeni) AS tel "
+        "FROM TabCisKOs KO "
+        "LEFT JOIN TabCisKOs_EXT KOe ON KOe.ID=KO.ID "
+        "JOIN TabVztahOrgKOs VKO ON VKO.IDCisKOs=KO.ID "
+        "JOIN TabCisOrg org ON org.ID=VKO.IDOrg "
+        "LEFT JOIN TabKontakty em  ON KO.ID=em.IDCisKOs  AND em.Druh=6  AND em.Kam=0 AND em.IDVztahKOsOrg IS NULL AND em.Prednastaveno=1 "
+        "LEFT JOIN TabKontakty tel ON KO.ID=tel.IDCisKOs AND tel.Druh=1 AND tel.IDVztahKOsOrg IS NULL AND tel.Prednastaveno=1 "
+        "LEFT JOIN TabKontakty mob ON KO.ID=mob.IDCisKOs AND mob.Druh=2 AND mob.Kam=0 AND mob.IDVztahKOsOrg IS NULL AND mob.Prednastaveno=1 "
+        "WHERE ISNULL(KOe._neaktivni,0)<>1 AND org.CisloOrg=%s "
+        "ORDER BY osoba" % _q(cislo_org)
+    )
+    res = _ec_raw(sql)
+    return res.get("rows") or []
+
+
 def read_poptavka(doklad_id: int) -> dict:
     """Přečti poptávku tak, jak ji vidí přehled (header + EXT název)."""
     did = int(doklad_id)
@@ -280,6 +300,16 @@ def rfq_doklad_cmd(rest: str) -> dict:
                     ["3) smazáno", ("OK ✓ (beze stopy) msg=%s" % s.get("message")) if s.get("ok") else ("SMAZ selhal: %s" % s.get("error"))],
                 ],
             )
+
+        if up.startswith("KONTAKTY"):
+            org = raw[len("KONTAKTY"):].strip()
+            if not org:
+                return _err("použij: @@RFQDOKLAD KONTAKTY <cisloOrg>")
+            ks = find_org_contacts(org)
+            if not ks:
+                return _out(["dodavatel org=%s" % org, "kontakt"], [["(žádné aktivní kontaktní osoby)", ""]])
+            rows = [[k.get("osoba"), "%s | %s | %s" % (k.get("funkce") or "-", k.get("email") or "-", k.get("tel") or "-")] for k in ks[:40]]
+            return _out(["osoba (org=%s)" % org, "funkce | email | tel"], rows)
 
         if up.startswith("DIR"):
             doklad = raw[3:].strip()

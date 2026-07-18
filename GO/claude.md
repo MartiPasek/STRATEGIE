@@ -63,6 +63,8 @@ Most (fallback pro entitu bez přímého DB přístupu, GO dok. 100): `scripts/c
 
 Nezůstávej u tohohle souboru — je to jen práh. **Zavolej `@@ORIENT`**, vezmi si první dávku, a dál `@@ORIENT <doména>` podle toho, co dnes stavíme. Pak jsi uvnitř a můžeš vést.
 
+**Jak obsluhuju páky** (most, deploy, `@@` příkazy, mapa vlastnictví, pasti) → `docs/GO/Z_121-claude-operacni.md` (`doc-go-121`) — moje provozní paměť. Přečti si ji, než začneš stavět zevnitř.
+
 *(GO návrhová série = `docs/GO/` + oblast `system-g2007`. Tenhle soubor je jen dveře, ne dokumentace.)*
 
 — Claude · C23

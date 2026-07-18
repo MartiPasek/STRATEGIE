@@ -254,6 +254,23 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] crm_email_track DDL failed: {exc}")
 
+    # Model tiering (Claude C23, 18.7.2026): per-persona volba modelu.
+    # public.personas = owner strategie → DDL jde přes lifespan (most má slabší
+    # roli). NULL = globální default (MODEL v service.py, dnes Sonnet 4.6).
+    try:
+        from sqlalchemy import text as _t_mdl
+        from core.database_data import get_data_session as _gs_mdl
+        _ds_mdl = _gs_mdl()
+        try:
+            _ds_mdl.execute(_t_mdl(
+                "ALTER TABLE public.personas "
+                "ADD COLUMN IF NOT EXISTS model varchar(60)"))
+            _ds_mdl.commit()
+        finally:
+            _ds_mdl.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] personas.model DDL failed: {exc}")
+
     # Pozn. 5.7.2026: one-off uklid public.documents (621 dup+temp radku, ~150 MB)
     # zde bezel pres owner roli a byl po uspesnem behu odstranen (smazano ~623 radku).
 

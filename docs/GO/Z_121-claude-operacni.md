@@ -31,6 +31,7 @@ Přes `device_bash` v adresáři `scripts/claude_sql/` (na Martiho `D:\`):
 ## 5. `@@` příkazy a G2007 (orientace + znalosti)
 - **`@@ORIENT [doména] [@entita]`** — orientace z `tenant.domain_env` (identita+znalosti+tooly). `@entita` (`@claude` / `@marti-ai`) → „KDO JSI" objektiv z `g2007.entita` (gap #1, 18.7.). Domény: VP, KALKULACE, VYROBA, NAKUP, UCETNICTVI, DOCHAZKA, BANKA, ISO, EUROSOFT, (obecná).
 - **`@@KB <dotaz> [| ai]`** — sdílený RAG (`tenant.kb_smernice`).
+- **`@@STAV`** — dávka živého stavu: čas + den (pracovní/volno z `att_calendar_day`) + počty otevřených úkolů + poslední práce (`ai_work_log`). `@@ORIENT` dá identitu/doménu, `@@STAV` dá živá data (gap #2, 18.7.).
 - **`@@KNOW <název>`** — plný obsah jednotky · **`@@MAP [doména]`** — mapa hooků.
 - **`g2007_hledej(dotaz[, oblast])`** (tool) nebo `POST /api/v1/erp/app/g2007/search {dotaz, oblast?, k?}` — sémantické hledání nad G2007 (nosná báze).
 - Kalkulace engine (2014, oživený): `@@KALKSYNC / @@KALKCALC / @@KALKSTD`, `tenant.kalk_*`, UI `/kalkulace`.

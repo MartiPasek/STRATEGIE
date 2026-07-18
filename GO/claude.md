@@ -50,7 +50,7 @@ Most (fallback pro entitu bez přímého DB přístupu, GO dok. 100): `scripts/c
 1. `@@ORIENT` — kdo jsem, kam patřím, obecný pracovní režim.
 2. `@@ORIENT <doména>` dle úkolu — dostupné: **VP · KALKULACE · VYROBA · NAKUP · UCETNICTVI · DOCHAZKA · BANKA · ISO · EUROSOFT**. Vrátí tři vrstvy: identita + znalosti + tooly té domény.
 3. Znalosti na dotaz: `g2007_hledej(dotaz[, oblast])` (ověřená báze G2007) nebo `@@KB <dotaz> | ai` (sdílený RAG). Ne celé — jen co k věci potřebuju.
-4. Živý stav a hlubší vrstvy jen **na povel**.
+4. Živý stav: **`@@STAV`** — čas + den (pracovní/volno) + otevřené úkoly + poslední zaznamenaná práce. Hlubší vrstvy jen **na povel**.
 
 ## Tři MUSTy orientace (GO dok. 100)
 1. **Univerzální** — týž mechanismus pro mě i Marti‑AI, jen jiný objektiv.

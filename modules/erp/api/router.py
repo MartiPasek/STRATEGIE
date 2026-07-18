@@ -37660,6 +37660,67 @@ async def diag_sql(req: Request) -> JSONResponse:
     if not sql:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 
+    # GO doc seal (Claude C23, 18.7.2026): zapecet docs/GO/Z_<slug>.md do g2007.znalost.
+    #   @@GODOC <slug> [| <nadpis>]  -> kod=doc-go-<slug>, oblast=system-g2007, +reindex.
+    # Autonomie: Claude pecetim GO dokumenty sam pres bridge (bez parent POST popupu).
+    if sql.upper().startswith("@@GODOC"):
+        from sqlalchemy import text as _tg
+        _rest = sql[len("@@GODOC"):].strip()
+        if not _rest:
+            return JSONResponse({"ok": False, "error": "@@GODOC <slug> [| <nadpis>]"})
+        _p = [x.strip() for x in _rest.split("|", 1)]
+        _slug = _p[0].strip().lstrip("/")
+        _nadpis = _p[1].strip() if len(_p) > 1 else ""
+        _repo = _g2007_repo_root()
+        _zdroj = "docs/GO/Z_%s.md" % _slug
+        _src = _os_ds.path.join(_repo, _zdroj.replace("/", _os_ds.sep))
+        if not _os_ds.path.isfile(_src):
+            return JSONResponse({"ok": False, "error": "zdroj neni na serveru (deployni Z_ napred): %s" % _zdroj})
+        with open(_src, "r", encoding="utf-8") as _fh:
+            _obsah = _fh.read()
+        if not _nadpis:
+            for _ln in _obsah.splitlines():
+                if _ln.startswith("# "):
+                    _nadpis = _ln[2:].strip()
+                    break
+        _kod = "doc-go-%s" % _slug
+        from core.database import get_session as _gg
+        _sg = _gg()
+        try:
+            _oid = _sg.execute(_tg("SELECT id FROM g2007.znalost_oblast WHERE kod='system-g2007'")).scalar()
+            if not _oid:
+                return JSONResponse({"ok": False, "error": "oblast system-g2007 chybi"})
+            _ex = _sg.execute(_tg("SELECT id FROM g2007.znalost WHERE kod=:k"), {"k": _kod}).scalar()
+            if _ex:
+                _sg.execute(_tg("UPDATE g2007.znalost SET oblast_id=:o, uroven='system', typ='dokument', "
+                                "nadpis=:n, obsah=:c, zdroj=:z, stav='aktivni', verze_schvalena=true, "
+                                "updated_at=now() WHERE kod=:k"),
+                            {"o": _oid, "n": _nadpis, "c": _obsah, "z": _zdroj, "k": _kod})
+                _znid = _ex
+            else:
+                _znid = _sg.execute(_tg("INSERT INTO g2007.znalost (oblast_id, uroven, typ, kod, nadpis, "
+                                        "obsah, zdroj, stav, verze, verze_schvalena) "
+                                        "VALUES (:o,'system','dokument',:k,:n,:c,:z,'aktivni','V1.0',true) "
+                                        "RETURNING id"),
+                                     {"o": _oid, "k": _kod, "n": _nadpis, "c": _obsah, "z": _zdroj}).scalar()
+            _sg.commit()
+        except Exception as _e:
+            try:
+                _sg.rollback()
+            except Exception:
+                pass
+            return JSONResponse({"ok": False, "error": "GODOC upsert %s: %s" % (type(_e).__name__, str(_e)[:300])})
+        finally:
+            _sg.close()
+        _reidx = None
+        try:
+            from modules.erp.api.g2007_vectors import reindex_by_kod as _ri
+            _reidx = _ri(_kod)
+        except Exception as _re:
+            _reidx = "chyba reindex: %s" % str(_re)[:200]
+        return JSONResponse({"ok": True, "kod": _kod, "id": _znid, "nadpis": _nadpis,
+                             "zdroj": _zdroj, "reindexovano": _reidx})
+
     # Souborový most (Marti 20.6.2026): čtení reálných faktur pro EDI/auto-pořizování.
     #   @@FILES LIST <abs_cesta>            → výpis adresáře (soubor + velikost)
     #   @@FILES READ <abs_cesta_k_souboru>  → obsah souboru (text/base64)

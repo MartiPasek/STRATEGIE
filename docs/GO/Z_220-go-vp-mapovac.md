@@ -22,7 +22,7 @@ Proč to takhle: **jeden zdroj pravdy na den** (agenti se nerozcházejí), **lev
    - `tenant.vp_flow_vyroby` — celý flow per `cislo_zakazky` (poptávka→…→zaplaceno).
    - `tenant.vp_zastup_readiness` — připravenost (drátování/zkoušení h), termíny v PRACOVNÍCH dnech.
    - `tenant.firemni_kalendar` — pracovní dny / svátky.
-3. **Přidej živou vrstvu:** `@@INBOX` / `@@EMAIL` — nové maily k zakázkám. **⚠️ HLÍDEJ ČERSTVOST každého zdroje** — zaseklý mirror ≠ klid. Nezapečeť falešné „nic nového".
+3. **Přidej živou vrstvu:** `@@INBOX` / `@@EMAIL` — nové maily k zakázkám. **⚠️ ČERSTVOST OVĚŘ PŘES ZDRAVÍ AUTOMATU, NE ODHADEM** — `fw.mirror_job.last_run_at/last_status` (legacy syncy) resp. g2007 automat registr (nové). „Starý mail" ≠ zaseklý mirror; a zaseklý mirror ≠ klid. Koukni na registr, nehádej.
 4. **Syntetizuj + zapečeť** datovaný stav: kontext dne (svátek/volno, zástupy) · portfolio · rozložení fází · **co hoří** (po termínu) · nejbližší termíny · komunikace · **návrh prvního kroku** (návrh, ne akce).
 
 ## Zásady (závazné)
@@ -34,7 +34,7 @@ Proč to takhle: **jeden zdroj pravdy na den** (agenti se nerozcházejí), **lev
 
 ## Poučení z prvního passu (18. 7. 2026)
 - **Mapovač je lehký** — čti views + syntetizuj, ne počítej z nuly. Rychlé, levné.
-- **Živá vrstva měla reálný problém:** inbox mirror zaseklý na 11. 7. → první konkrétní úkol (proč nejede po 11. 7.?). Freshness není detail, je to jádro.
+- **OPRAVA (téhož dne):** v prvním passu jsem odhadl „inbox mirror zaseklý na 11. 7." — **byl to omyl.** `fw.mirror_job.sync_mail_eliska` proběhl týž den v 11:14, status ok, 34 řádků. Mail sync je zdravý; „staré maily" znamenaly jen, že nic nového nepřišlo. **Poučení: freshness = zdraví automatu, ne odhad z dat. Vždy se podívej na registr automatů (`fw.mirror_job` / g2007 automat), nehádej.** To je jádro celého freshness principu.
 - **Zapečetěný stav je čitelný artefakt** — přesně to, co konzumenti i Eliška čtou.
 
 ## Rozklad role Eliška (menší část VP, začínáme tudy)

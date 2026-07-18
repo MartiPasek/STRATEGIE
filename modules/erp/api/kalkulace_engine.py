@@ -930,3 +930,103 @@ def compute_absv1_from_cmd(rest: str) -> dict:
             qn = 1.0
         bom.append({"reg_cis": reg.strip(), "qty": qn})
     return compute_absv1(bom, profil, kw)
+
+
+# ── Vydané poptávky (řada 940): dotažení EXT cenových polí nabídek dodavatelů ──
+# (Claude C23, 18.7.2026). Modul RFQ = přijaté nabídky dodavatelů na poptávané díly.
+# Obohatí tenant.ec_doklad_zbozi o cena/platnost/dodavatel/výrobce/popis/soubor/kontakt + SeznamKalkulací.
+
+def vydane_poptavky_sync() -> dict:
+    """Dotáhne z DB_EC (řada 940) EXT pole přijatých nabídek do tenant.ec_doklad_zbozi (UPDATE dle src_id)."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    rows = _ec(
+        "SELECT d.ID, "
+        "CAST(e._Kcen_Cena AS numeric(19,4)) Cena, CONVERT(varchar(10),e._PlatnostDoNabDod,23) PlatnostDo, "
+        "CAST(e._Sleva AS numeric(9,2)) Sleva, e._OrgNazevNabDod Dodavatel, e._VyrobceNab Vyrobce, "
+        "e._PopisNabDod Popis, e._PoznamkaVyvojar Soubor, e._KontaktJmenoNabDod KontaktJmeno, "
+        "e._KontaktNabDod KontaktEmail, e._PoznamkaExt CisloECImport, "
+        "(SELECT STRING_AGG(KH.CisloKalkulace, ',') FROM TabDokladyZbozi NB "
+        "  LEFT JOIN EC_KalkulaceHlav KH ON KH.IDDoklad=NB.ID "
+        "  LEFT JOIN EC_DokladyVazby DV ON DV.ID_Odkud=NB.ID WHERE DV.ID_Kam=d.ID) SeznamKalk "
+        "FROM TabDokladyZbozi d LEFT JOIN TabDokladyZbozi_EXT e ON e.ID=d.ID "
+        "WHERE d.RadaDokladu='940' AND d.DatPorizeni >= '2024-01-01'")
+    sd = get_data_session()
+    try:
+        sd.execute(_t(
+            "ALTER TABLE tenant.ec_doklad_zbozi "
+            "ADD COLUMN IF NOT EXISTS nab_cena numeric(19,4), "
+            "ADD COLUMN IF NOT EXISTS nab_platnost_do date, "
+            "ADD COLUMN IF NOT EXISTS nab_sleva numeric(9,2), "
+            "ADD COLUMN IF NOT EXISTS nab_dodavatel text, "
+            "ADD COLUMN IF NOT EXISTS nab_vyrobce text, "
+            "ADD COLUMN IF NOT EXISTS nab_popis text, "
+            "ADD COLUMN IF NOT EXISTS nab_soubor text, "
+            "ADD COLUMN IF NOT EXISTS nab_kontakt_jmeno text, "
+            "ADD COLUMN IF NOT EXISTS nab_kontakt_email text, "
+            "ADD COLUMN IF NOT EXISTS nab_cislo_ec_import text, "
+            "ADD COLUMN IF NOT EXISTS seznam_kalkulaci text"))
+        try:
+            sd.execute(_t("GRANT SELECT ON tenant.ec_doklad_zbozi TO PUBLIC"))
+        except Exception:
+            pass
+
+        def _s(v):
+            return (str(v).replace("\x00", "").strip() or None) if v is not None else None
+        upd = 0
+        for r in rows:
+            sid = _int(r.get("ID"))
+            if sid is None:
+                continue
+            res = sd.execute(_t(
+                "UPDATE tenant.ec_doklad_zbozi SET nab_cena=:c, nab_platnost_do=:pl, nab_sleva=:sl, "
+                "nab_dodavatel=:dod, nab_vyrobce=:vyr, nab_popis=:pop, nab_soubor=:sou, "
+                "nab_kontakt_jmeno=:kj, nab_kontakt_email=:ke, nab_cislo_ec_import=:cim, seznam_kalkulaci=:sk "
+                "WHERE src_id=:sid"),
+                {"c": _num(r.get("Cena")), "pl": (r.get("PlatnostDo") or None), "sl": _num(r.get("Sleva")),
+                 "dod": _s(r.get("Dodavatel")), "vyr": _s(r.get("Vyrobce")), "pop": _s(r.get("Popis")),
+                 "sou": _s(r.get("Soubor")), "kj": _s(r.get("KontaktJmeno")), "ke": _s(r.get("KontaktEmail")),
+                 "cim": _s(r.get("CisloECImport")), "sk": _s(r.get("SeznamKalk")), "sid": sid})
+            upd += (res.rowcount or 0)
+        sd.commit()
+        return {"ok": True, "nacteno_z_ec": len(rows), "aktualizovano": upd}
+    except Exception:
+        sd.rollback()
+        raise
+    finally:
+        sd.close()
+
+
+def vydane_poptavky_list(rest: str = "") -> dict:
+    """@@VYPOPT LIST [filtr] — přehled obohacených vydaných poptávek (řada 940)."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    q = (rest or "").strip()
+    sd = get_data_session()
+    try:
+        where = "WHERE rada='940'"
+        params = {}
+        if q:
+            where += " AND (upper(nab_dodavatel) LIKE :q OR upper(nab_vyrobce) LIKE :q OR upper(nazev) LIKE :q)"
+            params["q"] = "%" + q.upper() + "%"
+        rr = sd.execute(_t(
+            "SELECT cislo, nab_dodavatel, nab_vyrobce, nab_cena, nab_platnost_do, "
+            "left(coalesce(nab_popis, nazev, ''), 30) AS popis, seznam_kalkulaci "
+            "FROM tenant.ec_doklad_zbozi " + where + " ORDER BY dat_porizeni DESC LIMIT 40"), params).fetchall()
+    finally:
+        sd.close()
+    return {"ok": True,
+            "columns": ["cislo", "dodavatel", "vyrobce", "cena", "platnost", "popis", "kalkulace"],
+            "rows": [[a, b or "-", c or "-", ("%.2f" % d) if d is not None else "-",
+                      (str(e) if e else "-"), f or "-", g or "-"] for (a, b, c, d, e, f, g) in rr]}
+
+
+def vypopt_cmd(rest: str) -> dict:
+    """@@VYPOPT SYNC | LIST [filtr]"""
+    sub = (rest or "").strip()
+    if sub.upper().startswith("SYNC"):
+        r = vydane_poptavky_sync()
+        return {"ok": True, "columns": ["vysledek"],
+                "rows": [["SYNC ok — z EC %s, aktualizováno %s řádků" % (r.get("nacteno_z_ec"), r.get("aktualizovano"))]]}
+    arg = sub[4:].strip() if sub.upper().startswith("LIST") else sub
+    return vydane_poptavky_list(arg)

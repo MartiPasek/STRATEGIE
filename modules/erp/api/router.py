@@ -39516,6 +39516,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@KALKPRICE"):
         from modules.erp.api.kalkulace_engine import price_cmd as _kpc
         return JSONResponse(_kpc(sql[len("@@KALKPRICE"):].strip()))
+    # @@KALKABSV1 profil=flex kw=15 | BOM  → GESAMT zevnitr (prijemka+cenik+EC koef), Vize1 (C23 18.7.)
+    if sql.upper().startswith("@@KALKABSV1"):
+        from modules.erp.api.kalkulace_engine import compute_absv1_from_cmd as _kav1
+        return JSONResponse(_kav1(sql[len("@@KALKABSV1"):].strip()))
     if sql.upper().startswith("@@KALK"):
         import traceback as _tbk
         try:

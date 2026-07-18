@@ -827,3 +827,98 @@ def price_cmd(rest: str) -> dict:
                  "%.2f" % su["material_cenik"], "%.2f" % su["material_cena"],
                  "nenac=%d/%d" % (su["nenaceneno"], su["polozek"])])
     return {"ok": True, "columns": ["reg_cis", "qty", "prijemka", "prij_dat", "cenik_net", "cena", "flag"], "rows": rows}
+
+
+# ── Vize 1 GESAMT zevnitř: v1 materiál (příjemka+ceník) + koeficienty z EC → profil ──
+# (Claude C23, 18.7.2026). Koeficient per díl z EC_KalkKoeficienty přes RegCisHeo→TabKmenZbozi.ID.
+
+def _coef_ec(reg_list) -> dict:
+    regs = [r for r in {(x or "").strip() for x in reg_list} if r]
+    if not regs:
+        return {}
+    vals = ",".join("N'%s'" % r.replace("'", "''") for r in regs)
+    rows = _ec(
+        "SELECT k.RegCis, ko.K_VKM, ko.K_ARB FROM TabKmenZbozi k "
+        "JOIN EC_KalkKoeficienty ko ON ko.IDKmenZbozi = k.ID "
+        "WHERE k.RegCis IN (" + vals + ")")
+    out = {}
+    for r in rows:
+        rc = (r.get("RegCis") or "").strip()
+        if rc and rc not in out:
+            out[rc] = {"k_vkm": _num(r.get("K_VKM")), "k_arb": _num(r.get("K_ARB"))}
+    return out
+
+
+def compute_absv1(bom: list, profil_kod, kw=None) -> dict:
+    """GESAMT zevnitř: materiál z v1 (příjemka+ceník), VKM/Arbeit z EC koeficientů, profil marže/floor/fix."""
+    p = PROFILY.get((profil_kod or "").lower())
+    if not p:
+        return {"ok": False, "error": "neznámý profil '%s' (%s)" % (profil_kod, ", ".join(PROFILY))}
+    pr = price_bom(bom)
+    price_by = {r["reg_cis"]: r for r in pr["radky"]}
+    coef = _coef_ec([it.get("reg_cis") for it in bom])
+    bvkm = p["vkm"]; barb = p["arb"]
+    rows = []
+    mat = vkm_t = arb_t = 0.0
+    chybi_cena = chybi_koef = 0
+    for it in bom:
+        reg = str(it.get("reg_cis") or "").strip()
+        qty = float(it.get("qty") or 0)
+        pl = price_by.get(reg, {})
+        cena = pl.get("cena")
+        flag = pl.get("flag")
+        co = coef.get(reg, {})
+        kv = co.get("k_vkm"); ka = co.get("k_arb")
+        if cena is None:
+            chybi_cena += 1
+        if kv is None and ka is None:
+            chybi_koef += 1
+        vkm = round((kv or 0) * bvkm, 4)
+        arb = round((ka or 0) * barb, 4)
+        radek = round(((cena or 0) + vkm + arb) * qty, 2)
+        mat += (cena or 0) * qty
+        vkm_t += vkm * qty
+        arb_t += arb * qty
+        rows.append([reg, str(qty), ("%.2f" % cena) if cena is not None else "-",
+                     "%.2f" % (vkm * qty), "%.2f" % (arb * qty), "%.2f" % radek, flag or "-"])
+    mat = round(mat, 2); vkm_t = round(vkm_t, 2); arb_t = round(arb_t, 2)
+    radky_celkem = round(mat + vkm_t + arb_t, 2)
+    marze = round(radky_celkem * p["marze"] / 100.0, 2)
+    fixni = p["projekt"] + p["revize"] + p["transport"]
+    gesamt = round(radky_celkem + marze + fixni, 2)
+    floor = p.get("floor", {}).get(str(kw)) if kw is not None else None
+    floor_hit = bool(floor and gesamt < floor)
+    if floor_hit:
+        gesamt = float(floor)
+    rows.append(["== SOUČET ==", "", "%.2f" % mat, "%.2f" % vkm_t, "%.2f" % arb_t, "%.2f" % radky_celkem,
+                 "chybi cena=%d koef=%d" % (chybi_cena, chybi_koef)])
+    rows.append(["== GESAMT ==", p["nazev"][:22],
+                 "marze %.0f%%=%.2f" % (p["marze"], marze), "fix=%.0f" % fixni,
+                 ("FLOOR %s!" % floor) if floor_hit else "-", "%.2f" % gesamt,
+                 "nabidnout %.0f" % (round(gesamt / 10.0) * 10)])
+    return {"ok": True, "columns": ["reg_cis", "qty", "material", "VKM", "Arbeit", "radek", "flag"], "rows": rows}
+
+
+def compute_absv1_from_cmd(rest: str) -> dict:
+    """@@KALKABSV1 profil=flex kw=15 | REGCIS*QTY, …  → GESAMT z příjemky+ceníku+EC koeficientů."""
+    profil = None; kw = None
+    head, _, body = rest.partition("|")
+    for tok in head.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            if k == "profil":
+                profil = v.strip()
+            elif k == "kw":
+                kw = v.strip()
+    bom = []
+    for part in body.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        reg, q = (part.rsplit("*", 1) if "*" in part else (part, "1"))
+        try:
+            qn = float(q)
+        except Exception:
+            qn = 1.0
+        bom.append({"reg_cis": reg.strip(), "qty": qn})
+    return compute_absv1(bom, profil, kw)

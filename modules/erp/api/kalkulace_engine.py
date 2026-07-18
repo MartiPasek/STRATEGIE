@@ -762,7 +762,13 @@ def price_bom(bom: list) -> dict:
                 pass
         # cena: čerstvá příjemka → max(příjemka, ceník); stará → ceník (je-li); flag
         if pval is not None and cnet is not None:
-            if stale:
+            _ratio = (max(pval, cnet) / min(pval, cnet)) if min(pval, cnet) > 0 else 999.0
+            if _ratio > 3.0:
+                # anomálie: příjemka a ceník se rozcházejí >3× → vadný nákupní záznam (balení/MJ);
+                # nedůvěřuj max, opři se o ceník (stabilní list) a označ k ručnímu ověření
+                cena = cnet
+                flag = "ANOMALIE(prij %.0f vs cenik %.0f)" % (pval, cnet)
+            elif stale:
                 cena = cnet
                 flag = "stara_prijemka(%sm)->cenik" % (stari_m if stari_m is not None else "?")
             elif cnet > pval * 1.001:

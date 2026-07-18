@@ -553,6 +553,10 @@ def _regcis_ensure_table(sd):
         " nahradit_o_za_0 text, doplnit_nulami_na int, pouziva_alt text,"
         " synced_at timestamptz NOT NULL DEFAULT now())"))
     sd.execute(_t("CREATE INDEX IF NOT EXISTS ix_kalk_regcis_zkratka ON tenant.kalk_regcis_def (zkratka)"))
+    try:
+        sd.execute(_t("GRANT SELECT ON tenant.kalk_regcis_def TO PUBLIC"))
+    except Exception:
+        pass
 
 
 def sync_regcis_def() -> dict:
@@ -633,11 +637,16 @@ def regcis_cmd(rest: str) -> dict:
     parts = (rest or "").split(None, 2)
     sub = (parts[0].upper() if parts else "LIST")
     if sub == "SYNC":
-        return sync_regcis_def()
+        _r = sync_regcis_def()
+        return {"ok": True, "columns": ["vysledek"], "rows": [["SYNC ok — vlozeno %s radku" % _r.get("vlozeno")]]}
     if sub == "BUILD":
         if len(parts) < 3:
             return {"ok": False, "error": "@@KALKREGCIS BUILD <vyrobce> <syrove_cislo>"}
-        return regcis_build(parts[1], parts[2])
+        _b = regcis_build(parts[1], parts[2])
+        if _b.get("ok"):
+            return {"ok": True, "columns": ["regcisheo", "zkratka", "kod"],
+                    "rows": [[_b["regcisheo"], _b["zkratka"], _b["kod"]]]}
+        return {"ok": True, "columns": ["chyba"], "rows": [[_b.get("error", "?")]]}
     # LIST
     from core.database_data import get_data_session
     from sqlalchemy import text as _t

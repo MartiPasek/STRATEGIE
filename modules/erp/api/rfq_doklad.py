@@ -176,6 +176,17 @@ def update_poptavka_ext(doklad_id: int, nazev_poptavky: str) -> dict:
     return {"ok": True}
 
 
+# ── přístup do adresáře dokumentů poptávky na sdíleném disku ────────────────
+# Každý doklad má složku \\192.168.30.11\data\poptavky_V\<doklad> (= D:\Data\poptavky_V\<doklad>
+# na EC-SERVER2). MCP FS bere LOKÁLNÍ kořen D:\Data\…, ne UNC přes hostname (gotcha 3.7.).
+_POPTAVKY_ROOT = "D:\\Data\\poptavky_V"
+
+
+def list_poptavka_dir(doklad: str) -> dict:
+    from modules.erp.api.directories import _eu_list
+    return _eu_list(_POPTAVKY_ROOT, str(doklad).strip())
+
+
 def read_poptavka(doklad_id: int) -> dict:
     """Přečti poptávku tak, jak ji vidí přehled (header + EXT název)."""
     did = int(doklad_id)
@@ -269,6 +280,25 @@ def rfq_doklad_cmd(rest: str) -> dict:
                     ["3) smazáno", ("OK ✓ (beze stopy) msg=%s" % s.get("message")) if s.get("ok") else ("SMAZ selhal: %s" % s.get("error"))],
                 ],
             )
+
+        if up.startswith("DIR"):
+            doklad = raw[3:].strip()
+            if not doklad:
+                return _err("použij: @@RFQDOKLAD DIR <doklad>  (např. EVP260231)")
+            r = list_poptavka_dir(doklad)
+            if not r.get("ok"):
+                return _err("přístup do %s\\%s selhal: %s" % (_POPTAVKY_ROOT, doklad, r.get("error") or r))
+            items = r.get("items") or r.get("entries") or r.get("files") or []
+            if not items:
+                return _out(["adresář", "obsah"], [["%s\\%s" % (_POPTAVKY_ROOT, doklad), "(prázdný / bez souborů)"]])
+            rows = []
+            for it in items[:50]:
+                if isinstance(it, dict):
+                    rows.append([it.get("name") or it.get("path") or str(it),
+                                 str(it.get("size", it.get("type", "")))])
+                else:
+                    rows.append([str(it), ""])
+            return _out(["soubor (%s\\%s)" % (_POPTAVKY_ROOT, doklad), "velikost/typ"], rows)
 
         if up.startswith("FILL"):
             import datetime as _dt

@@ -38816,6 +38816,54 @@ async def diag_sql(req: Request) -> JSONResponse:
         out = [["[%s] %s — %s" % (r[0] or "-", r[1], r[2])] for r in rows]
         return JSONResponse({"ok": True, "columns": ["mapa (@@KNOW <název>)"], "rows": out})
 
+    #   @@STAV  → dávka živého stavu (čas + otevřené + poslední práce). Gap #2, 18.7.2026.
+    #   @@ORIENT dá identitu/doménu, @@STAV dá ŽIVÁ DATA (ne jen instrukci "zjisti si").
+    if sql.upper().startswith("@@STAV"):
+        from core.database_data import get_data_session as _gst
+        from sqlalchemy import text as _tst
+        _s = _gst()
+        try:
+            _now = _s.execute(_tst(
+                "SELECT to_char(now() AT TIME ZONE 'Europe/Prague','DD.MM.YYYY HH24:MI'), "
+                "EXTRACT(dow FROM now() AT TIME ZONE 'Europe/Prague')::int")).first()
+            _cal = _s.execute(_tst(
+                "SELECT is_workday, is_holiday, holiday_name FROM tenant.att_calendar_day "
+                "WHERE tenant_id=2 AND day=(now() AT TIME ZONE 'Europe/Prague')::date LIMIT 1")).first()
+            _cnt = _s.execute(_tst(
+                "SELECT (SELECT COUNT(*) FROM tenant.task WHERE tenant_id=2 AND stav=0), "
+                "(SELECT COUNT(*) FROM tenant.user_todo WHERE tenant_id=2 AND NOT done)")).first()
+            _awl = _s.execute(_tst(
+                "SELECT to_char(ts AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI'), actor, "
+                "COALESCE(oblast,''), LEFT(COALESCE(akce,''),60) "
+                "FROM tenant.ai_work_log ORDER BY ts DESC LIMIT 4")).fetchall()
+        finally:
+            _s.close()
+        _DNY = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"]
+        _den = _DNY[_now[1]] if (_now and _now[1] is not None) else ""
+        _prac = ""
+        if _cal is not None:
+            if _cal[1]:
+                _prac = " · svátek%s" % ((" (" + _cal[2] + ")") if _cal[2] else "")
+            elif _cal[0]:
+                _prac = " · pracovní den"
+            else:
+                _prac = " · volno"
+        _lines = ["=== ŽIVÝ STAV ==="]
+        _lines.append("⏰ %s, %s%s" % (_now[0] if _now else "?", _den, _prac))
+        _lines.append("📋 Otevřené: %s úkolů (task) · %s todo" % (
+            _cnt[0] if _cnt else 0, _cnt[1] if _cnt else 0))
+        _lines.append("🕘 Poslední zaznamenaná práce (ai_work_log):")
+        if _awl:
+            for _r in _awl:
+                _lines.append("  - %s [%s] %s%s" % (
+                    _r[0], _r[1] or "?", _r[3] or "", (" · " + _r[2]) if _r[2] else ""))
+        else:
+            _lines.append("  (žádné záznamy)")
+        _lines.append("→ Hlouběji: @@ORIENT <doména> · @@MAP · g2007_hledej(dotaz)")
+        _txt = "\n".join(_lines)
+        _rows = [[_txt[i:i + 150]] for i in range(0, len(_txt), 150)]
+        return JSONResponse({"ok": True, "columns": ["stav"], "rows": _rows})
+
     #   @@KNOW <název>  → natáhne plný obsah jednotky know-how (lazy load do session)
     if sql.upper().startswith("@@KNOW") and not sql.upper().startswith("@@KNOWEMBED"):
         from core.database_data import get_data_session as _gkn

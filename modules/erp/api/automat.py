@@ -111,13 +111,13 @@ def _escalate_haiku(agent_prompt, kod, zprava, context):
         return "[Haiku eskalace selhala: %s: %s]" % (type(e).__name__, str(e)[:200])
 
 
-def _run_work(kod):
+def _run_work(kod, from_sched=False):
     from sqlalchemy import text as T
     from core.database import get_session
     sg = get_session()
     t0 = time.time()
     try:
-        a = sg.execute(T("SELECT kod, agent_prompt, eskalace_agent, aktivni "
+        a = sg.execute(T("SELECT kod, agent_prompt, eskalace_agent, aktivni, last_status "
                          "FROM g2007.automat WHERE kod=:k"), {"k": kod}).mappings().first()
         if not a:
             return {"ok": False, "error": "automat '%s' neexistuje" % kod}
@@ -125,10 +125,14 @@ def _run_work(kod):
         if not check:
             return {"ok": False, "error": "automat '%s' nemá check logiku (zatím)" % kod}
         vysledek, zprava, rows, context = check(sg)
+        prev = a["last_status"]
         eskalovano_na, eskalace_vysledek = None, None
-        if vysledek != "ok":
+        # Eskaluj při problému. Ze scheduleru JEN při změně stavu (ne spam Haiku u trvalé
+        # známé chyby); ruční spuštění eskaluje vždy (chceš vidět diagnózu).
+        if vysledek != "ok" and (not from_sched or vysledek != prev):
             eskalovano_na = a["eskalace_agent"] or "haiku"
-            _log.warning("AUTOMAT %s -> %s; eskalace na %s", kod, vysledek, eskalovano_na)
+            _log.warning("AUTOMAT %s -> %s; eskalace na %s (from_sched=%s, prev=%s)",
+                         kod, vysledek, eskalovano_na, from_sched, prev)
             eskalace_vysledek = _escalate_haiku(a["agent_prompt"], kod, zprava, context)
         trvani = int((time.time() - t0) * 1000)
         rid = sg.execute(T(
@@ -201,3 +205,61 @@ async def automat_monitor(req: Request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     out = await run_in_threadpool(_monitor_work)
     return JSONResponse(out, status_code=200)
+
+
+# ── Scheduler: interval automaty se spouští samy ────────────────────────────
+# Vzor převzat z mirror_sched (router.py): asyncio loop, tick v executoru, sleep.
+# Spouští ho lifespan JEN na primáru (secondary = snímek 'prev', nesmí klofat).
+_SCHED_TASK = [None]
+_SCHED_STOP = [False]
+
+
+def _automat_sched_tick():
+    """Najde due interval automaty (last_run + interval_min <= now) a spustí je."""
+    from sqlalchemy import text as T
+    from core.database import get_session
+    sg = get_session()
+    try:
+        due = sg.execute(T(
+            "SELECT kod FROM g2007.automat "
+            "WHERE aktivni AND spousteni='interval' AND interval_min IS NOT NULL "
+            "  AND (last_run_at IS NULL "
+            "       OR last_run_at + make_interval(mins => interval_min) <= now()) "
+            "ORDER BY last_run_at NULLS FIRST")).scalars().all()
+    finally:
+        sg.close()
+    for kod in due:
+        try:
+            r = _run_work(kod, from_sched=True)
+            _log.info("[automat_sched] %s -> %s", kod, (r or {}).get("vysledek"))
+        except Exception as e:
+            _log.warning("[automat_sched] %s selhal: %s", kod, e)
+
+
+async def _automat_sched_loop():
+    import asyncio as _aio
+    _log.info("[automat_sched] background loop started (60s tik)")
+    while not _SCHED_STOP[0]:
+        try:
+            await _aio.sleep(60)
+            if _SCHED_STOP[0]:
+                break
+            loop = _aio.get_event_loop()
+            await loop.run_in_executor(None, _automat_sched_tick)
+        except _aio.CancelledError:
+            break
+        except Exception as e:
+            _log.warning("[automat_sched_loop] %s", e)
+
+
+def automat_sched_start():
+    """Spusť background loop (idempotentní). Volá lifespan na primáru."""
+    import asyncio as _aio
+    if _SCHED_TASK[0] is not None and not _SCHED_TASK[0].done():
+        return
+    _SCHED_STOP[0] = False
+    try:
+        _SCHED_TASK[0] = _aio.create_task(_automat_sched_loop())
+        _log.info("[automat_sched] start ok")
+    except Exception as e:
+        _log.warning("[automat_sched] start failed: %s", e)

@@ -304,6 +304,13 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logging.getLogger(__name__).warning(f"[lifespan] mirror_sched start failed: {exc}")
 
+        # Claude 18.7.2026: scheduler g2007 automatů (interval spouštění, jen primár).
+        try:
+            from modules.erp.api.automat import automat_sched_start
+            automat_sched_start()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"[lifespan] automat_sched start failed: {exc}")
+
     # Marti 20.6.2026: vault klic samobootstrap uz pri startu (nesmi cekat na klik).
     try:
         from modules.erp.api.router import _vault_fernet as _vf_boot

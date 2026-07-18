@@ -70,7 +70,28 @@ def _check_vp_freshness(sg):
     return "ok", "Všech %d VP jobů čerstvých a ok." % len(rows), len(rows), context
 
 
-_CHECKS = {"check_vp_freshness": _check_vp_freshness}
+def _check_legacy_errors(sg):
+    """Najde JAKÝKOLI mirror job v chybě (fw.mirror_job). Vrací (vysledek, zprava, rows, context)."""
+    from sqlalchemy import text as T
+    rows = sg.execute(T(
+        "SELECT job_key, enabled, last_status, "
+        " to_char(last_run_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') AS last_run, "
+        " COALESCE(LEFT(last_result,100),'') AS last_result "
+        "FROM fw.mirror_job WHERE last_status IS NOT NULL AND last_status <> 'ok' "
+        "ORDER BY last_run_at DESC NULLS LAST")).mappings().all()
+    if not rows:
+        return "ok", "Žádný mirror job v chybě.", 0, ""
+    lines = ["%s: stav=%s, enabled=%s, naposled %s | %s" % (
+        r["job_key"], r["last_status"], r["enabled"], r["last_run"], r["last_result"]) for r in rows]
+    context = "\n".join(lines)
+    return ("chyba", "%d mirror jobů v chybě: %s" % (len(rows), ", ".join(r["job_key"] for r in rows)),
+            len(rows), context)
+
+
+_CHECKS = {
+    "check_vp_freshness": _check_vp_freshness,
+    "check_legacy_errors": _check_legacy_errors,
+}
 
 
 def _escalate_haiku(agent_prompt, kod, zprava, context):

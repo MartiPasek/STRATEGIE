@@ -115,9 +115,25 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
             _s0.close()
     except Exception:
         _last = None
+    # TZ-fix (Claude C23 18.7.2026): _last z PG nes pražský offset UTC+02:00, ktery
+    # exchangelib neumi namapovat na Windows tz ("No time zone found with key UTC+02:00")
+    # -> fetch padal od 7.7. Znormalizuj na UTC EWSDateTime (jako funkcni backfill vetev).
+    _last_ews = None
+    if _last is not None:
+        try:
+            import datetime as _dtz
+            from exchangelib import EWSDateTime as _EDT, UTC as _EUTC
+            _lu = (_last.astimezone(_dtz.timezone.utc) if getattr(_last, "tzinfo", None)
+                   else _last.replace(tzinfo=_dtz.timezone.utc))
+            _last_ews = _EDT(_lu.year, _lu.month, _lu.day, _lu.hour, _lu.minute,
+                             _lu.second, tzinfo=_EUTC)
+        except Exception:
+            _last_ews = None
     try:
         if _since_dt is not None:
             qs = fld.filter(datetime_received__gte=_since_dt).order_by("-datetime_received")[:limit]
+        elif _last_ews is not None:
+            qs = fld.filter(datetime_received__gt=_last_ews).order_by("-datetime_received")[:limit]
         elif _last is not None:
             qs = fld.filter(datetime_received__gt=_last).order_by("-datetime_received")[:limit]
         else:

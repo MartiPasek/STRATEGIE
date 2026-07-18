@@ -183,6 +183,26 @@ async def g2007_index(req: Request):
     return JSONResponse(out, status_code=200)
 
 
+@g2007_vec_router.get("/app/ops/worktree-status")
+async def ops_worktree_status(req: Request):
+    """Drift detekce: `git status --porcelain` na běžící produkci (app repo).
+    Ukáže lokální necommitnuté / untracked soubory = KÓD MIMO GIT. Parent/cockpit only.
+    Claude C23, 18.7.2026 — nástroj proti 'produkce běží kód mimo git' (doc-go-120/121)."""
+    uid, ok = _guard(req)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        from modules.conversation.application.deployment_service import (
+            _git_working_tree_clean as _wtc,
+        )
+        clean, detail = await run_in_threadpool(_wtc)
+        return JSONResponse({"ok": True, "clean": bool(clean), "detail": detail or ""})
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:300])},
+            status_code=200)
+
+
 @g2007_vec_router.post("/app/g2007/search")
 async def g2007_search(req: Request):
     """Sémantické hledání nad G2007. Body: {dotaz, oblast?, k?}."""

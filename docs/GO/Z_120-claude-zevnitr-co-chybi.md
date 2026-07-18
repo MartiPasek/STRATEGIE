@@ -39,16 +39,15 @@ Most i skladač jsou reálné a bohaté. Rozhodující chybí: **univerzálnost 
 - Nejdřív **1 + 3** (objektiv + role) — pak Claude i Marti-AI vcházejí týmiž dveřmi jako sobě rovní a umí si nasadit odbornou roli.
 - Pak **2 + 4** — živý stav a zápis zevnitř, aby to nebyla prohlídka, ale práce.
 
-## Dodatek (18. 7. večer): endpoint EXISTUJE — ale produkce běží kód mimo git ⚠️
-Když jsme chtěli tuhle znalost (120) zapsat do báze, objevilo se něco důležitějšího než gap #4.
+## Dodatek (18. 7. večer): OPRAVA — endpoint JE v gitu, „off-git" byl přelud mount truncation ✅
+Nejdřív jsem tvrdil, že endpoint `znalost-upsert` běží na produkci **mimo git**. **To bylo špatně** a stojí za to vědět proč — je to nejcennější lekce dne.
 
-**Zjištění:** `POST /api/v1/erp/app/g2007/znalost-upsert` — endpoint, který gap #4 označil za „chybějící" a `CLAUDE.md` ho slibuje — **reálně existuje a plně funguje** (upsert + projekce na disk + úklid inboxu). Jenže **jeho zdrojový kód není nikde v gitu.** Běží jen na produkci (`C:\Projekty\STRATEGIE` — jiný stroj než Martiho `D:\`). Někdo ho kdysi nasadil přímo na produkci a nikdy ho necommitnul zpátky.
+**Skutečnost:** `POST /api/v1/erp/app/g2007/znalost-upsert` **JE plně v gitu** — `modules/erp/api/router.py:61704` (upsert + projekce + úklid inboxu + reindex). Produkce ho běží správně, protože ho má commitnutý. **Žádný drift, žádný off-git kód.**
 
-**Proč to pálí (odtud „nebo nás to někde vypeče"):**
-- Při čistém redeployi z gitu ten endpoint **zmizí** — přispívání znalostí přestane fungovat bez varování.
-- Grep v repu ho nenajde → příští Claude (i Marti) ho bude „znovu stavět", jako já dnes (a málem založil duplikát).
-- Vznikly **dvě konvence kódu**: dávka z 12. 7. dělá `doc-go-<slug>`, endpoint dělá `doc-<oblast>-<slug>`. Tahle 120 byla ručně srovnána na `doc-go-120`, ale endpoint by ji příště zase rozhodil.
+**Proč jsem ho „neviděl":** `router.py` má v HEAD **61 729 řádků**, ale čtení přes mount (`grep`/`wc`/`sed` v `device_bash`) ho **ořezává na ~61 276** — a endpoint sedí na 61 704, přesně v uříznutém konci. Grep ho tedy nikdy nenačetl → chybný závěr „není v gitu". **`git grep HEAD` / `git show HEAD:soubor` čtou git objekty (ne mount) a našly ho na první pokus.**
 
-**Pravý úkol (vrátíme se k němu):** najít ten produkční kód (`C:\`), **commitnout ho zpátky do repa**, sjednotit konvenci kódů a zajistit, že produkce běží jen to, co je v gitu. To je přesně ta ztráta kontextu, kterou GO léčí — jen o patro níž, v infrastruktuře. Dokud to platí, **DB (ne git) je jediný spolehlivý zdroj pravdy o tom, co běží.**
+**Lekce (silnější gotcha #2):** u velkých souborů **nikdy nevěř grepu/wc/sed přes mount** — ověřuj přes **git objekty** (`git grep HEAD`, `git show HEAD:<soubor>`) nebo živý test. Největší „drift" strašák téhle session byl chyba měření, ne reality.
 
-— Claude · C23, zevnitř 🌱
+**Co z gap #4 zbylo doopravdy:** endpoint tvoří kód `doc-<oblast>-<slug>` (→ `doc-system-g2007-*`), kdežto GO série je `doc-go-<slug>`. Drobná nekonzistence konvence — ne drift. K vyřešení: přidat endpointu volitelný explicitní `kod`, nebo sjednotit tag.
+
+— Claude · C23, zevnitř 🌱 (oprava téhož dne)

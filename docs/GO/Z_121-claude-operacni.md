@@ -14,9 +14,9 @@ Přes `device_bash` v adresáři `scripts/claude_sql/` (na Martiho `D:\`):
 - **Zápis (DML):** funguje na tabulky, které vlastní app/Marti-AI role → ale spustí **schvalovací banner** Martimu (non-sandbox tabulky). Počkej na jeho „ano".
 - **Velký SQL (base64 obsah):** NE přes `device_bash` heredoc (mount ořezává) — napiš `CLAUDE_SQL.sql` přes `device_commit_files` (kontejner → device).
 
-## 2. ⚠️ Mount truncation — nevěř čtení přes mount
-Čtení souborů přes `/sessions/*/mnt/` (`wc`, `cat`, `diff`, `py_compile`) může **tiše oříznout** — ukáže kratší/uříznutý soubor, který takový NENÍ. Dneska mě to poslalo honit „ztracených 10 řádků", co nikdy nezmizely.
-- **Autoritativní ověření** = cloud `py_compile` gate v deployi, nebo **živý test endpointu**. Ne mount `wc`/`diff`.
+## 2. ⚠️ Mount truncation — nevěř čtení přes mount (NEJVĚTŠÍ past dne)
+Čtení souborů přes `/sessions/*/mnt/` (`grep`, `wc`, `cat`, `diff`, `sed`, `py_compile`) může **tiše oříznout** — ukáže kratší soubor, který takový NENÍ. Konkrétní případ: `router.py` má v HEAD **61 729 řádků**, mount čte jen **~61 276** → endpoint na řádku 61 704 „zmizel" a já hodinu tvrdil, že běží mimo git (nebyl — jen uříznutý na mountu).
+- **Autoritativní ověření:** `git grep HEAD` / `git show HEAD:<soubor>` (git objekty, ne mount) · cloud `py_compile` gate v deployi · živý test endpointu. **Nikdy** závěr z mount `grep`/`wc`/`diff` u velkého souboru.
 
 ## 3. Editace souborů
 - Velké soubory **NIKDY** nee: přes `device_bash` append přes mount (ořezává). Vždy: `device_stage_files` → **Edit v kontejneru** → `py_compile` → `SendUserFile` → `device_commit_files`.
@@ -43,10 +43,10 @@ Zásada: **spáruj zapisovatele s vlastníkem tabulky.**
 - **`g2007.*` = owner Marti-AI** → DML/DDL přes most (Marti-AI role) nebo `strategie_pg_*` tooly.
 - `fw.mirror_job` = Marti-AI (most) · `tenant.oz_mirror_def` = strategie (lifespan). Vždy ověř vlastníka: `SELECT tableowner FROM pg_tables WHERE tablename='...'`.
 
-## 7. ⚠️ Produkce běží kód mimo git (drift)
-Produkce (`C:\Projekty\STRATEGIE` — jiný Windows stroj než Martiho `D:\`) běží kód, který **není v repu**. Doložený případ: `POST /app/g2007/znalost-upsert` (upsert + projekce + úklid inboxu) žije naživo, ale zdroják grep v repu nenajde.
-- **Nepředpokládej, že repo = běžící kód.** Ověřuj chování **živým testem endpointu**, ne grepem.
-- **DB je spolehlivější zdroj pravdy o tom, co běží**, než git. (Viz doc-go-120, k dořešení: najít + commitnout ten kód.)
+## 7. ✅ „Off-git produkce" byl PŘELUD — ověřuj přes git objekty
+Málem jsem uvěřil, že produkce běží kód mimo git (endpoint `znalost-upsert`). **NEbyla to pravda** — endpoint JE v gitu (`router.py:61704`, plný upsert+projekce+úklid+reindex). Grep ho míjel, protože mount ořezal čtení obřího souboru (#2).
+- **repo == běžící kód.** Prod je clean na HEAD — ověřeno endpointem **`GET /app/ops/worktree-status`** (drift detektor, `git status --porcelain` produkce; prázdné = clean).
+- Když grep něco „nenajde" ve velkém souboru: NEuzavírej „není v gitu". Ověř přes **`git grep HEAD`** nebo **`git show HEAD:<soubor>`** (čtou git objekty, ne mount). To rozseklo největší strašák session.
 
 ## 8. Zápis znalosti do G2007
 - Off-git endpoint tvoří kód `doc-<oblast>-<slug>`; ale GO série je `doc-go-<slug>` (dávka). Nesouhlasí → po upsertu srovnej kód ručně, nebo rovnou **direct DML** do `g2007.znalost` přes most (Marti-AI vlastní) s ručním kódem + `POST /app/g2007/index {id}` na re-vektorizaci.

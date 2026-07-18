@@ -11085,6 +11085,7 @@ def chat(
     from modules.core.infrastructure.models_data import Conversation as _Conv
 
     _is_default = True   # fallback -- pokud konverzace nema persona set, pouzij default
+    _persona_model = None   # per-persona model tiering (18.7.2026); NULL = globalni default
     _ds = _gds_tools()
     try:
         _conv = _ds.query(_Conv).filter_by(id=conversation_id).first()
@@ -11096,8 +11097,12 @@ def chat(
         try:
             _persona = _cs.query(_Pers).filter_by(id=_active_pid).first()
             _is_default = bool(_persona and _persona.is_default)
+            _persona_model = (getattr(_persona, "model", None) or None) if _persona else None
         finally:
             _cs.close()
+    # Model tiering: persona.model prebiji globalni MODEL (dnes Sonnet 4.6).
+    # NULL = beze zmeny. Opus pro orchestratora, Haiku pro uzke role.
+    _model = _persona_model or MODEL
     effective_tools = get_effective_tools(_is_default)
     logger.info(
         f"TOOLS FILTER | conv={conversation_id} | active_pid={_active_pid} | "
@@ -11161,7 +11166,7 @@ def chat(
             client,
             conversation_id=conversation_id,
             kind=source,
-            model=MODEL,
+            model=_model,
             system=system_prompt,
             messages=messages,
             tools=effective_tools,
@@ -11175,7 +11180,7 @@ def chat(
         # effective_tools (vyse merged). Anthropic vidi 'eurosoft.*' jako
         # standard local tools, dispatch routes pres MCP klient nize.
         response = client.messages.create(
-            model=MODEL,
+            model=_model,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
@@ -11451,7 +11456,7 @@ def chat(
                     client,
                     conversation_id=conversation_id,
                     kind="synth",
-                    model=MODEL,
+                    model=_model,
                     system=system_prompt,
                     messages=follow_up_messages,
                     tools=effective_tools,
@@ -11462,7 +11467,7 @@ def chat(
                 )
             else:
                 synth_response = client.messages.create(
-                    model=MODEL,
+                    model=_model,
                     max_tokens=4096,
                     system=system_prompt,
                     messages=follow_up_messages,

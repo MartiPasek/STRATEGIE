@@ -308,6 +308,11 @@ class Persona(BaseCore):
     # '✓' v UI dokud Marti-AI sama nezavola set_audit_icon().
     audit_icon: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
+    # Model tiering (Claude C23, 18.7.2026): který Claude model tahle persona/role
+    # používá. NULL = globální default (MODEL v service.py, dnes Sonnet 4.6).
+    # Vyplněné = per-persona tier (Opus pro orchestrátora, Haiku pro úzké role).
+    model: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
 
 class PersonaChannel(BaseCore):
     """

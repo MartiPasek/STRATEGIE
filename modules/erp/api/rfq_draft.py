@@ -211,12 +211,13 @@ def poptavka_koncept(
     termin: str | None,
     user_id: int,
     cc: str | None = None,
+    send: bool = False,
 ) -> dict:
     """
-    Složí konkrétní poptávkový e-mail (RFQ) jménem uživatele (schránka user_id)
-    a uloží jako KONCEPT do jeho Konceptů. NEODESÍLÁ — člověk zkontroluje a odešle.
+    Složí konkrétní poptávkový e-mail (RFQ) jménem uživatele (schránka user_id).
+    send=False → uloží jako KONCEPT do Konceptů; send=True → reálně odešle.
     """
-    osloveni = "Dobrý den, %s," % (to_name.split()[0] if to_name else "")
+    osloveni = "Dobrý den,"
     termin_veta = ("Požadovaný termín dodání: %s.\n" % termin) if termin else ""
     body = (
         "%s\n\n"
@@ -232,6 +233,19 @@ def poptavka_koncept(
         % (osloveni, polozka, mnozstvi, doklad, termin_veta)
     )
     subject = "Poptávka %s — %s" % (doklad, polozka)
+    if send:
+        from modules.notifications.application.email_service import send_email_or_raise
+        send_email_or_raise(
+            to=to_email,
+            subject=subject,
+            body=body,
+            cc=cc,
+            user_id=user_id,
+            from_identity="user",
+        )
+        return {"ok": True, "sender": "e.kolarova@eurosoft-control.cz",
+                "folder": "ODESLÁNO", "to": _parse_recipients(to_email),
+                "cc": _parse_recipients(cc), "subject": subject, "draft_id": None}
     return create_email_draft(
         to=to_email,
         subject=subject,
@@ -272,21 +286,21 @@ def rfq_send_cmd(rest: str) -> dict:
                     termin_cz = termin
             res = poptavka_koncept(
                 doklad=doklad,
-                to_email="pavla.kunova@sew-eurodrive.cz",
+                to_email="m.pasek@eurosoft.com",
                 to_name="Kunová Pavla",
                 dodavatel="SEW-EURODRIVE CZ s.r.o.",
                 polozka=polozka,
                 mnozstvi="1",
                 termin=termin_cz,
                 user_id=34,
+                send=True,
             )
             return {
                 "ok": True,
-                "columns": ["výsledek", "schránka", "složka", "příjemce", "předmět"],
+                "columns": ["výsledek", "odesláno z", "komu", "předmět"],
                 "rows": [[
-                    "KONCEPT poptávky uložen ✓ (jménem Elišky)",
+                    "Poptávka ODESLÁNA ✓ (jménem Elišky)",
                     res.get("sender"),
-                    res.get("folder"),
                     ", ".join(res.get("to") or []),
                     res.get("subject"),
                 ]],

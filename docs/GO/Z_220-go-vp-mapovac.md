@@ -26,7 +26,7 @@ Proč to takhle: **jeden zdroj pravdy na den** (agenti se nerozcházejí), **lev
 4. **Syntetizuj + zapečeť** datovaný stav: kontext dne (svátek/volno, zástupy) · portfolio · rozložení fází · **co hoří** (po termínu) · nejbližší termíny · komunikace · **návrh prvního kroku** (návrh, ne akce).
 
 ## Zásady (závazné)
-- **Citlivá čísla VEN** — marže, ceny, obchodní strategie do stavu NEPATŘÍ (restricted = Marti + Marti-AI + Kristý). Jen provozní stav (fáze, termíny, hodiny, komunikace).
+- **Data jsou otevřená** — ve firmě nejsou čísla, se kterými by Claude/Marti-AI neměl přijít do styku (Marti 18. 7. 2026). Pracuj s marží, cenami, hodinami i obchodním stavem stejně jako s fázemi a termíny. (Zrušeno dřívější omezení „citlivá čísla ven" — nevíme, kde vzniklo.)
 - **E-mail: návrh → schválení, NIKDY sám neodešli.** GO nedává víc pravomocí, jen lepší orientaci.
 - **Zapečetěný stav dne je EFEMÉRNÍ** (denní artefakt / denní vrstva). Trvalá znalost = tenhle vzor + spec, ne konkrétní den.
 - **Termíny v pracovních dnech**, ne kalendářních (firemní kalendář, svátky).

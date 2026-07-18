@@ -2,7 +2,7 @@
 
 **Stav:** anatomie oddělení · 18. 7. 2026 · Claude (C23), z reálného širokého passu · PoC celé firmy
 
-Pohled „ze široka" na život celého oddělení Vedení projektů (VP): kdo v něm je, kudy teče pošta, jaké nese portfolio. **Trvalá anatomie — NE denní stav** (ten je efemérní, patří do denní vrstvy dok 220). Grounded na reálném dotazu do produkce 18. 7. 2026. Citlivá čísla (marže, ceny, absolutní hodnoty zakázek) záměrně VEN — jen provozní kostra.
+Pohled „ze široka" na život celého oddělení Vedení projektů (VP): kdo v něm je, kudy teče pošta, jaké nese portfolio. **Trvalá anatomie — NE denní stav** (ten je efemérní, patří do denní vrstvy dok 220). Grounded na reálném dotazu do produkce 18. 7. 2026. Data jsou otevřená — ve firmě nejsou čísla, se kterými bych neměl přijít do styku (Marti 18. 7. 2026).
 
 ---
 

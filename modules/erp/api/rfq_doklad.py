@@ -270,8 +270,8 @@ def update_poptavka_nabidka(
     if vyrobce is not None:
         sets.append("_VyrobceNab = %s" % _q(vyrobce))
     if druh_ceny is not None:
+        # _TypCenyNabDod_TEXT je computed z kódu → píšeme jen kód
         sets.append("_TypCenyNabDod = %d" % int(druh_ceny))
-        sets.append("_TypCenyNabDod_TEXT = %s" % _q(_DRUH.get(int(druh_ceny), "")))
     if not sets:
         return {"ok": False, "error": "žádné pole nabídky k updatu"}
     setclause = ", ".join(sets)
@@ -292,7 +292,6 @@ def update_poptavka_nabidka(
         cols.append("_VyrobceNab"); vals.append(_q(vyrobce))
     if druh_ceny is not None:
         cols.append("_TypCenyNabDod"); vals.append(str(int(druh_ceny)))
-        cols.append("_TypCenyNabDod_TEXT"); vals.append(_q(_DRUH.get(int(druh_ceny), "")))
     sql = (
         "IF EXISTS(SELECT 1 FROM TabDokladyZbozi_EXT WHERE ID=%d) "
         "UPDATE TabDokladyZbozi_EXT SET %s WHERE ID=%d "

@@ -39528,6 +39528,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@RFQSEND"):
         from modules.erp.api.rfq_draft import rfq_send_cmd as _rsc
         return JSONResponse(_rsc(sql[len("@@RFQSEND"):].strip()))
+    # @@RFQINBOX <user_id> [n]  → precti inbox schranky uzivatele (prijem nabidek) (C23 18.7.)
+    if sql.upper().startswith("@@RFQINBOX"):
+        from modules.erp.api.rfq_draft import rfq_inbox_cmd as _ric
+        return JSONResponse(_ric(sql[len("@@RFQINBOX"):].strip()))
     # @@RFQDOKLAD PROBE|TEST|GEN|SMAZ <id>  → zalozeni dokladu vydane poptavky (rada 940) pres dbo.EC_GenVydanouPoptavku (C23 18.7.)
     if sql.upper().startswith("@@RFQDOKLAD"):
         from modules.erp.api.rfq_doklad import rfq_doklad_cmd as _rkc

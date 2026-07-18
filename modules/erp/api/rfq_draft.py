@@ -256,6 +256,55 @@ def poptavka_koncept(
     )
 
 
+def read_mailbox_inbox(user_id: int, limit: int = 8) -> list[dict]:
+    """Přečti posledních N zpráv z inboxu schránky uživatele (EWS)."""
+    creds = _resolve_user_email_creds(user_id)
+    if not creds:
+        raise EmailNoUserChannelError("user_id=%s nemá EWS kanál" % user_id)
+    account = _get_account(email=creds["email"], password=creds["password"], server=creds["server"])
+    out = []
+    for msg in account.inbox.all().order_by("-datetime_received")[:limit]:
+        try:
+            sender = getattr(msg.sender, "email_address", None) if getattr(msg, "sender", None) else None
+            dt = getattr(msg, "datetime_received", None)
+            body = getattr(msg, "text_body", None) or getattr(msg, "body", None) or ""
+            body = " ".join(str(body).split())
+            out.append({
+                "id": getattr(msg, "id", None),
+                "subject": getattr(msg, "subject", None),
+                "from": sender,
+                "dt": str(dt)[:19] if dt else None,
+                "preview": body[:240],
+            })
+        except Exception as _e:
+            logger.warning("read_mailbox_inbox item failed: %s" % _e)
+    return out
+
+
+def rfq_inbox_cmd(rest: str) -> dict:
+    """@@RFQINBOX <user_id> [n] — přečti inbox schránky uživatele."""
+    toks = (rest or "").split()
+
+    def _err(msg):
+        return {"ok": True, "columns": ["chyba"], "rows": [[str(msg)]]}
+
+    if not toks or not toks[0].isdigit():
+        return _err("použij: @@RFQINBOX <user_id> [pocet]")
+    uid = int(toks[0])
+    n = int(toks[1]) if len(toks) > 1 and toks[1].isdigit() else 8
+    try:
+        msgs = read_mailbox_inbox(uid, n)
+        if not msgs:
+            return {"ok": True, "columns": ["inbox"], "rows": [["(prázdný)"]]}
+        rows = [["%s | %s" % (m.get("dt") or "?", m.get("from") or "?"),
+                 "%s — %s" % (m.get("subject") or "(bez předmětu)", m.get("preview") or "")] for m in msgs]
+        return {"ok": True, "columns": ["kdy | od", "předmět — náhled"], "rows": rows}
+    except EmailNoUserChannelError as e:
+        return _err("schránka nenakonfigurována: %s" % e)
+    except Exception as e:
+        return _err("čtení inboxu selhalo: %s: %s" % (type(e).__name__, e))
+
+
 def rfq_send_cmd(rest: str) -> dict:
     """
     @@RFQSEND DEMO — konkrétní poptávka jménem Elišky (user 34) na SEW-EURODRIVE

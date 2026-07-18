@@ -146,8 +146,8 @@ def update_poptavka_header(
     if cislo_org is not None:
         sets.append("CisloOrg = %s" % _q(cislo_org))
     if termin_dat is not None:
-        sets.append("TerminDodavkyDat = %s" % _q(termin_dat))
-        sets.append("TerminDodavkyDat_X = 0")
+        # "PožadovanýTermín" (TerminDodavkyDat) je computed z [Splatnost] → píšeme Splatnost
+        sets.append("Splatnost = %s" % _q(termin_dat))
     if mena is not None:
         sets.append("Mena = %s" % _q(mena))
     if cislo_zakazky is not None:

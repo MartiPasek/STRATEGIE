@@ -10,7 +10,7 @@ Navazuje na dok 221 (široká mapa). Zatímco 221 mapuje lidi/poštu/portfolio, 
 Oddělení běží ve **dvou pipelinech, které se v datech nepotkávají**:
 
 - **Výrobní flow** — `tenant.vp_flow_vyroby` (113 zakázek, od fáze „4 Objednávka" dál). To je to, co vidí Eliščin kokpit i Mapovač z dok 220.
-- **Obchodní trychtýř** — poptávka → nabídka → (přidělení VR) → objednávka. **Ten ve výrobním flow NENÍ.** Žije jen v mailu `projects@` a v hlavě obchodníka.
+- **Obchodní trychtýř** — poptávka → nabídka → (přidělení VR) → objednávka. **Ten ve výrobním flow (`vp_flow_vyroby`) NENÍ** — ale JE v Centrále: `tenant.vp_pipeline` (řídící věž `/vp-vez`) ho drží živě, po řešitelích (ověřeno 18. 7., čerstvé k 17. 7.). Co chybí, není tracking, ale **napojení e-mailu na strukturní záznam**.
 
 Důkaz: z 25 zakázkových čísel (VR####) zmíněných v předmětech `projects@` je **jen 13 ve výrobním flow, 11 mimo něj** (VR10561 — 16 mailů, VR10654 Frimo — 13, VR10660 — 11, VR10643 — 10…). To jsou **živé dealy v jednání, které výrobní mapa nevidí.** Kdo čte jen `vp_flow_vyroby`, je slepý na celý předvýrobní trychtýř.
 
@@ -70,7 +70,7 @@ Klíčové zjištění pro GO VP. Tabulky celého cyklu jsou v DB postavené:
 - `tenant.nabidka` — 0 (má `poptavka_id, kalkulace_id, cena, platnost_do, stav`)
 - `tenant.objednavka` — 0 (má `nabidka_id, poptavka_id, zakaznik_po, cena`)
 
-Takže: **98 poptávkových + 157 nabídkových mailů leží nezpracovaných** (1191 nepřečtených v `projects@`), zatímco strukturní tabulky, které je mají zachytit, jsou prázdné. Přední hrana obchodu je **netrackovaná — jen inbox.**
+Pozor na správnou interpretaci (ověřeno 18. 7. proti `vp_pipeline`): přední hrana obchodu **JE trackovaná v Centrále** (6607 poptávek, 7451 nabídek historicky; řídící věž je ukazuje živě, čerstvé k 17. 7.). Prázdné jsou jen **nové normalizované, e-mailem propojené** tabulky (`vp_poptavka` a spol.). Díra tedy není „netrackovaný funnel", ale **chybějící most e-mail → strukturní poptávka s AI triáží**: 98 poptávkových + 157 nabídkových mailů (1191 nepřečtených) se do `vp_poptavka` nepřelévá automaticky.
 
 ## 7. Co má GO VP udělat (konkrétně)
 Tohle je ta „role KalkulaceAgenta / nabídkáře" z Martiho vize, teď uzemněná na reálné díře:
@@ -83,5 +83,10 @@ Tohle je ta „role KalkulaceAgenta / nabídkáře" z Martiho vize, teď uzemně
 ## 8. Předpoklad, který musí platit první
 Nic z výše uvedeného nefunguje, dokud je `projects@` slepá od 7. 7. (dok 221, úkol #44). **Data-based freshness je vstupní podmínka trychtýře** — mrtvá nálevka = prázdný funnel = žádná triáž. Nejdřív roura, pak konzumenti.
 
+## 9. Dodatek — dvě řeky dat mají různé zdraví (ověřeno 18. 7.)
+Marti se ptal, jestli je řídící věž (`/vp-vez`, `tenant.vp_pipeline`) živá. **Je.** Přepočet ze zdroje sedí na stránku přesně (536 aktivních / 19 řešitelů / 12 Eliška), každá fáze má nejnovější doklad z 17. 7. (včera) a posledních 10 dní má stovky nových dokladů. Jede přes `oz_sync_all` (dnes ok).
+
+Klíčový kontrast s dok 221: firma má **dvě řeky dat s různým zdravím** — Centrála (`vp_pipeline`, `oz_sync_all`) je **čerstvá**, mail (`projects@`, `sync_mail_*`) je **zamrzlá od 7. 7.** Řídící věž jede na té zdravé; triáž funnelu (bod 7) závisí na té zamrzlé. Proto je úkol #44 (data-based freshness) vstupní podmínka.
+
 ---
-*Zapsal Claude (C23) zevnitř, 18. 7. 2026. Dvojice s dok 221. Trvalá anatomie cyklu — NE denní stav.*
+*Zapsal Claude (C23) zevnitř, 18. 7. 2026. Dvojice s dok 221. Trvalá anatomie cyklu — NE denní stav. Dodatek 9 po ověření řídící věže.*

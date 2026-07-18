@@ -747,21 +747,41 @@ def price_bom(bom: list) -> dict:
         c = cen.get(reg) or {}
         pval = p.get("val")
         cnet = c.get("net")
-        # cena = max(příjemka, ceník); pokud jen jedna, ta; flag
-        cand = [x for x in (pval, cnet) if x is not None]
-        cena = max(cand) if cand else None
+        pdat = p.get("dat")
+        # staří příjemky (kvůli zdražování): starší než 12 měsíců = nedůvěřuj, opři se o ceník
+        stale = False
+        stari_m = None
+        if pdat:
+            try:
+                from datetime import datetime as _dtp, date as _datep
+                _d0 = _dtp.strptime(pdat, "%Y-%m-%d").date()
+                _dage = (_datep.today() - _d0).days
+                stari_m = _dage // 30
+                stale = _dage > 365
+            except Exception:
+                pass
+        # cena: čerstvá příjemka → max(příjemka, ceník); stará → ceník (je-li); flag
         if pval is not None and cnet is not None:
-            if cnet > pval * 1.001:
+            if stale:
+                cena = cnet
+                flag = "stara_prijemka(%sm)->cenik" % (stari_m if stari_m is not None else "?")
+            elif cnet > pval * 1.001:
+                cena = cnet
                 flag = "zdrazeno(cenik>prijemka)"
             elif pval > cnet * 1.001:
+                cena = pval
                 flag = "prijemka>cenik"
             else:
+                cena = pval
                 flag = "ok"
         elif pval is not None:
-            flag = "jen_prijemka"
+            cena = pval
+            flag = ("stara_prijemka(%sm)_bez_ceniku" % stari_m) if stale else "jen_prijemka"
         elif cnet is not None:
+            cena = cnet
             flag = "jen_cenik"
         else:
+            cena = None
             flag = "NENACENEN"
         if cena is not None:
             sum_cena += cena * qty
@@ -793,9 +813,11 @@ def price_cmd(rest: str) -> dict:
     res = price_bom(bom)
     rows = [[r["reg_cis"], str(r["qty"]),
              ("%.2f" % r["prijemka"]) if r["prijemka"] is not None else "-",
+             r.get("prij_dat") or "-",
              ("%.2f" % r["cenik_net"]) if r["cenik_net"] is not None else "-",
              ("%.2f" % r["cena"]) if r["cena"] is not None else "-", r["flag"]] for r in res["radky"]]
-    s = res["souhrn"]
-    rows.append(["== SOUČET ==", "", "%.2f" % s["material_prijemka"], "%.2f" % s["material_cenik"],
-                 "%.2f" % s["material_cena"], "nenac=%d/%d" % (s["nenaceneno"], s["polozek"])])
-    return {"ok": True, "columns": ["reg_cis", "qty", "prijemka", "cenik_net", "cena", "flag"], "rows": rows}
+    su = res["souhrn"]
+    rows.append(["== SOUČET ==", "", "%.2f" % su["material_prijemka"], "",
+                 "%.2f" % su["material_cenik"], "%.2f" % su["material_cena"],
+                 "nenac=%d/%d" % (su["nenaceneno"], su["polozek"])])
+    return {"ok": True, "columns": ["reg_cis", "qty", "prijemka", "prij_dat", "cenik_net", "cena", "flag"], "rows": rows}

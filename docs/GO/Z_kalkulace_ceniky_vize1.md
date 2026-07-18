@@ -42,6 +42,21 @@ NC_Posledni/ceník. Ty jsou jen v DB_EC `EC_KalkulacePolozky` → staging odtud 
 - Proto máme **„Velké ceníky" = `EC_Ceniky`** (dodavatelské ceníky) jako korekční/ověřovací vrstvu.
 - Model tedy: **poslední skutečně zaplacená nákupka z faktury, korigovaná/ověřená proti platnému Velkému ceníku dodavatele.**
 
+**Zdroj poslední nákupní ceny — DEFINITIVNĚ (proc `EC_Kalk_KontrolaPolN`, komentář „Dotáhni
+poslední nákupní cenu z příjemky"):** do `EC_KalkulacePolozky.NC_Posledni` ji plní procedura
+`EC_Kalk_KontrolaPol*` dotažením z **poslední PŘÍJEMKY** v Heliosu:
+
+```sql
+SELECT TOP 1 P.JCbezDaniVal, P.JCbezDaniKC, P.DatPorizeni
+FROM TabPohybyZbozi P LEFT JOIN TabDokladyZbozi D ON P.IDDoklad = D.ID
+WHERE P.IDZboSklad = @IDStavSkladu AND P.DruhPohybuZbo = 0 AND P.JCBezDaniVal <> 0 AND D.RadaDokladu = 110
+ORDER BY P.DatPorizeni DESC
+```
+- `TabPohybyZbozi` = pohyby zboží. **`DruhPohybuZbo = 0` = příjemka** (4 = výdejka), **`TabDokladyZbozi.RadaDokladu = 110` = příjemka**.
+- Cena: **`JCbezDaniVal`** (jedn. cena bez daně ve valutě/EUR) + **`JCbezDaniKC`** (Kč) + **`DatPorizeni`** (datum). Na díl přes `IDZboSklad` (= `EC_KalkulacePolozky.IDStavSkladu`), TOP 1 nejnovější dle data. EUR přepočet přes `TabKurzList` (Mena='EUR').
+- Stopa/cache výstupu: `EC_KalkCenaKontrolaTemp` (`PoslNakupCena`/`PoslNakupDatum`/`PoslNakupOrg`).
+→ **Vize 1: poslední nákupku brát přímo z `TabPohybyZbozi` (příjemka, řada 110), ne z cache `NC_Posledni`.**
+
 ## 4. Velké ceníky — systém a REÁLNÝ stav na Cloudu (k 18. 7. 2026)
 
 Ceníky už jsou **dotažené z EUROSOFTu na náš Cloud** (dřív MSSQL `DB-Ceniky`, teď u nás v PG).

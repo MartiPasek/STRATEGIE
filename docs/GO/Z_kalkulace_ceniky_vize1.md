@@ -73,26 +73,32 @@ importu per dodavatel** (`max(id) per vyrobce`) → vrací `net_price`/`list_pri
 EAT 32 291 · FIN 1 399 · HAR 456 · LAP 21 887 · MUR 57 898 · PHO 46 866 · RIT 4 617 ·
 SCH 31 252 · **SIE 261 385** · WAG 30 366 · WEI 51 042.
 
-## 5. 🔴 ODHALENÝ LINCHPIN: párování BOM ↔ ceník je NEVYŘEŠENÉ
+## 5. ✅ PÁROVÁNÍ BOM ↔ ceník = RegCisHeo (prefix dodavatele + obj. číslo)
 
-Test 18. 7.: 18 dílů Absaugwerk BOMu (5SY4110‑6, 3RV2031‑4PA10, 6ED1052‑1MD08‑0BA2, …) proti
-Velkým ceníkům přes `find_price` → **0 z 18 nacenění**, přestože Siemens má 261 385 řádků.
-Příčina: `kat_kod_norm` v ceníku **neodpovídá syrovému objednacímu číslu** z BOMu — ceník má kód
-v jiné podobě (nejspíš s prefixem dodavatele / jinou segmentací `RegCisHeo`, nebo se musí projít
-přes **`PrevodniTabulka`** = mapování dodavatel kód ↔ interní komponenta). **Mít ceníky nestačí —
-musí se umět napárovat na díl.** Tohle je klíč Vize 1 (a auto‑kalkulace SRDCE FIRMY).
+Klíč (Marti 18. 7.): naše objednací číslo **RegCisHeo = `<PREFIX> <objednací číslo výrobce>`**
+(např. `SIE 6ES7…`, `SIE 5SY4110‑6`). Ceník i `EC_KalkulacePolozky.RegCis` drží kód v TOMTO tvaru.
+Ověřeno v datech: `SIE 5SY4110‑6` → 4,61 €, `SIE 3RV2031‑4PA10` → 74,88 €, `SIE 3LD2514‑0TK53`
+→ 39,88 €. `find_price` páruje správně, když dostane RegCisHeo (ne syrové číslo).
+
+**Převodník = `EC_RegCisDEF` (DB_EC, přehled 127)** — per výrobce: `Vyrobce` (název),
+`RegCisZkratka` (**prefix**: ABB→ABB, EATON→EAT, DANFOSS→DAN, SIEMENS→SIE…), `ObsahujeText`
+(detekce výrobce z textu, např. „MOELLER" → EAT) + normalizační pravidla `VsechnaVelkaPismena`,
+`ZadneMezery`, `NahraditOza0`, `DoplnitNulamiZlevaNa` (EAT = 6). Z (výrobce + syrové číslo) se
+tím složí RegCisHeo. **Tohle je párovací klíč Vize 1** (a auto‑kalkulace SRDCE FIRMY) — přenést
+`EC_RegCisDEF` na Cloud a v `@@KALKABS`/`find_price` používat RegCisHeo. (Dřívější „0/18" byla
+chyba klíče — syrové číslo bez prefixu, ne vada systému.)
 
 ## 6. Absaugwerk engine (kontext) — stav
 
 `modules/erp/api/kalkulace_engine.py`: profily **FLEX+** (EK262940, src_id 9135) a **SMART NASS**
 (EK263380, src_id 9182), příkaz `@@KALKABS profil=flex kw=15 | REGCIS*QTY, …` (commit bd5c3781).
 Výpočet (koef→VKM/Arbeit, marže, floor per kW, fix přirážky) běží; **materiál se necení**,
-protože (a) 2014 baseline díly nemá, (b) párování na ceník je rozbité (§5). 2014 baseline `tenant.kalk_*`
-= HISTORIE, přestat používat jako zdroj (Marti 18. 7.).
+protože (a) 2014 baseline díly nemá, (b) BOM byl v syrovém tvaru bez prefixu (klíč musí být
+RegCisHeo, §5). 2014 baseline `tenant.kalk_*` = HISTORIE, přestat používat jako zdroj (Marti 18. 7.).
 
 ## 7. Plán Vize 1 (návrh)
 
-1. **Vyřešit párování** díl ↔ ceník (PrevodniTabulka / RegCisHeo transform / kat_kod_norm sjednocení). Bez toho nic dalšího nefunguje.
+1. **Párovací klíč = RegCisHeo** (§5): přenést `EC_RegCisDEF` na Cloud (výrobce→prefix + normalizační pravidla), skládat RegCisHeo, a `@@KALKABS` BOM + `find_price` provozovat na RegCisHeo (ne syrové číslo).
 2. **Cenový zdroj pravdy** per díl: poslední nákupka z faktury (zdroj v DB_EC — kandidát `NC_Posledni` / nákupní doklady, doověřit), **korekce/ověření platným Velkým ceníkem** (`find_price` net_price). Flag rozporu (stará cena / mimo ceník / zdražení).
 3. **Napojit `find_price` (+ nákupku) do `compute()`** jako materiálovou cenu místo 2014 `kalk_cena`.
 4. **Per‑zákazník** sestavy + rabaty z jejich historie; koeficienty už máme.

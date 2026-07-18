@@ -686,7 +686,8 @@ def _prijemka_prices(reg_list) -> dict:
         return {}
     vals = ",".join("N'%s'" % r.replace("'", "''") for r in regs)
     rows = _ec(
-        "SELECT k.RegCis, pp.JCbezDaniVal, pp.JCbezDaniKC, CONVERT(varchar(10),pp.DatPorizeni,23) AS dat "
+        "SELECT k.RegCis, k.EMJ, k.MJVstup, k.MjPocetVstup, k.BaleniTXT, "
+        "pp.JCbezDaniVal, pp.JCbezDaniKC, CONVERT(varchar(10),pp.DatPorizeni,23) AS dat "
         "FROM TabKmenZbozi k OUTER APPLY ("
         " SELECT TOP 1 P.JCbezDaniVal, P.JCbezDaniKC, P.DatPorizeni"
         " FROM TabPohybyZbozi P"
@@ -699,7 +700,9 @@ def _prijemka_prices(reg_list) -> dict:
     for r in rows:
         rc = (r.get("RegCis") or "").strip()
         if rc:
-            out[rc] = {"val": _num(r.get("JCbezDaniVal")), "kc": _num(r.get("JCbezDaniKC")), "dat": r.get("dat")}
+            out[rc] = {"val": _num(r.get("JCbezDaniVal")), "kc": _num(r.get("JCbezDaniKC")), "dat": r.get("dat"),
+                       "emj": (r.get("EMJ") or "").strip() or None, "mj_vstup": (r.get("MJVstup") or "").strip() or None,
+                       "mj_pocet": _num(r.get("MjPocetVstup")), "baleni_txt": (r.get("BaleniTXT") or "").strip() or None}
     return out
 
 
@@ -718,17 +721,18 @@ def _cenik_prices(reg_list) -> dict:
     try:
         rows = sd.execute(_t(
             "WITH latest AS (SELECT vyrobce, max(id) AS id FROM tenant.cenik_import WHERE tenant_id=2 GROUP BY vyrobce) "
-            "SELECT p.kat_kod_norm, p.net_price, p.list_price, p.mena, i.vyrobce "
+            "SELECT p.kat_kod_norm, p.net_price, p.list_price, p.mj, p.mena, i.vyrobce "
             "FROM tenant.cenik_polozka p JOIN latest l ON l.id=p.import_id JOIN tenant.cenik_import i ON i.id=p.import_id "
             "WHERE p.tenant_id=2 AND p.kat_kod_norm = ANY(:ns)"), {"ns": list(norm_map.keys())}).fetchall()
     finally:
         sd.close()
     out = {}
-    for kk, net, lst, mena, vyr in rows:
+    for kk, net, lst, mj, mena, vyr in rows:
         reg = norm_map.get(kk)
         if reg and reg not in out:
             out[reg] = {"net": float(net) if net is not None else None,
-                        "list": float(lst) if lst is not None else None, "mena": mena, "vyrobce": vyr}
+                        "list": float(lst) if lst is not None else None,
+                        "mj": (mj or "").strip() or None, "mena": mena, "vyrobce": vyr}
     return out
 
 
@@ -761,13 +765,17 @@ def price_bom(bom: list) -> dict:
             except Exception:
                 pass
         # cena: čerstvá příjemka → max(příjemka, ceník); stará → ceník (je-li); flag
+        # balné (kvůli zmatkům v jednotkách — LAPP/RIT/PHO/WEI): EMJ + nákupní MJ × počet ks v balení
+        _emj = p.get("emj"); _mjv = p.get("mj_vstup"); _mjp = p.get("mj_pocet"); _cmj = c.get("mj")
+        balne = "EMJ=%s | vstup %s×%s | cenikMJ=%s" % (
+            _emj or "?", _mjv or "?", (("%g" % _mjp) if _mjp else "?"), _cmj or "?")
         if pval is not None and cnet is not None:
-            _ratio = (max(pval, cnet) / min(pval, cnet)) if min(pval, cnet) > 0 else 999.0
-            if _ratio > 3.0:
-                # anomálie: příjemka a ceník se rozcházejí >3× → vadný nákupní záznam (balení/MJ);
-                # nedůvěřuj max, opři se o ceník (stabilní list) a označ k ručnímu ověření
+            _diff = abs(pval - cnet) / min(pval, cnet) if min(pval, cnet) > 0 else 999.0
+            if _diff > 0.60:
+                # rozdíl >60 % → skoro jistě balné jednotky (LAPP/RIT/PHO/WEI); nedůvěřuj max,
+                # opři se o ceník (per-ks list) a označ VYKŘIČNÍKEM k ručnímu vyřešení balného
                 cena = cnet
-                flag = "ANOMALIE(prij %.0f vs cenik %.0f)" % (pval, cnet)
+                flag = "! BALNE %.0f%% (prij %.2f vs cenik %.2f)" % (_diff * 100, pval, cnet)
             elif stale:
                 cena = cnet
                 flag = "stara_prijemka(%sm)->cenik" % (stari_m if stari_m is not None else "?")
@@ -796,7 +804,7 @@ def price_bom(bom: list) -> dict:
         if cnet is not None:
             sum_cen += cnet * qty
         rows.append({"reg_cis": reg, "qty": qty, "prijemka": pval, "prij_dat": p.get("dat"),
-                     "cenik_net": cnet, "cena": cena, "flag": flag})
+                     "cenik_net": cnet, "cena": cena, "flag": flag, "balne": balne})
     n_miss = sum(1 for r in rows if r["flag"] == "NENACENEN")
     return {"ok": True, "radky": rows,
             "souhrn": {"material_cena": round(sum_cena, 2), "material_prijemka": round(sum_prij, 2),
@@ -821,12 +829,12 @@ def price_cmd(rest: str) -> dict:
              ("%.2f" % r["prijemka"]) if r["prijemka"] is not None else "-",
              r.get("prij_dat") or "-",
              ("%.2f" % r["cenik_net"]) if r["cenik_net"] is not None else "-",
-             ("%.2f" % r["cena"]) if r["cena"] is not None else "-", r["flag"]] for r in res["radky"]]
+             ("%.2f" % r["cena"]) if r["cena"] is not None else "-", r["flag"], r.get("balne", "")] for r in res["radky"]]
     su = res["souhrn"]
     rows.append(["== SOUČET ==", "", "%.2f" % su["material_prijemka"], "",
                  "%.2f" % su["material_cenik"], "%.2f" % su["material_cena"],
-                 "nenac=%d/%d" % (su["nenaceneno"], su["polozek"])])
-    return {"ok": True, "columns": ["reg_cis", "qty", "prijemka", "prij_dat", "cenik_net", "cena", "flag"], "rows": rows}
+                 "nenac=%d/%d" % (su["nenaceneno"], su["polozek"]), ""])
+    return {"ok": True, "columns": ["reg_cis", "qty", "prijemka", "prij_dat", "cenik_net", "cena", "flag", "balne"], "rows": rows}
 
 
 # ── Vize 1 GESAMT zevnitř: v1 materiál (příjemka+ceník) + koeficienty z EC → profil ──

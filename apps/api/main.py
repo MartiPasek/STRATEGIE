@@ -46,6 +46,7 @@ from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
 from modules.erp.api.g2007_vectors import g2007_vec_router  # G2007 vektorizace — sémantické hledání nad znalostmi (17.7.2026)
+from modules.erp.api.automat import automat_router  # G2007 automaty — exekutor + Haiku eskalace + monitoring (18.7.2026)
 from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
@@ -888,6 +889,7 @@ app.include_router(bozp_router)  # BOZP a PO cockpit (řízení dokumentů, rizi
 app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)
 app.include_router(jmhz_router)  # JMHZ (ČSSZ hlášení) — generace z Heliosu + ověření na tlačítku (12.7.2026)
 app.include_router(g2007_vec_router)  # G2007 vektorizace — index + sémantické hledání nad znalostní bází (17.7.2026)
+app.include_router(automat_router)  # G2007 automaty — runtime (run) + monitoring (18.7.2026)
 app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
 app.include_router(hr_spis_router)  # Osobní spis zaměstnance — HR pohled + zaměstnanecký self-service
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
@@ -1488,6 +1490,13 @@ def g2007_breakdown_log(conversation_id: int, graf: str = "marti-ai-md5",
         return log_breakdown(conversation_id, graf, label, poznamka)
     except Exception as e:
         return {"error": str(e), "conversation_id": conversation_id, "graf": graf}
+
+
+@app.get("/automat")
+def automat_page():
+    """Monitoring automatů (g2007.automat) — zdraví, běhy, eskalace. Claude 18.7.2026."""
+    return FileResponse(os.path.join(static_dir, "automat.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/g2007/export")

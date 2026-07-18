@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automaty — monitoring</title>
+<style>
+  :root{--bg:#0f1216;--card:#171c22;--line:#262d36;--fg:#e6eaef;--dim:#8b95a1;
+        --ok:#3fb950;--err:#f85149;--warn:#d29922;--acc:#58a6ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:20px}
+  h1{font-size:18px;margin:0 0 4px} .sub{color:var(--dim);margin:0 0 18px;font-size:13px}
+  .grid{display:grid;gap:10px;margin-bottom:26px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+        display:flex;align-items:center;gap:12px}
+  .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+  .dot.ok{background:var(--ok)} .dot.chyba{background:var(--err)}
+  .dot.nejasne{background:var(--warn)} .dot.none{background:#3a434e}
+  .card .meta{flex:1;min-width:0}
+  .card .nm{font-weight:600} .card .info{color:var(--dim);font-size:12px}
+  .card .info b{color:var(--fg);font-weight:600}
+  .badge{font-size:11px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--dim)}
+  button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:7px;
+         padding:6px 12px;cursor:pointer;font-size:13px} button:hover{border-color:var(--acc)}
+  button:disabled{opacity:.5;cursor:default}
+  h2{font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin:0 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600}
+  .v-ok{color:var(--ok)} .v-chyba{color:var(--err)} .v-nejasne{color:var(--warn)}
+  .esc{color:var(--acc);font-size:12px}
+  .z{color:var(--dim);font-size:12px;max-width:520px}
+  #err{color:var(--err);margin:10px 0}
+  .refr{color:var(--dim);font-size:12px;margin-left:8px}
+</style>
+</head>
+<body>
+  <h1>⚙️ Automaty — monitoring</h1>
+  <p class="sub">g2007.automat + automat_run · zdraví, běhy, eskalace. <span class="refr" id="refr"></span></p>
+  <div id="err"></div>
+  <div class="grid" id="cards"></div>
+  <h2>Poslední běhy (log)</h2>
+  <table id="runs"><thead><tr><th>Kdy</th><th>Automat</th><th>Výsledek</th><th>Zpráva</th><th>Trvání</th><th>Eskalace</th></tr></thead><tbody></tbody></table>
+
+<script>
+const API='/api/v1/erp/app/automat';
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+async function load(){
+  try{
+    const r=await fetch(API+'/monitor',{credentials:'include'});const d=await r.json();
+    if(!d.ok){document.getElementById('err').textContent='Chyba: '+(d.error||'?');return}
+    document.getElementById('err').textContent='';
+    const cards=document.getElementById('cards');cards.innerHTML='';
+    (d.automaty||[]).forEach(a=>{
+      const st=(a.last_status||'—');const cls=st==='ok'?'ok':st==='chyba'?'chyba':st==='nejasne'?'nejasne':'none';
+      const el=document.createElement('div');el.className='card';
+      el.innerHTML=`<span class="dot ${cls}"></span>
+        <div class="meta"><div class="nm">${esc(a.nazev)} <span class="badge">${esc(a.kod)}</span></div>
+        <div class="info">${esc(a.spousteni)}${a.interval_min?(' · '+a.interval_min+' min'):''} · eskalace → <b>${esc(a.eskalace_agent)}</b> · postavil ${esc(a.stavitel||'?')} · naposled <b>${esc(a.last_run||'nikdy')}</b> · stav <b>${esc(st)}</b></div></div>
+        <button data-kod="${esc(a.kod)}" ${a.aktivni?'':'disabled'}>Spustit</button>`;
+      cards.appendChild(el);
+    });
+    cards.querySelectorAll('button[data-kod]').forEach(b=>b.onclick=()=>run(b));
+    const tb=document.querySelector('#runs tbody');tb.innerHTML='';
+    (d.behy||[]).forEach(x=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${esc(x.kdy)}</td><td>${esc(x.automat_kod)}</td>
+        <td class="v-${esc(x.vysledek)}">${esc(x.vysledek)}</td>
+        <td class="z">${esc(x.zprava)}</td><td>${x.trvani_ms??''} ms</td>
+        <td class="esc">${x.eskalovano_na?('→ '+esc(x.eskalovano_na)):''}</td>`;
+      tb.appendChild(tr);
+    });
+    document.getElementById('refr').textContent='obnoveno '+new Date().toLocaleTimeString('cs');
+  }catch(e){document.getElementById('err').textContent='Chyba načtení: '+e}
+}
+async function run(btn){
+  const kod=btn.dataset.kod;btn.disabled=true;btn.textContent='Běží…';
+  try{
+    const r=await fetch(API+'/run',{method:'POST',headers:{'Content-Type':'application/json'},
+      credentials:'include',body:JSON.stringify({kod})});
+    const d=await r.json();
+    if(d.eskalace_vysledek){alert('Automat '+kod+': '+d.vysledek+'\\n\\nEskalace ('+d.eskalovano_na+'):\\n'+d.eskalace_vysledek)}
+  }catch(e){alert('Chyba: '+e)}
+  await load();btn.textContent='Spustit';btn.disabled=false;
+}
+load();setInterval(load,60000);
+</script>
+</body>
+</html>

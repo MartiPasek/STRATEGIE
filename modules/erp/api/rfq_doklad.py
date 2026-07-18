@@ -67,21 +67,42 @@ def probe() -> dict:
     }
 
 
-# ── EXEC dbo.EC_GenVydanouPoptavku → nový prázdný doklad 940 ─────────────────
+# ── marker tabulka v st. (zachycení @IDENT přes write-režim MCP) ────────────
+# MCP strategie_query_raw ve WRITE režimu (EXEC/UPDATE/INSERT) zahazuje result-sety
+# → OUTPUT @IDENT z trailing SELECTu nedostaneme. Proto @IDENT zapíšeme ve stejném
+# write-volání do st.rfq_gen_marker (do st. smíme) a druhým SELECT-voláním čteme zpět.
+def _ensure_marker() -> None:
+    _ec_raw(
+        "IF OBJECT_ID('st.rfq_gen_marker') IS NULL "
+        "CREATE TABLE st.rfq_gen_marker("
+        "id int IDENTITY(1,1) PRIMARY KEY, nonce nvarchar(64), ident int, "
+        "msg nvarchar(255), created datetime DEFAULT GETDATE())"
+    )
+
+
 def gen_vydana_poptavka() -> dict:
+    import uuid
+    _ensure_marker()
+    nonce = uuid.uuid4().hex
+    # write-volání: EXEC proc + zápis IDENT do markeru (nonce-keyed)
     sql = (
         "DECLARE @IDENT int, @Message nvarchar(255) "
         "EXEC [dbo].[EC_GenVydanouPoptavku] @IDENT = @IDENT OUTPUT, @Message = @Message OUTPUT "
-        "SELECT @IDENT AS IDENT, @Message AS Message"
+        "INSERT INTO st.rfq_gen_marker(nonce, ident, msg) VALUES(N'%s', @IDENT, @Message)" % nonce
     )
     res = _ec_raw(sql)
     if not res.get("ok"):
         return {"ok": False, "error": res.get("message") or res.get("error")}
-    rows = res.get("rows") or []
+    # SELECT-volání: přečti IDENT zpět podle nonce
+    rb = _ec_raw("SELECT TOP 1 ident, msg FROM st.rfq_gen_marker WHERE nonce=N'%s' ORDER BY id DESC" % nonce)
+    rows = rb.get("rows") or []
     if not rows:
-        return {"ok": False, "error": "procedura nevrátila IDENT"}
+        return {"ok": False, "error": "marker nevrátil IDENT (nonce=%s)" % nonce}
     r = rows[0]
-    return {"ok": True, "ident": _int(r.get("IDENT")), "message": r.get("Message")}
+    ident = _int(r.get("ident"))
+    if not ident:
+        return {"ok": False, "error": "IDENT je prázdný — proc doklad nezaložila (nonce=%s)" % nonce}
+    return {"ok": True, "ident": ident, "message": r.get("msg"), "nonce": nonce}
 
 
 # ── smazání poptávky (úklid testů) ──────────────────────────────────────────

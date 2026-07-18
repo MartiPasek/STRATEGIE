@@ -39520,6 +39520,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@VYPOPT"):
         from modules.erp.api.kalkulace_engine import vypopt_cmd as _vpc
         return JSONResponse(_vpc(sql[len("@@VYPOPT"):].strip()))
+    # @@RFQDRAFT TEST | user=..to=..subj=.. | telo  → e-mailový KONCEPT (poptávka) do Koncepty/Drafts, BEZ odeslání (C23 18.7.)
+    if sql.upper().startswith("@@RFQDRAFT"):
+        from modules.erp.api.rfq_draft import rfq_draft_cmd as _rdc
+        return JSONResponse(_rdc(sql[len("@@RFQDRAFT"):].strip()))
     # @@KALKPRICE <RegCisHeo>*<qty>, …  → posledni nakupka z prijemky + korekce cenikem (Vize1 etapa B, C23 18.7.)
     if sql.upper().startswith("@@KALKPRICE"):
         from modules.erp.api.kalkulace_engine import price_cmd as _kpc

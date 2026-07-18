@@ -39512,6 +39512,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@KALKREGCIS"):
         from modules.erp.api.kalkulace_engine import regcis_cmd as _krc
         return JSONResponse(_krc(sql[len("@@KALKREGCIS"):].strip()))
+    # @@KALKPRICE <RegCisHeo>*<qty>, …  → posledni nakupka z prijemky + korekce cenikem (Vize1 etapa B, C23 18.7.)
+    if sql.upper().startswith("@@KALKPRICE"):
+        from modules.erp.api.kalkulace_engine import price_cmd as _kpc
+        return JSONResponse(_kpc(sql[len("@@KALKPRICE"):].strip()))
     if sql.upper().startswith("@@KALK"):
         import traceback as _tbk
         try:

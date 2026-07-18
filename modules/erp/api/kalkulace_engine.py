@@ -667,3 +667,135 @@ def regcis_cmd(rest: str) -> dict:
     return {"ok": True, "columns": ["vyrobce", "zkratka", "obsahuje_text", "doplnit_nulami_na"],
             "rows": [[a, b, c, str(d) if d is not None else ""] for (a, b, c, d) in rr],
             "celkem": cnt}
+
+
+# ── Vize 1 etapa B: materiálová cena z PŘÍJEMKY (TabPohybyZbozi ř.110) + korekce ceníkem ──
+# (Claude C23, 18.7.2026). Klíč = RegCisHeo. Pravidlo: poslední nákupka z faktury/příjemky,
+# korigovaná Velkým ceníkem kvůli zdražování → cena = max(příjemka, ceník), flag při rozporu.
+
+def _norm_kat(code: str) -> str:
+    import re as _re
+    return _re.sub(r"\s+", "", (code or "")).upper()
+
+
+def _prijemka_prices(reg_list) -> dict:
+    """Pro seznam RegCisHeo vrátí poslední nákupku z příjemky (DB_EC TabPohybyZbozi ř.110).
+    Jedna cena per díl = globálně nejnovější příjemka přes všechny sklad. karty dílu."""
+    regs = [r for r in {(x or "").strip() for x in reg_list} if r]
+    if not regs:
+        return {}
+    vals = ",".join("N'%s'" % r.replace("'", "''") for r in regs)
+    rows = _ec(
+        "SELECT k.RegCis, pp.JCbezDaniVal, pp.JCbezDaniKC, CONVERT(varchar(10),pp.DatPorizeni,23) AS dat "
+        "FROM TabKmenZbozi k OUTER APPLY ("
+        " SELECT TOP 1 P.JCbezDaniVal, P.JCbezDaniKC, P.DatPorizeni"
+        " FROM TabPohybyZbozi P"
+        " JOIN TabStavSkladu s ON s.ID = P.IDZboSklad AND s.IDKmenZbozi = k.ID"
+        " LEFT JOIN TabDokladyZbozi D ON P.IDDoklad = D.ID"
+        " WHERE P.DruhPohybuZbo = 0 AND P.JCBezDaniVal <> 0 AND D.RadaDokladu = 110"
+        " ORDER BY P.DatPorizeni DESC) pp "
+        "WHERE k.RegCis IN (" + vals + ")")
+    out = {}
+    for r in rows:
+        rc = (r.get("RegCis") or "").strip()
+        if rc:
+            out[rc] = {"val": _num(r.get("JCbezDaniVal")), "kc": _num(r.get("JCbezDaniKC")), "dat": r.get("dat")}
+    return out
+
+
+def _cenik_prices(reg_list) -> dict:
+    """Pro seznam RegCisHeo vrátí net cenu z Velkého ceníku (nejnovější import per dodavatel)."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    norm_map = {}
+    for r in reg_list:
+        n = _norm_kat(r)
+        if n:
+            norm_map.setdefault(n, r)
+    if not norm_map:
+        return {}
+    sd = get_data_session()
+    try:
+        rows = sd.execute(_t(
+            "WITH latest AS (SELECT vyrobce, max(id) AS id FROM tenant.cenik_import WHERE tenant_id=2 GROUP BY vyrobce) "
+            "SELECT p.kat_kod_norm, p.net_price, p.list_price, p.mena, i.vyrobce "
+            "FROM tenant.cenik_polozka p JOIN latest l ON l.id=p.import_id JOIN tenant.cenik_import i ON i.id=p.import_id "
+            "WHERE p.tenant_id=2 AND p.kat_kod_norm = ANY(:ns)"), {"ns": list(norm_map.keys())}).fetchall()
+    finally:
+        sd.close()
+    out = {}
+    for kk, net, lst, mena, vyr in rows:
+        reg = norm_map.get(kk)
+        if reg and reg not in out:
+            out[reg] = {"net": float(net) if net is not None else None,
+                        "list": float(lst) if lst is not None else None, "mena": mena, "vyrobce": vyr}
+    return out
+
+
+def price_bom(bom: list) -> dict:
+    """bom=[{'reg_cis','qty'}]. Pro každý díl: příjemka + ceník → cena=max(oba), flag rozporu.
+    Vrací řádky + souhrn (materiál dle ceny, dle příjemky, dle ceníku)."""
+    regs = [str(it.get("reg_cis") or "").strip() for it in bom]
+    prij = _prijemka_prices(regs)
+    cen = _cenik_prices(regs)
+    rows = []
+    sum_cena = sum_prij = sum_cen = 0.0
+    for it in bom:
+        reg = str(it.get("reg_cis") or "").strip()
+        qty = float(it.get("qty") or 0)
+        p = prij.get(reg) or {}
+        c = cen.get(reg) or {}
+        pval = p.get("val")
+        cnet = c.get("net")
+        # cena = max(příjemka, ceník); pokud jen jedna, ta; flag
+        cand = [x for x in (pval, cnet) if x is not None]
+        cena = max(cand) if cand else None
+        if pval is not None and cnet is not None:
+            if cnet > pval * 1.001:
+                flag = "zdrazeno(cenik>prijemka)"
+            elif pval > cnet * 1.001:
+                flag = "prijemka>cenik"
+            else:
+                flag = "ok"
+        elif pval is not None:
+            flag = "jen_prijemka"
+        elif cnet is not None:
+            flag = "jen_cenik"
+        else:
+            flag = "NENACENEN"
+        if cena is not None:
+            sum_cena += cena * qty
+        if pval is not None:
+            sum_prij += pval * qty
+        if cnet is not None:
+            sum_cen += cnet * qty
+        rows.append({"reg_cis": reg, "qty": qty, "prijemka": pval, "prij_dat": p.get("dat"),
+                     "cenik_net": cnet, "cena": cena, "flag": flag})
+    n_miss = sum(1 for r in rows if r["flag"] == "NENACENEN")
+    return {"ok": True, "radky": rows,
+            "souhrn": {"material_cena": round(sum_cena, 2), "material_prijemka": round(sum_prij, 2),
+                       "material_cenik": round(sum_cen, 2), "polozek": len(rows), "nenaceneno": n_miss}}
+
+
+def price_cmd(rest: str) -> dict:
+    """@@KALKPRICE <RegCisHeo>*<qty>, <RegCisHeo>*<qty>, …  → příjemka+ceník+cena per díl."""
+    bom = []
+    for part in (rest or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        reg, q = (part.rsplit("*", 1) if "*" in part else (part, "1"))
+        try:
+            qn = float(q)
+        except Exception:
+            qn = 1.0
+        bom.append({"reg_cis": reg.strip(), "qty": qn})
+    res = price_bom(bom)
+    rows = [[r["reg_cis"], str(r["qty"]),
+             ("%.2f" % r["prijemka"]) if r["prijemka"] is not None else "-",
+             ("%.2f" % r["cenik_net"]) if r["cenik_net"] is not None else "-",
+             ("%.2f" % r["cena"]) if r["cena"] is not None else "-", r["flag"]] for r in res["radky"]]
+    s = res["souhrn"]
+    rows.append(["== SOUČET ==", "", "%.2f" % s["material_prijemka"], "%.2f" % s["material_cenik"],
+                 "%.2f" % s["material_cena"], "nenac=%d/%d" % (s["nenaceneno"], s["polozek"])])
+    return {"ok": True, "columns": ["reg_cis", "qty", "prijemka", "cenik_net", "cena", "flag"], "rows": rows}

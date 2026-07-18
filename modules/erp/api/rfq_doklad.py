@@ -171,6 +171,26 @@ def rfq_doklad_cmd(rest: str) -> dict:
         return {"ok": True, "columns": ["chyba"], "rows": [[str(msg)]]}
 
     try:
+        if up.startswith("DIAG"):
+            sql = (
+                "DECLARE @IDENT int, @Message nvarchar(255) "
+                "EXEC [dbo].[EC_GenVydanouPoptavku] @IDENT = @IDENT OUTPUT, @Message = @Message OUTPUT "
+                "SELECT @IDENT AS IDENT, @Message AS Message"
+            )
+            res = _ec_raw(sql)
+            keys = list(res.keys()) if isinstance(res, dict) else []
+            rows = res.get("rows") if isinstance(res, dict) else None
+            return _out(
+                ["pole", "hodnota"],
+                [
+                    ["ok", str(res.get("ok"))],
+                    ["keys", ", ".join(keys)],
+                    ["rows_count", str(len(rows) if isinstance(rows, list) else rows)],
+                    ["rows[0]", (json.dumps(rows[0], ensure_ascii=False)[:200] if rows else "-")],
+                    ["message", str(res.get("message") or res.get("error") or "-")[:200]],
+                ],
+            )
+
         if up.startswith("PROBE") or raw == "":
             p = probe()
             if not p.get("ok"):

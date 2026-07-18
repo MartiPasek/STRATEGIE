@@ -201,6 +201,105 @@ def create_email_draft(
 #   @@RFQDRAFT user=<id> to=<email[,email]> [cc=<email>] subj=<...> | <tělo>
 #       → uloží koncept z uživatelské schránky. Tělo je za znakem '|'.
 #
+def poptavka_koncept(
+    doklad: str,
+    to_email: str,
+    to_name: str,
+    dodavatel: str,
+    polozka: str,
+    mnozstvi: str,
+    termin: str | None,
+    user_id: int,
+    cc: str | None = None,
+) -> dict:
+    """
+    Složí konkrétní poptávkový e-mail (RFQ) jménem uživatele (schránka user_id)
+    a uloží jako KONCEPT do jeho Konceptů. NEODESÍLÁ — člověk zkontroluje a odešle.
+    """
+    osloveni = "Dobrý den, %s," % (to_name.split()[0] if to_name else "")
+    termin_veta = ("Požadovaný termín dodání: %s.\n" % termin) if termin else ""
+    body = (
+        "%s\n\n"
+        "obracíme se na Vás s poptávkou a prosíme o cenovou nabídku na následující položku:\n\n"
+        "  • %s — %s ks\n\n"
+        "Prosíme o uvedení jednotkové ceny, dodací lhůty a platnosti nabídky.\n"
+        "Naše číslo poptávky: %s.\n"
+        "%s\n"
+        "Předem děkuji za Vaši nabídku.\n\n"
+        "S pozdravem\n"
+        "Eliška Kolářová\n"
+        "nákup / EUROSOFT-Control s.r.o."
+        % (osloveni, polozka, mnozstvi, doklad, termin_veta)
+    )
+    subject = "Poptávka %s — %s" % (doklad, polozka)
+    return create_email_draft(
+        to=to_email,
+        subject=subject,
+        body=body,
+        cc=cc,
+        user_id=user_id,
+        from_identity="user",
+    )
+
+
+def rfq_send_cmd(rest: str) -> dict:
+    """
+    @@RFQSEND DEMO — konkrétní poptávka jménem Elišky (user 34) na SEW-EURODRIVE
+    (doklad EVP260231), položka diagnostický přístroj CDM11A, prodejkyni P. Kunové.
+    Uloží KONCEPT do Elišciny schránky. NEODESÍLÁ.
+    """
+    raw = (rest or "").strip()
+
+    def _err(msg):
+        return {"ok": True, "columns": ["chyba"], "rows": [[str(msg)]]}
+
+    try:
+        if not raw or raw.upper().startswith("DEMO"):
+            from modules.erp.api.rfq_doklad import read_poptavka, update_poptavka_ext
+            doklad = "EVP260231"
+            doklad_id = 751135
+            polozka = "Diagnostický přístroj SEW CDM11A"
+            # sjednoť název poptávky na dokladu s položkou (koherence doklad↔e-mail)
+            update_poptavka_ext(doklad_id, polozka)
+            hdr = read_poptavka(doklad_id)
+            termin = hdr.get("termin")  # 'YYYY-MM-DD'
+            termin_cz = None
+            if termin:
+                try:
+                    y, m, d = termin.split("-")
+                    termin_cz = "%d. %d. %s" % (int(d), int(m), y)
+                except Exception:
+                    termin_cz = termin
+            res = poptavka_koncept(
+                doklad=doklad,
+                to_email="pavla.kunova@sew-eurodrive.cz",
+                to_name="Kunová Pavla",
+                dodavatel="SEW-EURODRIVE CZ s.r.o.",
+                polozka=polozka,
+                mnozstvi="1",
+                termin=termin_cz,
+                user_id=34,
+            )
+            return {
+                "ok": True,
+                "columns": ["výsledek", "schránka", "složka", "příjemce", "předmět"],
+                "rows": [[
+                    "KONCEPT poptávky uložen ✓ (jménem Elišky)",
+                    res.get("sender"),
+                    res.get("folder"),
+                    ", ".join(res.get("to") or []),
+                    res.get("subject"),
+                ]],
+            }
+        return _err("použij: @@RFQSEND DEMO")
+    except EmailNoUserChannelError as e:
+        return _err("Elišcina schránka nenakonfigurována: %s" % e)
+    except (EmailAuthError, EmailSendError) as e:
+        return _err("selhalo: %s" % e)
+    except Exception as e:
+        return _err("neočekávaná chyba: %s: %s" % (type(e).__name__, e))
+
+
 def rfq_draft_cmd(rest: str) -> dict:
     """Dispatch handler pro @@RFQDRAFT (most → JSONResponse columns/rows)."""
     raw = (rest or "").strip()

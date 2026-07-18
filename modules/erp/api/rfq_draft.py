@@ -334,6 +334,61 @@ def _parse_nabidka(text: str) -> dict:
     return out
 
 
+def fetch_message_mime(user_id: int, subject_contains: str) -> dict | None:
+    """Najde v inboxu zprávu dle předmětu a vrátí její kompletní MIME (.eml bytes)."""
+    creds = _resolve_user_email_creds(user_id)
+    if not creds:
+        raise EmailNoUserChannelError("user_id=%s nemá EWS kanál" % user_id)
+    account = _get_account(email=creds["email"], password=creds["password"], server=creds["server"])
+    for msg in account.inbox.all().order_by("-datetime_received")[:15]:
+        if subject_contains in (getattr(msg, "subject", None) or ""):
+            mime = getattr(msg, "mime_content", None)
+            if isinstance(mime, str):
+                mime = mime.encode("utf-8", "replace")
+            sender = getattr(msg.sender, "email_address", None) if getattr(msg, "sender", None) else None
+            return {"subject": msg.subject, "from": sender, "mime": mime,
+                    "bytes": len(mime) if mime else 0}
+    return None
+
+
+def rfq_msg_cmd(rest: str) -> dict:
+    """
+    @@RFQMSG — vezme celý e-mail s nabídkou (EVP260231) z Elišciny schránky jako MIME
+    a uloží ho jako .eml do složky poptávky (D:\\Data\\poptavky_V\\EVP260231).
+    """
+    def _err(msg):
+        return {"ok": True, "columns": ["chyba"], "rows": [[str(msg)]]}
+
+    try:
+        from modules.erp.api.rfq_doklad import save_bytes_to_poptavka_dir
+        doklad = "EVP260231"
+        subj_key = doklad
+        arg = (rest or "").strip()
+        if arg:
+            subj_key = arg
+        m = fetch_message_mime(34, subj_key)
+        if not m or not m.get("mime"):
+            return _err("v Elišcině schránce jsem nenašel zprávu (%s) nebo nemá MIME" % subj_key)
+        fname = "%s.eml" % doklad
+        r = save_bytes_to_poptavka_dir(doklad, fname, m["mime"])
+        if not r.get("ok"):
+            return _err("uložení .eml selhalo: %s" % (r.get("error") or r))
+        return {
+            "ok": True,
+            "columns": ["výsledek", "soubor", "velikost", "od / předmět"],
+            "rows": [[
+                "Celý e-mail uložen jako .eml ✓",
+                "D:\\Data\\poptavky_V\\%s\\%s" % (doklad, fname),
+                "%s B" % m.get("bytes"),
+                "%s — %s" % (m.get("from") or "?", m.get("subject") or ""),
+            ]],
+        }
+    except EmailNoUserChannelError as e:
+        return _err("schránka nenakonfigurována: %s" % e)
+    except Exception as e:
+        return _err("neočekávaná chyba: %s: %s" % (type(e).__name__, e))
+
+
 def rfq_finish_cmd(rest: str) -> dict:
     """
     @@RFQFINISH — doplní na poptávku EVP260231 řešitele (Eliška), kontaktní osobu

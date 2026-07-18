@@ -39540,6 +39540,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@RFQFINISH"):
         from modules.erp.api.rfq_draft import rfq_finish_cmd as _rfc
         return JSONResponse(_rfc(sql[len("@@RFQFINISH"):].strip()))
+    # @@RFQMSG  → ulozi cely e-mail nabidky jako .eml (MIME) do adresare poptavky (C23 18.7.)
+    if sql.upper().startswith("@@RFQMSG"):
+        from modules.erp.api.rfq_draft import rfq_msg_cmd as _rmc
+        return JSONResponse(_rmc(sql[len("@@RFQMSG"):].strip()))
     # @@RFQDOKLAD PROBE|TEST|GEN|SMAZ <id>  → zalozeni dokladu vydane poptavky (rada 940) pres dbo.EC_GenVydanouPoptavku (C23 18.7.)
     if sql.upper().startswith("@@RFQDOKLAD"):
         from modules.erp.api.rfq_doklad import rfq_doklad_cmd as _rkc

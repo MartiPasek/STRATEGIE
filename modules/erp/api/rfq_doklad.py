@@ -203,6 +203,18 @@ def save_file_to_poptavka_dir(doklad: str, filename: str, content_text: str) -> 
     return r if isinstance(r, dict) else {"ok": True}
 
 
+def save_bytes_to_poptavka_dir(doklad: str, filename: str, raw: bytes) -> dict:
+    """Uloží binární soubor (celý .eml/.msg, PDF přílohu) do složky poptávky."""
+    import base64
+    from modules.erp.api.directories import _eu_write
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", "replace")
+    b64 = base64.b64encode(raw).decode("ascii")
+    relpath = "%s\\%s" % (str(doklad).strip(), filename)
+    r = _eu_write(_POPTAVKY_ROOT, relpath, b64)
+    return r if isinstance(r, dict) else {"ok": True}
+
+
 # ── kontaktní osoby dodavatele (přehled 107) — komu poptávku poslat ─────────
 def find_org_contacts(cislo_org: str) -> list[dict]:
     sql = (

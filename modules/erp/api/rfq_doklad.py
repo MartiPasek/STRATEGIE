@@ -141,6 +141,8 @@ def update_poptavka_header(
     termin_dat: str | None = None,   # 'YYYY-MM-DD'
     mena: str | None = None,
     cislo_zakazky: str | None = None,
+    cislo_zam: int | None = None,      # řešitel = TabCisZam.Cislo
+    kontakt_osoba: int | None = None,  # kontaktní osoba dodavatele = TabCisKOs.ID
 ) -> dict:
     sets = []
     if cislo_org is not None:
@@ -152,6 +154,10 @@ def update_poptavka_header(
         sets.append("Mena = %s" % _q(mena))
     if cislo_zakazky is not None:
         sets.append("CisloZakazky = %s" % _q(cislo_zakazky))
+    if cislo_zam is not None:
+        sets.append("CisloZam = %d" % int(cislo_zam))
+    if kontakt_osoba is not None:
+        sets.append("KontaktOsoba = %d" % int(kontakt_osoba))
     if not sets:
         return {"ok": False, "error": "žádné pole hlavičky k updatu"}
     sql = "UPDATE TabDokladyZbozi SET %s WHERE ID = %d" % (", ".join(sets), int(doklad_id))
@@ -185,6 +191,16 @@ _POPTAVKY_ROOT = "D:\\Data\\poptavky_V"
 def list_poptavka_dir(doklad: str) -> dict:
     from modules.erp.api.directories import _eu_list
     return _eu_list(_POPTAVKY_ROOT, str(doklad).strip())
+
+
+def save_file_to_poptavka_dir(doklad: str, filename: str, content_text: str) -> dict:
+    """Uloží textový soubor (nabídku/e-mail) do složky poptávky na sdíleném disku."""
+    import base64
+    from modules.erp.api.directories import _eu_write
+    b64 = base64.b64encode((content_text or "").encode("utf-8")).decode("ascii")
+    relpath = "%s\\%s" % (str(doklad).strip(), filename)
+    r = _eu_write(_POPTAVKY_ROOT, relpath, b64)
+    return r if isinstance(r, dict) else {"ok": True}
 
 
 # ── kontaktní osoby dodavatele (přehled 107) — komu poptávku poslat ─────────
@@ -231,11 +247,14 @@ def update_poptavka_nabidka(
     popis: str | None = None,
     cislo_nabidky: str | None = None,
     vyrobce: str | None = None,
+    druh_ceny: int | None = None,   # 1=Obecná, 2=Projektová, 3=Zákazník
 ) -> dict:
     """
     Zapíše přijatou NABÍDKU dodavatele do EXT polí poptávky (TabDokladyZbozi_EXT):
-    _Kcen_Cena, _PlatnostDoNabDod, _OrgNazevNabDod, _PopisNabDod, _CisloNabidkyDodavatele, _VyrobceNab.
+    _Kcen_Cena, _PlatnostDoNabDod, _OrgNazevNabDod, _PopisNabDod, _CisloNabidkyDodavatele,
+    _VyrobceNab, _TypCenyNabDod(+_TEXT).
     """
+    _DRUH = {1: "Obecná", 2: "Projektová", 3: "Zákazník"}
     did = int(doklad_id)
     sets = []
     if cena is not None:
@@ -250,6 +269,9 @@ def update_poptavka_nabidka(
         sets.append("_CisloNabidkyDodavatele = %s" % _q(cislo_nabidky))
     if vyrobce is not None:
         sets.append("_VyrobceNab = %s" % _q(vyrobce))
+    if druh_ceny is not None:
+        sets.append("_TypCenyNabDod = %d" % int(druh_ceny))
+        sets.append("_TypCenyNabDod_TEXT = %s" % _q(_DRUH.get(int(druh_ceny), "")))
     if not sets:
         return {"ok": False, "error": "žádné pole nabídky k updatu"}
     setclause = ", ".join(sets)
@@ -268,6 +290,9 @@ def update_poptavka_nabidka(
         cols.append("_CisloNabidkyDodavatele"); vals.append(_q(cislo_nabidky))
     if vyrobce is not None:
         cols.append("_VyrobceNab"); vals.append(_q(vyrobce))
+    if druh_ceny is not None:
+        cols.append("_TypCenyNabDod"); vals.append(str(int(druh_ceny)))
+        cols.append("_TypCenyNabDod_TEXT"); vals.append(_q(_DRUH.get(int(druh_ceny), "")))
     sql = (
         "IF EXISTS(SELECT 1 FROM TabDokladyZbozi_EXT WHERE ID=%d) "
         "UPDATE TabDokladyZbozi_EXT SET %s WHERE ID=%d "

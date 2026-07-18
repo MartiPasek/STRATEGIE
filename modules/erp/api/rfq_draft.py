@@ -334,6 +334,53 @@ def _parse_nabidka(text: str) -> dict:
     return out
 
 
+def rfq_finish_cmd(rest: str) -> dict:
+    """
+    @@RFQFINISH — doplní na poptávku EVP260231 řešitele (Eliška), kontaktní osobu
+    (P. Kunová), druh ceny (Obecná) a uloží přijatou nabídku (e-mail) do adresáře
+    poptávky na sdíleném disku.
+    """
+    def _err(msg):
+        return {"ok": True, "columns": ["chyba"], "rows": [[str(msg)]]}
+
+    try:
+        from modules.erp.api.rfq_doklad import (
+            update_poptavka_header, update_poptavka_nabidka, save_file_to_poptavka_dir,
+        )
+        doklad = "EVP260231"
+        doklad_id = 751135
+        # 1) řešitel Eliška (CisloZam=24) + kontaktní osoba P. Kunová (TabCisKOs.ID=198)
+        uh = update_poptavka_header(doklad_id, cislo_zam=24, kontakt_osoba=198)
+        # 2) druh ceny Obecná (1)
+        un = update_poptavka_nabidka(doklad_id, druh_ceny=1)
+        # 3) nabídku (e-mail) do adresáře poptávky
+        msgs = read_mailbox_inbox(34, 10)
+        m = next((x for x in msgs if doklad in (x.get("subject") or "")), None)
+        saved = "-"
+        if m:
+            obsah = (
+                "Přijatá nabídka k poptávce %s\n"
+                "Od: %s\nDatum: %s\nPředmět: %s\n\n%s\n"
+                % (doklad, m.get("from"), m.get("dt"), m.get("subject"), m.get("text") or m.get("preview"))
+            )
+            sr = save_file_to_poptavka_dir(doklad, "nabidka_%s.txt" % doklad, obsah)
+            saved = ("uloženo do %s\\nabidka_%s.txt" % ("D:\\Data\\poptavky_V\\" + doklad, doklad)) if sr.get("ok") else ("uložení selhalo: %s" % (sr.get("error") or sr))
+        else:
+            saved = "nabídkový e-mail k %s ve schránce nenalezen" % doklad
+        return {
+            "ok": True,
+            "columns": ["krok", "stav"],
+            "rows": [
+                ["řešitel Eliška (CisloZam=24)", "OK ✓" if uh.get("ok") else ("SELHAL: %s" % uh.get("error"))],
+                ["kontaktní osoba P. Kunová (198)", "OK ✓" if uh.get("ok") else "-"],
+                ["druh ceny = Obecná (1)", "OK ✓" if un.get("ok") else ("SELHAL: %s" % un.get("error"))],
+                ["nabídka do adresáře", saved],
+            ],
+        }
+    except Exception as e:
+        return _err("neočekávaná chyba: %s: %s" % (type(e).__name__, e))
+
+
 def rfq_react_cmd(rest: str) -> dict:
     """
     @@RFQREACT — najde v Elišcině schránce odpověď na poptávku EVP260231, vytáhne

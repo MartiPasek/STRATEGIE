@@ -275,6 +275,7 @@ def read_mailbox_inbox(user_id: int, limit: int = 8) -> list[dict]:
                 "from": sender,
                 "dt": str(dt)[:19] if dt else None,
                 "preview": body[:240],
+                "text": body[:2000],
             })
         except Exception as _e:
             logger.warning("read_mailbox_inbox item failed: %s" % _e)
@@ -303,6 +304,114 @@ def rfq_inbox_cmd(rest: str) -> dict:
         return _err("schránka nenakonfigurována: %s" % e)
     except Exception as e:
         return _err("čtení inboxu selhalo: %s: %s" % (type(e).__name__, e))
+
+
+def _parse_nabidka(text: str) -> dict:
+    """Z textu nabídky vytáhne cenu, měnu, platnost, dodací lhůtu (best-effort)."""
+    import re
+    out = {}
+    # cena + měna: "1500EUR", "1 500,00 EUR", "1500 €", "12 345 Kč"
+    m = re.search(r'(\d[\d\s\.]*?)(?:,(\d+))?\s*(EUR|€|K[čc]|CZK)', text, re.IGNORECASE)
+    if m:
+        whole = m.group(1).replace(" ", "").replace(".", "")
+        dec = m.group(2) or "0"
+        try:
+            out["cena"] = float("%s.%s" % (whole, dec))
+        except Exception:
+            pass
+        mena = m.group(3).upper()
+        out["mena"] = "EUR" if mena in ("EUR", "€") else "CZK"
+    # platnost: "do 15.9.2026", "platná do 15. 9. 2026"
+    mp = re.search(r'plat[a-zíé]*\s*(?:do)?\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})', text, re.IGNORECASE)
+    if not mp:
+        mp = re.search(r'do\s+(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})', text, re.IGNORECASE)
+    if mp:
+        out["platnost_do"] = "%s-%02d-%02d" % (mp.group(3), int(mp.group(2)), int(mp.group(1)))
+    # dodací lhůta: "14 dni", "dodaci termin je 14 dní", "KW 36"
+    md = re.search(r'(\d+)\s*(dn[íiy]|dní|t[ýy]dn|weeks?|Tage?)', text, re.IGNORECASE)
+    if md:
+        out["dodaci_lhuta"] = md.group(0)
+    return out
+
+
+def rfq_react_cmd(rest: str) -> dict:
+    """
+    @@RFQREACT — najde v Elišcině schránce odpověď na poptávku EVP260231, vytáhne
+    nabídku (cena/platnost/lhůta), zapíše ji na doklad (EXT nabídková pole) a pošle
+    potvrzení odesílateli. Reakce na přijatou nabídku (item 3).
+    """
+    def _err(msg):
+        return {"ok": True, "columns": ["chyba"], "rows": [[str(msg)]]}
+
+    try:
+        from modules.erp.api.rfq_doklad import (
+            update_poptavka_nabidka, read_poptavka_nabidka,
+        )
+        from modules.notifications.application.email_service import send_email_or_raise
+        doklad = "EVP260231"
+        doklad_id = 751135
+        uid = 34
+        msgs = read_mailbox_inbox(uid, 10)
+        m = next((x for x in msgs if doklad in (x.get("subject") or "")), None)
+        if not m:
+            return _err("v Elišcině schránce jsem nenašel odpověď na %s" % doklad)
+        text = m.get("text") or m.get("preview") or ""
+        parsed = _parse_nabidka(text)
+        if not parsed.get("cena"):
+            return _err("z odpovědi jsem nevytáhl cenu — text: %s" % text[:160])
+        popis = "Diagnostický přístroj CDM11A"
+        if parsed.get("dodaci_lhuta"):
+            popis = "%s (dodání %s)" % (popis, parsed["dodaci_lhuta"])
+        cislo_nab = "e-mail %s" % (m.get("dt") or "")[:10]
+        up = update_poptavka_nabidka(
+            doklad_id,
+            cena=parsed.get("cena"),
+            platnost_do=parsed.get("platnost_do"),
+            dodavatel="SEW-EURODRIVE CZ s.r.o.",
+            popis=popis,
+            cislo_nabidky=cislo_nab,
+        )
+        if not up.get("ok"):
+            return _err("zápis nabídky na doklad selhal: %s" % up.get("error"))
+        nb = read_poptavka_nabidka(doklad_id)
+        # potvrzení odesílateli (jménem Elišky)
+        odeslano = "-"
+        sender_email = m.get("from")
+        if sender_email:
+            try:
+                send_email_or_raise(
+                    to=sender_email,
+                    subject="RE: Poptávka %s — děkujeme za nabídku" % doklad,
+                    body=(
+                        "Dobrý den,\n\n"
+                        "děkujeme za Vaši nabídku k poptávce %s (Diagnostický přístroj CDM11A). "
+                        "Nabídku jsme zaevidovali: cena %s %s, platnost do %s. "
+                        "Ozveme se s objednávkou.\n\n"
+                        "S pozdravem\nEliška Kolářová\nnákup / EUROSOFT-Control s.r.o."
+                        % (doklad, parsed.get("cena"), parsed.get("mena") or "EUR",
+                           parsed.get("platnost_do") or "-")
+                    ),
+                    user_id=uid,
+                    from_identity="user",
+                )
+                odeslano = "potvrzení odesláno na %s" % sender_email
+            except Exception as _e:
+                odeslano = "potvrzení se nepodařilo: %s" % _e
+        return {
+            "ok": True,
+            "columns": ["krok", "hodnota"],
+            "rows": [
+                ["nabídka rozpoznána", "cena %s %s, platnost %s, lhůta %s" % (
+                    parsed.get("cena"), parsed.get("mena") or "EUR",
+                    parsed.get("platnost_do") or "?", parsed.get("dodaci_lhuta") or "?")],
+                ["zapsáno na doklad %s" % doklad, "cena=%s platnost=%s dodavatel=%s" % (
+                    nb.get("cena"), nb.get("platnost"), nb.get("dodavatel"))],
+                ["potvrzení", odeslano],
+                ["→ 4. cenový zdroj", "@@VYPOPT SYNC pak nabídku vtáhne do vypopt_nabidka"],
+            ],
+        }
+    except Exception as e:
+        return _err("neočekávaná chyba: %s: %s" % (type(e).__name__, e))
 
 
 def rfq_send_cmd(rest: str) -> dict:

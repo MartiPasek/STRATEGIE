@@ -223,6 +223,76 @@ def read_poptavka(doklad_id: int) -> dict:
     return rows[0] if rows else {}
 
 
+def update_poptavka_nabidka(
+    doklad_id: int,
+    cena: float | None = None,
+    platnost_do: str | None = None,   # 'YYYY-MM-DD'
+    dodavatel: str | None = None,
+    popis: str | None = None,
+    cislo_nabidky: str | None = None,
+    vyrobce: str | None = None,
+) -> dict:
+    """
+    Zapíše přijatou NABÍDKU dodavatele do EXT polí poptávky (TabDokladyZbozi_EXT):
+    _Kcen_Cena, _PlatnostDoNabDod, _OrgNazevNabDod, _PopisNabDod, _CisloNabidkyDodavatele, _VyrobceNab.
+    """
+    did = int(doklad_id)
+    sets = []
+    if cena is not None:
+        sets.append("_Kcen_Cena = %s" % float(cena))
+    if platnost_do is not None:
+        sets.append("_PlatnostDoNabDod = %s" % _q(platnost_do))
+    if dodavatel is not None:
+        sets.append("_OrgNazevNabDod = %s" % _q(dodavatel))
+    if popis is not None:
+        sets.append("_PopisNabDod = %s" % _q(popis))
+    if cislo_nabidky is not None:
+        sets.append("_CisloNabidkyDodavatele = %s" % _q(cislo_nabidky))
+    if vyrobce is not None:
+        sets.append("_VyrobceNab = %s" % _q(vyrobce))
+    if not sets:
+        return {"ok": False, "error": "žádné pole nabídky k updatu"}
+    setclause = ", ".join(sets)
+    # sestav i INSERT variantu (stejná pole)
+    cols = []
+    vals = []
+    if cena is not None:
+        cols.append("_Kcen_Cena"); vals.append(str(float(cena)))
+    if platnost_do is not None:
+        cols.append("_PlatnostDoNabDod"); vals.append(_q(platnost_do))
+    if dodavatel is not None:
+        cols.append("_OrgNazevNabDod"); vals.append(_q(dodavatel))
+    if popis is not None:
+        cols.append("_PopisNabDod"); vals.append(_q(popis))
+    if cislo_nabidky is not None:
+        cols.append("_CisloNabidkyDodavatele"); vals.append(_q(cislo_nabidky))
+    if vyrobce is not None:
+        cols.append("_VyrobceNab"); vals.append(_q(vyrobce))
+    sql = (
+        "IF EXISTS(SELECT 1 FROM TabDokladyZbozi_EXT WHERE ID=%d) "
+        "UPDATE TabDokladyZbozi_EXT SET %s WHERE ID=%d "
+        "ELSE INSERT INTO TabDokladyZbozi_EXT(ID, %s) VALUES(%d, %s)"
+        % (did, setclause, did, ", ".join(cols), did, ", ".join(vals))
+    )
+    res = _ec_raw(sql)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("message") or res.get("error")}
+    return {"ok": True}
+
+
+def read_poptavka_nabidka(doklad_id: int) -> dict:
+    sql = (
+        "SELECT CAST(de._Kcen_Cena AS varchar) AS cena, "
+        "CONVERT(varchar(10),de._PlatnostDoNabDod,23) AS platnost, "
+        "de._OrgNazevNabDod AS dodavatel, de._PopisNabDod AS popis, "
+        "de._CisloNabidkyDodavatele AS cislo_nab "
+        "FROM TabDokladyZbozi_EXT de WHERE de.ID=%d" % int(doklad_id)
+    )
+    res = _ec_raw(sql)
+    rows = res.get("rows") or []
+    return rows[0] if rows else {}
+
+
 def _header(doklad_id: int) -> dict:
     """Přečti pár klíčových polí nově založeného dokladu (kontrola)."""
     sql = (

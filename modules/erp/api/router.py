@@ -39532,6 +39532,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@RFQINBOX"):
         from modules.erp.api.rfq_draft import rfq_inbox_cmd as _ric
         return JSONResponse(_ric(sql[len("@@RFQINBOX"):].strip()))
+    # @@RFQREACT  → zachyti prijatou nabidku z Elisciny schranky na doklad EVP260231 + potvrzeni (C23 18.7.)
+    if sql.upper().startswith("@@RFQREACT"):
+        from modules.erp.api.rfq_draft import rfq_react_cmd as _rrc
+        return JSONResponse(_rrc(sql[len("@@RFQREACT"):].strip()))
     # @@RFQDOKLAD PROBE|TEST|GEN|SMAZ <id>  → zalozeni dokladu vydane poptavky (rada 940) pres dbo.EC_GenVydanouPoptavku (C23 18.7.)
     if sql.upper().startswith("@@RFQDOKLAD"):
         from modules.erp.api.rfq_doklad import rfq_doklad_cmd as _rkc

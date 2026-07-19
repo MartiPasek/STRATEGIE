@@ -579,13 +579,16 @@ def _zip_walk(backend, root, base_sub, rel, zf, acc, depth):
     if not isinstance(lst, dict) or not lst.get("ok", True):
         return
     items = lst.get("items") or []
-    for it in sorted(items, key=lambda x: (bool(x.get("is_dir") or x.get("dir")),
-                                           (x.get("name") or "").lower())):
+    def _is_dir(x):
+        return x.get("type") == "dir" or bool(x.get("is_dir")) or bool(x.get("dir"))
+    for it in sorted(items, key=lambda x: (_is_dir(x), (x.get("name") or "").lower())):
         name = it.get("name") or ""
         if not name or name in (".", ".."):
             continue
+        if it.get("type") == "error":
+            continue
         child_rel = (rel + "/" + name) if rel else name
-        if it.get("is_dir") or it.get("dir"):
+        if _is_dir(it):
             _zip_walk(backend, root, base_sub, child_rel, zf, acc, depth + 1)
             continue
         if acc["files"] >= _ZIP_MAX_FILES or acc["bytes"] >= _ZIP_MAX_BYTES:

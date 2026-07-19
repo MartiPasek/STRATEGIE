@@ -83,7 +83,7 @@ async function load(){
   let h='<div class="card"><div style="font-weight:700;margin-bottom:4px">Soubory <span class="pill">'+esc(r.backend)+'</span></div>';
   if(!items.length)h+='<div class="muted">Složka je prázdná (nebo zatím neexistuje).</div>';
   items.forEach(it=>{
-    const isDir=it.is_dir||it.dir;
+    const isDir=it.is_dir||it.dir||it.type==="dir";
     h+='<div class="row"><div class="ic">'+(isDir?'📂':'📄')+'</div>'+
        '<div class="nm">'+esc(it.name)+'</div>'+
        (isDir?'':'<div class="sz">'+fmtSize(it.size)+'</div><button onclick="dl(\''+esc(it.name).replace(/'/g,"\\'")+'\')">Stáhnout</button>')+

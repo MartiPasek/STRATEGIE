@@ -6178,8 +6178,9 @@
             }
             dirPath = r.display_path || r.path || null;
             const raw = (r.result && r.result.items) || [];
-            const subs = raw.filter((it) => (it.is_dir || it.dir));
-            const items = raw.filter((it) => !(it.is_dir || it.dir));
+            const _isDir = (it) => (it && (it.type === "dir" || it.is_dir || it.dir));
+            const subs = raw.filter((it) => _isDir(it));
+            const items = raw.filter((it) => !_isDir(it) && it.type !== "error");
             zipBtn.style.display = (items.length || subs.length) ? "inline-block" : "none";
             const subHint = subs.length
               ? '<div style="color:#c8a24a;font-size:11px;padding:2px 6px;">📁 ' + subs.length +

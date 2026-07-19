@@ -53,7 +53,7 @@ def _guard(req: Request):
 
 def _pgdump_cmd():
     pg_dump = _resolve_pg_dump()
-    host, port, user, password, dbname = _parse_db_url(settings.database_url)
+    host, port, user, password, dbname = _parse_db_url(settings.database_data_url)
     cmd = [pg_dump, "-h", host, "-p", port, "-U", user, "-d", dbname,
            "-Fc", "-Z", "6", "--no-owner"]
     env = os.environ.copy()

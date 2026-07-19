@@ -6152,7 +6152,7 @@
               listEl.innerHTML = '<div style="color:#e88;font-size:12px;">' + esc(m) + '</div>';
               return;
             }
-            dirPath = r.path || null;
+            dirPath = r.display_path || r.path || null;
             const items = ((r.result && r.result.items) || []).filter((it) => !(it.is_dir || it.dir));
             if (items.length === 0) {
               listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory.</div>';

@@ -148,6 +148,23 @@ def _build_sub(rule, short_code, entity_id):
     return eid
 
 
+# Mapa server-lokální cesty (kde běží eurosoft MCP) → UNC pro klienta (Průzkumník).
+# Data share serveru 192.168.30.11: D:\\Data == \\\\192.168.30.11\\data.
+_SERVER_TO_UNC = [("D:\\Data", "\\\\192.168.30.11\\data")]
+
+
+def _display_path(p):
+    """Přeloží server-lokální cestu (D:\\Data\\...) na UNC (\\\\192.168.30.11\\data\\...)
+    pro tlačítko „Otevřít složku" v klientově Průzkumníku. Neznámé prefixy vrací beze změny."""
+    if not p:
+        return p
+    q = p.replace("/", "\\")
+    for a, b in _SERVER_TO_UNC:
+        if q.lower().startswith(a.lower()):
+            return b + q[len(a):]
+    return q
+
+
 def _deref_key(s, key_deref, entity_id):
     """Přeloží entity_id (record ID) na skutečný klíč podsložky (např. PoradoveCislo)
     dle dir_config.key_deref = {"table","id_col","key_col"}. NULL → beze změny.
@@ -351,6 +368,7 @@ async def app_dir_list(req: Request) -> JSONResponse:
                entity_id=entity_id, path=prim["path"], action="list",
                ok=bool(res.get("ok", True)), err=str(res.get("error", "")))
         return JSONResponse({"ok": True, "path": prim["path"], "backend": prim["backend"],
+                             "display_path": _display_path(prim["path"]),
                              "result": res})
     finally:
         cm.__exit__(None, None, None)

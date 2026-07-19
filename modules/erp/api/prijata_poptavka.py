@@ -38,6 +38,10 @@ TEST_OZN = "TEST AB12600504 / P00881, Flex 11 kW"
 TEST_POPIS = "TEST AB12600504 / P00881, Flex 11 kW"
 TEST_KONTAKT_EMAIL_FALLBACK = "g.regele@absaugwerk.de"
 ELISKA_USER = 34          # STRATEGIE users.id (schránka pro koncept)
+# Adresáře dokladu (Centrála doc-folders; \\192.168.30.11\data\… → lokální kořen D:\Data\…)
+PP_POPTAVKY_ROOT = "D:\\Data\\poptavky"   # přijatá poptávka (POZOR: vydané RFQ jsou poptavky_V)
+NABIDKY_ROOT = "D:\\Data\\nabidky"        # nabídka (EN)
+TEST_SUBJ_KEY = "AB12600504"              # klíč pro dohledání zdrojového e-mailu (Anforderung) v inboxu
 
 
 def _mcp():
@@ -257,6 +261,93 @@ def smaz_prijata_poptavka(doklad_id: int) -> dict:
     return {"ok": True, "message": (rows[0].get("Message") if rows else None)}
 
 
+# ── adresáře dokladu (přiložení zdrojového e-mailu, výpis, kopie poptávka→nabídka) ──
+def _doklad_of(doklad_id: int) -> dict:
+    r = _ec_raw(
+        "SELECT dbo.EC_GetDoklad(%d) AS d, dbo.EC_GetDoklad(NavaznyDoklad) AS nav "
+        "FROM TabDokladyZbozi WHERE ID=%d" % (int(doklad_id), int(doklad_id))
+    )
+    rows = r.get("rows") or []
+    return rows[0] if rows else {}
+
+
+def _fetch_source_mime(subj_contains: str, limit: int = 40) -> dict | None:
+    """Najde v Eliščině inboxu zprávu dle předmětu (větší okno než RFQ [:15]) a vrátí MIME."""
+    from modules.notifications.application.email_service import _resolve_user_email_creds, _get_account
+    creds = _resolve_user_email_creds(ELISKA_USER)
+    if not creds:
+        return None
+    account = _get_account(email=creds["email"], password=creds["password"], server=creds["server"])
+    key = (subj_contains or "").lower()
+    for msg in account.inbox.all().order_by("-datetime_received")[:limit]:
+        if key in (getattr(msg, "subject", None) or "").lower():
+            mime = getattr(msg, "mime_content", None)
+            if isinstance(mime, str):
+                mime = mime.encode("utf-8", "replace")
+            sender = getattr(msg.sender, "email_address", None) if getattr(msg, "sender", None) else None
+            return {"subject": msg.subject, "from": sender, "mime": mime, "bytes": len(mime) if mime else 0}
+    return None
+
+
+def attach_source_email(doklad_id: int, subj: str | None = None) -> dict:
+    """Uloží zdrojový e-mail poptávky (Anforderung) jako .eml do adresáře poptavky\\<doklad>."""
+    import base64
+    from modules.erp.api.directories import _eu_write
+    d = _doklad_of(doklad_id)
+    doklad = d.get("d") or ("ID%s" % doklad_id)
+    key = subj or TEST_SUBJ_KEY
+    m = _fetch_source_mime(key, 40)
+    if not m or not m.get("mime"):
+        return {"ok": False, "error": "v Eliščině inboxu (40) jsem nenašel zprávu obsahující '%s'" % key}
+    fname = "TEST_poptavka_%s.eml" % doklad
+    r = _eu_write(PP_POPTAVKY_ROOT, "%s\\%s" % (doklad, fname), base64.b64encode(m["mime"]).decode("ascii"))
+    if isinstance(r, dict) and r.get("ok") is False:
+        return {"ok": False, "error": "zápis .eml selhal: %s" % (r.get("error") or r)}
+    return {"ok": True, "doklad": doklad, "soubor": "%s\\%s\\%s" % (PP_POPTAVKY_ROOT, doklad, fname),
+            "bytes": m.get("bytes"), "predmet": m.get("subject"), "od": m.get("from")}
+
+
+def _dir_items(root: str, doklad: str) -> list:
+    from modules.erp.api.directories import _eu_list
+    r = _eu_list(root, str(doklad).strip())
+    if isinstance(r, dict):
+        return r.get("items") or r.get("entries") or r.get("files") or []
+    return r or []
+
+
+def _item_name(it) -> str | None:
+    if isinstance(it, dict):
+        return it.get("name") or it.get("path") or it.get("filename")
+    return str(it) if it else None
+
+
+def copy_docs_poptavka_to_nabidka(doklad_id: int) -> dict:
+    """Replikuje krok desktop klienta Centrály: zkopíruje soubory z adresáře poptávky
+    do adresáře navázané nabídky (poptavky\\<EP> → nabidky\\<EN>)."""
+    from modules.erp.api.directories import _eu_read, _eu_write
+    import base64  # noqa: F401 (obsah je už base64 z _eu_read)
+    d = _doklad_of(doklad_id)
+    pop = d.get("d"); nab = d.get("nav")
+    if not nab:
+        return {"ok": False, "error": "poptávka nemá navázanou nabídku (NavaznyDoklad)"}
+    items = _dir_items(PP_POPTAVKY_ROOT, pop)
+    copied, failed = [], []
+    for it in items:
+        name = _item_name(it)
+        if not name or (isinstance(it, dict) and str(it.get("type", "")).lower() in ("dir", "folder")):
+            continue
+        rd = _eu_read(PP_POPTAVKY_ROOT, "%s\\%s" % (pop, name))
+        content = rd.get("content") if isinstance(rd, dict) else None
+        if not content:
+            failed.append(name); continue
+        wr = _eu_write(NABIDKY_ROOT, "%s\\%s" % (nab, name), content)
+        if isinstance(wr, dict) and wr.get("ok") is False:
+            failed.append(name)
+        else:
+            copied.append(name)
+    return {"ok": True, "pop": pop, "nab": nab, "copied": copied, "failed": failed}
+
+
 # ── @@ dispatch ──────────────────────────────────────────────────────────────
 #   @@PP GEN            — založí TEST přijatou poptávku (EP), vrátí ID
 #   @@PP FILL <id>      — doplní pole dle předlohy EP26306 (org/řešitel/kontakt/oblast + TEST popisy)
@@ -348,6 +439,49 @@ def prijata_poptavka_cmd(rest: str) -> dict:
                 ["message", str(k.get("message") or "OK")],
             ])
 
+        if up.startswith("MSG"):
+            toks = raw[3:].strip().split(None, 1)
+            did = int(toks[0]) if toks and toks[0].isdigit() else None
+            if not did:
+                return _err("použij: @@PP MSG <id> [text_predmetu]")
+            subj = toks[1].strip() if len(toks) > 1 else None
+            a = attach_source_email(did, subj)
+            if not a.get("ok"):
+                return _err(a.get("error"))
+            return _out(["výsledek", "hodnota"], [
+                ["zdrojový e-mail přiložen ✓", a.get("soubor")],
+                ["velikost", "%s B" % a.get("bytes")],
+                ["od / předmět", "%s — %s" % (a.get("od") or "?", a.get("predmet") or "")],
+            ])
+
+        if up.startswith("DIR"):
+            toks = raw[3:].strip().split()
+            if len(toks) < 2 or toks[0].lower() not in ("poptavky", "nabidky"):
+                return _err("použij: @@PP DIR poptavky|nabidky <doklad>")
+            root = PP_POPTAVKY_ROOT if toks[0].lower() == "poptavky" else NABIDKY_ROOT
+            items = _dir_items(root, toks[1])
+            if not items:
+                return _out(["adresář", "obsah"], [["%s\\%s" % (root, toks[1]), "(prázdný / neexistuje)"]])
+            rows = []
+            for it in items[:50]:
+                nm = _item_name(it)
+                sz = it.get("size", it.get("type", "")) if isinstance(it, dict) else ""
+                rows.append([str(nm), str(sz)])
+            return _out(["soubor (%s\\%s)" % (root, toks[1]), "velikost/typ"], rows)
+
+        if up.startswith("COPYDOCS"):
+            did = _idarg("COPYDOCS")
+            if not did:
+                return _err("použij: @@PP COPYDOCS <id>  (kopie poptavky\\<EP> → nabidky\\<EN>)")
+            c = copy_docs_poptavka_to_nabidka(did)
+            if not c.get("ok"):
+                return _err(c.get("error"))
+            return _out(["výsledek", "hodnota"], [
+                ["kopie %s → %s" % (c.get("pop"), c.get("nab")), "hotovo ✓"],
+                ["zkopírováno", ", ".join(c.get("copied") or []) or "(nic — adresář poptávky prázdný)"],
+                ["selhalo", ", ".join(c.get("failed") or []) or "-"],
+            ])
+
         if up.startswith("SMAZ"):
             did = _idarg("SMAZ")
             if not did:
@@ -356,6 +490,7 @@ def prijata_poptavka_cmd(rest: str) -> dict:
             return _err(("smazáno ✓ msg=%s" % s.get("message")) if s.get("ok")
                         else ("SMAZ selhal: %s" % s.get("error")))
 
-        return _err("neznámý pod-příkaz. GEN | FILL <id> | SHOW <id> | REPLY <id> | KALK <id> | SMAZ <id>")
+        return _err("neznámý pod-příkaz. GEN | FILL <id> | SHOW <id> | REPLY <id> | KALK <id> | "
+                    "MSG <id> [subj] | DIR poptavky|nabidky <doklad> | COPYDOCS <id> | SMAZ <id>")
     except Exception as e:
         return _err("neočekávaná chyba: %s: %s" % (type(e).__name__, e))

@@ -206,7 +206,21 @@ def _is_abs_root(root):
 
 def _eu_args(root, subpath, path_key):
     if _is_abs_root(root):
-        return {"user_namespace": "rw", "base_override": root, path_key: (subpath or "")}
+        # Absolutní UNC/lokální kořen: CELÝ adresář jde do base_override a leaf zvlášť —
+        # přesně jak fungující volání (bank_api, cenik_engine, platak_generator).
+        # MODEL: base_override = adresář, subpath="" (list) / path=<jen soubor> (read/write).
+        r = (root or "").rstrip("/\\")
+        sp = (subpath or "").replace("/", "\\").strip("\\")
+        if path_key == "subpath":
+            full_dir = (r + "\\" + sp) if sp else r
+            return {"user_namespace": "rw", "base_override": full_dir, "subpath": ""}
+        # path_key == "path": subpath je "<podsložka>/<soubor>" nebo jen "<soubor>"
+        if "\\" in sp:
+            subdir, fn = sp.rsplit("\\", 1)
+            full_dir = r + "\\" + subdir
+        else:
+            full_dir, fn = r, sp
+        return {"user_namespace": "rw", "base_override": full_dir, "path": fn}
     full = posixpath.join(root.strip("/\\"), subpath) if subpath else root.strip("/\\")
     return {"user_namespace": "rw", path_key: full}
 

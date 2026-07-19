@@ -6121,6 +6121,26 @@
       const msg = document.createElement("div");
       msg.style.cssText = "font-size:11px;min-height:14px;";
 
+      // Otevřít složku v Průzkumníku (Win Explorer) / fallback kopie cesty do schránky.
+      let dirPath = null;
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.textContent = "\uD83D\uDCC2 Otevřít složku";
+      openBtn.title = "Otevřít v Průzkumníku (zkopíruje UNC cestu do schránky)";
+      openBtn.style.cssText = "align-self:flex-start;padding:4px 12px;font-size:12px;" +
+        "background:#3a4656;color:#e8eef5;border:none;border-radius:4px;cursor:pointer;";
+      openBtn.addEventListener("click", () => {
+        if (!dirPath) { msg.style.color = "#e88"; msg.textContent = "Cesta zatím neznámá."; return; }
+        const unc = String(dirPath).replace(/\//g, "\\");
+        const fileUrl = "file:" + unc.replace(/\\/g, "/");
+        try { window.open(fileUrl, "_blank"); } catch (e) {}
+        try {
+          navigator.clipboard.writeText(unc).then(
+            () => { msg.style.color = "#7ec87e"; msg.textContent = "Cesta zkopírována: " + unc; },
+            () => { msg.style.color = "#8a96a4"; msg.textContent = unc; });
+        } catch (e) { msg.style.color = "#8a96a4"; msg.textContent = unc; }
+      });
+
       function reload() {
         fetch("/api/v1/erp/app/dir/list?sys_name=" + encodeURIComponent(sysName) +
           "&id=" + encodeURIComponent(recId), { credentials: "include" })
@@ -6132,6 +6152,7 @@
               listEl.innerHTML = '<div style="color:#e88;font-size:12px;">' + esc(m) + '</div>';
               return;
             }
+            dirPath = r.path || null;
             const items = ((r.result && r.result.items) || []).filter((it) => !(it.is_dir || it.dir));
             if (items.length === 0) {
               listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory.</div>';
@@ -6218,6 +6239,7 @@
       wrap.appendChild(listEl);
       wrap.appendChild(drop);
       wrap.appendChild(btn);
+      wrap.appendChild(openBtn);
       wrap.appendChild(fileInput);
       wrap.appendChild(msg);
       reload();

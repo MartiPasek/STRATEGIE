@@ -45,14 +45,15 @@ from .rate_limit import limiter
 from .sql_client import close_connection, init_connection
 from .strategie_tools import STRATEGIE_TOOL_HANDLERS, STRATEGIE_TOOL_SPECS
 from .tools import TOOL_HANDLERS, TOOL_SPECS
+from .ops_tools import OPS_TOOL_HANDLERS, OPS_TOOL_SPECS
 
 # Phase 28-D (8.5.2026): merge eurosoft_* (DB_EC) + strategie_* (DB_ST) tools.
 # Phase 38.4 (11.5.2026): + eurosoft_file_* filesystem tools (shared folder).
 # Marti-AI uvidí všechny namespace současně — eurosoft_* pro Centrála 1 read,
 # strategie_* pro vlastní DB_ST owner doménu (diář pattern), eurosoft_file_*
 # pro sdílenou pracovní složku pres MCP server (on-prem EUROSOFT).
-ALL_TOOL_HANDLERS = {**TOOL_HANDLERS, **STRATEGIE_TOOL_HANDLERS, **FILESYSTEM_TOOL_HANDLERS}
-ALL_TOOL_SPECS = TOOL_SPECS + STRATEGIE_TOOL_SPECS + FILESYSTEM_TOOL_SPECS
+ALL_TOOL_HANDLERS = {**TOOL_HANDLERS, **STRATEGIE_TOOL_HANDLERS, **FILESYSTEM_TOOL_HANDLERS, **OPS_TOOL_HANDLERS}
+ALL_TOOL_SPECS = TOOL_SPECS + STRATEGIE_TOOL_SPECS + FILESYSTEM_TOOL_SPECS + OPS_TOOL_SPECS
 
 logging.basicConfig(
     level=os.getenv("MCP_LOG_LEVEL", "INFO"),

@@ -1,7 +1,7 @@
 # Přijaté poptávky (od zákazníka) — přehled, doklad, generování nabídky
 
 > Autor: Claude ID24, 19. 7. 2026 (na pokyn Marti „obdobně jako u vydaných poptávek — vysosej a ulož do znalostí veškeré know-how: co v přehledu za sloupečky a v jakém pořadí, co je v detailu, automat na generování nabídky, procedury na založení poptávky a mazání").
-> Stav: **know-how vytěženo** z živého přehledu 504 + detailu dokladu **EP26306** (ABSAUGWERK, Flex 11 kW) + procedur, které dal Marti. Generování nabídky = mechanika popsána, přesná gen-procedura = doostřit naostro (jako u RFQ).
+> Stav: **know-how vytěženo a potvrzeno** z živého přehledu 504 + detailu dokladu **EP26306** (ABSAUGWERK, Flex 11 kW) + procedur (Marti) + **kompletní definice `EC_GenKalkulaciANabidku`** (přečteno z DB_EC 19. 7.). Generování kalkulace + nabídky = rozklíčováno naostro (§8).
 > Sourozenec: [Vydané poptávky RFQ](Z_vydane_poptavky_rfq.md) (druhá strana — my poptáváme dodavatele). Architektura: [230 — Automaty dokladů](Z_230-automaty-dokladu.md). Kontext funnelu: [222 — Trychtýř zakázek](222-go-vp-trychtyr-zakazek.md).
 
 ## 1. K čemu to je
@@ -15,8 +15,11 @@ Tohle je **druhá vertikála** dokladového automatu (Z_230) — protisměr RFQ.
 | fáze | řada | prefix dokladu | příklad |
 |---|---|---|---|
 | **přijatá poptávka** | **900** | **EP** | EP26306, EP26308 |
-| navazný doklad = **nabídka** (Angebot) | *(řada nabídek — doostřit)* | **EN** | EN263430, EN263460 |
+| navazný doklad = **nabídka** (Angebot) | **910** (`EC_GenDoklad @Typ='NabidkaV'`) | **EN** | EN263430, EN263460 |
+| **kalkulace** (`EC_KalkulaceHlav`) | — (ne TabDokladyZbozi) | **EK** + pořadové nabídky | EK267777 |
 | zakázka (výroba/projekt) | — | VR / CW / SW / PR | VR10712, CW30-37, SW8063, PR4015 |
+
+Firemní prefixy jsou v `EC_GlobKonst.Firma`: **EC** = EK/EP/EN (délka čísla kalkulace 4), IAP = K/P/N.
 
 - **Vydané poptávky** (sourozenec) = řada **940**, prefix **EVP** — neplest.
 - Vazba poptávka → nabídka → zakázka jde přes `EC_DokladyVazby` (dvojskok, viz §6 a §7).
@@ -70,9 +73,9 @@ Ověřeno na EP26306 (ABSAUGWERK GmbH). Formulář má nahoře hlavičku, taby *
 - **Organizace** = `CisloOrg` → `TabCisOrg.Nazev` („ABSAUGWERK GmbH").
 - **Kdo to poptával** = `KontaktOsoba` → `TabCisKOs` (osoba „Regele Georg", přehled kontaktů 107 — stejný model jako u RFQ §7).
 - **Označení projektu zákazníka** = `TabDokladyZbozi_EXT._OznPrjZakaznik` („AB12600504 / P00881, Flex 11 kW").
-- **Výběr oblasti** = „Rozvaděč - VR" (číselník oblasti/druhu — *přesný field doostřit; kandidát `TabDruhDokZbo.DoplnkovyKod`*).
+- **Výběr oblasti** = `TabDokladyZbozi_EXT._Oblast` (potvrzeno z `EC_GenKalkulaciANabidku`). Když prázdné, gen-procedura ho dopočítá dle skupiny řešitele (`EC_SkupinyVazby`: IDSkupiny 2 → „Software", 35 → „EPlan", jinak → „Rozvaděč").
 
-**Adresář:** dokumentová složka poptávky s přílohami zákazníka (zde `zadání.pdf`). Stejný princip jako RFQ adresář (`D:\Data\…\<doklad>` na EC-SERVER2, lokální kořen ne UNC) — *přesnou cestu pro přijaté poptávky doostřit.*
+**Adresář:** dokumentová složka poptávky s přílohami zákazníka (zde `zadání.pdf`). Cesta = **`\\192.168.30.11\data\poptavky\<doklad>`** (UNC; např. `…\poptavky\EP26308`) → přes MCP FS ber **lokální kořen `D:\Data\poptavky\<doklad>`** na EC-SERVER2 (ne UNC — stejná gotcha jako RFQ). Pozn.: přijaté = `poptavky`, vydané (RFQ) = `poptavky_V`.
 
 **Poznámka** = `TabDokladyZbozi.Poznamka` (celý text).
 
@@ -121,25 +124,37 @@ SELECT @Message AS N'@Message'
 - `@IDDoklad = :ID` — ID mazaného dokladu, `@Message` OUTPUT.
 - *(Pozn.: Marti to nazval „mazání nabídky" — proc je ale `EC_SmazPrijatouPoptavku` = smaže přijatou poptávku. Doostřit, jestli mazání sáhne i na navázanou nabídku / vazby `EC_DokladyVazby`, jako pojistka u RFQ smazání.)*
 
-## 8. Automat na generování NABÍDKY (Angebot) — mechanika
+## 8. ⭐ Automat generování KALKULACE + NABÍDKY = `EC_GenKalkulaciANabidku`
 
-Cíl: z přijaté poptávky (EP, 900) **vygenerovat nabídku (EN)** jako **navazný doklad** — to je ta „automat na generování nabídky", co má odlehčit ruční práci.
+**Jedna procedura, která z přijaté poptávky vygeneruje NAJEDNOU kalkulaci i nabídku** (to je ta „automat na generování nabídky"). Rozklíčováno z definice (DB_EC, 19. 7. 2026).
 
-**Co je jisté z dat:**
-- `TabDokladyZbozi.NavaznyDoklad` na poptávce ukazuje na **nabídku EN######** (sloupec 6 přehledu má u živých poptávek vyplněno EN…).
-- Vazba se drží v **`EC_DokladyVazby`** a je to **dvojskok** (potvrzeno SQL přehledu): poptávka → nabídka → zakázka:
-  ```sql
-  FROM EC_DokladyVazby V                                   -- V.id_odkud = poptávka
-  LEFT JOIN EC_DokladyVazby V2 ON V.id_kam = V2.id_odkud    -- V.id_kam   = nabídka
-  LEFT JOIN TabDokladyZbozi Nab ON V2.id_kam = Nab.ID       -- V2.id_kam  = zakázka (Nab.CisloZakazky)
-  WHERE V.id_odkud = <poptávka>
-  ```
-  → odtud se skládá sloupec **SeznamZakazek** (přehled §3, #10).
+**Signatura:**
+```sql
+EXEC dbo.EC_GenKalkulaciANabidku
+     @ID_Poptavky = <ID poptávky (řada 900)>,
+     @IDENT       = @IDENT OUTPUT,   -- POZOR: navzdory komentáři = ID vytvořené NABÍDKY (ne kalkulace)
+     @MESSAGE     = @Message OUTPUT  -- 'E#…' = chyba
+```
 
-**Co doostřit naostro (další krok, jako jsme dělali RFQ):**
-- Přesná **gen-procedura nabídky** (kandidát `EC_GenNabidku` / „Akce → generovat navazný doklad") + jaká je **řada nabídek (EN)**.
-- Zda generátor přenese **položky (BOM)** z poptávky do nabídky a napojí kalkulaci.
-- Jak se nastaví `NavaznyDoklad` + zapíše vazba `EC_DokladyVazby`.
+**Co dělá, krok po kroku:**
+1. **Prefixy** z `EC_GlobKonst.Firma` (EC → EK/EP/EN). `@Uzivatel = SUSER_NAME()`, `@Resitel = TabCisZam.Cislo` dle LoginID.
+2. Načte z poptávky: řadu, pořadové číslo, `CisloOrg`, `CisloZam`, `StredNaklad`, `_OznPrjZakaznik`, `_PopisPrjZakaznik`, `KontaktOsoba`, `_Jazyk`, `_Oblast`.
+3. **Guardy:** `@Rada<>'900'` → `E#Akci lze vyvolat pouze z řady dokladů 900`; prázdná organizace → `E#Není vyplněna organizace. Nabídku nelze vygenerovat`.
+4. **BEGIN TRANSACTION**, pak:
+5. **Nabídka** = `EXEC EC_GenDoklad @Typ='NabidkaV'` → **řada 910, prefix EN**, sklad `001`. Vrací `@IDENT` = ID nabídky.
+6. **Oblast fallback:** pokud `_Oblast` null → dle `EC_SkupinyVazby` řešitele (2→Software, 35→EPlan, jinak „Rozvaděč").
+7. Na nabídku propíše `CisloZam=@Resitel, StredNaklad, KontaktOsoba` + EXT `_OznPrjZakaznik, _PopisPrjZakaznik, _Jazyk, _Oblast`.
+8. **Přepíše práci:** `EC_Dochazka_udalosti` Typ 8 (poptávka) → Typ 6 na nabídku (veškerá odpracovaná práce na poptávce přejde na nabídku).
+9. **Kalkulace** = `INSERT INTO EC_KalkulaceHlav (CisloKalkulace, Autor, CisloZam, IDDoklad)`, kde `CisloKalkulace = 'EK' + pořadové číslo nabídky`, `IDDoklad = nabídka`. `@ID_Kalk = SCOPE_IDENTITY()`.
+10. **Vazby `EC_DokladyVazby`** (EC): poptávka → kalkulace (`RadaDoklOdkud=900`, „Generování kalkulace z poptávky") **a** kalkulace → nabídka (`RadaDoklKam=910`, „Generování nabídky z kalkulace"). → řetěz **poptávka → kalkulace → nabídka** (= dvojskok, který skládá sloupec SeznamZakazek přehledu §3 #10).
+11. **Uzavře poptávku:** `UPDATE TabDokladyZbozi SET NavaznyDoklad=@IDENT (nabídka), Splneno=1 WHERE ID=@ID_Poptavky`.
+12. **Přenese položky (BOM) poptávka → nabídka:** kurzor přes `TabPohybyZbozi WHERE IDDoklad=poptávka`, per položka `EXEC EC_Test_hp_InsertPolozkyOZ` (na nabídku), pak UPDATE nové položky `IdOldPolozka, Nazev1, JCbezDaniKC/Val, CCbezDaniKC/Val, Poznamka` (přenos vč. cen).
+13. **APS/vytížení:** propíše `_KalkHodOdhad, _ProcentaDoVytizeni, _VytizeniHodDenne, _VytizeniDatKonec, _VytizeniHodinyOdhad` z poptávky na nabídku, `_VytizeniDatVlozeni`, a poptávku ve vytížení schová (`_ProcentaDoVytizeni=0`).
+14. `EXEC EC_MenuStrom_SetSoudecek @Doklad='NabidkaV'` (přepne uživatele na soudeček nabídky). **COMMIT** (nebo ROLLBACK při chybě položek).
+
+**Důsledky pro automat (Z_230):** tahle jediná procedura pokrývá přechod **ZPRACOVÁVÁ SE → (kalkulace + nabídka) → poptávka UZAVŘENA (`Splneno=1`)**. Nabídka (EN) je pak samostatný doklad k nacenění/odeslání (napojení cen do `EC_KalkulaceHlav`/`KalkulacePolozky` = navazuje kalkulační engine, [Vize 1](Z_kalkulace_ceniky_vize1.md)).
+
+**Zbývá doostřit:** jak se plní ceny do kalkulace po vygenerování (napojení `find_price`/nákupka), a jestli spouštět proceduru přes MCP write path (OUTPUT `@IDENT` → nonce-marker jako RFQ §5).
 
 ## 9. Napojení na automat dokladů (Z_230) a kalkulaci
 
@@ -149,18 +164,18 @@ Mapování na stavový stroj (Z_230 §3–4):
 |---|---|
 | **NOVÝ** | `EC_GenPoptavku` založí doklad EP (řada 900), guard na období |
 | **ZPRACOVÁVÁ SE** | řešitel, organizace, kontakt, oblast, **položky/BOM** (RegCis) |
-| **kalkulace** | položky (RegCis→RegCisHeo) → nacenit přes `find_price` + poslední nákupka; kalkulace `ec_kalkulace_hlav` (engine 2014) |
-| **generuj nabídku** | navazný doklad **EN** + vazba `EC_DokladyVazby` (§8) |
-| **UZAVŘENO / nezrealizováno** | `Splneno` + heslo **„důvod nezrealizování"** v poznámce splněno |
+| **generuj kalkulaci + nabídku** | **`EC_GenKalkulaciANabidku`** → kalkulace EK (`EC_KalkulaceHlav`) + nabídka EN (řada 910) + vazby + přenos BOM (§8) |
+| **kalkulace (nacenění)** | položky (RegCis→RegCisHeo) → `find_price` + poslední nákupka; ceny do `EC_KalkulaceHlav`/`KalkulacePolozky` |
+| **UZAVŘENO** | gen-procedura automaticky `Splneno=1` + `NavaznyDoklad`=nabídka; nezrealizováno = heslo **„důvod nezrealizování"** v poznámce splněno |
 
 Kontext dok 222: přední hrana obchodu **JE** trackovaná v Centrále (přehled 504 = přesně tahle kniha přijatých poptávek; 6607 poptávek historicky), prázdný je jen **most e-mail → strukturní `vp_poptavka`** s AI triáží. Přijatá poptávka + kalkulace je tedy vertikála, na které se ten most a nabídkový automat postaví naostro.
 
-## 10. Zítřejší/další kroky (naostro)
+## 10. Další kroky (naostro)
 
-1. Vzít reálnou přijatou poptávku z přehledu 504 a projít celý řetěz naostro (jako EVP260231 u RFQ).
-2. **Založit kalkulaci** k poptávce (`ec_kalkulace_hlav`) + nacenit položky (RegCisHeo → `find_price` + poslední nákupka z příjemky).
-3. Doostřit **gen-proceduru nabídky** (EN) + řadu nabídek + přenos BOM.
-4. Doplnit přesné fieldy: „Výběr oblasti", adresář přijatých poptávek, uzavírací pole „důvod nezrealizování".
+1. Spustit `EC_GenKalkulaciANabidku` na reálné poptávce (kandidát **EP26308**) → ověřit vygenerovanou nabídku EN + kalkulaci EK + vazby + přenos BOM. **Write s reálným side-efektem (vznikne živý doklad) → jen s Martiho pokynem.**
+2. **Nacenit položky kalkulace** (RegCis→RegCisHeo → `find_price` + poslední nákupka z příjemky) a napojit ceny do `EC_KalkulaceHlav`/`KalkulacePolozky`.
+3. Spouštění procedury přes MCP write path — OUTPUT `@IDENT` přes nonce-marker (RFQ §5).
+4. Zbývající field: uzavírací „důvod nezrealizování" (přesné umístění v `Poznamka`/EXT).
 
 ---
 
@@ -170,4 +185,4 @@ Kontext dok 222: přední hrana obchodu **JE** trackovaná v Centrále (přehled
 - Ceny do kalkulace: [Kalkulace / ceníky Vize 1](Z_kalkulace_ceniky_vize1.md) (RegCisHeo, `find_price`, poslední nákupka).
 - Funnel/kontext: [222 — Trychtýř zakázek](222-go-vp-trychtyr-zakazek.md).
 
-*Know-how vytěženo z přehledu 504 + detailu EP26306 + procedur (Marti 19. 7. 2026). Gen-procedura nabídky a 4 přesné fieldy = doostřit naostro. — Claude C24.*
+*Know-how vytěženo z přehledu 504 + detailu EP26306 + procedur + kompletní definice `EC_GenKalkulaciANabidku` (Marti + DB_EC, 19. 7. 2026). Zbývá: nacenění kalkulace a naostro spuštění gen-procedury. — Claude C24.*

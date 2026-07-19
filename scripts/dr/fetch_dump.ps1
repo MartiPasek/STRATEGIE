@@ -14,23 +14,23 @@ $log = Join-Path $Incoming '_fetch.log'
 function Log($m){ $l=('{0}  {1}' -f ([DateTime]::Now.ToString('s')),$m); Write-Output $l; try{ Add-Content $log $l -Encoding UTF8 }catch{} }
 
 # 1) meta (jmeno + velikost) — kontrola dosahu + preskoceni pokud uz mame
-$metaUrl = "$Base/api/v1/ops/dr/latest-dump/meta"
+$metaUrl = "$Base/api/v1/ops/dr/meta"
 try {
   $wc = New-Object System.Net.WebClient; $wc.Headers.Add('X-DR-Token',$Token)
   $meta = $wc.DownloadString($metaUrl) | ConvertFrom-Json
 } catch { Log ("META fail: " + $_.Exception.Message); exit 1 }
 if(-not $meta.ok){ Log ("Server: " + ($meta.error) + " (" + $meta.hint + ") root=" + $meta.root); exit 1 }
-$dest = Join-Path $Incoming $meta.name
-if((Test-Path $dest) -and ((Get-Item $dest).Length -eq $meta.size)){ Log ("Uz mam " + $meta.name + " (" + $meta.size + " B) - preskakuji."); exit 0 }
+$stamp = (Get-Date).ToString('yyyyMMdd_HHmmss'); $dest = Join-Path $Incoming ('data_db_'+$stamp+'.dump')
+
 
 # 2) stazeni streamem
 $tmp = "$dest.part"
-Log ("Stahuji " + $meta.name + " (" + [math]::Round($meta.size/1MB,1) + " MB) streamem...")
+Log ("Stahuji zivy pg_dump streamem -> " + $dest)
 $t0 = Get-Date
 $wc2 = New-Object System.Net.WebClient; $wc2.Headers.Add('X-DR-Token',$Token)
-$wc2.DownloadFile("$Base/api/v1/ops/dr/latest-dump", $tmp)
+$wc2.DownloadFile("$Base/api/v1/ops/dr/stream-dump", $tmp)
 $sec = [math]::Round(((Get-Date)-$t0).TotalSeconds,1)
 $got = (Get-Item $tmp).Length
-if($got -ne $meta.size){ Log ("Velikost nesedi (" + $got + " != " + $meta.size + "), mazu part."); Remove-Item $tmp -Force; exit 1 }
+if($got -lt 1024){ Log ("Dump podezrele maly ("+$got+" B), mazu part."); Remove-Item $tmp -Force; exit 1 }
 Move-Item $tmp $dest -Force
-Log ("OK: " + $meta.name + " za " + $sec + "s (" + [math]::Round($got/1MB,1) + " MB)")
+Log ("OK: " + (Split-Path $dest -Leaf) + " za " + $sec + "s (" + [math]::Round($got/1MB,1) + " MB)")

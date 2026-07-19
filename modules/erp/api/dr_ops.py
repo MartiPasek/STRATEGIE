@@ -1,30 +1,31 @@
-"""DR: streaming přenos posledního data_db dumpu Praha → Plzeň (Claude ID23, 19.7.2026).
+"""DR: streaming ZIVY pg_dump data_db Praha (API 188.11 → DB 188.12) → Plzeň.
+Claude ID23, 19.7.2026 (r3: stream místo file-serve — API nevidí E: na 188.12).
 
-Machine-to-machine, token v hlavičce X-DR-Token.
-  GET /api/v1/ops/dr/latest-dump/meta → JSON {ok,name,size,mtime,root}
-  GET /api/v1/ops/dr/latest-dump      → stream souboru (FileResponse, žádný 50 MB strop mostu)
+Machine-to-machine, token X-DR-Token (env DR_TRANSFER_TOKEN nebo soubor <repo>/dr_token.txt).
+  GET /api/v1/ops/dr/meta         → JSON {ok, mode, db, host, pg_dump} (readiness bez dumpu)
+  GET /api/v1/ops/dr/stream-dump  → StreamingResponse (živý pg_dump -Fc -Z6, žádný soubor/sdílení)
 
-Token (bez NSSM zásahu): env DR_TRANSFER_TOKEN, jinak soubor DR_TOKEN_FILE
-(default <repo>/dr_token.txt — stačí ho na APP boxu vytvořit, čte se za běhu, bez restartu).
-Kořen dumpů: env DR_DUMP_ROOT, jinak první existující z [E:\\STRATEGIE, \\\\10.200.188.12\\E$\\STRATEGIE]
-(API běží na 188.11, dumpy na 188.12 → UNC admin share).
+Reuse pg_dump resolveru + DB URL parseru z admin.backup_service (API to už umí).
 Plzeň tahá scripts/dr/fetch_dump.ps1 (WebClient stream → Incoming → restore).
 """
 from __future__ import annotations
 
-import glob
 import hmac
 import os
 import pathlib
+import subprocess
+from datetime import datetime
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from core.config import settings
+from modules.admin.application.backup_service import _parse_db_url, _resolve_pg_dump
 
 drops_router = APIRouter(prefix="/api/v1/ops", tags=["dr-ops"])
 
 _REPO = str(pathlib.Path(__file__).resolve().parents[3])
 _TOKEN_FILE = os.environ.get("DR_TOKEN_FILE", "") or os.path.join(_REPO, "dr_token.txt")
-_DUMP_CANDIDATES = [r"E:\STRATEGIE", r"\\10.200.188.12\E$\STRATEGIE"]
 
 
 def _token() -> str:
@@ -36,31 +37,6 @@ def _token() -> str:
             return f.read().strip()
     except Exception:
         return ""
-
-
-def _dump_root() -> str:
-    env = (os.environ.get("DR_DUMP_ROOT", "") or "").strip()
-    for c in ([env] if env else []) + _DUMP_CANDIDATES:
-        try:
-            if c and os.path.isdir(c):
-                return c
-        except Exception:
-            pass
-    return env or _DUMP_CANDIDATES[0]
-
-
-def _latest_dump():
-    root = _dump_root()
-    files = []
-    for pat in (os.path.join(root, "*", "*.dump"), os.path.join(root, "*.dump")):
-        try:
-            files.extend(glob.glob(pat))
-        except Exception:
-            pass
-    if not files:
-        return None, root
-    files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
-    return files[0], root
 
 
 def _guard(req: Request):
@@ -75,26 +51,55 @@ def _guard(req: Request):
     return None
 
 
-@drops_router.get("/dr/latest-dump/meta")
-async def dr_latest_meta(req: Request):
+def _pgdump_cmd():
+    pg_dump = _resolve_pg_dump()
+    host, port, user, password, dbname = _parse_db_url(settings.database_url)
+    cmd = [pg_dump, "-h", host, "-p", port, "-U", user, "-d", dbname,
+           "-Fc", "-Z", "6", "--no-owner"]
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+    return cmd, env, host, dbname, pg_dump
+
+
+@drops_router.get("/dr/meta")
+async def dr_meta(req: Request):
     g = _guard(req)
     if g is not None:
         return g
-    f, root = _latest_dump()
-    if not f:
-        return JSONResponse({"ok": False, "error": "no_dump", "root": root,
-                             "hint": "kořen není vidět nebo je prázdný — zkontroluj dosah API na dump box / DR_DUMP_ROOT"})
-    st = os.stat(f)
-    return JSONResponse({"ok": True, "name": os.path.basename(f), "size": st.st_size,
-                         "mtime": int(st.st_mtime), "root": root})
+    try:
+        _cmd, _env, host, dbname, pg_dump = _pgdump_cmd()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": "not_ready", "detail": str(e)[:300]})
+    return JSONResponse({"ok": True, "mode": "live-pg_dump", "db": dbname, "host": host,
+                         "pg_dump": pg_dump, "name_hint": "data_db_<ts>.dump"})
 
 
-@drops_router.get("/dr/latest-dump")
-async def dr_latest_dump(req: Request):
+@drops_router.get("/dr/stream-dump")
+async def dr_stream_dump(req: Request):
     g = _guard(req)
     if g is not None:
         return g
-    f, root = _latest_dump()
-    if not f:
-        return JSONResponse({"ok": False, "error": "no_dump", "root": root}, status_code=404)
-    return FileResponse(f, media_type="application/octet-stream", filename=os.path.basename(f))
+    try:
+        cmd, env, _host, _db, _pg = _pgdump_cmd()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": "not_ready", "detail": str(e)[:300]}, status_code=500)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+
+    def _gen():
+        try:
+            while True:
+                chunk = proc.stdout.read(262144)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            proc.wait()
+
+    fname = "data_db_%s.dump" % datetime.now().strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(_gen(), media_type="application/octet-stream",
+                             headers={"Content-Disposition": 'attachment; filename="%s"' % fname})

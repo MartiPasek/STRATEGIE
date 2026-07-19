@@ -39548,6 +39548,10 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@RFQDOKLAD"):
         from modules.erp.api.rfq_doklad import rfq_doklad_cmd as _rkc
         return JSONResponse(_rkc(sql[len("@@RFQDOKLAD"):].strip()))
+    # @@PP GEN|FILL|SHOW|REPLY|KALK|SMAZ <id>  → TEST paralelni engine PRIJATE poptavky (rada 900) — EC_GenPoptavku / EC_GenKalkulaciANabidku (C24 19.7.)
+    if sql.upper().startswith("@@PP"):
+        from modules.erp.api.prijata_poptavka import prijata_poptavka_cmd as _ppc
+        return JSONResponse(_ppc(sql[len("@@PP"):].strip()))
     # @@KALKPRICE <RegCisHeo>*<qty>, …  → posledni nakupka z prijemky + korekce cenikem (Vize1 etapa B, C23 18.7.)
     if sql.upper().startswith("@@KALKPRICE"):
         from modules.erp.api.kalkulace_engine import price_cmd as _kpc

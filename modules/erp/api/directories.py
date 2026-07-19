@@ -9,12 +9,14 @@ Závazné závěry konzultace Marti-AI v docs/adresare_dokumentu_v2.md.
 from __future__ import annotations
 
 import base64
+import io
 import json as _json
 import os
 import posixpath
+import zipfile
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text as _t
 
 dir_router = APIRouter(prefix="/api/v1/erp", tags=["directories"])
@@ -554,6 +556,112 @@ async def app_dir_read(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": (res.get("error") if isinstance(res, dict) else "read_failed")})
         return JSONResponse({"ok": True, "name": name, "content_b64": res.get("content", ""),
                              "encoding": res.get("encoding", "base64")})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+_ZIP_MAX_FILES = 2000
+_ZIP_MAX_BYTES = 400 * 1024 * 1024   # 400 MB celkem
+_ZIP_MAX_DEPTH = 16
+
+
+def _zip_walk(backend, root, base_sub, rel, zf, acc, depth):
+    """Rekurzivne projde adresar (base_sub + rel) a prida soubory do zf.
+
+    acc = {'files','bytes','trunc'}. rel = cesta pod base_sub (posix, '' = koren).
+    arcname = rel (soubory jsou v ZIPu relativne k adresari entity, ne od korene disku).
+    Funguje nad obema backendy — _eu_list/_eu_read (UNC pres MCP) i _cloud_*."""
+    if depth > _ZIP_MAX_DEPTH:
+        acc["trunc"] = True
+        return
+    sub = (base_sub + "/" + rel) if (base_sub and rel) else (rel or base_sub)
+    lst = _eu_list(root, sub) if backend == "eurosoft_unc" else _cloud_list(root, sub)
+    if not isinstance(lst, dict) or not lst.get("ok", True):
+        return
+    items = lst.get("items") or []
+    for it in sorted(items, key=lambda x: (bool(x.get("is_dir") or x.get("dir")),
+                                           (x.get("name") or "").lower())):
+        name = it.get("name") or ""
+        if not name or name in (".", ".."):
+            continue
+        child_rel = (rel + "/" + name) if rel else name
+        if it.get("is_dir") or it.get("dir"):
+            _zip_walk(backend, root, base_sub, child_rel, zf, acc, depth + 1)
+            continue
+        if acc["files"] >= _ZIP_MAX_FILES or acc["bytes"] >= _ZIP_MAX_BYTES:
+            acc["trunc"] = True
+            return
+        if backend == "eurosoft_unc":
+            read_rel = (sub + "/" + name) if sub else name
+            res = _eu_read(root, read_rel)
+        else:
+            res = _cloud_read_file(root, sub, name)
+        if not (isinstance(res, dict) and res.get("ok")):
+            continue
+        try:
+            data = base64.b64decode(res.get("content", "") or "")
+        except Exception:
+            continue
+        if acc["bytes"] + len(data) > _ZIP_MAX_BYTES:
+            acc["trunc"] = True
+            return
+        zf.writestr(child_rel, data)
+        acc["files"] += 1
+        acc["bytes"] += len(data)
+
+
+@dir_router.get("/app/dir/zip")
+async def app_dir_zip(req: Request):
+    """Stazeni CELEHO adresare entity jako ZIP vcetne vnorenych podslozek.
+
+    ?sys_name=&id=&series=. Obycejny HTTP download → funguje na LAN i z webu
+    (na rozdil od 'Otevrit slozku', ktera jede jen ve firemni siti). Zachovava
+    stromovou strukturu (podslozka → slozka uvnitr ZIPu)."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    sys_name = (req.query_params.get("sys_name") or "").strip()
+    entity_id = (req.query_params.get("id") or "").strip()
+    series = (req.query_params.get("series") or "").strip()
+    if not sys_name:
+        return JSONResponse({"ok": False, "error": "missing_params"}, status_code=400)
+    cm, s = _sess()
+    try:
+        r = resolve(s, sys_name, entity_id, series)
+        if not r["ok"]:
+            return JSONResponse(r)
+        scope = r["config"]["acl_scope"]
+        ok, reason = _acl_allow(s, uid, scope)
+        if not ok:
+            _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
+                   entity_id=entity_id, path="", action="zip", ok=False, err="acl:" + reason)
+            return JSONResponse({"ok": False, "error": "acl_denied", "reason": reason}, status_code=403)
+        prim = next((p for p in r["paths"] if p["role"] == "primary"),
+                    (r["paths"][0] if r["paths"] else None))
+        if not prim:
+            return JSONResponse({"ok": False, "error": "no_storage"})
+        acc = {"files": 0, "bytes": 0, "trunc": False}
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            _zip_walk(prim["backend"], prim["root"], r["sub"] or "", "", zf, acc, 0)
+            if acc["trunc"]:
+                zf.writestr("_UPOZORNENI.txt",
+                            "Archiv byl zkracen (limit poctu souboru / velikosti / hloubky). "
+                            "Nektere soubory nebo podslozky nejsou zahrnuty.\r\n")
+        _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
+               entity_id=entity_id, path=prim["path"], action="zip",
+               ok=(acc["files"] > 0), err=("empty" if acc["files"] == 0 else ""))
+        if acc["files"] == 0:
+            return JSONResponse({"ok": False, "error": "empty"})
+        data = buf.getvalue()
+        base_name = (r["sub"] or sys_name).replace("/", "_").replace("\\", "_").strip() or "adresar"
+        headers = {
+            "Content-Disposition": 'attachment; filename="' + base_name + '.zip"',
+            "Content-Length": str(len(data)),
+        }
+        if acc["trunc"]:
+            headers["X-Zip-Truncated"] = "1"
+        return Response(content=data, media_type="application/zip", headers=headers)
     finally:
         cm.__exit__(None, None, None)
 

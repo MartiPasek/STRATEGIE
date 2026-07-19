@@ -6157,6 +6157,14 @@
         } catch (e) { msg.style.color = "#8a96a4"; msg.textContent = unc; }
       });
 
+      const zipBtn = document.createElement("a");
+      zipBtn.textContent = "⬇️ Stáhnout vše (ZIP)";
+      zipBtn.href = "#";
+      zipBtn.title = "Stáhnout celý adresář včetně podsložek jako ZIP (funguje i mimo firemní síť).";
+      zipBtn.style.cssText = "align-self:flex-start;padding:4px 12px;font-size:12px;text-decoration:none;" +
+        "display:inline-block;background:#2b6a4a;color:#e8eef5;border-radius:4px;cursor:pointer;";
+      zipBtn.addEventListener("click", (ev) => { ev.preventDefault(); downloadZip(); });
+
       function reload() {
         fetch("/api/v1/erp/app/dir/list?sys_name=" + encodeURIComponent(sysName) +
           "&id=" + encodeURIComponent(recId), { credentials: "include" })
@@ -6169,12 +6177,25 @@
               return;
             }
             dirPath = r.display_path || r.path || null;
-            const items = ((r.result && r.result.items) || []).filter((it) => !(it.is_dir || it.dir));
-            if (items.length === 0) {
+            const raw = (r.result && r.result.items) || [];
+            const subs = raw.filter((it) => (it.is_dir || it.dir));
+            const items = raw.filter((it) => !(it.is_dir || it.dir));
+            zipBtn.style.display = (items.length || subs.length) ? "inline-block" : "none";
+            const subHint = subs.length
+              ? '<div style="color:#c8a24a;font-size:11px;padding:2px 6px;">📁 ' + subs.length +
+                ' podsložk' + (subs.length === 1 ? 'a' : (subs.length < 5 ? 'y' : 'ek')) +
+                ' — stáhni je tlačítkem „Stáhnout vše (ZIP)".</div>'
+              : "";
+            if (items.length === 0 && subs.length === 0) {
               listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory.</div>';
               return;
             }
-            listEl.innerHTML = items.map((it) => {
+            if (items.length === 0) {
+              listEl.innerHTML = subHint +
+                '<div style="color:#8a96a4;font-size:12px;padding:2px 6px;">Přímo tu nejsou soubory, jen podsložky (jsou v ZIPu).</div>';
+              return;
+            }
+            listEl.innerHTML = subHint + items.map((it) => {
               const nm = esc(it.name);
               const sz = it.size != null ? fmtSize(it.size) : "";
               return '<div style="display:flex;align-items:center;gap:8px;padding:3px 6px;' +
@@ -6208,6 +6229,40 @@
             setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
           })
           .catch(() => alert("Stažení selhalo."));
+      }
+
+      function downloadZip() {
+        msg.style.color = "#8a96a4"; msg.textContent = "Balím ZIP…";
+        fetch("/api/v1/erp/app/dir/zip?sys_name=" + encodeURIComponent(sysName) +
+          "&id=" + encodeURIComponent(recId), { credentials: "include" })
+          .then((r) => {
+            const ct = r.headers.get("content-type") || "";
+            if (!r.ok || ct.indexOf("application/zip") < 0) {
+              return r.json().then(
+                (j) => { throw ((j && j.error) || ("http_" + r.status)); },
+                () => { throw ("http_" + r.status); });
+            }
+            const trunc = r.headers.get("x-zip-truncated") === "1";
+            const cd = r.headers.get("content-disposition") || "";
+            const m = /filename="?([^"]+)"?/.exec(cd);
+            const fn = (m && m[1]) || "adresar.zip";
+            return r.blob().then((b) => ({ b: b, fn: fn, trunc: trunc }));
+          })
+          .then((o) => {
+            const url = URL.createObjectURL(o.b);
+            const a = document.createElement("a");
+            a.href = url; a.download = o.fn;
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+            msg.style.color = "#7ec87e";
+            msg.textContent = o.trunc ? "Staženo (ZIP zkrácen — moc velký adresář)." : "Staženo: " + o.fn;
+          })
+          .catch((e) => {
+            msg.style.color = "#e88";
+            msg.textContent = (e === "empty") ? "Adresář je prázdný — není co stáhnout."
+              : (e === "acl_denied") ? "Na tuto složku nemáš přístup."
+              : ("Stažení ZIP selhalo: " + e);
+          });
       }
 
       function upload(file) {
@@ -6256,6 +6311,7 @@
       wrap.appendChild(drop);
       wrap.appendChild(btn);
       wrap.appendChild(openBtn);
+      wrap.appendChild(zipBtn);
       wrap.appendChild(fileInput);
       wrap.appendChild(msg);
       reload();

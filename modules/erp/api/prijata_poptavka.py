@@ -192,25 +192,48 @@ def reply_koncept(doklad_id: int) -> dict:
 
 # ── 4) generování kalkulace + nabídky (EC_GenKalkulaciANabidku) ──────────────
 def gen_kalkulace_nabidka(id_poptavky: int) -> dict:
-    g = _gen_via_marker(
-        "DECLARE @IDENT int, @Message nvarchar(255) "
-        "EXEC [dbo].[EC_GenKalkulaciANabidku] @ID_Poptavky = %d, @IDENT = @IDENT OUTPUT, "
-        "@MESSAGE = @Message OUTPUT" % int(id_poptavky)
+    # EC_GenKalkulaciANabidku končí voláním EC_MenuStrom_SetSoudecek (přepnutí UI stromu
+    # operátora na novou nabídku), které v headless MCP kontextu padá (sloupec 'User' = NULL).
+    # Obalíme TRY/CATCH + SET XACT_ABORT OFF → constraint chyba jen ukončí ten statement,
+    # transakce zůstane commitnutelná, jádro (nabídka + kalkulace + vazby + přenos BOM +
+    # Splneno=1) zůstane. ID nabídky NEbereme z @IDENT OUTPUT (na chybě se nevrátí), ale
+    # z poptávka.NavaznyDoklad, který proc nastaví PŘED padajícím krokem.
+    import uuid
+    _ensure_marker()
+    nonce = uuid.uuid4().hex
+    pid = int(id_poptavky)
+    sql = (
+        "DECLARE @IDENT int, @Message nvarchar(255), @nab int "
+        "SET XACT_ABORT OFF "
+        "BEGIN TRY "
+        "EXEC [dbo].[EC_GenKalkulaciANabidku] @ID_Poptavky=%d, @IDENT=@IDENT OUTPUT, @MESSAGE=@Message OUTPUT "
+        "END TRY "
+        "BEGIN CATCH "
+        "SET @Message = N'SetSoudecek preskocen (headless): ' + LEFT(ERROR_MESSAGE(),110) "
+        "END CATCH "
+        "IF XACT_STATE() = -1 ROLLBACK ELSE WHILE @@TRANCOUNT > 0 COMMIT "
+        "SELECT @nab = NavaznyDoklad FROM TabDokladyZbozi WHERE ID=%d "
+        "INSERT INTO st.pp_gen_marker(nonce, ident, msg) VALUES(N'%s', @nab, @Message)"
+        % (pid, pid, nonce)
     )
-    if not g.get("ok"):
-        return g
-    nab_id = g.get("ident")
-    # dočti nabídku (EN) + kalkulaci navázanou na ni
+    res = _ec_raw(sql)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("message") or res.get("error")}
+    rb = _ec_raw("SELECT TOP 1 ident, msg FROM st.pp_gen_marker WHERE nonce=N'%s' ORDER BY id DESC" % nonce)
+    rows = rb.get("rows") or []
+    nab_id = _int(rows[0].get("ident")) if rows else None
+    msg = rows[0].get("msg") if rows else None
+    if not nab_id:
+        return {"ok": False, "error": "nabídka nevznikla (NavaznyDoklad prázdný → rollback). msg=%s" % msg}
     info = _ec_raw(
         "SELECT dbo.EC_GetDoklad(%d) AS nabidka, k.CisloKalkulace AS kalkulace, "
         "(SELECT COUNT(*) FROM TabPohybyZbozi p WHERE p.IDDoklad=%d) AS polozek_nab "
         "FROM EC_KalkulaceHlav k WHERE k.IDDoklad=%d" % (nab_id, nab_id, nab_id)
     )
-    rows = info.get("rows") or []
-    r0 = rows[0] if rows else {}
+    rows2 = info.get("rows") or []
+    r0 = rows2[0] if rows2 else {}
     return {"ok": True, "nabidka_id": nab_id, "nabidka": r0.get("nabidka"),
-            "kalkulace": r0.get("kalkulace"), "polozek": r0.get("polozek_nab"),
-            "message": g.get("message")}
+            "kalkulace": r0.get("kalkulace"), "polozek": r0.get("polozek_nab"), "message": msg}
 
 
 # ── 5) smazání (úklid TEST) — guard řada 900 ─────────────────────────────────

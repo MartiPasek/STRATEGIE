@@ -6135,12 +6135,24 @@
       openBtn.style.cssText = "align-self:flex-start;padding:4px 12px;font-size:12px;text-decoration:none;" +
         "display:inline-block;background:#3a4656;color:#e8eef5;border-radius:4px;cursor:pointer;";
       openBtn.addEventListener("click", (ev) => {
-        if (!dirPath) { ev.preventDefault(); msg.style.color = "#e88"; msg.textContent = "Cesta zatím neznámá."; return; }
+        ev.preventDefault();
+        if (!dirPath) { msg.style.color = "#e88"; msg.textContent = "Cesta zatím neznámá."; return; }
         const unc = String(dirPath).replace(/\//g, "\\");
-        // kopie cesty do schránky = spolehlivý fallback (nebráníme nativní navigaci na file://)
+        // 1) custom protokol eurosoftdir:// — spustí Explorer, pokud je na PC nainstalovaný
+        //    handler (viz balíček eurosoftdir). Prohlížeč custom protokol povolí (na rozdíl
+        //    od file://). Spouštíme přes skrytý iframe, ať se nemění stránka.
+        try {
+          const proto = "eurosoftdir://" + encodeURIComponent(unc);
+          const ifr = document.createElement("iframe");
+          ifr.style.display = "none";
+          ifr.src = proto;
+          document.body.appendChild(ifr);
+          setTimeout(() => { try { ifr.remove(); } catch (e) {} }, 1500);
+        } catch (e) {}
+        // 2) fallback: kopie UNC cesty do schránky (když protokol není nainstalovaný)
         try {
           navigator.clipboard.writeText(unc).then(
-            () => { msg.style.color = "#7ec87e"; msg.textContent = "Otevírám… (nebo cesta ve schránce): " + unc; },
+            () => { msg.style.color = "#7ec87e"; msg.textContent = "Otevírám v Průzkumníku… (cesta i ve schránce): " + unc; },
             () => { msg.style.color = "#8a96a4"; msg.textContent = unc; });
         } catch (e) { msg.style.color = "#8a96a4"; msg.textContent = unc; }
       });
@@ -6157,7 +6169,6 @@
               return;
             }
             dirPath = r.display_path || r.path || null;
-            if (dirPath) { openBtn.href = _fileUrl(String(dirPath).replace(/\//g, "\\")); }
             const items = ((r.result && r.result.items) || []).filter((it) => !(it.is_dir || it.dir));
             if (items.length === 0) {
               listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory.</div>';

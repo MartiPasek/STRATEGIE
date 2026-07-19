@@ -285,7 +285,9 @@ async def lifespan(app: FastAPI):
     # (NSSM), a to by omylem vyplo plánovač i na primáru (stalo se → mirror stál).
     _repo_base_ls = os.path.basename(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    _is_secondary_ls = ("prev" in _repo_base_ls.lower())
+    # Claude 19.7.2026: explicitní DR-standby přepínač (Plzeň) — repo složka NEmusí
+    # mít "prev". Bezpečné: primár tento env NIKDY nenastavuje. Vypne mirror/att_sync/automat.
+    _is_secondary_ls = ("prev" in _repo_base_ls.lower()) or os.environ.get("STRATEGIE_DR_STANDBY", "").strip() == "1"
     if _is_secondary_ls:
         logging.getLogger(__name__).warning(
             "[lifespan] secondary (%s) — background schedulery (att_sync, mirror) VYPNUTY",

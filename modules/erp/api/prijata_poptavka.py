@@ -271,15 +271,21 @@ def _doklad_of(doklad_id: int) -> dict:
     return rows[0] if rows else {}
 
 
-def _fetch_source_mime(subj_contains: str, limit: int = 40) -> dict | None:
-    """Najde v Eliščině inboxu zprávu dle předmětu (větší okno než RFQ [:15]) a vrátí MIME."""
+def _fetch_source_mime(subj_contains: str, limit: int = 5) -> dict | None:
+    """Najde v Eliščině inboxu zprávu dle předmětu a vrátí MIME.
+    SERVER-SIDE filtr (subject__contains) — Exchange vrátí jen shodné zprávy (rychlé,
+    bez iterace celého inboxu → žádný 30s timeout na starší poptávky)."""
     from modules.notifications.application.email_service import _resolve_user_email_creds, _get_account
     creds = _resolve_user_email_creds(ELISKA_USER)
     if not creds:
         return None
     account = _get_account(email=creds["email"], password=creds["password"], server=creds["server"])
+    try:
+        qs = account.inbox.filter(subject__contains=subj_contains).order_by("-datetime_received")
+    except Exception:
+        qs = account.inbox.all().order_by("-datetime_received")
     key = (subj_contains or "").lower()
-    for msg in account.inbox.all().order_by("-datetime_received")[:limit]:
+    for msg in qs[:limit]:
         if key in (getattr(msg, "subject", None) or "").lower():
             mime = getattr(msg, "mime_content", None)
             if isinstance(mime, str):

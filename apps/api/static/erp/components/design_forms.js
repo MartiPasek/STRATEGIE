@@ -6102,12 +6102,6 @@
       listEl.style.cssText = "display:flex;flex-direction:column;gap:2px;min-height:28px;";
       listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Načítám…</div>';
 
-      const drop = document.createElement("div");
-      drop.style.cssText = "border:1px dashed #3a4656;border-radius:6px;padding:14px;" +
-        "text-align:center;color:#8a96a4;font-size:12px;cursor:pointer;" +
-        "transition:background .15s,border-color .15s;";
-      drop.textContent = "Přetáhni sem soubor, nebo klikni";
-
       const fileInput = document.createElement("input");
       fileInput.type = "file";
       fileInput.style.display = "none";
@@ -6188,7 +6182,7 @@
                 ' — stáhni je tlačítkem „Stáhnout vše (ZIP)".</div>'
               : "";
             if (items.length === 0 && subs.length === 0) {
-              listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory.</div>';
+              listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory — přetáhni sem soubor nebo klikni „+ Přidat".</div>';
               return;
             }
             if (items.length === 0) {
@@ -6291,30 +6285,45 @@
         rd.readAsDataURL(file);
       }
 
-      drop.addEventListener("click", () => fileInput.click());
       btn.addEventListener("click", () => fileInput.click());
       fileInput.addEventListener("change", () => {
         if (fileInput.files && fileInput.files[0]) { upload(fileInput.files[0]); fileInput.value = ""; }
       });
-      drop.addEventListener("dragover", (ev) => {
-        ev.preventDefault(); drop.style.background = "#14202c"; drop.style.borderColor = "#4a90d0";
-      });
-      drop.addEventListener("dragleave", () => {
-        drop.style.background = ""; drop.style.borderColor = "#3a4656";
-      });
-      drop.addEventListener("drop", (ev) => {
-        ev.preventDefault(); drop.style.background = ""; drop.style.borderColor = "#3a4656";
+
+      // ── kompaktní okýnko: rámeček → hlavička + soubory (drop-zóna) + lišta tlačítek ──
+      const _tb = "padding:3px 9px;font-size:11px;border:none;border-radius:4px;cursor:pointer;" +
+        "text-decoration:none;display:inline-flex;align-items:center;gap:4px;line-height:1.6;";
+      btn.style.cssText = _tb + "background:#26527a;color:#e8eef5;";
+      openBtn.style.cssText = _tb + "background:#3a4656;color:#e8eef5;";
+      zipBtn.style.cssText = _tb + "background:#2b6a4a;color:#e8eef5;";
+      msg.style.cssText = "font-size:11px;margin-left:auto;min-height:14px;color:#8a96a4;" +
+        "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;";
+
+      const box = document.createElement("div");
+      box.style.cssText = "border:1px solid #2b3542;border-radius:6px;background:#0d1319;overflow:hidden;";
+      const boxHead = document.createElement("div");
+      boxHead.style.cssText = "display:flex;align-items:center;gap:6px;padding:5px 8px;" +
+        "background:#141c25;border-bottom:1px solid #2b3542;font-size:11px;color:#8a96a4;font-weight:600;";
+      boxHead.innerHTML = "<span>\uD83D\uDCC1</span><span>Adres\u00E1\u0159</span>";
+      const body = document.createElement("div");
+      body.style.cssText = "padding:6px 8px;max-height:200px;overflow:auto;";
+      body.appendChild(listEl);
+      const bar = document.createElement("div");
+      bar.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;" +
+        "padding:6px 8px;background:#111820;border-top:1px solid #2b3542;";
+      bar.appendChild(btn); bar.appendChild(openBtn); bar.appendChild(zipBtn); bar.appendChild(msg);
+      box.appendChild(boxHead); box.appendChild(body); box.appendChild(bar);
+
+      body.addEventListener("dragover", (ev) => { ev.preventDefault(); body.style.background = "#14202c"; });
+      body.addEventListener("dragleave", () => { body.style.background = ""; });
+      body.addEventListener("drop", (ev) => {
+        ev.preventDefault(); body.style.background = "";
         const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
         if (f) upload(f);
       });
 
-      wrap.appendChild(listEl);
-      wrap.appendChild(drop);
-      wrap.appendChild(btn);
-      wrap.appendChild(openBtn);
-      wrap.appendChild(zipBtn);
+      wrap.appendChild(box);
       wrap.appendChild(fileInput);
-      wrap.appendChild(msg);
       reload();
       return wrap;
     }

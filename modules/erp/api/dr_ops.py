@@ -62,7 +62,13 @@ def _pgdump_cmd(outfile: str):
     pg_dump = _resolve_pg_dump()
     host, port, user, password, dbname = _parse_db_url(settings.database_data_url)
     cmd = [pg_dump, "-h", host, "-p", port, "-U", user, "-d", dbname,
-           "-Fc", "-Z", "6", "--no-owner", "-f", outfile]
+           "-Fc", "-Z", "6", "--no-owner"]
+    # Schémata, na která app uživatel nemá práva (vlastník postgres apod.) — mimo DR dump.
+    for _sch in (os.environ.get("DR_EXCLUDE_SCHEMAS", "bak") or "").split(","):
+        _sch = _sch.strip()
+        if _sch:
+            cmd += ["--exclude-schema", _sch]
+    cmd += ["-f", outfile]
     env = os.environ.copy()
     if password:
         env["PGPASSWORD"] = password

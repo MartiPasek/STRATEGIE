@@ -6196,13 +6196,16 @@
               return '<div style="display:flex;align-items:center;gap:8px;padding:3px 6px;' +
                 'border-radius:4px;background:#0f151c;">' +
                 '<span>📄</span>' +
-                '<a href="#" data-fn="' + nm + '" style="flex:1 1 auto;color:#7ab8f0;' +
+                '<a href="' + (location.origin + "/api/v1/erp/app/dir/file?sys_name=" + encodeURIComponent(sysName) + "&id=" + encodeURIComponent(recId) + "&name=" + encodeURIComponent(it.name)) + '" data-fn="' + nm + '" draggable="true" style="flex:1 1 auto;color:#7ab8f0;' +
                 'text-decoration:none;font-size:12px;overflow:hidden;text-overflow:ellipsis;' +
                 'white-space:nowrap;">' + nm + '</a>' +
                 '<span style="color:#6a7686;font-size:10px;flex:0 0 auto;">' + sz + '</span></div>';
             }).join("");
             listEl.querySelectorAll("a[data-fn]").forEach((a) => {
               a.addEventListener("click", (ev) => { ev.preventDefault(); download(a.getAttribute("data-fn")); });
+              a.addEventListener("dragstart", (ev) => {
+                try { ev.dataTransfer.setData("DownloadURL", "application/octet-stream:" + a.getAttribute("data-fn") + ":" + a.href); } catch (e) {}
+              });
             });
           })
           .catch(() => { listEl.innerHTML = '<div style="color:#e88;font-size:12px;">Chyba načtení.</div>'; });

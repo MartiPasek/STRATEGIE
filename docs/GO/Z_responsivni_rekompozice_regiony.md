@@ -26,46 +26,45 @@ Centrála dává půl práce zadarmo — čti z definice jádra (`EC_FormDefEdit
 3. **Vnoření** = strom `ParentName`.
 → Výsledek: dock regiony + rozbité alNone interiéry = **responsivní panel-net**, do kterého usadíš komponenty flow-em.
 
-## 4. Konvence pojmenování panelů (samodokumentující)
-Cíl: **z názvu je vidět typ i umístění** (žádné `panel_cby7` — náhodné názvy = zdroj osiření). Vzor Centrála core 72 měl dobré (`panel_test_kontakt`) i špatné (`panel_cby7`); zde je vylepšená konvence:
+## 4. Konvence pojmenování panelů (samodokumentující — pozice JE v názvu)
+Cíl: **z názvu je vidět SÉMANTIKA i POZICE (dock)** — přesně jak to měl Marti (`MAIN-TOP`). Žádné `panel_cby7` (náhodné názvy = zdroj osiření), a pozici (top/left/…) **nedávat do komentáře, ale do jména**.
 
-**`<prefix>_<sémantika>[_<pozice>]`**
-- **prefix = typ/role:** `reg_` (dock region), `grp_` (sémantická skupina = GroupBox), `col_` (sloupcový panel), `row_` (řádkový panel), `pnl_` (obecný panel), `pgc_` (pagecontrol), `tab_` (záložka), `grid_` (grid).
-- **sémantika = co obsahuje:** `hlavicka`, `naseudaje`, `poptavajici`, `adresar`, `poznamka`, `zbozi`, `aps`, `oznaceni`…
-- **pozice (kde nejednoznačné):** `_left`/`_right`/`_top`/`_bottom` nebo `_c1`/`_c2`.
-- **umístění je čitelné ze stromu** (parent): `grp_poptavajici` uvnitř `tab_obecne` → hned víš, že je to skupina „Údaje o poptávajícím" na záložce Obecné.
-- TEST engine: prefix `TEST` patří do **captionů/popisů** (ne nutně do `name`); `name` drž čisté a významové.
+**`<sémantika>-<POZICE>`** (pozice je POVINNÁ):
+- **POZICE (dock) = velkými, na konci:** `-TOP` / `-LEFT` / `-RIGHT` / `-CLIENT` (výplň zbytku) / `-BOTTOM`. Ze jména hned víš, kam panel dokuje.
+- **sémantika = co obsahuje:** `hlavicka`, `naseudaje`, `poptavajici`, `adresar`, `poznamka`, `zbozi`, `aps`, `oznaceni`, `main`, `footer`…
+- **typ z kontextu / volitelný prefix** u speciálů: `grid_`, `tab_` (tab dokuje do pagecontrolu, pozici nemá).
+- Příklady: `hlavicka-TOP`, `naseudaje-TOP`, `poptavajici-LEFT`, `adresar-RIGHT`, `poznamka-CLIENT`, `zbozi-CLIENT`, `footer-BOTTOM`, `main-CLIENT`. → ze jména čteš **co i kam**.
+- Vnoření navíc doupřesní parent (strom): `poptavajici-LEFT` uvnitř `tab_obecne` = skupina „Údaje o poptávajícím" vlevo na Obecné.
+- TEST engine: prefix `TEST` patří do **captionů/popisů**, ne do `name`; `name` drž čisté (`naseudaje-TOP`).
 
 ## 5. VZOR: region net jádra „Poptávky edit" (form 3)
-Návrh responsivní sítě (odvozeno z §3; vlevo region/typ, vpravo obsah):
+Návrh responsivní sítě (odvozeno z §3; **pozice v názvu** dle §4; vpravo obsah):
 ```
 form  „Poptávka"
-├─ reg_hlavicka              (dock TOP)              ← GroupBox „Poptávka"
-│   ├─ row_hlavicka_udaje    (row, left/client)      ← Číslo, Datum, Zakázka, Splněno  (flow)
-│   └─ col_hlavicka_pozn     (col, right)            ← Poznámka splněno (_PoznamkaSplneno, akRight)
-├─ reg_main                  (CLIENT, pagecontrol)   ← PageControl 7510
+├─ hlavicka-TOP                   ← GroupBox „Poptávka" (dokuje nahoru)
+│   ├─ udaje-LEFT                 ← Číslo, Datum, Zakázka, Splněno  (flow)
+│   └─ pozn-CLIENT                ← Poznámka splněno (_PoznamkaSplneno, akRight → táhne)
+├─ main-CLIENT                    ← PageControl 7510 (vyplní zbytek)
 │   ├─ tab_obecne
-│   │   ├─ grp_naseudaje      (dock TOP, full width)  ← Řešitel, Náš popis, Středisko  (row, flow)
-│   │   ├─ row_obecne_stred   (dock CLIENT, split)
-│   │   │   ├─ grp_poptavajici (col, left)            ← Organizace, Kdo poptával, Označení, Výběr oblasti (flow ↓)
-│   │   │   └─ pnl_adresar     (col, right)            ← Adresář (soubory) → D:\Data\poptavky\<doklad>
-│   │   └─ pnl_poznamka        (dock BOTTOM/client)    ← Poznámka (Poznamka)
+│   │   ├─ naseudaje-TOP          ← Řešitel, Náš popis, Středisko  (řádek, flow)
+│   │   ├─ poptavajici-LEFT       ← Organizace, Kdo poptával, Označení, Výběr oblasti  (flow ↓)
+│   │   ├─ adresar-RIGHT          ← Adresář (soubory) → D:\Data\poptavky\<doklad>
+│   │   └─ poznamka-CLIENT        ← Poznámka (Poznamka)  (vyplní zbytek pod tím)
 │   ├─ tab_aps
-│   │   └─ grp_aps_vytizeni    (col, flow ↓)           ← _KalkHodOdhad, _ProcentaDoVytizeni, _VytizeniHodDenne,
-│   │                                                    _vytizeniDatKonec, _VytizeniHodinyOdhad, _VytizeniUkazNahore,
-│   │                                                    _VytizeniSpecZakaznik, [Naplánovat vytížení]
+│   │   └─ aps-CLIENT             ← _KalkHodOdhad, _ProcentaDoVytizeni, _VytizeniHodDenne, _vytizeniDatKonec,
+│   │                               _VytizeniHodinyOdhad, _VytizeniUkazNahore, _VytizeniSpecZakaznik, [Naplánovat vytížení]  (flow ↓)
 │   ├─ tab_oznaceni
-│   │   ├─ pnl_oznaceni_akce   (dock TOP)              ← [Generuj značení] + GenZnacProjektu
-│   │   └─ grid_oznaceni       (CLIENT)                ← Grid 7591
+│   │   ├─ oznaceni_akce-TOP      ← [Generuj značení] + GenZnacProjektu
+│   │   └─ oznaceni_grid-CLIENT   ← Grid 7591
 │   └─ tab_zbozi
-│       └─ grid_zbozi          (CLIENT)                ← GridPolDoklad → TabPohybyZbozi (select-detail, IDDoklad=@id)
-└─ reg_footer                (dock BOTTOM)            ← [Generovat nabídku] + [Návazné doklady]
+│       └─ zbozi_grid-CLIENT      ← GridPolDoklad → TabPohybyZbozi (select-detail, IDDoklad=@id)
+└─ footer-BOTTOM                  ← [Generovat nabídku] + [Návazné doklady]
 ```
-Poznámky k re-kompozici:
-- **`grp_naseudaje`**: v Centrále široký nízký band (`alTop`, akL,T,R) se 3 poli na různých `Left` (Popis 10 / Středisko 401 / Řešitel 499) → v STRATEGII **jeden řádkový region s flow** (ne 3 px sloupce), na úzké šířce se zalomí.
-- **`row_obecne_stred`**: GroupBox „Údaje o poptávajícím" (`alNone`, vlevo) + FileListBox Adresář (`Left 342`, vpravo) → **split na dva sloupce** `grp_poptavajici` (left) / `pnl_adresar` (right/client).
-- **`col_hlavicka_pozn`**: „Poznámka splněno" má `akRight` → dej ji do pravého regionu, který táhne do šířky (`client`).
-- Druhý PageControl 7585 (`alBottom`) — účel doostřit (možná stavová lišta); prozatím `reg_bottom` skryt/vynechán.
+Poznámky k re-kompozici (proč tyhle pozice):
+- **`naseudaje-TOP`**: v Centrále široký nízký band (`alTop`, akL,T,R) se 3 poli na různých `Left` (Popis 10 / Středisko 401 / Řešitel 499) → v STRATEGII **jeden řádkový region s flow** (ne 3 px sloupce), na úzké šířce se zalomí. Proto `-TOP`.
+- **`poptavajici-LEFT` + `adresar-RIGHT`**: GroupBox „Údaje o poptávajícím" (`alNone`, vlevo) + FileListBox Adresář (`Left 342`, vpravo) → **split na levý a pravý region** vedle sebe.
+- **`pozn-CLIENT` / `poznamka-CLIENT`**: pole s `akRight` (táhnou do šířky) → dej je do regionu `-CLIENT`, který vyplní zbytek.
+- Druhý PageControl 7585 (`alBottom`) — účel doostřit (možná stavová lišta); prozatím vynechán.
 
 ## 6. Postup pro generátor (rozšíření receptu)
 1. Přečti jádro Centrály (přehledy 2702/2704/2706, viz [[Centrála — stavba jader]]).

@@ -95,13 +95,13 @@ def _audit(s, *, uid, scope, dir_config_id, entity_id, path, action, ok, err="")
 # ── Resolver ────────────────────────────────────────────────────────────────
 def _load_config(s, sys_name, series=""):
     row = s.execute(_t(
-        "SELECT id, sys_name, short_code, series, name, subfolder_rule, acl_scope, active "
+        "SELECT id, sys_name, short_code, series, name, subfolder_rule, acl_scope, active, key_deref "
         "FROM tenant.dir_config WHERE tenant_id=:t AND sys_name=:n AND series=:s"),
         {"t": _TENANT, "n": sys_name, "s": series or ""}).first()
     if not row:
         return None
     return {"id": row[0], "sys_name": row[1], "short_code": row[2] or "", "series": row[3] or "",
-            "name": row[4] or "", "subfolder_rule": row[5], "acl_scope": row[6], "active": row[7]}
+            "name": row[4] or "", "subfolder_rule": row[5], "acl_scope": row[6], "active": row[7], "key_deref": row[8]}
 
 
 def _load_storages(s, cfg_id):
@@ -148,6 +148,26 @@ def _build_sub(rule, short_code, entity_id):
     return eid
 
 
+def _deref_key(s, key_deref, entity_id):
+    """Přeloží entity_id (record ID) na skutečný klíč podsložky (např. PoradoveCislo)
+    dle dir_config.key_deref = {"table","id_col","key_col"}. NULL → beze změny.
+    Doklady zboží: složka = short_code + PoradoveCislo, ale endpoint posílá record ID
+    (stejná logika jako EC_ZjistiAdresar_NEW v Centrále)."""
+    if not key_deref or not entity_id:
+        return entity_id
+    try:
+        tbl = key_deref.get("table"); idc = key_deref.get("id_col", "ID"); keyc = key_deref.get("key_col")
+        if not (tbl and keyc):
+            return entity_id
+        # tbl/idc/keyc z konfigurace (důvěryhodné); id parametrizované
+        row = s.execute(_t('SELECT "%s" FROM %s WHERE "%s"=:i' % (keyc, tbl, idc)), {"i": entity_id}).first()
+        if row and row[0] is not None:
+            return str(row[0])
+    except Exception:
+        pass
+    return entity_id
+
+
 def resolve(s, sys_name, entity_id, series="", ctx=None):
     """→ dict {ok, error?, config, storages[], sub, paths[]}."""
     cfg = _load_config(s, sys_name, series)
@@ -158,6 +178,7 @@ def resolve(s, sys_name, entity_id, series="", ctx=None):
     storages = _load_storages(s, cfg["id"])
     overrides = _apply_rules(s, cfg["id"], ctx)
     rule = overrides.get("subfolder_rule", cfg["subfolder_rule"])
+    entity_id = _deref_key(s, cfg.get("key_deref"), entity_id)
     sub = _build_sub(rule, cfg["short_code"], entity_id)
     paths = []
     for st in storages:

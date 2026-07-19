@@ -60,7 +60,10 @@ def _guard(req: Request):
 
 def _pgdump_cmd(outfile: str):
     pg_dump = _resolve_pg_dump()
-    host, port, user, password, dbname = _parse_db_url(settings.database_data_url)
+    # Privilegovaná role pro dump (env DR_DUMP_URL, napr. postgres/Marti-AI se
+    # čtecími právy na VŠE — app login nema prava na bak/sekvence). Fallback = app url.
+    _dump_url = (os.environ.get("DR_DUMP_URL", "") or "").strip() or settings.database_data_url
+    host, port, user, password, dbname = _parse_db_url(_dump_url)
     cmd = [pg_dump, "-h", host, "-p", port, "-U", user, "-d", dbname,
            "-Fc", "-Z", "6", "--no-owner"]
     # Schémata, na která app uživatel nemá práva (vlastník postgres apod.) — mimo DR dump.

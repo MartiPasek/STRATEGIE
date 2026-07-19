@@ -60,10 +60,18 @@ def _guard(req: Request):
 
 def _pgdump_cmd(outfile: str):
     pg_dump = _resolve_pg_dump()
-    # Privilegovaná role pro dump (env DR_DUMP_URL, napr. postgres/Marti-AI se
-    # čtecími právy na VŠE — app login nema prava na bak/sekvence). Fallback = app url.
-    _dump_url = (os.environ.get("DR_DUMP_URL", "") or "").strip() or settings.database_data_url
-    host, port, user, password, dbname = _parse_db_url(_dump_url)
+    # Dump privilegovanou roli. Priorita: env DR_DUMP_URL (plny override) >
+    # Marti-AI (host/db z database_data_url + heslo MARTI_AI_PG_PASSWORD — stejna
+    # role jako most db=pg, vlastni g2007 atd.; potreba GRANT pg_read_all_data) >
+    # app login (fallback, nema plna cteci prava).
+    _override = (os.environ.get("DR_DUMP_URL", "") or "").strip()
+    if _override:
+        host, port, user, password, dbname = _parse_db_url(_override)
+    else:
+        host, port, user, password, dbname = _parse_db_url(settings.database_data_url)
+        _mp = os.getenv("MARTI_AI_PG_PASSWORD")
+        if _mp:
+            user, password = "Marti-AI", _mp
     cmd = [pg_dump, "-h", host, "-p", port, "-U", user, "-d", dbname,
            "-Fc", "-Z", "6", "--no-owner"]
     # Schémata, na která app uživatel nemá práva (vlastník postgres apod.) — mimo DR dump.

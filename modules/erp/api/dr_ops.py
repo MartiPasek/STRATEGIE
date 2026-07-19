@@ -1,23 +1,27 @@
-"""DR: streaming ZIVY pg_dump data_db Praha (API 188.11 → DB 188.12) → Plzeň.
-Claude ID23, 19.7.2026 (r3: stream místo file-serve — API nevidí E: na 188.12).
+"""DR: decouple přenos dumpu data_db Praha (API 188.11 → DB 188.12) → Plzeň.
+Claude ID23, 19.7.2026 r4 — dump do souboru na pozadí + FileResponse (obchází buffer proxy).
 
-Machine-to-machine, token X-DR-Token (env DR_TRANSFER_TOKEN nebo soubor <repo>/dr_token.txt).
-  GET /api/v1/ops/dr/meta         → JSON {ok, mode, db, host, pg_dump} (readiness bez dumpu)
-  GET /api/v1/ops/dr/stream-dump  → StreamingResponse (živý pg_dump -Fc -Z6, žádný soubor/sdílení)
-
-Reuse pg_dump resolveru + DB URL parseru z admin.backup_service (API to už umí).
-Plzeň tahá scripts/dr/fetch_dump.ps1 (WebClient stream → Incoming → restore).
+Token X-DR-Token (env DR_TRANSFER_TOKEN nebo <repo>/dr_token.txt).
+  GET /api/v1/ops/dr/meta      → readiness {ok,mode,db,host,pg_dump}
+  GET /api/v1/ops/dr/prepare   → spustí pg_dump do temp souboru na pozadí (vrací hned)
+  GET /api/v1/ops/dr/status    → {ok,ready,building,size,age_s,last}
+  GET /api/v1/ops/dr/download  → FileResponse hotového dumpu (Content-Length → proxy streamuje)
+Temp: env DR_TMP_DIR (default systémový temp/dr_dump). Plzeň: scripts/dr/fetch_dump.ps1.
 """
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import pathlib
 import subprocess
-from datetime import datetime
+import tempfile
+import threading
+import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from core.config import settings
 from modules.admin.application.backup_service import _parse_db_url, _resolve_pg_dump
@@ -26,6 +30,12 @@ drops_router = APIRouter(prefix="/api/v1/ops", tags=["dr-ops"])
 
 _REPO = str(pathlib.Path(__file__).resolve().parents[3])
 _TOKEN_FILE = os.environ.get("DR_TOKEN_FILE", "") or os.path.join(_REPO, "dr_token.txt")
+_TMP = os.environ.get("DR_TMP_DIR", "") or os.path.join(tempfile.gettempdir(), "dr_dump")
+_DUMP = os.path.join(_TMP, "dr_data_db.dump")
+_BUILDING = os.path.join(_TMP, "dr_data_db.building")
+_META = os.path.join(_TMP, "dr_data_db.meta.json")
+_MAX_BUILD_AGE = 3600  # zaseknutý building marker starší než hodina → dovol restart
+_lock = threading.Lock()
 
 
 def _token() -> str:
@@ -42,24 +52,65 @@ def _token() -> str:
 def _guard(req: Request):
     want = _token()
     if not want:
-        return JSONResponse({"ok": False, "error": "token_not_configured",
-                             "hint": "vytvoř %s s tajným tokenem (nebo env DR_TRANSFER_TOKEN)" % _TOKEN_FILE},
-                            status_code=503)
-    got = req.headers.get("X-DR-Token", "") or ""
-    if not hmac.compare_digest(got, want):
+        return JSONResponse({"ok": False, "error": "token_not_configured"}, status_code=503)
+    if not hmac.compare_digest(req.headers.get("X-DR-Token", "") or "", want):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     return None
 
 
-def _pgdump_cmd():
+def _pgdump_cmd(outfile: str):
     pg_dump = _resolve_pg_dump()
     host, port, user, password, dbname = _parse_db_url(settings.database_data_url)
     cmd = [pg_dump, "-h", host, "-p", port, "-U", user, "-d", dbname,
-           "-Fc", "-Z", "6", "--no-owner"]
+           "-Fc", "-Z", "6", "--no-owner", "-f", outfile]
     env = os.environ.copy()
     if password:
         env["PGPASSWORD"] = password
     return cmd, env, host, dbname, pg_dump
+
+
+def _write_meta(d: dict):
+    try:
+        with open(_META, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+    except Exception:
+        pass
+
+
+def _building_age():
+    try:
+        return time.time() - os.path.getmtime(_BUILDING)
+    except Exception:
+        return None
+
+
+def _do_dump():
+    part = _DUMP + ".part"
+    try:
+        os.makedirs(_TMP, exist_ok=True)
+        cmd, env, _h, _d, _p = _pgdump_cmd(part)
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=3600,
+                           encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            _write_meta({"ok": False, "error": (r.stderr or r.stdout or "")[:500],
+                         "at": datetime.now(timezone.utc).isoformat()})
+            try:
+                os.remove(part)
+            except Exception:
+                pass
+            return
+        os.replace(part, _DUMP)
+        st = os.stat(_DUMP)
+        _write_meta({"ok": True, "name": os.path.basename(_DUMP), "size": st.st_size,
+                     "mtime": int(st.st_mtime), "at": datetime.now(timezone.utc).isoformat()})
+    except Exception as e:
+        _write_meta({"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:400]),
+                     "at": datetime.now(timezone.utc).isoformat()})
+    finally:
+        try:
+            os.remove(_BUILDING)
+        except Exception:
+            pass
 
 
 @drops_router.get("/dr/meta")
@@ -68,38 +119,60 @@ async def dr_meta(req: Request):
     if g is not None:
         return g
     try:
-        _cmd, _env, host, dbname, pg_dump = _pgdump_cmd()
+        _cmd, _env, host, dbname, pg_dump = _pgdump_cmd(os.path.join(_TMP, "_probe"))
     except Exception as e:
         return JSONResponse({"ok": False, "error": "not_ready", "detail": str(e)[:300]})
-    return JSONResponse({"ok": True, "mode": "live-pg_dump", "db": dbname, "host": host,
-                         "pg_dump": pg_dump, "name_hint": "data_db_<ts>.dump"})
+    return JSONResponse({"ok": True, "mode": "decouple pg_dump→file→download",
+                         "db": dbname, "host": host, "pg_dump": pg_dump, "tmp": _TMP})
 
 
-@drops_router.get("/dr/stream-dump")
-async def dr_stream_dump(req: Request):
+@drops_router.get("/dr/prepare")
+async def dr_prepare(req: Request):
     g = _guard(req)
     if g is not None:
         return g
-    try:
-        cmd, env, _host, _db, _pg = _pgdump_cmd()
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": "not_ready", "detail": str(e)[:300]}, status_code=500)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-
-    def _gen():
+    with _lock:
+        age = _building_age()
+        if age is not None and age < _MAX_BUILD_AGE:
+            return JSONResponse({"ok": True, "status": "building", "age_s": int(age)})
         try:
-            while True:
-                chunk = proc.stdout.read(262144)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            try:
-                proc.stdout.close()
-            except Exception:
-                pass
-            proc.wait()
+            _pgdump_cmd(_DUMP + ".part")  # validace configu (nespouští)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "not_ready", "detail": str(e)[:300]}, status_code=500)
+        os.makedirs(_TMP, exist_ok=True)
+        with open(_BUILDING, "w", encoding="utf-8") as f:
+            f.write(datetime.now(timezone.utc).isoformat())
+        threading.Thread(target=_do_dump, daemon=True).start()
+        return JSONResponse({"ok": True, "status": "started"})
 
-    fname = "data_db_%s.dump" % datetime.now().strftime("%Y%m%d_%H%M%S")
-    return StreamingResponse(_gen(), media_type="application/octet-stream",
-                             headers={"Content-Disposition": 'attachment; filename="%s"' % fname})
+
+@drops_router.get("/dr/status")
+async def dr_status(req: Request):
+    g = _guard(req)
+    if g is not None:
+        return g
+    age = _building_age()
+    if age is not None and age < _MAX_BUILD_AGE:
+        return JSONResponse({"ok": True, "ready": False, "building": True, "age_s": int(age)})
+    last = {}
+    try:
+        with open(_META, "r", encoding="utf-8") as f:
+            last = json.load(f)
+    except Exception:
+        pass
+    if os.path.isfile(_DUMP):
+        st = os.stat(_DUMP)
+        return JSONResponse({"ok": True, "ready": True, "building": False, "size": st.st_size,
+                             "mtime": int(st.st_mtime), "age_s": int(time.time() - st.st_mtime), "last": last})
+    return JSONResponse({"ok": True, "ready": False, "building": False, "last": last})
+
+
+@drops_router.get("/dr/download")
+async def dr_download(req: Request):
+    g = _guard(req)
+    if g is not None:
+        return g
+    if not os.path.isfile(_DUMP):
+        return JSONResponse({"ok": False, "error": "not_ready",
+                             "hint": "zavolej /dr/prepare a počkej na /dr/status ready"}, status_code=404)
+    return FileResponse(_DUMP, media_type="application/octet-stream", filename=os.path.basename(_DUMP))

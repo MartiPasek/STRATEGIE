@@ -44,6 +44,7 @@ from modules.erp.api.router import router as erp_router, api_router as erp_api_r
 import modules.erp.api.platak_generator  # platak generator preview/commit (task #44/#45)
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
+from modules.erp.api.dr_ops import drops_router  # DR: streaming přenos dumpu Praha→Plzeň (19.7.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
 from modules.erp.api.g2007_vectors import g2007_vec_router  # G2007 vektorizace — sémantické hledání nad znalostmi (17.7.2026)
 from modules.erp.api.automat import automat_router  # G2007 automaty — exekutor + Haiku eskalace + monitoring (18.7.2026)
@@ -891,6 +892,7 @@ app.include_router(erp_api_router)
 app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
+app.include_router(drops_router)  # DR: streaming přenos data_db dumpu Praha→Plzeň
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
 app.include_router(bozp_router)  # BOZP a PO cockpit (řízení dokumentů, rizik, termínů, úrazů)
 app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)

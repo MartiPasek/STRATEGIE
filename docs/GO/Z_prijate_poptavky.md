@@ -224,7 +224,19 @@ IF XACT_STATE() = -1 ROLLBACK ELSE WHILE @@TRANCOUNT > 0 COMMIT
 - **Deploy pipeline:** `scripts/claude_sql/CLAUDE_DEPLOY.txt` (1. řádek commit msg, další řádky soubory) + `CLAUDE_DEPLOY_GO.txt` trigger (zapsat POSLEDNÍ) → watcher git add/commit/rebase/push + cloud `/deploy/now` (pull+restart), s **py_compile gate** (syntax chyba = deploy STOP, nic nepushnuto). **Před triggerem `mv .git/index.lock` stranou** — zbytky z Coworku commitů blokují watcheru git (mount nedovolí unlink).
 - **Zdroj poptávek = živý inbox** (`@@RFQINBOX 34`), NE zrcadlo `tenant.mail_message` (zamrzlé ~od 5.–7. 7.).
 
-### 11.6 Co dál na enginu
+### 11.6 Adresáře dokladu (dokumenty) — `@@PP MSG` / `DIR` / `COPYDOCS`
+Každý doklad Centrály má dokumentovou složku na sdíleném disku (`\\192.168.30.11\data\…` → přes MCP FS **lokální kořen `D:\Data\…`**, ne UNC):
+- přijatá poptávka = `D:\Data\poptavky\<EP>` · nabídka = `D:\Data\nabidky\<EN>` · vydaná RFQ = `D:\Data\poptavky_V\<EVP>` (neplést).
+- **Nabídka a kalkulace SDÍLÍ JEDEN adresář** (`nabidky\<EN>`) — kalkulace EK nemá vlastní složku.
+
+**🔑 Kdo kopíruje dokumenty poptávka→nabídka:** NE procedura (`EC_GenKalkulaciANabidku` = čistě DB, žádné file ops) a NE Python app Centrály — dělá to **desktop klient Centrály** (nativní file copy po zavolání proc). Headless generování (`@@PP KALK`) tenhle krok OBEJDE → nabídka zůstane bez dokumentů. Proto je v enginu doplněno ručně:
+- `@@PP MSG <id> [subj]` — dohledá zdrojový Anforderung v Eliščině inboxu (**server-side `subject__contains` filtr**, ne iterace — jinak 30 s EWS timeout na starší poptávky) a uloží `.eml` do `poptavky\<EP>`.
+- `@@PP DIR poptavky|nabidky <doklad>` — výpis složky (`_eu_list` s `base_override`).
+- `@@PP COPYDOCS <id>` — zkopíruje soubory `poptavky\<EP>` → `nabidky\<EN>` (`_eu_read` b64 → `_eu_write`), = zároveň adresář kalkulace.
+
+**Správné pořadí toku:** e-mail přijde → `MSG` (ulož do poptávky) → `KALK` (generuj nabídku+kalkulaci) → `COPYDOCS` (kopie dokumentů do nabídky). Ověřeno naostro: `TEST_poptavka_EP26309.eml` (310 624 B, Anforderung AB12600504) v `poptavky\EP26309` i `nabidky\EN263470`. (Nasazeno `a491cc33`.)
+
+### 11.7 Co dál na enginu
 - Nacenit kalkulaci EK263470 (BOM ze Schaltplanu → RegCisHeo → `find_price` + nákupka; `@@KALKABS` s položkami `| REGCIS*QTY`).
 - Přenos BOM: EP nemá inline položky (spec = „Flex 11 kW" textově) → nacenění pojede přes profil/Schaltplan, ne přes přenesené `TabPohybyZbozi`.
 - Zvážit řešitele nabídky (proc dá `CisloZam` MCP loginu Marti-AI; případně UPDATE na 24).
@@ -237,4 +249,4 @@ IF XACT_STATE() = -1 ROLLBACK ELSE WHILE @@TRANCOUNT > 0 COMMIT
 - Ceny do kalkulace: [Kalkulace / ceníky Vize 1](Z_kalkulace_ceniky_vize1.md) (RegCisHeo, `find_price`, poslední nákupka).
 - Funnel/kontext: [222 — Trychtýř zakázek](222-go-vp-trychtyr-zakazek.md).
 
-*Know-how vytěženo z přehledu 504 + detailu EP26306 + procedur + definice `EC_GenKalkulaciANabidku`; **TEST engine `@@PP` postaven a projet NAOSTRO** (EP26309 → nabídka EN263470 + kalkulace EK263470) vč. headless `SetSoudecek` gotchy. Marti + DB_EC, 19. 7. 2026. — Claude C24.*
+*Know-how vytěženo z přehledu 504 + detailu EP26306 + procedur + definice `EC_GenKalkulaciANabidku`; **TEST engine `@@PP` postaven a projet NAOSTRO** (EP26309 → nabídka EN263470 + kalkulace EK263470) vč. dokumentového toku (MSG/DIR/COPYDOCS, sdílený adresář nabídka+kalkulace) a headless `SetSoudecek` gotchy. Marti + DB_EC, 19. 7. 2026. — Claude C24.*

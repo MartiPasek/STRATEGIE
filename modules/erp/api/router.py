@@ -19185,7 +19185,9 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
 
 _ATT_FIX_GROUP = "DOCHÁZKA - OPRAVY"
 _ATT_FIX_TYPES = ("work", "overhead", "homeoffice", "commute", "break")
-_ATT_LOCK_UIDS = frozenset({18, 13})  # Peťa (mzdy/finance) + Šárka (HR) — Jirka 9.7.: „obě"
+_ATT_LOCK_UIDS = frozenset({18, 13, 20})  # Peťa (mzdy/finance) + Šárka (HR) + Jirka
+# (administrátor docházky a oprav docházky, doplněn 20.7.2026 na vlastní pokyn —
+# není rodič, takže mu bypass přes is_marti_parent práva nedal). Rodiče zůstávají.
 
 
 def _att_can_fix(s, uid) -> bool:

@@ -36635,15 +36635,21 @@ def _nempri25_ose_xml(d):
     # rozhodné období (+ účet jako záloha) z Heliosovy přílohy dle čísla rozhodnutí
     try:
         _h = _mn.load_rozhodne_obdobi(d.get("identifikator"),
-                                      _NEMPRI_FIRMA.get(d.get("account_id") or 1))
+                                      _NEMPRI_FIRMA.get(d.get("account_id") or 1),
+                                      rc_zamestnance=d.get("emp_rc"))
     except Exception:
         _h = None
-    if _h:
+    _zamena = bool(_h and _h.get("nesouhlas_osoby"))
+    if _h and not _zamena:
         if _h.get("rozhodneObdobi"):
             p["rozhodneObdobi"] = _h["rozhodneObdobi"]
         if not p.get("ucet") and _h.get("ucet"):
             p["ucet"] = _h["ucet"]
     potize = _mn.zkontroluj_podani(p)
+    if _zamena:
+        potize.insert(0, "číslo rozhodnutí %s patří v Heliosu jinému zaměstnanci (%s) — "
+                         "zkontrolujte identifikátor, ať se na ČSSZ nepošlou cizí příjmy"
+                      % (d.get("identifikator") or "—", _h.get("zam_jmeno") or "?"))
     if potize:
         hlaska = "Podání zatím nelze odeslat — ČSSZ by ho zamítla:\n• " + "\n• ".join(potize)
         if not p.get("rozhodneObdobi"):

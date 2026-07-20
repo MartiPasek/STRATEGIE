@@ -411,32 +411,48 @@ def _ro_z_prilohy(cdb, pid):
             "prijemCelkem": sump, "vylCelkem": sumv, "mesice": mesice}
 
 
-def load_rozhodne_obdobi(cislo_rozhodnuti, firma=None):
+def load_rozhodne_obdobi(cislo_rozhodnuti, firma=None, rc_zamestnance=None):
     """Dohledá přílohu DNP v Heliosu podle čísla rozhodnutí → rozhodné období + účet
     zaměstnance. Pro ruční záchyt podání (tenant.davka_podani), kde rozhodné období
     nemáme — bez něj ČSSZ podání zamítne (kód 2, 'Rozhodné období je povinná položka').
     Hledá v uvedené firmě, pak i v druhé (číslo rozhodnutí je napříč firmami unikátní).
-    → {"rozhodneObdobi": ..., "ucet": ..., "firma": ..., "priloha_id": ...} nebo None."""
+
+    ⚠️ `rc_zamestnance` je pojistka proti záměně osoby: čísla rozhodnutí se do ručního
+    záchytu občas dostanou překlepem/kopií z jiného podání (Porner 20.7.2026 měl číslo
+    patřící kolegovi). Bez kontroly bychom na ČSSZ poslali cizí příjmy. Když RČ nesedí,
+    vrátíme `nesouhlas_osoby` a data z přílohy NEPOUŽIJEME.
+    → {"rozhodneObdobi", "ucet", "firma", "priloha_id", "zam_rc", "nesouhlas_osoby"} / None."""
     cr = (cislo_rozhodnuti or "").strip()
     if not cr:
         return None
-    poradi = [f for f in [(firma or "").upper(), "EC", "ES"] if f in ("EC", "ES")]
-    videno = []
+    def _dig(x):
+        return "".join(ch for ch in str(x or "") if ch.isdigit())
+    poradi, videno = [(firma or "").upper(), "EC", "ES"], []
     for f in poradi:
-        if f in videno:
+        if f not in ("EC", "ES") or f in videno:
             continue
         videno.append(f)
         try:
             cdb = _cloud_db(f)
-            r = _q("SELECT TOP 1 ID, ZamestnanecId FROM %s.dbo.TabMzPrilohaDnp "
-                   "WHERE RTRIM(CisloRozhodnuti)='%s'" % (cdb, cr.replace("'", "''")))
+            r = _q("SELECT TOP 1 p.ID, p.ZamestnanecId, RTRIM(z.RodneCislo), "
+                   "RTRIM(z.Prijmeni), RTRIM(z.Jmeno) "
+                   "FROM %s.dbo.TabMzPrilohaDnp p LEFT JOIN %s.dbo.TabCisZam z ON z.ID=p.ZamestnanecId "
+                   "WHERE RTRIM(p.CisloRozhodnuti)='%s'" % (cdb, cdb, cr.replace("'", "''")))
             if not (r.get("ok") and r.get("rows")):
                 continue
-            pid = int(r["rows"][0][0])
-            zid = int(r["rows"][0][1] or 0)
-            return {"rozhodneObdobi": _ro_z_prilohy(cdb, pid),
-                    "ucet": (_zam_ucet(cdb, zid) if zid else None),
-                    "firma": f, "priloha_id": pid}
+            v = r["rows"][0]
+            pid, zid = int(v[0]), int(v[1] or 0)
+            zam_rc = _dig(v[2])
+            out = {"firma": f, "priloha_id": pid, "zam_rc": zam_rc,
+                   "zam_jmeno": ("%s %s" % ((v[4] or ""), (v[3] or ""))).strip(),
+                   "nesouhlas_osoby": False, "rozhodneObdobi": None, "ucet": None}
+            ocekavane = _dig(rc_zamestnance)
+            if ocekavane and zam_rc and ocekavane != zam_rc:
+                out["nesouhlas_osoby"] = True
+                return out
+            out["rozhodneObdobi"] = _ro_z_prilohy(cdb, pid)
+            out["ucet"] = (_zam_ucet(cdb, zid) if zid else None)
+            return out
         except Exception:
             continue
     return None

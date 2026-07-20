@@ -26512,34 +26512,11 @@ async def app_device_remove(device_row_id: int, req: Request) -> JSONResponse:
 
 @api_router.get("/app/avatar")
 def app_avatar(req: Request):
-    """Avatar default persony (Marti-AI) pro mobilní appku. Token NEBO cookie.
-
-    Výjimka demo režim (Jirka 20.7.2026, po zamítnutí v73): demo účet vidí
-    neutrální logo STRATEGIE, ne avatar Marti-AI. Demo je veřejná cesta do
-    appky (recenzenti Google Play i kdokoli z obchodu) a avatar je fotka
-    skutečného dítěte — ven z veřejné appky nepatří. Reálným uživatelům
-    zůstává avatar Marti-AI beze změny.
-    """
+    """Avatar default persony (Marti-AI) pro mobilní appku. Token NEBO cookie."""
     from core.database_data import get_data_session as _gds_avt
     from sqlalchemy import text as _sql_avt
     from modules.personas.application import avatar_service as _avs
-    uid_avt = _uid_from_token_or_cookie(req)
-    from core.database_core import get_core_session as _gcs_avt
-    from pathlib import Path as _Path_avt
-    cs_avt = _gcs_avt()
-    try:
-        is_demo = cs_avt.execute(_sql_avt(
-            "SELECT 1 FROM public.users WHERE id = :uid AND login_name = 'demo'"
-        ), {"uid": uid_avt}).first() is not None
-    except Exception:
-        is_demo = False
-    finally:
-        cs_avt.close()
-    if is_demo:
-        demo_logo = (_Path_avt(__file__).resolve().parents[3] / "apps" / "api"
-                     / "static" / "erp" / "icon-512.png")
-        if demo_logo.is_file():
-            return FileResponse(str(demo_logo), media_type="image/png")
+    _uid_from_token_or_cookie(req)
     ds = _gds_avt()
     try:
         pid = ds.execute(_sql_avt(

@@ -36590,9 +36590,16 @@ _NEMPRI_EMPLOYER = {
 }
 
 
+_NEMPRI_FIRMA = {1: "EC", 2: "ES"}  # account_id (datovka) → kód firmy pro Helios
+
+
 def _nempri25_ose_xml(d):
     """Sestaví NEMPRI25 (OSE) z uloženého podání (tenant.davka_podani) přes ověřený
-    generátor mzdy_nempri.build_nempri (struktura + logická pravidla ověřeny proti ČSSZ)."""
+    generátor mzdy_nempri.build_nempri (struktura + logická pravidla ověřeny proti ČSSZ).
+
+    Ruční záchyt nemá rozhodné období ani účet → dotáhneme z Heliosu podle čísla
+    rozhodnutí (Kristý 20.7.2026, podání Porner: ČSSZ zamítla přesně kvůli tomuhle).
+    Před sestavením běží předletová kontrola — vadné podání ven nepustíme."""
     from modules.erp.api import mzdy_nempri as _mn
     emp = _NEMPRI_EMPLOYER.get(d.get("account_id") or 1, _NEMPRI_EMPLOYER[1])
     je_ukonceni = bool(d.get("datum_do"))
@@ -36621,6 +36628,30 @@ def _nempri25_ose_xml(d):
             "pracovalPoslDenPD": False, "planovaneSmeny": False,
         },
     }
+    # platební spojení: ručně zadané číslo účtu na podání (povinné pro OSE/vznik)
+    _u = _mn._parse_ucet(d.get("cislo_uctu"))
+    if _u:
+        p["ucet"] = _u
+    # rozhodné období (+ účet jako záloha) z Heliosovy přílohy dle čísla rozhodnutí
+    try:
+        _h = _mn.load_rozhodne_obdobi(d.get("identifikator"),
+                                      _NEMPRI_FIRMA.get(d.get("account_id") or 1))
+    except Exception:
+        _h = None
+    if _h:
+        if _h.get("rozhodneObdobi"):
+            p["rozhodneObdobi"] = _h["rozhodneObdobi"]
+        if not p.get("ucet") and _h.get("ucet"):
+            p["ucet"] = _h["ucet"]
+    potize = _mn.zkontroluj_podani(p)
+    if potize:
+        hlaska = "Podání zatím nelze odeslat — ČSSZ by ho zamítla:\n• " + "\n• ".join(potize)
+        if not p.get("rozhodneObdobi"):
+            hlaska += ("\n\nRozhodné období se dotahuje z Heliosu podle čísla rozhodnutí (%s). "
+                       "Když příloha DNP v Heliosu pod tímhle číslem není, nechte ji mzdovou "
+                       "účetní pořídit — nebo podání vygenerujte z karty „Přílohy z Heliosu\"."
+                       % (d.get("identifikator") or "—"))
+        raise ValueError(hlaska)
     return _mn.build_nempri(p)
 
 
@@ -36736,7 +36767,10 @@ async def davka_generuj_xml(req: Request):
         d = dict(d)
         if (d.get("typ_davky") or "OSE") != "OSE":
             return JSONResponse({"ok": False, "error": "zatím podporováno jen OSE (ošetřovné)"})
-        xml = _nempri25_ose_xml(d)
+        try:
+            xml = _nempri25_ose_xml(d)
+        except ValueError as _pe:  # předletová kontrola — srozumitelně do UI, ne 500
+            return JSONResponse({"ok": False, "error": str(_pe)})
         s.execute(_t("UPDATE tenant.davka_podani SET xml_data=:x, updated_at=now() WHERE id=:i"),
                   {"x": xml, "i": d["id"]})
         s.commit()
@@ -36995,6 +37029,8 @@ async def davka_helios_generuj(req: Request):
     try:
         from modules.erp.api import mzdy_nempri as _mn
         xml = _mn.generate_nempri_xml(firma, int(pid), ucet=ucet)
+    except ValueError as _pe:  # předletová kontrola — celá hláška do UI
+        return JSONResponse({"ok": False, "error": str(_pe)})
     except Exception as e:
         return JSONResponse({"ok": False, "error": "generování selhalo: " + str(e)[:200]})
     val = None
@@ -38753,7 +38789,10 @@ async def diag_sql(req: Request) -> JSONResponse:
                                    {"i": davka_id}).mappings().first()
                     if not d:
                         return JSONResponse({"ok": False, "error": "podání nenalezeno"})
-                    xml = _nempri25_ose_xml(dict(d))
+                    try:
+                        xml = _nempri25_ose_xml(dict(d))
+                    except ValueError as _pe:  # neúplné podání do datovky nepustíme
+                        return JSONResponse({"ok": False, "error": str(_pe)})
                     oks, res = _isds_send(acc, recip, "e - Podani NEMPRI25",
                                           [{"filename": "NEMPRI25.xml", "bytes": xml.encode("utf-8"),
                                             "mime": "application/xml"}])
@@ -38891,7 +38930,10 @@ async def diag_sql(req: Request) -> JSONResponse:
             d = sn.execute(_tn("SELECT * FROM tenant.davka_podani WHERE id=:i"), {"i": did}).mappings().first()
             if not d:
                 return JSONResponse({"ok": False, "error": "podání nenalezeno"})
-            xml = _nempri25_ose_xml(dict(d))
+            try:
+                xml = _nempri25_ose_xml(dict(d))
+            except ValueError as _pe:
+                return JSONResponse({"ok": False, "error": str(_pe)})
         finally:
             sn.close()
         rows = [[ln] for ln in xml.split("\n")]

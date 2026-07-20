@@ -340,7 +340,11 @@ def _zam_ucet(cdb, zid):
 
 
 def generate_nempri_xml(firma, priloha_id, ucet=None):
-    return build_nempri(load_nempri_priloha(firma, priloha_id, ucet=ucet))
+    p = load_nempri_priloha(firma, priloha_id, ucet=ucet)
+    potize = zkontroluj_podani(p)
+    if potize:
+        raise ValueError("Podání zatím nelze odeslat — ČSSZ by ho zamítla:\n• " + "\n• ".join(potize))
+    return build_nempri(p)
 
 
 # ── Číselník CIS_RODVZTAH (vztah ošetřované osoby k pojištěnci) ────────────────
@@ -364,6 +368,105 @@ def _rc_valid(rc):
         return int(d) % 11 == 0
     except Exception:
         return False
+
+
+def rc_problem(rc):
+    """Proč je RČ pro ČSSZ neplatné? → text problému, nebo None když je OK.
+    ČSSZ chyba 311 = 'Neplatné RČ nebo RČ neodpovídá datu narození'; kontroluje
+    jak dělitelnost 11, tak smysluplnost data v prvních šesti číslicích."""
+    import datetime as _dt
+    d = "".join(ch for ch in str(rc or "") if ch.isdigit())
+    if not d:
+        return "chybí"
+    if len(d) not in (9, 10):
+        return "má %d číslic (očekává se 9 nebo 10)" % len(d)
+    # datová část YYMMDD (u žen +50, u dětí narozených od 2004 může být +20/+70)
+    try:
+        mm = int(d[2:4]) % 50 % 20
+        if mm == 0 or mm > 12:
+            mm = int(d[2:4]) % 50
+        _dt.date(2000 + int(d[0:2]), mm, int(d[4:6]))
+    except Exception:
+        return "prvních 6 číslic není platné datum narození"
+    if len(d) == 10 and int(d) % 11 != 0:
+        return "není dělitelné 11 (chybná kontrolní číslice)"
+    return None
+
+
+def _ro_z_prilohy(cdb, pid):
+    """Rozhodné období (12 měsíců příjmů) z Helios TabMzPrilohaDNPRO → dict pro build_nempri."""
+    import calendar as _cal
+    rr = _q("SELECT Rok, Mesic, CAST(ZapocPrijem AS int), CAST(VylouceneDny AS int) "
+            "FROM %s.dbo.TabMzPrilohaDNPRO WHERE ID_Hlavicka=%d ORDER BY Rok, Mesic" % (cdb, int(pid)))
+    mesice, sump, sumv = [], 0, 0
+    if rr.get("ok"):
+        for m in (rr.get("rows") or []):
+            mesice.append((int(m[1]), int(m[0]), int(m[2] or 0), int(m[3] or 0)))
+            sump += int(m[2] or 0); sumv += int(m[3] or 0)
+    if not mesice:
+        return None
+    return {"od": "%04d-%02d-01" % (mesice[0][1], mesice[0][0]),
+            "do": "%04d-%02d-%02d" % (mesice[-1][1], mesice[-1][0],
+                                      _cal.monthrange(mesice[-1][1], mesice[-1][0])[1]),
+            "prijemCelkem": sump, "vylCelkem": sumv, "mesice": mesice}
+
+
+def load_rozhodne_obdobi(cislo_rozhodnuti, firma=None):
+    """Dohledá přílohu DNP v Heliosu podle čísla rozhodnutí → rozhodné období + účet
+    zaměstnance. Pro ruční záchyt podání (tenant.davka_podani), kde rozhodné období
+    nemáme — bez něj ČSSZ podání zamítne (kód 2, 'Rozhodné období je povinná položka').
+    Hledá v uvedené firmě, pak i v druhé (číslo rozhodnutí je napříč firmami unikátní).
+    → {"rozhodneObdobi": ..., "ucet": ..., "firma": ..., "priloha_id": ...} nebo None."""
+    cr = (cislo_rozhodnuti or "").strip()
+    if not cr:
+        return None
+    poradi = [f for f in [(firma or "").upper(), "EC", "ES"] if f in ("EC", "ES")]
+    videno = []
+    for f in poradi:
+        if f in videno:
+            continue
+        videno.append(f)
+        try:
+            cdb = _cloud_db(f)
+            r = _q("SELECT TOP 1 ID, ZamestnanecId FROM %s.dbo.TabMzPrilohaDnp "
+                   "WHERE RTRIM(CisloRozhodnuti)='%s'" % (cdb, cr.replace("'", "''")))
+            if not (r.get("ok") and r.get("rows")):
+                continue
+            pid = int(r["rows"][0][0])
+            zid = int(r["rows"][0][1] or 0)
+            return {"rozhodneObdobi": _ro_z_prilohy(cdb, pid),
+                    "ucet": (_zam_ucet(cdb, zid) if zid else None),
+                    "firma": f, "priloha_id": pid}
+        except Exception:
+            continue
+    return None
+
+
+def zkontroluj_podani(p):
+    """Předletová kontrola parametrů před build_nempri — chytí to, co by jinak
+    zamítla ČSSZ (ověřeno na podání Porner 20.7.2026: chybějící rozhodné období,
+    chybějící platební spojení, neplatné RČ). → seznam problémů (prázdný = OK)."""
+    potize = []
+    pj = p.get("pojistenec") or {}
+    pr = rc_problem(pj.get("rodneCislo"))
+    if pr:
+        potize.append("RČ zaměstnance (%s %s): %s"
+                      % (pj.get("jmeno") or "", pj.get("prijmeni") or "", pr))
+    ose = p.get("ose") or {}
+    oo = ose.get("osetrovanaOsoba") or {}
+    if oo.get("rodneCislo") or not oo.get("datumNarozeni"):
+        pr = rc_problem(oo.get("rodneCislo"))
+        if pr:
+            potize.append("RČ ošetřované osoby (%s %s): %s"
+                          % (oo.get("jmeno") or "", oo.get("prijmeni") or "", pr))
+    ro = p.get("rozhodneObdobi")
+    if not (ro and ro.get("mesice")):
+        potize.append("chybí rozhodné období (12 měsíců příjmů) — ČSSZ ho vyžaduje vždy")
+    if ose.get("vznik") and not p.get("ucet"):
+        potize.append("chybí platební spojení (číslo účtu) — povinné pro dávku OSE, akce vznik")
+    if not ose.get("odeDne"):
+        potize.append("chybí datum, od kdy ošetřování trvá")
+    return potize
 
 
 def _parse_ucet(ucet):

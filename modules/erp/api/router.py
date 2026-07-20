@@ -35566,6 +35566,84 @@ def _pref_existing(mesic: int, rok: int):
     return rows[0] if rows else None
 
 
+_PREF_POPIS_MAP = [
+    ("%Příprava výroby%", "Příprava materiálu pro výrobu"),
+    ("%Logistika%", "Zpracování dokladů souvisejících s výrobou rozvaděčů"),
+    ("Kanceláře, Asistentky, Asistentky, ", "Administrativa spojená s výrobou rozvaděčů"),
+    ("Asistentky, Asistentky, Kanceláře, ", "Administrativa spojená s výrobou rozvaděčů"),
+    ("%Vedoucí projektů výroba%", "Vedení zakázek divize rozvaděčů"),
+    ("%Nákup%", "Zpracování dokladů souvisejících s výrobou rozvaděčů"),
+    ("Dílna, ", "Elektromontážní práce"),
+    ("Dílna, Garanti, ", "Elektromontážní práce"),
+    ("%Vedení společnosti%", "Správní výdaje - vedení"),
+    ("%Personální%", "Personální služby"),
+    ("%Zkušebna%", "Zkoušení rozvaděčů"),
+    ("%IT,%", "Správa a údržba IS a IT podpora uživatelů"),
+    ("%Vedoucí projektů SW,%", "Dodavatelské služby pro software"),
+    ("%Vytížení - montéři%", "Elektromontážní práce"),
+    ("%Vytížení - výpomoc%", "Elektromontážní práce"),
+    ("%Zámečník%", "Zámečnické práce"),
+]
+
+
+def _pref_popis_case(mesic, rok):
+    """SQL CASE Skupina->popis (pripona ' za M/R' jako procedura, mesicni)."""
+    suf = " za %d/%d" % (int(mesic), int(rok))
+    whens = "\n".join(
+        "      WHEN Skupina like N'%s' THEN N'%s%s'" % (
+            pat.replace("'", "''"), pop.replace("'", "''"), suf)
+        for pat, pop in _PREF_POPIS_MAP)
+    return "CASE\n%s\n      ELSE isnull(Skupina,'CHYBI SKUPINA')\n    END" % whens
+
+
+def _pref_plzen_ma_mzdy(mesic, rok):
+    """True kdyz plzensky denik DB_IS ma za obdobi mzdove radky (tr.5/336)."""
+    try:
+        rows = _pref_clean(_pref_ec_rows(
+            "SELECT COUNT(*) AS c FROM [DB_IS].[dbo].[TabDenik] "
+            "WHERE (CisloUcet like '5%%' OR CisloUcet IN (336200,336202)) "
+            "AND YEAR(DatumPripad)=%d AND MONTH(DatumPripad)=%d" % (int(rok), int(mesic))))
+        return bool(rows and int(rows[0].get("c") or 0) > 0)
+    except Exception as exc:
+        logger.warning("[pref_plzen_ma_mzdy] %s", exc)
+        return False
+
+
+def _pref_mzdy_praha_lines(mesic, rok, marze):
+    """Mzdova cast prefakturace ES z prazskeho Heliosu (superhruba + stravne u.527,
+    per zamestnanec -> skupina -> popis, IT pulkou, marze). ES = firma 2 (UCTO_ES).
+    Vraci [{popis, castka}] (castka s marzi, format ##TempFinal)."""
+    cloud = _firma_cloud_db(2)
+    q = ("SELECT z.Cislo AS zam, "
+         "CAST(ISNULL(v.HrubaMzda,0)+ISNULL(v.SocPojFirma,0)+ISNULL(v.ZdrPojFirma,0)+ISNULL(st.stravne,0) AS int) AS nak "
+         "FROM %s.dbo.TabZamVyp v "
+         "JOIN %s.dbo.TabCisZam z ON z.ID=v.ZamestnanecId "
+         "LEFT JOIN (SELECT CisloZam, SUM(Castka) AS stravne FROM %s.dbo.TabDenik "
+         "  WHERE CisloUcet IN (527000,527001) AND YEAR(DatumPripad)=%d AND MONTH(DatumPripad)=%d "
+         "  GROUP BY CisloZam) st ON st.CisloZam=z.Cislo "
+         "WHERE v.IdObdobi=(SELECT IdObdobi FROM %s.dbo.TabMzdObd WHERE Rok=%d AND Mesic=%d)"
+         % (cloud, cloud, cloud, int(rok), int(mesic), cloud, int(rok), int(mesic)))
+    rp = _mssql188_query(q)
+    if not rp.get("ok"):
+        raise RuntimeError("Praha mzdy: %s" % rp.get("error"))
+    emp = [(int(r[0]), int(r[1] or 0)) for r in (rp.get("rows") or []) if r and r[0] is not None]
+    emp = [(z, n) for (z, n) in emp if n != 0]
+    if not emp:
+        return []
+    vals = ",".join("(%d,%d)" % (z, n) for z, n in emp)
+    mult = 1.0 + (float(marze) / 100.0)
+    office_sql = (
+        "WITH emp AS (SELECT q.zam AS zam, q.nak AS nak, "
+        "  CASE WHEN EXISTS(SELECT 1 FROM EC_SkupinyVazby WHERE CisloZam=q.zam AND IDSkupiny=5) THEN 1 ELSE 0 END AS isIT, "
+        "  (SELECT S.Nazev + ', ' FROM EC_SkupinyVazby SV LEFT OUTER JOIN EC_Skupiny S ON SV.IDSkupiny=S.ID "
+        "     WHERE SV.cislozam=q.zam AND SV.IDSkupiny not in(16,17,19,20,21,22,23,26,27,28,39,40,41,42) FOR XML PATH('')) AS Skupina "
+        "  FROM (VALUES %s) q(zam, nak)), "
+        "ln AS (SELECT %s AS popis, (CASE WHEN isIT=1 THEN nak/2.0 ELSE nak END) * %s AS castka FROM emp) "
+        "SELECT popis, CAST(SUM(castka) AS numeric(18,2)) AS castka FROM ln GROUP BY popis ORDER BY popis"
+        % (vals, _pref_popis_case(mesic, rok), repr(mult)))
+    return _pref_clean(_pref_ec_rows(office_sql))
+
+
 @api_router.get("/app/prefakturace/info")
 def prefakturace_info(req: Request):
     """Default měsíc (předchozí) + posledních pár vystavených faktur Rezie."""
@@ -35589,7 +35667,7 @@ def prefakturace_info(req: Request):
         posledni = rows
     except Exception as exc:
         logger.warning("[prefakturace_info] %s", exc)
-    return {"ok": True, "mesic": m, "rok": r, "marze": 5, "posledni": posledni}
+    return {"ok": True, "mesic": m, "rok": r, "marze": 6, "posledni": posledni}
 
 
 @api_router.post("/app/prefakturace/rozpad")
@@ -35612,11 +35690,11 @@ async def prefakturace_rozpad(req: Request):
     if m < 1 or m > 12 or r < 2020 or r > 2100:
         return JSONResponse({"ok": False, "error": "Neplatný měsíc/rok"}, status_code=400)
     try:
-        marze = float(body.get("marze", 5))
+        marze = float(body.get("marze", 6))
     except Exception:
-        marze = 5.0
+        marze = 6.0
     if marze < 0 or marze > 100:
-        marze = 5.0
+        marze = 6.0
     sql = ("SET NOCOUNT ON;\n"
            "EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic=%d, @Rok=%d, @ProcentMarze=%s, @NajemneOsMes=0;\n"
            "SELECT Popis AS popis, CAST(SUM(Castka) AS numeric(18,2)) AS castka "
@@ -35627,19 +35705,40 @@ async def prefakturace_rozpad(req: Request):
         logger.exception("[prefakturace_rozpad] %s", exc)
         return JSONResponse({"ok": False, "error": "Výpočet selhal: %s" % str(exc)[:200]},
                             status_code=502)
-    lines = []
-    base = 0.0
-    najem = None
+    # Merge: doklady/nájem/režie z plzeňské procedury + (pokud Plzeň za období nemá
+    # mzdy) mzdy z pražského mzdového listu, po popisech. Marti/Kristý 20.7.2026.
+    agg = {}
     for d in rows:
         try:
             castka = float(d.get("castka") or 0)
         except Exception:
             castka = 0.0
         popis = (d.get("popis") or "").strip()
-        lines.append({"popis": popis, "castka": round(castka, 2)})
+        agg[popis] = agg.get(popis, 0.0) + castka
+    mzdy_zdroj = "plzen"
+    try:
+        if not _pref_plzen_ma_mzdy(m, r):
+            for d in _pref_mzdy_praha_lines(m, r, marze):
+                try:
+                    castka = float(d.get("castka") or 0)
+                except Exception:
+                    castka = 0.0
+                popis = (d.get("popis") or "").strip()
+                agg[popis] = agg.get(popis, 0.0) + castka
+            mzdy_zdroj = "praha"
+    except Exception as exc:
+        logger.exception("[prefakturace_rozpad praha] %s", exc)
+        return JSONResponse({"ok": False, "error": "Mzdy z Prahy selhaly: %s" % str(exc)[:200]},
+                            status_code=502)
+    lines = []
+    base = 0.0
+    najem = None
+    for popis in sorted(agg.keys()):
+        castka = round(agg[popis], 2)
+        lines.append({"popis": popis, "castka": castka})
         base += castka
         if "jemn" in popis.lower():
-            najem = round(castka, 2)
+            najem = castka
     base = round(base, 2)
     dph = round(base * _PREF_DPH / 100.0, 2)
     # pojistka proti duplicitě + porovnání nájmu s minulým měsícem
@@ -35663,6 +35762,7 @@ async def prefakturace_rozpad(req: Request):
     return {"ok": True, "mesic": m, "rok": r, "marze": marze,
             "lines": lines, "zaklad": base, "dph": dph, "celkem": round(base + dph, 2),
             "najem": najem, "najem_minule": najem_minule,
+            "mzdy_zdroj": mzdy_zdroj,
             "jiz_existuje": existuje}
 
 
@@ -35681,11 +35781,11 @@ async def prefakturace_vystavit(req: Request):
         body = {}
     try:
         m = int(body.get("mesic")); r = int(body.get("rok"))
-        marze = float(body.get("marze", 5))
+        marze = float(body.get("marze", 6))
     except Exception:
         return JSONResponse({"ok": False, "error": "Chybí měsíc/rok"}, status_code=400)
     if marze < 0 or marze > 100:
-        marze = 5.0
+        marze = 6.0
     force = bool(body.get("force"))
     # pojistka proti duplicitě
     try:
@@ -35702,14 +35802,36 @@ async def prefakturace_vystavit(req: Request):
     # transakci → faktura nevznikne. TRY/CATCH spolkne JEN tuhle UI chybu;
     # jiné chyby (skutečné problémy faktury) propustí dál (THROW).
     _mz = ("%d" % int(marze)) if float(marze).is_integer() else ("%s" % marze)
+    # Injektáž pražských mezd do ##TempFinal (mezi přípravou a generátorem), pokud
+    # Plzeň za období nemá mzdy — generátor faktury staví z ##TempFinal. 20.7.2026.
+    mzdy_insert = ""
+    try:
+        if not _pref_plzen_ma_mzdy(m, r):
+            _stmts = []
+            for d in _pref_mzdy_praha_lines(m, r, marze):
+                try:
+                    _c = round(float(d.get("castka") or 0), 2)
+                except Exception:
+                    _c = 0.0
+                _p = (d.get("popis") or "").replace("'", "''")
+                _stmts.append(
+                    "  INSERT INTO ##TempFinal (Castka, ProcentMarze, Popis, Stredisko, Kvartal, Mesic, Rok, Autor, DatPorizeni) "
+                    "VALUES (%s, %s, N'%s', NULL, NULL, %d, %d, SUSER_SNAME(), GETDATE());" % (repr(_c), _mz, _p, m, r))
+            if _stmts:
+                mzdy_insert = "\n".join(_stmts) + "\n"
+    except Exception as _mx:
+        logger.exception("[prefakturace_vystavit praha mzdy] %s", _mx)
+        return JSONResponse({"ok": False, "error": "Mzdy z Prahy selhaly: %s" % str(_mx)[:200]},
+                            status_code=502)
     batch = ("BEGIN TRY\n"
              "  EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic = %d, @Rok = %d, @ProcentMarze = %s, @NajemneOsMes = 0;\n"
+             "%s"
              "  DECLARE @ID INT, @Msg nvarchar(255);\n"
              "  EXEC dbo.EC_GenVFESzFaaDeniku @IDENT = @ID OUTPUT, @Message = @Msg OUTPUT;\n"
              "END TRY\n"
              "BEGIN CATCH\n"
              "  IF ERROR_MESSAGE() NOT LIKE '%%MenuStrom%%' AND ERROR_MESSAGE() NOT LIKE '%%PrepniNaSoudecek%%' THROW;\n"
-             "END CATCH;" % (m, r, _mz))
+             "END CATCH;" % (m, r, _mz, mzdy_insert))
     actor = "Přefakturace ES %d/%d (user %s)" % (m, r, uid)
     from core.database_data import get_data_session as _gw
     from sqlalchemy import text as _tw

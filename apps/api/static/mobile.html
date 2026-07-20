@@ -8895,7 +8895,7 @@ setTimeout(function(){
     app.appendChild(el('<div id="prefOut" style="margin:4px 6px"></div>'));
     api("GET","/api/v1/erp/app/prefakturace/info","").then(function(j){
       var now=new Date();
-      var dm=(j&&j.ok)?j.mesic:(now.getMonth()||12), dr=(j&&j.ok)?j.rok:now.getFullYear(), dz=(j&&j.ok)?j.marze:5;
+      var dm=(j&&j.ok)?j.mesic:(now.getMonth()||12), dr=(j&&j.ok)?j.rok:now.getFullYear(), dz=(j&&j.ok)?j.marze:6;
       var mEl=document.getElementById("prefM"); if(mEl)mEl.value=dm;
       var rEl=document.getElementById("prefR"); if(rEl)rEl.value=dr;
       var zEl=document.getElementById("prefMarze"); if(zEl)zEl.value=(dz==null?5:dz);

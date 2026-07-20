@@ -59,6 +59,15 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Docházka po zakázkách z Centrály (Peťa 20.7.2026): jádro dochazka.centrala
+      // = iframe stránky /dochazka-centrala. Sloupce 1:1 s Delphi přehledem 109
+      // (EC_Dochazka), filtry jdou SERVEROVĚ do SQL → dosáhne na celou historii,
+      // narozdíl od framework gridu (limit 500 řádků + filtrování v prohlížeči).
+      if (String(coreCode) === 'dochazka.centrala') {
+        mainContent.innerHTML = '<iframe src="/dochazka-centrala" title="Docházka po zakázkách" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Karta zaměstnance (Šárka 8.7.2026): jádro hr.karta = iframe stránky
       // /karta-zamestnance (seznam lidí HR-gated + sekce Pinya×Centrála). Tmavý ERP.
       if (String(coreCode) === 'hr.karta') {

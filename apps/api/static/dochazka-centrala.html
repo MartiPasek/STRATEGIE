@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Docházka po zakázkách — Centrála</title>
+<style>
+  /* Vzhled dle jednotného standardu přehledů (Peťa 17.7.2026, vzor pokladny.html /
+     platby.html): rámeček, sticky filtrovací řádek nad sticky hlavičkou VELKÝMI
+     bílými písmeny, tlumené filtrovací kolonky, roztahovací sloupce BEZ ukládání šířek. */
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:12px 12px 26px;background:#0f141a;color:#e8edf6}
+  h1{font-size:17px;margin:2px 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:10px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:#19202e;border:1px solid #26303f;border-radius:10px;padding:9px 10px;margin-bottom:8px}
+  .f{display:flex;flex-direction:column;gap:3px}
+  .f label{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:#7f93b0;font-weight:600}
+  input,select{background:#10161f;color:#e8edf6;border:1px solid #26303f;border-radius:7px;padding:6px 9px;font-size:13px;font-family:inherit}
+  input[type=date]{width:142px}
+  button{cursor:pointer;font-family:inherit}
+  .b{background:#2563eb;border:0;color:#fff;border-radius:7px;padding:7px 15px;font-size:13px;font-weight:600}
+  .b.s{background:transparent;border:1px solid #3a4656;color:#cdd9ea;font-weight:400}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .chip{background:#27313f;color:#cdd9ea;border:0;border-radius:14px;padding:6px 13px;font-size:12.5px}
+  .chip.on{background:#2563eb;color:#fff}
+  .info{font-size:12.5px;color:#9fb0c8;margin:0 2px 7px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .warn{background:rgba(245,158,11,.12);border:1px solid #f59e0b;color:#fbd38d;border-radius:7px;padding:4px 10px;font-size:12.5px}
+  .err{background:rgba(239,68,68,.12);border:1px solid #ef4444;color:#fca5a5;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:9px}
+
+  .tw{overflow:auto;max-height:calc(100vh - 232px);border:1px solid #2a3546;border-radius:8px;background:#0f141a}
+  .tw::-webkit-scrollbar{width:13px;height:13px}
+  .tw::-webkit-scrollbar-track{background:#131b26}
+  .tw::-webkit-scrollbar-thumb{background:#33445c;border-radius:7px;border:2px solid #131b26}
+  .tw::-webkit-scrollbar-thumb:hover{background:#42597a}
+
+  table.dokl{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
+  table.dokl th,table.dokl td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
+  table.dokl thead tr.frow td{position:sticky;top:0;z-index:3;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
+  table.dokl thead th{position:sticky;top:29px;z-index:2;background:#1c2636;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid #34506f;position:relative}
+  table.dokl tbody td{color:#f4f7fc}
+  table.dokl th.r,table.dokl td.r{text-align:right}
+  table.dokl th.c,table.dokl td.c{text-align:center}
+  table.dokl thead th .dgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:5;user-select:none}
+  table.dokl thead th .dgrip:hover{background:#2563eb;opacity:.6}
+  table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #7f96b0;border-radius:5px;background:#9fb2c8;color:#1b2738}
+  table.dokl .frow input::placeholder{color:#41546b}
+  table.dokl tbody tr:hover{background:#131d2b}
+  td.zak{font-weight:600;color:#a5c8ff}
+  td.rez{color:#fbd38d;font-weight:600}
+  td.ok{color:#8fe0a0;font-weight:700}
+  .src{font-size:10.5px;padding:1px 7px;border-radius:8px}
+  .src.z_a{background:#123c26;color:#8fe0a0}
+  .src.z_d{background:#1d2440;color:#a5b4fc}
+  .src.z_c{background:#3b2f12;color:#fbd38d}
+  .src.z_x{background:#2a3240;color:#9fb0c8}
+  .ld{padding:32px;text-align:center;color:#8fa3bd;font-size:13px}
+  .sum{margin-top:7px;font-size:12.5px;color:#9fb0c8}
+  .sum b{color:#e8edf6}
+</style>
+</head>
+<body>
+<h1>Docházka po zakázkách <span style="font-size:12px;color:#8fa3bd;font-weight:400">— živě z Centrály</span></h1>
+<div class="sub">Stejná data i sloupce jako přehled 109 v Centrále (tabulka EC_Dochazka), ale bez jeho omezení na poslední 3 měsíce — dosáhneš na celou historii. Výchozí pohled ukazuje všechny lidi.</div>
+
+<div class="chips" id="chips"></div>
+
+<div class="bar">
+  <div class="f"><label>Od</label><input type="date" id="od"></div>
+  <div class="f"><label>Do</label><input type="date" id="do"></div>
+  <div class="f"><label>Člověk</label><select id="zam"><option value="">— všichni —</option></select></div>
+  <div class="f"><label>Zakázka</label><input id="zakazka" placeholder="např. VR10652" size="13"></div>
+  <div class="f"><label>Činnost</label><select id="cinnost"><option value="">— všechny —</option></select></div>
+  <div class="f"><label>Odkud se píchnul</label><select id="zdroj">
+    <option value="">— vše —</option><option value="A">aplikace</option>
+    <option value="D">tablet</option><option value="C">ručně v Centrále</option>
+    <option value="-">starší záznam</option></select></div>
+  <div class="f"><label>Max. řádků</label><select id="limit">
+    <option value="2000">2 000</option><option value="5000">5 000</option>
+    <option value="10000">10 000</option><option value="20000">20 000</option></select></div>
+  <button class="b" id="go">Načíst</button>
+  <button class="b s" id="clr">Vymazat filtry</button>
+  <button class="b s" id="xls">Do Excelu</button>
+</div>
+
+<div id="msg"></div>
+<div class="info" id="info"></div>
+<div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
+<div class="sum" id="sum"></div>
+
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function api(u){return fetch(u,{credentials:'include'}).then(function(r){return r.json().then(function(j){return j;},function(){
+  return {ok:false,error:(r&&r.status>=500)?'Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli.':'Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+').'};});},
+  function(){return {ok:false,error:'Nepodařilo se spojit se serverem — zkontroluj připojení.'};});}
+function $(i){return document.getElementById(i);}
+function d2s(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+
+/* Sloupce = přehled 109 v Centrále + „Odkud" navíc.
+   w = VÝCHOZÍ šířka pro všechny (tažení je dočasné, neukládá se — pokyn Peťa 17.7.).
+   r = doprava (čísla), c = na střed (zaškrtávátka), b = ano/ne, s = odznak zdroje. */
+var COLS=[
+ {k:'cislozakazky',t:'Zakázka',w:96,c2:'zak'},
+ {k:'jmenoprijmeni',t:'Jméno',w:150},
+ {k:'cislozam',t:'Č.',w:46,r:1,tt:'Číslo zaměstnance'},
+ {k:'druhcinnosti',t:'Dr.',w:44,r:1,tt:'Druh činnosti (číslo)'},
+ {k:'cinnosttext',t:'Činnost',w:150},
+ {k:'denvtydnu',t:'Den',w:44},
+ {k:'caszacatek',t:'Čas začátek',w:132},
+ {k:'caskonec',t:'Čas konec',w:132},
+ {k:'caspauza',t:'Pauza',w:58,r:1},
+ {k:'casblbost',t:'Blbost',w:58,r:1},
+ {k:'casrezie',t:'Režie',w:58,r:1},
+ {k:'cascelkemzakazka',t:'Celkem',w:70,r:1,tt:'Čas celkem na zakázce'},
+ {k:'pozadpomocved',t:'P',w:30,b:1,c:1,tt:'Požadována pomoc vedoucího'},
+ {k:'vedschvaleno',t:'V',w:30,b:1,c:1,tt:'Schváleno vedoucím'},
+ {k:'sefschvaleno',t:'Š',w:30,b:1,c:1,tt:'Schváleno šéfem'},
+ {k:'prevodprescasu',t:'Př',w:34,b:1,c:1,tt:'Převod přesčasu'},
+ {k:'zdroj',t:'Odkud',w:82,s:1,c:1,tt:'Kde se člověk píchnul (aplikace / tablet / ručně)'},
+ {k:'zampoznamka',t:'Poznámka zaměstnance',w:230},
+ {k:'vedpoznamka',t:'Poznámka vedoucího',w:190},
+ {k:'autor',t:'Autor',w:100}
+];
+var SRCCLS={'aplikace':'z_a','tablet':'z_d','ručně':'z_c'};
+var ROWS=[], FLT={};
+
+function hlavicka(){
+  var f='<tr class="frow">',h='<tr>';
+  for(var i=0;i<COLS.length;i++){
+    var c=COLS[i];
+    f+='<td><input data-k="'+c.k+'" placeholder="'+(c.b?'✓':'…')+'"></td>';
+    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" style="width:'+c.w+'px"'+(c.tt?' title="'+esc(c.tt)+'"':'')
+      +'>'+esc(c.t)+'<span class="dgrip" data-i="'+i+'"></span></th>';
+  }
+  $('tab').getElementsByTagName('thead')[0].innerHTML=f+'</tr>'+h+'</tr>';
+  var th=$('tab').getElementsByTagName('thead')[0];
+  th.addEventListener('input',function(e){
+    var k=e.target.getAttribute('data-k');if(!k)return;
+    FLT[k]=(e.target.value||'').trim().toLowerCase();render();});
+  th.addEventListener('mousedown',function(e){
+    if(!e.target.classList.contains('dgrip'))return;
+    var i=parseInt(e.target.getAttribute('data-i'),10),cell=e.target.parentNode,
+        x0=e.clientX,w0=cell.offsetWidth;e.preventDefault();
+    function mv(ev){cell.style.width=Math.max(28,w0+(ev.clientX-x0))+'px';}
+    function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
+  th.addEventListener('dblclick',function(e){   /* dvojklik na okraj = výchozí šířka */
+    if(!e.target.classList.contains('dgrip'))return;
+    var i=parseInt(e.target.getAttribute('data-i'),10);
+    e.target.parentNode.style.width=COLS[i].w+'px';});
+}
+
+function projde(r){
+  for(var k in FLT){
+    if(!FLT[k])continue;
+    var v=r[k];
+    if(k==='pozadpomocved'||k==='vedschvaleno'||k==='sefschvaleno'||k==='prevodprescasu')
+      v=(parseInt(v||0,10)?'✓ano':'ne');
+    if(String(v==null?'':v).toLowerCase().indexOf(FLT[k])<0)return false;
+  }
+  return true;
+}
+
+function render(){
+  var tb=$('tab').getElementsByTagName('tbody')[0],h=[],hod=0,rez=0,n=0;
+  for(var i=0;i<ROWS.length;i++){
+    var r=ROWS[i];if(!projde(r))continue;n++;
+    hod+=parseFloat(r.cascelkemzakazka||0)||0;
+    rez+=parseFloat(r.casrezie||0)||0;
+    var tr='<tr>';
+    for(var j=0;j<COLS.length;j++){
+      var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
+      if(c.b){v=(parseInt(v||0,10)?'✓':'');cl+=' ok';}
+      else if(c.s){v='<span class="src '+(SRCCLS[v]||'z_x')+'">'+esc(v)+'</span>';}
+      else v=esc(v);
+      if(c.c2)cl+=' '+c.c2;
+      if(c.k==='cislozakazky'&&String(r.cislozakazky||'').toLowerCase()==='rezie')cl+=' rez';
+      tr+='<td'+(cl.trim()?' class="'+cl.trim()+'"':'')+' title="'+esc(String(r[c.k]==null?'':r[c.k]))+'">'+v+'</td>';
+    }
+    h.push(tr+'</tr>');
+  }
+  if(!h.length){tb.innerHTML='<tr><td class="ld" colspan="'+COLS.length+'">Pro tuhle volbu nejsou žádné záznamy.</td></tr>';$('sum').textContent='';return;}
+  tb.innerHTML=h.join('');
+  $('sum').innerHTML='Součet hodin na zakázkách: <b>'+hod.toFixed(1)+'</b> &nbsp;·&nbsp; režie: <b>'+rez.toFixed(1)
+    +'</b> &nbsp;·&nbsp; řádků: <b>'+n+'</b>';
+}
+
+function load(){
+  var q=['limit='+encodeURIComponent($('limit').value)];
+  ['od','do','zam','zakazka','cinnost','zdroj'].forEach(function(k){var v=($(k).value||'').trim();if(v)q.push(k+'='+encodeURIComponent(v));});
+  $('msg').innerHTML='';
+  $('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld" colspan="'+COLS.length+'">Načítám z Centrály…</td></tr>';
+  $('info').textContent='';$('sum').textContent='';
+  api('/api/v1/erp/app/dochazka-zak/data?'+q.join('&')).then(function(j){
+    if(!j||!j.ok){
+      $('msg').innerHTML='<div class="err">'+esc((j&&j.error)||'Nepodařilo se načíst data.')+'</div>';
+      $('tab').getElementsByTagName('tbody')[0].innerHTML='';return;}
+    ROWS=j.rows||[];render();
+    var t='Zobrazeno '+j.pocet+' řádků';
+    if(j.celkem>0)t+=' z '+j.celkem+' odpovídajících';
+    $('info').innerHTML=esc(t)+((j.celkem>j.pocet)?' <span class="warn">Zbytek se nevešel — zvyš „Max. řádků" nebo zúž období.</span>':'');
+  });
+}
+
+function xls(){
+  if(!ROWS.length)return;
+  var s=COLS.map(function(c){return c.t;}).join('\t')+'\n';
+  for(var i=0;i<ROWS.length;i++){
+    if(!projde(ROWS[i]))continue;
+    s+=COLS.map(function(c){
+      var v=ROWS[i][c.k];
+      if(c.b)v=(parseInt(v||0,10)?'ano':'ne');
+      return String(v==null?'':v).replace(/[\t\r\n]/g,' ');}).join('\t')+'\n';
+  }
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+s],{type:'text/csv;charset=utf-8'}));
+  a.download='dochazka_zakazky.csv';a.click();
+}
+
+function obdobi(kolik){
+  var t=new Date(),od=new Date(),d=new Date();
+  if(kolik==='mesic'){od=new Date(t.getFullYear(),t.getMonth(),1);}
+  else if(kolik==='minuly'){od=new Date(t.getFullYear(),t.getMonth()-1,1);d=new Date(t.getFullYear(),t.getMonth(),0);}
+  else if(kolik==='ctvrt'){od=new Date(t.getFullYear(),t.getMonth()-3,t.getDate());}
+  else if(kolik==='rok'){od=new Date(t.getFullYear(),0,1);}
+  else if(kolik==='vse'){$('od').value='';$('do').value='';load();return;}
+  $('od').value=d2s(od);$('do').value=d2s(d);load();
+}
+
+(function(){
+  var ch=[['mesic','Tento měsíc'],['minuly','Minulý měsíc'],['ctvrt','Poslední 3 měsíce'],['rok','Letos'],['vse','Celá historie']];
+  $('chips').innerHTML=ch.map(function(c){return '<button class="chip" data-o="'+c[0]+'">'+c[1]+'</button>';}).join('');
+  $('chips').addEventListener('click',function(e){
+    var b=e.target&&e.target.getAttribute&&e.target.getAttribute('data-o')?e.target:null;if(!b)return;
+    [].forEach.call($('chips').children,function(x){x.classList.remove('on');});
+    b.classList.add('on');obdobi(b.getAttribute('data-o'));});
+  $('go').onclick=load;$('xls').onclick=xls;
+  $('clr').onclick=function(){
+    ['zam','zakazka','cinnost','zdroj'].forEach(function(k){$(k).value='';});
+    FLT={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});
+    load();};
+  $('zakazka').addEventListener('keydown',function(e){if(e.key==='Enter')load();});
+
+  hlavicka();
+
+  api('/api/v1/erp/app/dochazka-zak/ciselniky').then(function(j){
+    if(!j||!j.ok)return;
+    (j.lide||[]).forEach(function(l){if(!l.jmeno)return;
+      $('zam').insertAdjacentHTML('beforeend','<option value="'+esc(l.cislozam)+'">'+esc(l.jmeno)+' ('+esc(l.cislozam)+')</option>');});
+    (j.cinnosti||[]).forEach(function(c){if(!c.nazev)return;
+      $('cinnost').insertAdjacentHTML('beforeend','<option value="'+esc(c.cislo)+'">'+esc(c.nazev)+'</option>');});
+  });
+
+  $('chips').children[0].classList.add('on');
+  obdobi('mesic');
+})();
+</script>
+</body>
+</html>

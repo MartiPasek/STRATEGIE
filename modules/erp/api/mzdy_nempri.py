@@ -110,14 +110,16 @@ def build_nempri(p: dict) -> str:
         zam += _el("zamestnanDo", z["zamestnanDo"])
     zam += _el("druhCinnosti", z.get("druhCinnosti", "1"))
 
-    ro = p["rozhodneObdobi"]
-    obd = "".join("<obdobi><kalendarniMesic>%d</kalendarniMesic><kalendarniRok>%d</kalendarniRok>"
-                  "<zapocitatelnyPrijem>%d</zapocitatelnyPrijem><vylouceneDny>%d</vylouceneDny></obdobi>"
-                  % (m, r, pr, vy) for (m, r, pr, vy) in ro["mesice"])
-    rozh = (_el("rozhodneObdobiOd", ro["od"]) + _el("rozhodneObdobiDo", ro["do"])
-            + "<seznamObdobi>%s</seznamObdobi>" % obd
-            + _el("zapocitatelnyPrijemCelkem", ro["prijemCelkem"])
-            + _el("vylouceneDnyCelkem", ro["vylCelkem"]))
+    ro = p.get("rozhodneObdobi")
+    rozh_block = ""
+    if ro and ro.get("mesice"):
+        obd = "".join("<obdobi><kalendarniMesic>%d</kalendarniMesic><kalendarniRok>%d</kalendarniRok>"
+                      "<zapocitatelnyPrijem>%d</zapocitatelnyPrijem><vylouceneDny>%d</vylouceneDny></obdobi>"
+                      % (m, r, pr, vy) for (m, r, pr, vy) in ro["mesice"])
+        rozh_block = ("<rozhodneObdobi>" + _el("rozhodneObdobiOd", ro["od"]) + _el("rozhodneObdobiDo", ro["do"])
+                      + "<seznamObdobi>%s</seznamObdobi>" % obd
+                      + _el("zapocitatelnyPrijemCelkem", ro["prijemCelkem"])
+                      + _el("vylouceneDnyCelkem", ro["vylCelkem"]) + "</rozhodneObdobi>")
 
     davka = "<davka>%s</davka>" % _ose_blok(p["ose"])
 
@@ -145,7 +147,7 @@ def build_nempri(p: dict) -> str:
 
     dv = ("<datovaVeta poradoveCislo=\"1\">"
           "<dokument>%s</dokument><pojistenec>%s</pojistenec><zamestnani>%s</zamestnani>"
-          "<rozhodneObdobi>%s</rozhodneObdobi>%s%s%s</datovaVeta>" % (dok, poj, zam, rozh, davka, kont, plat))
+          "%s%s%s%s</datovaVeta>" % (dok, poj, zam, rozh_block, davka, kont, plat))
 
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<NEMPRI %s version="1.0" partialAccept="A">'

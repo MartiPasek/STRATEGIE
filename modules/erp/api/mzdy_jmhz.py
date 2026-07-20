@@ -363,8 +363,8 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
 \t<n1:VENDOR productName="STRATEGIE" productVersion="{VENDOR}"/>
 \t<n1:SENDER EmailNotifikace="{SENDER_EMAIL}" ISDSreport="" VerzeProtokolu="1"/>
 \t<n1:hlavicka>
-\t\t<n1:idPodani>{uuid.uuid4()}</n1:idPodani>
-\t\t<n1:typPodani>R</n1:typPodani>
+\t\t<n1:idPodani>{_id_podani}</n1:idPodani>
+\t\t<n1:typPodani>{_typ_podani}</n1:typPodani>
 \t\t<n1:variabilniSymbol>{vs}</n1:variabilniSymbol>
 \t\t<n1:mesic>{mesic}</n1:mesic>
 \t\t<n1:rok>{rok}</n1:rok>
@@ -676,8 +676,8 @@ def generate_xml(firma, rok, mesic):
     return xml, ps
 
 
-def generate_and_validate(firma, rok, mesic, prod=False):
-    xml, ps = generate_xml(firma, rok, mesic)
+def generate_and_validate(firma, rok, mesic, prod=False, opravne=False, id_podani=None):
+    xml, ps = generate_xml(firma, rok, mesic, opravne=opravne, id_podani=id_podani)
     from modules.erp.api import epodani_validace as ev
     res = ev.validate_xml_string(xml, test=(not prod))
     idx = {p.get("ikMpsv"): p for p in ps}
@@ -777,11 +777,13 @@ def jmhz_xml(req: Request):
     if not ok:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     firma, rok, mesic = _parse_obdobi(req)
+    _oprav = (req.query_params.get("opravne") or "").lower() in ("1", "true", "ano")
+    _guid = req.query_params.get("guid") or None
     try:
-        xml, ps = generate_xml(firma, rok, mesic)
+        xml, ps = generate_xml(firma, rok, mesic, opravne=_oprav, id_podani=_guid)
     except Exception as e:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:400])},
                             status_code=200)
-    fn = "JMHZ_%s_%04d-%02d.xml" % (firma, rok, mesic)
+    fn = "JMHZ_%s_%04d-%02d%s.xml" % (firma, rok, mesic, ("_O" if _oprav else ""))
     return Response(content=xml, media_type="application/xml",
                     headers={"Content-Disposition": 'attachment; filename="%s"' % fn})

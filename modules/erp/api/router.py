@@ -36422,99 +36422,43 @@ def _nempri_esc(s):
 
 # VS/IČ/název zaměstnavatele dle datovky (firmy)
 _NEMPRI_EMPLOYER = {
-    1: {"vs": "4445158191", "ico": "27960862", "nazev": "EUROSOFT - Control s.r.o.", "kodOSSZ": "342"},
-    2: {"vs": "4442058998", "ico": "26411741", "nazev": "EUROSOFT - System s.r.o.", "kodOSSZ": "342"},
+    1: {"vs": "4445158191", "ico": "27960862", "nazev": "EUROSOFT - Control s.r.o.", "kodOSSZ": "444"},
+    2: {"vs": "4442058998", "ico": "26411741", "nazev": "EUROSOFT - System s.r.o.", "kodOSSZ": "444"},
 }
 
 
 def _nempri25_ose_xml(d):
-    """Sestaví NEMPRI25 datovou větu pro OSE (ošetřovné) z uloženého podání.
-    d = dict řádku tenant.davka_podani. Akce dle dat: vznik (je od) + ukončení (je do)."""
-    e = _nempri_esc
+    """Sestaví NEMPRI25 (OSE) z uloženého podání (tenant.davka_podani) přes ověřený
+    generátor mzdy_nempri.build_nempri (struktura + logická pravidla ověřeny proti ČSSZ)."""
+    from modules.erp.api import mzdy_nempri as _mn
     emp = _NEMPRI_EMPLOYER.get(d.get("account_id") or 1, _NEMPRI_EMPLOYER[1])
-    je_vznik = bool(d.get("datum_od"))
     je_ukonceni = bool(d.get("datum_do"))
-    vztah = (d.get("osetrovana_vztah") or "")
-    L = []
-    L.append('<?xml version="1.0" encoding="UTF-8"?>')
-    L.append('<NEMPRI xmlns="http://schemas.cssz.cz/nem/NEMPRI25" version="1.0" partialAccept="A">')
-    L.append('<VENDOR productName="STRATEGIE" productVersion="1.0"/>')
-    L.append('<datovaVeta poradoveCislo="1">')
-    L.append('<dokument>')
-    L.append('<kodOSSZ>%s</kodOSSZ>' % e(emp["kodOSSZ"]))
-    L.append('<druhDavky>OSE</druhDavky>')
-    L.append('<cisloRozhodnuti>%s</cisloRozhodnuti>' % e(d.get("identifikator")))
-    L.append('</dokument>')
-    L.append('<pojistenec>')
-    L.append('<jmeno>%s</jmeno>' % e(d.get("emp_jmeno")))
-    L.append('<prijmeni>%s</prijmeni>' % e(d.get("emp_prijmeni")))
-    L.append('<rodneCislo>%s</rodneCislo>' % e((d.get("emp_rc") or "").replace("/", "")))
-    L.append('</pojistenec>')
-    L.append('<zamestnani>')
-    L.append('<VSZamestnavatel>%s</VSZamestnavatel>' % e(emp["vs"]))
-    L.append('<ICZamestnavatel>%s</ICZamestnavatel>' % e(emp["ico"]))
-    L.append('<nazevZamestnavatel>%s</nazevZamestnavatel>' % e(emp["nazev"]))
-    L.append('<zamestnanOd>%s</zamestnanOd>' % e(d.get("zamestnan_od") or "2020-01-01"))
-    L.append('<druhCinnosti>%s</druhCinnosti>' % e(d.get("druh_cinnosti") or "1"))
-    L.append('</zamestnani>')
-    L.append('<davka><ose>')
-    L.append('<oseVznik>%s</oseVznik>' % ("true" if je_vznik else "false"))
-    L.append('<oseTrvani>false</oseTrvani>')
-    L.append('<oseUkonceni>%s</oseUkonceni>' % ("true" if je_ukonceni else "false"))
-    if je_vznik:
-        L.append('<potvrzeniZamestnavatele>')
-        L.append('<pracoval>false</pracoval>')
-        L.append('<jeStudentem>false</jeStudentem>')
-        L.append('<prevedenaNaJinouPraci>false</prevedenaNaJinouPraci>')
-        L.append('<volnoBezNahrady>false</volnoBezNahrady>')
-        L.append('</potvrzeniZamestnavatele>')
-    L.append('<zadostODavku>')
-    if je_vznik:
-        L.append('<odeDne>%s</odeDne>' % e(d.get("datum_od")))
-    if je_ukonceni:
-        L.append('<doDne>%s</doDne>' % e(d.get("datum_do")))
-    if je_vznik:
-        L.append('<osetrovanaOsoba>')
-        L.append('<jmeno>%s</jmeno>' % e(d.get("osetrovana_jmeno")))
-        L.append('<prijmeni>%s</prijmeni>' % e(d.get("osetrovana_prijmeni")))
-        orc = (d.get("osetrovana_rc") or "").replace("/", "")
-        if orc:
-            L.append('<rodneCislo>%s</rodneCislo>' % e(orc))
-        L.append('<onemocnela>true</onemocnela>')
-        L.append('<spolecnaDomacnost>%s</spolecnaDomacnost>'
-                 % ("true" if d.get("spolecna_domacnost") else "false"))
-        L.append('<jeOsamely>false</jeOsamely>')
-        L.append('<vPeciDiteDo16Let>false</vPeciDiteDo16Let>')
-        L.append('<narokNaPPMjinouOsobou>false</narokNaPPMjinouOsobou>')
-        if vztah:
-            L.append('<kodRodVztah>%s</kodRodVztah>' % e(vztah))
-        L.append('</osetrovanaOsoba>')
-    L.append('</zadostODavku>')
-    if je_ukonceni:
-        L.append('<podkladyProVyplatDavky>')
-        L.append('<pracovalPoslDenPD>false</pracovalPoslDenPD>')
-        L.append('<planovaneSmeny>false</planovaneSmeny>')
-        L.append('<pecovalOsobne>true</pecovalOsobne>')
-        L.append('<pecovalVeDnech><obdobi><od>%s</od><do>%s</do></obdobi></pecovalVeDnech>'
-                 % (e(d.get("datum_od")), e(d.get("datum_do"))))
-        L.append('</podkladyProVyplatDavky>')
-    L.append('</ose></davka>')
-    if je_vznik:
-        L.append('<platebniSpojeni>')
-        L.append('<vyplatitUcetCR>true</vyplatitUcetCR>')
-        L.append('<vyplatitUcetCizina>false</vyplatitUcetCizina>')
-        L.append('<vyplatitAdresa>false</vyplatitAdresa>')
-        L.append('<vyplatitHotovost>false</vyplatitHotovost>')
-        ucet = (d.get("cislo_uctu") or "")
-        cislo, kod = ("", "")
-        if "/" in ucet:
-            cislo, kod = ucet.split("/", 1)
-        L.append('<ucetCZ><ucetCislo>%s</ucetCislo><bankaKod>%s</bankaKod></ucetCZ>'
-                 % (e(cislo.strip()), e(kod.strip())))
-        L.append('</platebniSpojeni>')
-    L.append('</datovaVeta>')
-    L.append('</NEMPRI>')
-    return "\n".join(L)
+    def _s(x):
+        return str(x) if x not in (None, "") else None
+    p = {
+        "email_notifikace": "",
+        "dokument": {"kodOSSZ": int(emp["kodOSSZ"]), "druhDavky": "OSE",
+                     "cisloRozhodnuti": d.get("identifikator"), "zahranicni": False},
+        "pojistenec": {"jmeno": d.get("emp_jmeno"), "prijmeni": d.get("emp_prijmeni"),
+                       "rodneCislo": (d.get("emp_rc") or "").replace("/", "")},
+        "zamestnani": {"vs": emp["vs"], "ic": emp["ico"], "nazev": emp["nazev"],
+                       "zamestnanOd": _s(d.get("zamestnan_od")) or "2020-01-01", "druhCinnosti": "1"},
+        "rozhodneObdobi": None,
+        "ose": {
+            "vznik": bool(d.get("datum_od")), "trvani": False, "ukonceni": je_ukonceni,
+            "pracoval": False, "jeStudentem": False, "prevedenaNaJinouPraci": False, "volnoBezNahrady": False,
+            "odeDne": _s(d.get("datum_od")), "doDne": _s(d.get("datum_do")),
+            "osetrovanaOsoba": {"jmeno": d.get("osetrovana_jmeno"), "prijmeni": d.get("osetrovana_prijmeni"),
+                                "rodneCislo": (d.get("osetrovana_rc") or "").replace("/", "")},
+            "duvod": ("uzavrenaSkola" if d.get("zarizeni_uzavreni") else "onemocnela"),
+            "spolecnaDomacnost": bool(d.get("spolecna_domacnost")), "jeOsamely": False, "vPeciDiteDo16Let": True,
+            "narokNaPPMjinouOsobou": False, "pecovalOsobne": True,
+            "pecovalVeDnech": ([(_s(d.get("datum_od")), _s(d.get("datum_do")))] if (je_ukonceni and d.get("datum_do")) else None),
+            "kodRodVztah": _s(d.get("osetrovana_vztah")),
+            "pracovalPoslDenPD": False, "planovaneSmeny": False,
+        },
+    }
+    return _mn.build_nempri(p)
 
 
 _NEMPRI_DRUH = {0: "NEM", 1: "OSE", 2: "OPP", 3: "PPM", 4: "DLO", 5: "VPM"}
@@ -39497,8 +39441,10 @@ async def diag_sql(req: Request) -> JSONResponse:
             _firma = (_jg[0] if len(_jg) > 0 else "EC").upper()
             _rok = int(_jg[1]) if len(_jg) > 1 else 2026
             _mes = int(_jg[2]) if len(_jg) > 2 else 6
+            _oprav = len(_jg) > 3 and _jg[3].upper() == "O"
+            _guid = _jg[4] if len(_jg) > 4 else None
             from modules.erp.api import mzdy_jmhz as _mj
-            _xml, _ps = _mj.generate_xml(_firma, _rok, _mes)
+            _xml, _ps = _mj.generate_xml(_firma, _rok, _mes, opravne=_oprav, id_podani=_guid)
             _repo = _g2007_repo_root()
             _fn = "JMHZ_%s_%04d-%02d.xml" % (_firma, _rok, _mes)
             _fp = _osjg.path.join(_repo, "docs", "jmhz", _fn)

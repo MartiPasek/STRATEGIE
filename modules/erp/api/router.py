@@ -8785,24 +8785,40 @@ async def app_hr_people(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Šárka 20.7.2026: členství v tenantu (= přístup do systému) NENÍ pracovní poměr —
+        # bývalí lidé s živým účtem zůstávali v seznamu. Default = jen s platným poměrem;
+        # ?vse=1 ukáže i bývalé. Počet skrytých vracíme, ať nikdo nemizí potichu.
+        _POMER = (
+            " EXISTS (SELECT 1 FROM tenant.engagement en"
+            "   JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
+            "  WHERE ae.user_id=u.id AND en.tenant_id=2 AND en.is_current=true"
+            "    AND (en.smlouva_do IS NULL OR en.smlouva_do >= CURRENT_DATE))")
+        _ZAKLAD = (
+            "FROM public.users u "
+            "WHERE EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "   AND ut.membership_status IN ('active','invited')) AND u.id NOT IN (2,3,23,24) ")
+        vse = (req.query_params.get("vse") or "").strip().lower() in ("1", "true", "ano")
         rows = s.execute(_t(
             "SELECT u.id, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
             "   (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1)) AS jmeno, "
             " (SELECT d.perm_city FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS mesto, "
-            " EXISTS(SELECT 1 FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS ma_kartu "
-            "FROM public.users u "
-            "WHERE EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
-            "   AND ut.membership_status IN ('active','invited')) AND u.id NOT IN (2,3,23,24) "
-            "ORDER BY jmeno")).fetchall()
+            " EXISTS(SELECT 1 FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS ma_kartu, "
+            + _POMER + " AS ma_pomer "
+            + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
+            " ORDER BY jmeno")).fetchall()
+        skryto = 0
+        if not vse:
+            skryto = int(s.execute(_t("SELECT count(*) " + _ZAKLAD + " AND NOT" + _POMER)).scalar() or 0)
         q = (req.query_params.get("q") or "").strip().lower()
         out = []
         for r in rows:
             nm = (r[1] or ("#" + str(r[0])))
             if q and q not in nm.lower():
                 continue
-            out.append({"user_id": r[0], "jmeno": nm, "mesto": r[2] or "", "ma_kartu": bool(r[3])})
-        return JSONResponse({"ok": True, "lide": out})
+            out.append({"user_id": r[0], "jmeno": nm, "mesto": r[2] or "",
+                        "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4])})
+        return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
@@ -8888,6 +8904,24 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         if today <= _dt.date(2026, 12, 18):
             akt.append({"typ": "info", "ikona": "🎄",
                         "text": "18. 12. 2026 — vánoční večírek v Srdcovce (jako loni)"})
+        # Výročí firmy — EUROSOFT založen 29. 8. 2006 (Šárka 20.7.2026). Počítá se samo,
+        # kulaté výročí (násobek 10) dostane 🏆 a řadí se nahoru.
+        _zal = _dt.date(2006, 8, 29)
+        _vyr = _dt.date(today.year, _zal.month, _zal.day)
+        if _vyr < today:
+            _vyr = _dt.date(today.year + 1, _zal.month, _zal.day)
+        _let = _vyr.year - _zal.year
+        _dnu = (_vyr - today).days
+        _kulate = (_let % 10 == 0)
+        if _dnu == 0:
+            _ftext = "Dnes je to %d let od založení EUROSOFTu (29. 8. 2006)! 🎉" % _let
+        else:
+            _ftext = "EUROSOFT slaví %d let od založení (29. 8. 2006) — za %d dní" % (_let, _dnu)
+        _fzaznam = {"typ": "vyroci_firmy", "ikona": ("🏆" if _kulate else "🎂"), "text": _ftext}
+        if _kulate or _dnu <= 30:
+            akt.insert(0, _fzaznam)
+        else:
+            akt.append(_fzaznam)
         badges = {"mimo": int(mimo), "naroz": cnt["narozeniny"] + cnt["vyroci"], "novi": cnt["novy"], "vyberka": len(vyb)}
         return JSONResponse({"ok": True, "badges": badges, "aktuality": akt})
     except Exception as exc:

@@ -49,6 +49,7 @@
   <div class="card">
     <div class="hd">Zaměstnanci <span id="cnt" style="color:#5d6b7c;font-weight:600"></span></div>
     <input id="srch" placeholder="🔎 Hledat…">
+    <div id="exbar" style="padding:7px 14px;font-size:11.5px;color:#7f8ea0;border-bottom:1px solid #1e2730"></div>
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
   </div>
   <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
@@ -78,14 +79,25 @@ const SEKCE=[
   {ic:"🖥️",t:"E-learning",d:"Kurzy, skóre.",on:false},
 ];
 
+let VSE=false;
 async function load(){
-  const d=await j(API+"/app/hr/people");
+  const d=await j(API+"/app/hr/people"+(VSE?"?vse=1":""));
   const l=document.getElementById('lst');
   if(!d.ok){l.innerHTML='<div class="empty">🔒 Nemáš oprávnění ('+esc(d.error||'')+').</div>';return;}
   LIDE=d.lide||[];
   document.getElementById('cnt').textContent='('+LIDE.length+')';
+  // Šárka 20.7.2026: seznam ukazuje jen lidi s platným poměrem; bývalí jdou zobrazit přepínačem.
+  const b=document.getElementById('exbar');
+  if(b){
+    if(VSE){ b.innerHTML='Zobrazeni <b>i bývalí</b> (bez platného poměru). '+
+      '<a href="#" onclick="toggleVse();return false;">Zobrazit jen aktivní</a>'; }
+    else if(d.skryto>0){ b.innerHTML='Skryto <b>'+d.skryto+'</b> osob bez platného pracovního poměru. '+
+      '<a href="#" onclick="toggleVse();return false;">Zobrazit i bývalé</a>'; }
+    else { b.innerHTML=''; }
+  }
   render();
 }
+function toggleVse(){ VSE=!VSE; load(); }
 function render(){
   const q=(document.getElementById('srch').value||'').toLowerCase();
   const l=document.getElementById('lst');

@@ -300,3 +300,79 @@ Docházka je tedy **sdílené území čtyř instancí** — koordinace přes `O
 a `WORK_LOCK.txt` je tu nutnost, ne formalita.
 
 
+
+## 16. Revize odchylek — rozhodnutí Jirky (20. 7. 2026)
+
+Po zjištění, že etapa 13.–16. 7. se v několika bodech rozešla se zadáním z 9. 7.
+(viz §15), prošel Jirka odchylky bod po bodu **proti reálným datům**, ne proti dojmu.
+Marti Pašek s postupem souhlasil.
+
+### 16.1 Zámek období je zase TVRDÝ (varianta A) — commit `cefba8fb`
+
+**Rozhodnuto: override z 15. 7. zrušen.** `fix/entry`, `fix/add` i `fix/void` vracejí
+**409 vždy**, když je měsíc zamčený — bez výjimky pro Peťu, Šárku i rodiče. Platná cesta
+je **odemkni → oprav → zamkni zpět**.
+
+Podklad z auditu (`tenant.att_audit`, stav k 20. 7.):
+
+| Zjištění | Číslo |
+|---|---|
+| Oprav provedených přes override | **0** |
+| Oprav s dnem před červencem (= v zamčeném období) | **0** |
+| Použití správné cesty odemkni→oprav→zamkni | **2×** (Marešová 15. 7., Šafránková 16. 7., obojí 6/2026, do minuty) |
+| Provoz oprav celkem | 25× fix, 16× void, 16× resolve, 7× add, 1× merge |
+
+Override tedy řešil problém, který v praxi nenastal, a ve stejný den, kdy byl nasazen,
+Marešová prokázala, že původní cesta funguje. **Zámek nad zpracovanými mzdami má být brána,
+ne štítek v poznámce**: odemčení je vědomý akt a je vidět v auditu, override byl neviditelný
+(v přehledu vypadal jako běžná oprava).
+
+- `fix/day` už nepovoluje editaci přes zámek a nově vrací **`can_unlock`**.
+- UI (ERP i mobil): držitel zámku vidí *„🔒 Období je uzamčeno — opravy nejsou možné.
+  Ty ho ale smíš odemknout: odemkni, oprav a zase zamkni."*; ostatní vidí, že odemyká Peťa/Šárka.
+- Cena: Peťa a Šárka mají o dvě kliknutí navíc, zato viditelně.
+
+### 16.2 Nekonzistence `fix/merge` — vyřešena automaticky
+
+`fix/merge` mělo tvrdé 409 už předtím. Zrušením override v ostatních endpointech
+**zmizel rozdíl sám** — všechny opravné operace se teď v zamčeném období chovají stejně.
+
+### 16.3 Zápisy do `work_alloc` — princip potvrzen, dvě opravy — commit `8212dcd0`
+
+**Princip zůstává.** Když editor doplní zapomenutou směnu a nevznikne segment, hodiny by
+byly v docházce a ve výkazu ne — to je horší nekonzistence než ta, které se bojíme.
+Kristýnina změna řešila reálný problém.
+
+Opraveny ale dvě věci, které byly chyby, ne záměr:
+
+- **A) Změna činnosti filtruje podle zakázky záznamu** (`project_ref IS NOT DISTINCT FROM`).
+  Dřív přepisovala činnost **všem** segmentům v okně — v multi-zakázkovém okně tedy i těm,
+  které s opravovaným záznamem nesouvisely (tichá ztráta). U změny zakázky byl filtr správně
+  od 12. 7., u činnosti chyběl. Efektivní zakázka = nová, když ji oprava měnila, jinak původní
+  (pořadí v kódu: trim → zakázka → činnost).
+- **B) Zápisy do `work_alloc` už nemlčí.** Všechna tři místa (trim, činnost, nový segment) byla
+  v `except Exception: pass` — při selhání oprava prošla a den se **tiše rozešel s výkazem**.
+  Nově `logger.error(exc_info=True)` → `fw.diag_log` **a varování do auditu**
+  (`⚠ work_alloc NEsrovnán (…) — výkaz může nesedět`, u add `⚠ segment NEzaložen`).
+  Do logu se nikdo nedívá, do auditu ano.
+
+Vědomě ponecháno **best-effort, ne transakčně**: rozbít opravu docházky kvůli selhání alokace
+by bylo horší (editor by nemohl opravit ani docházku). Projde to podstatné, nekonzistence je hlášená.
+
+### 16.4 Řazení detailu dne — potvrzeno ASC
+
+Po flip-flopu 15. 7. (DESC) → 16. 7. (ASC) **potvrzen stav ASC** = ráno → večer.
+Fronta a historie zůstávají DESC. Důvod: den se čte odshora dolů tak, jak probíhal.
+
+### 16.5 Co zůstává otevřené
+
+- **R1 samoúpravy** — každý si pořád může vlastní záznam zkrátit a přepsat zakázku
+  **bez časového limitu** (Martiho design ze 7. 6.). 9. 7. dáno mimo scope a předáno
+  Marti-AI/Martimu; stav k 20. 7. neověřen.
+- **Zámek na červenec** — až Peťa dojede mzdy.
+- **Uživatel 92 „👤 ?"** bez jména v seznamu lidí (kosmetika).
+- **Ověření v UI** — změny 16.1 a 16.3 jsou nasazené a syntakticky ověřené, ale koncové
+  ověření v prohlížeči/mobilu dělá člověk (endpointy chtějí device token/cookie, které
+  Claude přes most nemá).
+
+

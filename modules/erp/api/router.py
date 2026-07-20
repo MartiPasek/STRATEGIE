@@ -8804,20 +8804,47 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "   (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1)) AS jmeno, "
             " (SELECT d.perm_city FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS mesto, "
             " EXISTS(SELECT 1 FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS ma_kartu, "
-            + _POMER + " AS ma_pomer "
+            + _POMER + " AS ma_pomer, u.first_name, u.last_name "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
         if not vse:
             skryto = int(s.execute(_t("SELECT count(*) " + _ZAKLAD + " AND NOT" + _POMER)).scalar() or 0)
         q = (req.query_params.get("q") or "").strip().lower()
+
+        # Šárka 20.7.2026: řadit dle PŘÍJMENÍ a zobrazovat „Příjmení Jméno"
+        # (dosud se řadilo dle křestního, protože jméno je slepenec „Jméno Příjmení").
+        import unicodedata as _ud
+        _SUFFIX = {"ml", "ml.", "st", "st.", "jr", "jr.", "2"}
+
+        def _rozdel(first, last, cele):
+            """-> (prijmeni, krestni). Preferuje sloupce users, jinak rozebere celé jméno."""
+            first, last, cele = (first or "").strip(), (last or "").strip(), (cele or "").strip()
+            if last:
+                return last, first
+            if not cele:
+                return "", ""
+            casti = cele.split()
+            pripona = ""
+            while len(casti) > 1 and casti[-1].lower() in _SUFFIX:
+                pripona = (casti.pop() + " " + pripona).strip()
+            if len(casti) < 2:
+                return (cele, "")
+            prij = casti[-1] + ((" " + pripona) if pripona else "")
+            return prij, " ".join(casti[:-1])
+
+        def _klic(s_):
+            return _ud.normalize("NFKD", s_ or "").encode("ascii", "ignore").decode().lower()
+
         out = []
         for r in rows:
-            nm = (r[1] or ("#" + str(r[0])))
+            prijmeni, krestni = _rozdel(r[5], r[6], r[1])
+            nm = (prijmeni + " " + krestni).strip() or (r[1] or "").strip() or ("#" + str(r[0]))
             if q and q not in nm.lower():
                 continue
-            out.append({"user_id": r[0], "jmeno": nm, "mesto": r[2] or "",
+            out.append({"user_id": r[0], "jmeno": nm, "prijmeni": prijmeni, "mesto": r[2] or "",
                         "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4])})
+        out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

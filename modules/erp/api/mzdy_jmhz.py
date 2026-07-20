@@ -90,6 +90,7 @@ def compute_person_amounts(p):
     h = float(p["hruba"])
     proh = bool(p.get("prohlaseni", True))
     a = dict(p)
+    a["vz_sp"] = int(p["vz_sp"]) if p.get("vz_sp") is not None else _r(h)
     a["zuctovanoCelkem"] = _r(h)
     fond_h = float(p.get("fond_hodin", 160) or 160)
     a["vydelekPrumernyHod"] = round(h / fond_h, 2) if fond_h else 0.0
@@ -136,6 +137,11 @@ def compute_person_amounts(p):
 
 def _person_form(a, rok, mesic, dni_v_mesici):
     h = _r(float(a["hruba"]))
+    mzda_rozpad_xml = "" if h == 0 else ("<form:mzdaRozpad>"
+        "<form:tarif>%d</form:tarif>"
+        "<form:odmenyPravidelne>0</form:odmenyPravidelne>"
+        "<form:odmenyNepravidelne>0</form:odmenyNepravidelne>"
+        "</form:mzdaRozpad>" % h)
     mstart = "%04d-%02d-01" % (rok, mesic)
     mend = "%04d-%02d-%02d" % (rok, mesic, dni_v_mesici)
     proh = "true" if bool(a.get("prohlaseni", True)) else "false"
@@ -199,7 +205,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
                        "\t\t\t\t</form:vymerovaciZaklad>\n"
                        "\t\t\t\t<form:vymerovaciZakladParagraf5>\n"
                        "\t\t\t\t\t<form:pismenoA>%d</form:pismenoA>\n"
-                       "\t\t\t\t</form:vymerovaciZakladParagraf5>" % (h, h))
+                       "\t\t\t\t</form:vymerovaciZakladParagraf5>" % (a['vz_sp'], a['vz_sp']))
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>
@@ -248,7 +254,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t\t\t<form:platnostOd>{mstart}</form:platnostOd>
 \t\t\t\t\t\t<form:platnostDo>{mend}</form:platnostDo>
 \t\t\t\t\t\t<form:pocetDnu>{dni_v_mesici}</form:pocetDnu>
-\t\t\t\t\t\t<form:vymerovaciZaklad>{h}</form:vymerovaciZaklad>{vyl_xml}{odec_xml}
+\t\t\t\t\t\t<form:vymerovaciZaklad>{a['vz_sp']}</form:vymerovaciZaklad>{vyl_xml}{odec_xml}
 \t\t\t\t\t</form:eldp>
 \t\t\t\t</form:eldpSeznam>
 \t\t\t\t<form:pojisteniZamestnanec>
@@ -294,12 +300,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t</form:dan>
 \t\t\t</form:prijem>
 \t\t\t<form:mzda>
-\t\t\t\t<form:mzdaZuctovana>{h}</form:mzdaZuctovana>
-\t\t\t\t<form:mzdaRozpad>
-\t\t\t\t\t<form:tarif>{h}</form:tarif>
-\t\t\t\t\t<form:odmenyPravidelne>0</form:odmenyPravidelne>
-\t\t\t\t\t<form:odmenyNepravidelne>0</form:odmenyNepravidelne>
-\t\t\t\t</form:mzdaRozpad>
+\t\t\t\t<form:mzdaZuctovana>{h}</form:mzdaZuctovana>{mzda_rozpad_xml}
 \t\t\t\t<form:vydelek>
 \t\t\t\t\t<form:vydelekPrumernyHod>{a['vydelekPrumernyHod']}</form:vydelekPrumernyHod>
 \t\t\t\t</form:vydelek>
@@ -324,6 +325,7 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
         datum_vyplneni = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     forms = "\n".join(_person_form(a, rok, mesic, dni) for a in amt)
     n = len(amt)
+    pocet_formularu = n + 2  # 20235: ČSSZ počítá i SOUHRN + PVPOJ
     return f"""<?xml version='1.0' encoding='UTF-8'?>
 <n1:jmhz {NS}>
 \t<n1:VENDOR productName="STRATEGIE" productVersion="{VENDOR}"/>
@@ -337,8 +339,8 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
 \t\t<n1:datumVyplneni>{datum_vyplneni}</n1:datumVyplneni>
 \t\t<n1:balikPoradi>1</n1:balikPoradi>
 \t\t<n1:balikyPocet>1</n1:balikyPocet>
-\t\t<n1:formularePocetVBaliku>{n}</n1:formularePocetVBaliku>
-\t\t<n1:formularePocetCelkem>{n}</n1:formularePocetCelkem>
+\t\t<n1:formularePocetVBaliku>{pocet_formularu}</n1:formularePocetVBaliku>
+\t\t<n1:formularePocetCelkem>{pocet_formularu}</n1:formularePocetCelkem>
 \t</n1:hlavicka>
 \t<so:souhrn>
 \t\t<so:danUdajeMesic>
@@ -385,7 +387,8 @@ def load_persons_helios(firma, rok, mesic):
          "CAST(ISNULL(v.HrubaMzda,0) AS int), CAST(ISNULL(v.SocPojZam,0) AS int), "
          "CAST(ISNULL(v.ZdrPojZam,0) AS int), CAST(ISNULL(v.DanZakladni,0) AS int), "
          "CAST(ISNULL(v.DanovyBonus,0) AS int), CAST(ISNULL(v.CistaMzda,0) AS int), "
-         "CAST(ISNULL(v.SocPojFirma,0) AS int) "
+         "CAST(ISNULL(v.SocPojFirma,0) AS int), "
+         "CAST(ISNULL(v.ZakladSocPoj,0) AS int) "
          "FROM " + cloud_db + ".dbo.TabZamVyp v "
          "JOIN " + cloud_db + ".dbo.TabCisZam z ON z.ID=v.ZamestnanecId "
          "WHERE v.IdObdobi=" + str(idobd) + " ORDER BY z.Prijmeni, z.Jmeno")
@@ -398,7 +401,7 @@ def load_persons_helios(firma, rok, mesic):
                 "zid": int(v[3] or 0), "hruba": int(v[4] or 0),
                 "helios_sp_zam": int(v[5] or 0), "helios_zp_zam": int(v[6] or 0),
                 "helios_dan": int(v[7] or 0), "helios_bonus": int(v[8] or 0),
-                "helios_cista": int(v[9] or 0), "helios_sp_firma": int(v[10] or 0),
+                "helios_cista": int(v[9] or 0), "helios_sp_firma": int(v[10] or 0), "vz_sp": int(v[11] or 0),
                 "helios_ready": True,
             })
     return persons

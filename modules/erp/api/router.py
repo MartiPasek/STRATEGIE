@@ -39488,6 +39488,22 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
                 "rows": [["%s: %s" % (type(_ejg).__name__, str(_ejg)[:300]), _tbjg.format_exc()[-500:]]], "count": 1})
 
+    #   @@NEMPRIDEMO  -> postaví NEMPRI (OSE) demo (Marešová) přes build_nempri + ověří u ČSSZ validátoru.
+    if sql.upper().startswith("@@NEMPRIDEMO"):
+        import traceback as _tbnd
+        try:
+            from modules.erp.api import mzdy_nempri as _mn
+            from modules.erp.api.epodani_validace import validate_xml_string as _vxn
+            _xmln = _mn.build_nempri(_mn.DEMO_MARESOVA)
+            _rvn = _vxn(_xmln, test=True)
+            return JSONResponse({"ok": True, "columns": ["typ", "VysledekKod", "ok", "bytu", "detaily"],
+                "rows": [[_rvn.get("typ") or "NEMPRI", _rvn.get("VysledekKod"), str(_rvn.get("ok")),
+                          len(_xmln), " | ".join(_rvn.get("detaily", []))[:400] or (_rvn.get("chyba_spojeni") or "")]],
+                "count": 1})
+        except Exception as _end:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                "rows": [["%s: %s" % (type(_end).__name__, str(_end)[:250]), _tbnd.format_exc()[-400:]]], "count": 1})
+
     #   @@EPVALSTR | <xml>  -> validace libovolneho e-Podani XML (NEMPRI/JMHZ/PREZEC/REGZEC)
     #   z retezce proti oficialnimu validatoru CSSZ (test). Bez souboru/gitu.
     if sql.upper().startswith("@@EPVALSTR"):

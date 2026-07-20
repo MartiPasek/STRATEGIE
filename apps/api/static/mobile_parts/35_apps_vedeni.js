@@ -64,7 +64,7 @@
         gg.appendChild(appCell("📊","Statistika EDI",0,function(){openInApp("/edi-stat");}));
         gg.appendChild(appCell("🧩","EDI definice",0,function(){openInApp("/edi-definice");}));
         sec("🧑‍💼 HR & LIDÉ"); gg=grp();
-        gg.appendChild(appCell("📺","HR přehled",0,function(){openInApp("/hr-modul");}));
+        gg.appendChild(appCell("📺","HR nástěnka",0,function(){openInApp("/hr-modul");}));
         gg.appendChild(appCell("💰","Finanční podmínky 🔒",0,function(){openInApp("/finance-podminky");}));
         gg.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
         gg.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));

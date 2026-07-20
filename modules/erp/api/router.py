@@ -38665,7 +38665,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 
     # @@NEMPRI <davka_id> → vygeneruje NEMPRI25 XML pro podání (test generátoru)
-    if sql.upper().startswith("@@NEMPRI"):
+    if sql.upper().startswith("@@NEMPRI") and not sql.upper().startswith(("@@NEMPRIGEN", "@@NEMPRIDEMO")):
         parts = sql.split()
         try:
             did = int(parts[1])

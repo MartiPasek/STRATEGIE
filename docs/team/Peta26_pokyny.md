@@ -80,7 +80,11 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
   modré podtržení 2px `#34506f`.
 - **Filtrovací řádek je POD názvy sloupců** (ne nad nimi) — jako to má Marti (17.7.2026).
   Pořadí v `<thead>`: nejdřív řádek s názvy (`<tr>` s `<th>`), pod ním `<tr class="frow">` s filtry.
-  Oba řádky jsou přilepené (sticky): názvy `top:0`, filtry `top:<výška hlavičky>` (u faktur/pokladen 31px).
+  Oba řádky jsou přilepené (sticky): názvy `top:0`, filtry `top:<PŘESNÁ výška řádku s názvy>`.
+  POZOR: ten offset se **liší per tabulka** a musí sedět přesně, jinak při rolování vznikne nad
+  filtrem mezera (offset moc velký) nebo překryv (moc malý). Faktury mají hlavičku **31px**
+  (kvůli zaškrtávátku „vybrat vše" ve sloupci výběru), pokladny jen **25px**. Nekopírovat naslepo –
+  změř výšku `thead th` dané tabulky.
 - **Filtrovací kolonky černé, ohraničené** (tmavé pozadí `#0b0d10`, neutrální šedý rámeček
   `#363b43`, světlý text; řádek filtrů `#08090c`) — jako Marti, ať jsou vidět jako samostatná
   okénka a nesplývají. (Dřív byly světle šedomodré `#9fb2c8` — 20.7.2026 změněno na černé.)

@@ -89,6 +89,7 @@
     <button class="act" id="listBtn" title="Otevře pásky a listuje se šipkami ← → (jako v PDF)" onclick="if(LIDI.length){openPas(LIDI[0].zam_id)}else{alert('Nejdřív načti období.')}">📖 Listovat pásky</button>
     <button class="act" id="printAllBtn" title="Připraví všechny pásky k tisku – každá na samostatnou stránku (jako PDF)" onclick="printAll()">🖨 Tisk všech</button>
     <button class="act" id="jmhzBtn" title="Vygeneruje JMHZ (Jednotné měsíční hlášení zaměstnavatele) za období z Heliosu a ověří každou osobu u ČSSZ" onclick="jmhzOverit()">🏛️ JMHZ → ČSSZ</button>
+    <button class="act" id="nempriBtn" title="Ošetřovné / nemoc / PPM — příloha k žádosti o dávku NP (NEMPRI25) pro Kristý. Vygeneruje z Heliosu a ověří u ČSSZ." onclick="location.href='/davky'">🧾 Dávky NP · ošetřovné → ČSSZ</button>
     <button class="gen" id="genBtn" onclick="generuj()">▶ Generovat mzdy (čistá voda)</button>
     <div class="prog" id="prog" style="display:none"><i id="progBar"></i></div>
     <span id="genMsg" class="mut" style="font-size:12px"></span>

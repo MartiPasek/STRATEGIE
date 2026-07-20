@@ -82,8 +82,16 @@ def upload_aab(confirmed):
                               "text": "- Nova ikona a sjednoceny vzhled.\n- Vylepsena stabilita a podpora tabletu."}],
         }]
     }).execute()
-    edits.commit(packageName=PKG, editId=edit_id).execute()
-    print(f"COMMIT OK — v{vc} nahran do produkce + odeslan ke kontrole.")
+    # 20.7.2026: API uz odmita automaticke odeslani ke kontrole
+    # ("Changes cannot be sent for review automatically") a vyzaduje
+    # changesNotSentForReview=True. Driv to bylo PRESNE NAOPAK (tenhle parametr
+    # hazel 400 "must not be set") - chovani se zmenilo, kdyz se appka dostala
+    # do zamitnuteho stavu. Odeslani ke kontrole se proto odklepne rucne
+    # v Play Console: Prehled publikovani -> Odeslat zmeny ke kontrole.
+    edits.commit(packageName=PKG, editId=edit_id,
+                 changesNotSentForReview=True).execute()
+    print(f"COMMIT OK — v{vc} je v produkcnim tracku, ale JESTE NEODESLANY.")
+    print("Dokonci v Play Console: Prehled publikovani -> Odeslat zmeny ke kontrole.")
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""

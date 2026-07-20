@@ -14,6 +14,8 @@ Podání: XML dle NEMPRI25.xsd + el. podpis → DS e-Podání ČSSZ 5ffu6xk (neb
 """
 from __future__ import annotations
 
+import re
+
 NS = 'xmlns="http://schemas.cssz.cz/nem/NEMPRI25"'
 
 
@@ -75,8 +77,9 @@ def _ose_blok(p: dict) -> str:
     if konec and p.get("pecovalVeDnech"):
         dny = "".join("<obdobi><od>%s</od><do>%s</do></obdobi>" % (a, b) for (a, b) in p["pecovalVeDnech"])
         z += "<pecovalVeDnech>%s</pecovalVeDnech>" % dny
-    if p.get("kodRodVztah"):
-        z += _el("kodRodVztah", p["kodRodVztah"])
+    _kv = _rodvztah_kod(p.get("kodRodVztah"))
+    if _kv:
+        z += _el("kodRodVztah", _kv)
 
     out = (_el("oseVznik", _b(vznik)) + _el("oseTrvani", _b(trvani)) + _el("oseUkonceni", _b(ukonceni))
            + "<potvrzeniZamestnavatele>%s</potvrzeniZamestnavatele>" % pz
@@ -311,3 +314,105 @@ def load_nempri_priloha(firma, priloha_id):
 
 def generate_nempri_xml(firma, priloha_id):
     return build_nempri(load_nempri_priloha(firma, priloha_id))
+
+
+# ── Číselník CIS_RODVZTAH (vztah ošetřované osoby k pojištěnci) ────────────────
+# Claude ID26, 20.7.2026. Stahuje se ze ČSSZ (otevřená data), cache v paměti.
+# Fallback = "PL" (potomek/dítě) — ověřeno u produkčního validátoru ČSSZ (Marešová).
+_RODVZTAH_XLSX_URL = ("https://www.cssz.gov.cz/documents/20143/2748490/"
+                      "CIS_RODVZTAH.xlsx/e313d26e-412a-7153-7204-baec96bcec0f")
+_RODVZTAH_FALLBACK = [{"kod": "PL", "popis": "potomek v přímé linii (dítě, vnuk/vnučka)"}]
+_RODVZTAH_TEXT = {
+    "dite": "PL", "syn": "PL", "dcera": "PL", "potomek": "PL",
+    "vnuk": "PL", "vnucka": "PL", "vnouce": "PL",
+}
+_rodvztah_cache = None
+
+
+def _strip_diac(x):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", x or "") if not unicodedata.combining(c))
+
+
+def _download_rodvztah():
+    """Stáhne + naparsuje CIS_RODVZTAH.xlsx (stdlib zipfile, bez závislostí)."""
+    try:
+        import requests, zipfile, io as _io
+        import xml.etree.ElementTree as ET
+        r = requests.get(_RODVZTAH_XLSX_URL, timeout=15)
+        r.raise_for_status()
+        zf = zipfile.ZipFile(_io.BytesIO(r.content))
+        ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        shared = []
+        if "xl/sharedStrings.xml" in zf.namelist():
+            st = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+            for si in st.findall(ns + "si"):
+                shared.append("".join((t.text or "") for t in si.iter(ns + "t")))
+        names = [n for n in zf.namelist() if n.startswith("xl/worksheets/sheet")]
+        if not names:
+            return None
+        sh = ET.fromstring(zf.read(sorted(names)[0]))
+        out, seen = [], set()
+        kodpat = re.compile(r"^[0-9A-Z]{1,3}$")
+        has_lower = re.compile(r"[a-zá-ž /]")
+        for row in sh.iter(ns + "row"):
+            cells = []
+            for c in row.findall(ns + "c"):
+                v = c.find(ns + "v")
+                val = ""
+                if v is not None and v.text is not None:
+                    if c.get("t") == "s":
+                        try:
+                            val = shared[int(v.text)]
+                        except Exception:
+                            val = ""
+                    else:
+                        val = v.text
+                cells.append((val or "").strip())
+            kod = next((x for x in cells if kodpat.match(x)), None)
+            if not kod or kod in seen:
+                continue
+            popis = ""
+            for x in cells:
+                if x != kod and len(x) > len(popis):
+                    popis = x
+            # popis musí vypadat jako český text (vyřadí hlavičku KOD/NAZEV/…)
+            if not popis or not has_lower.search(popis.lower()):
+                continue
+            seen.add(kod)
+            out.append({"kod": kod, "popis": popis})
+        return out or None
+    except Exception:
+        return None
+
+
+def load_rodvztah_ciselnik(force=False):
+    """Číselník vztahů pro našeptávač/tlačítko. Cache; fallback na PL."""
+    global _rodvztah_cache
+    if _rodvztah_cache is not None and not force:
+        return _rodvztah_cache
+    kody = _download_rodvztah()
+    _rodvztah_cache = kody if kody else list(_RODVZTAH_FALLBACK)
+    return _rodvztah_cache
+
+
+def _rodvztah_kod(v):
+    """Volný text / kód vztahu → platný kód číselníku ([0-9A-Z]{1,3}); jinak None."""
+    if not v:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    up = s.upper()
+    if re.match(r"^[0-9A-Z]{1,3}$", up):
+        return up
+    key = _strip_diac(s).lower().strip()
+    if key in _RODVZTAH_TEXT:
+        return _RODVZTAH_TEXT[key]
+    try:
+        for e in load_rodvztah_ciselnik():
+            if key and key in _strip_diac(e.get("popis", "")).lower():
+                return e["kod"]
+    except Exception:
+        pass
+    return None

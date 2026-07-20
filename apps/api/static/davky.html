@@ -46,11 +46,12 @@ function novy(){
     +'<div class="row"><div><label>Typ dávky</label><select id="f_typ"><option value="OSE">Ošetřovné (OČR)</option><option value="NEM">Nemocenské</option><option value="PPM">PPM (mateřská)</option><option value="OTC">Otcovská</option><option value="DLO">Dlouhodobé ošetřovné</option></select></div>'
     +'<div><label>Identifikátor rozhodnutí</label><input id="f_id" placeholder="napr. 10251643250619001N"></div></div>'
     +'<div class="row"><div><label>Zaměstnanec — jméno</label><input id="f_jm"></div><div><label>Příjmení</label><input id="f_pr"></div><div><label>RČ zaměstnance</label><input id="f_rc"></div></div>'
-    +'<div class="row"><div><label>Ošetřovaná osoba — jméno</label><input id="f_ojm"></div><div><label>Příjmení</label><input id="f_opr"></div><div><label>RČ / nar.</label><input id="f_orc"></div><div><label>Vztah</label><input id="f_ovz" placeholder="dítě, manžel/ka…"></div></div>'
+    +'<div class="row"><div><label>Ošetřovaná osoba — jméno</label><input id="f_ojm"></div><div><label>Příjmení</label><input id="f_opr"></div><div><label>RČ / nar.</label><input id="f_orc"></div><div><label>Vztah ošetřované osoby</label><select id="f_ovz"><option value="PL">dítě / potomek (PL)</option></select></div></div>'
     +'<div class="row"><div><label>Datum od</label><input id="f_od" type="date"></div><div><label>Datum do</label><input id="f_do" type="date"></div><div><label>Společná domácnost</label><select id="f_dom"><option value="true">ano</option><option value="false">ne</option></select></div></div>'
     +'<div class="row"><div><label>Souběh dávek (mateřská…)</label><input id="f_sou"></div><div><label>Uzavření zařízení (škola)</label><input id="f_zar"></div></div>'
     +'<button class="btn" onclick="uloz()">💾 Uložit</button> <button class="btn sec" onclick="document.getElementById(\'form\').innerHTML=\'\'">Zrušit</button>'
     +'</div>';
+  loadRodvztah();
 }
 function uloz(){
   function v(i){return (document.getElementById(i)||{}).value||"";}
@@ -78,11 +79,35 @@ function load(){
     h+='</tbody></table></div><div id="xmlview"></div>';L.innerHTML=h;
   });
 }
+var _lastXml=null;
+function loadRodvztah(){
+  var sel=document.getElementById("f_ovz");if(!sel)return;
+  api("/api/v1/erp/app/davka/ciselnik/rodvztah").then(function(r){
+    if(!r||!r.ok||!r.kody||!r.kody.length)return;
+    sel.innerHTML=r.kody.map(function(k){return '<option value="'+esc(k.kod)+'">'+esc(k.popis||k.kod)+' ('+esc(k.kod)+')</option>';}).join("");
+    if(r.kody.some(function(k){return k.kod==="PL";}))sel.value="PL";
+  });
+}
+function stahni(){
+  if(!_lastXml)return;
+  var b=new Blob([_lastXml.xml],{type:"application/xml"});
+  var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=_lastXml.filename;
+  document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);document.body.removeChild(a);},100);
+}
 function gen(id){
+  var v=document.getElementById("xmlview");
+  v.innerHTML='<div class="hint" style="margin-top:8px">Generuji NEMPRI25 a ověřuji u ČSSZ…</div>';
   api("/api/v1/erp/app/davka/generuj-xml","POST",{id:id}).then(function(r){
-    var v=document.getElementById("xmlview");
     if(!r||!r.ok){v.innerHTML='<div class="err">'+esc((r&&r.error)||"chyba")+'</div>';return;}
-    v.innerHTML='<div class="card"><div class="hint" style="margin-bottom:6px">NEMPRI25 XML (náhled) — uloženo k podání #'+id+'</div>'
+    _lastXml={xml:r.xml,filename:(r.filename||("NEMPRI25_"+id+".xml"))};
+    var val=r.validace||{},banner;
+    if(val.ok===true)banner='<div class="card" style="border-color:#34d39955;color:var(--green)">✓ ČSSZ: podání projde validací (0 chyb). Připraveno k odeslání.</div>';
+    else if(val.ok===false)banner='<div class="card" style="border-color:#f8717155;color:#ff8a8a">✗ ČSSZ zamítlo — oprav data: '+esc(val.detaily||val.error||val.VysledekKod||"chyba")+'</div>';
+    else banner='<div class="card" style="border-color:#fbbf2455;color:var(--amber)">⚠ Ověření u ČSSZ teď nedostupné — XML je vygenerované, ale před odesláním ověř. '+esc(val.error||"")+'</div>';
+    v.innerHTML=banner
+      +'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">'
+      +'<div class="hint">NEMPRI25 XML (náhled) — uloženo k podání #'+id+'</div>'
+      +'<button class="btn" style="margin:0;white-space:nowrap" onclick="stahni()">⬇ Stáhnout XML</button></div>'
       +'<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:11px;color:#bfe3c8;max-height:420px;overflow:auto;margin:0">'+esc(r.xml)+'</pre></div>';
     v.scrollIntoView({behavior:"smooth"});
   });

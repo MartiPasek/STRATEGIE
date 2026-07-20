@@ -36577,7 +36577,16 @@ async def davka_generuj_xml(req: Request):
         s.execute(_t("UPDATE tenant.davka_podani SET xml_data=:x, updated_at=now() WHERE id=:i"),
                   {"x": xml, "i": d["id"]})
         s.commit()
-        return {"ok": True, "xml": xml}
+        # ověření u ČSSZ (best-effort) — Kristý uvidí, jestli podání projde
+        val = None
+        try:
+            from modules.erp.api.epodani_validace import validate_xml_string as _vx
+            val = _vx(xml, test=True)
+        except Exception as _ve:
+            val = {"ok": None, "error": str(_ve)[:200]}
+        _pr = (d.get("emp_prijmeni") or "podani").strip().replace(" ", "_")
+        fname = "NEMPRI25_OSE_%s_%s.xml" % (_pr, (d.get("datum_od") or ""))
+        return {"ok": True, "xml": xml, "validace": val, "filename": fname}
     finally:
         s.close()
 
@@ -36770,6 +36779,19 @@ def davka_list(req: Request):
         return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
     finally:
         s.close()
+
+
+@api_router.get("/app/davka/ciselnik/rodvztah")
+def davka_ciselnik_rodvztah(req: Request):
+    """Číselník vztahů ošetřované osoby (CIS_RODVZTAH) pro našeptávač v UI."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _has_capability(uid, 'neschopenky', 'read'):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        from modules.erp.api import mzdy_nempri as _mn
+        return {"ok": True, "kody": _mn.load_rodvztah_ciselnik()}
+    except Exception as e:
+        return {"ok": True, "kody": [{"kod": "PL", "popis": "potomek/dítě"}], "warn": str(e)[:120]}
 
 
 @api_router.get("/app/davka/detail")

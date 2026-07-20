@@ -35,7 +35,7 @@
   <div id="msg"></div>
   <div class="card">
     <div style="font-weight:800;margin-bottom:2px">📁 Generovat z mzdového systému (Helios)</div>
-    <div class="hint" style="margin-bottom:8px">Vyber firmu a načti mzdové přílohy ošetřovného. Kompletní data (rozhodné období, vztah, RČ…) se doplní automaticky z Heliosu — stačí doplnit číslo účtu pro výplatu dávky, vygenerovat a ověřit u ČSSZ.</div>
+    <div class="hint" style="margin-bottom:8px">Vyber firmu a načti mzdové přílohy ošetřovného. Kompletní data včetně čísla účtu se doplní automaticky z Heliosu — jen vygeneruj a ověř u ČSSZ. Pole Účet vyplň jen tehdy, když chceš účet ručně přepsat.</div>
     <div class="row">
       <div><label>Firma</label><select id="h_firma"><option value="EC">EUROSOFT – Control (EC)</option><option value="ES" selected>EUROSOFT – System (ES)</option></select></div>
       <div><label>Rok (nepovinné)</label><input id="h_rok" type="number" placeholder="2026"></div>
@@ -130,11 +130,11 @@ function hload(){
     if(!j||!j.ok){L.innerHTML='<div class="err">'+esc((j&&j.error)||"chyba")+'</div>';return;}
     var r=j.polozky||[];
     if(!r.length){L.innerHTML='<div class="hint">Žádné přílohy ošetřovného (OSE) pro tento filtr.</div>';return;}
-    var h='<table><thead><tr><th>Zaměstnanec</th><th>Ošetřovaná osoba</th><th>Od</th><th>Do</th><th>Č. rozhodnutí</th><th>Účet pro výplatu</th><th></th></tr></thead><tbody>';
+    var h='<table><thead><tr><th>Zaměstnanec</th><th>Ošetřovaná osoba</th><th>Od</th><th>Do</th><th>Č. rozhodnutí</th><th>Účet (auto z Heliosu)</th><th></th></tr></thead><tbody>';
     r.forEach(function(e){
       h+='<tr><td>'+esc(e.zamestnanec||"")+'</td><td>'+esc(e.osetrovana||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td>'
         +'<td style="font-size:11px">'+esc(e.cisloRozhodnuti||"")+'</td>'
-        +'<td><input id="hu_'+e.id+'" placeholder="247287648/0300" style="min-width:135px"></td>'
+        +'<td><input id="hu_'+e.id+'" placeholder="auto z Heliosu — přepiš jen když chceš" style="min-width:135px"></td>'
         +'<td><button class="btn sec" style="margin:0;padding:5px 10px;white-space:nowrap" onclick="hgen(\''+f+'\','+e.id+')">📄 Generovat + ověřit</button></td></tr>';
     });
     h+='</tbody></table>';L.innerHTML=h;

@@ -310,11 +310,33 @@ def load_nempri_priloha(firma, priloha_id, ucet=None):
         },
         "kontakt": {"pracovnik": v[28], "telefon": (v[29] or None), "email": (v[30] or None)},
     }
-    if ucet:
-        _u = _parse_ucet(ucet)
-        if _u:
-            p["ucet"] = _u
+    # platební spojení: ruční override > účet zaměstnance z Heliosu (TabMzdaNaUcetView)
+    _ucet_dict = _parse_ucet(ucet) if ucet else None
+    if not _ucet_dict and zid:
+        _ucet_dict = _zam_ucet(cdb, zid)
+    if _ucet_dict:
+        p["ucet"] = _ucet_dict
     return p
+
+
+def _zam_ucet(cdb, zid):
+    """Účet zaměstnance pro výplatu (mzda na účet) z Heliosu → dict pro build_nempri."""
+    try:
+        r = _q("SELECT TOP 1 RTRIM(CisloUctu), RTRIM(KodUstavu), RTRIM(IBANElektronicky) "
+               "FROM %s.dbo.TabMzdaNaUcetView WHERE ZamestnanecId=%d "
+               "ORDER BY IdObdobi DESC, PorCislo" % (cdb, int(zid)))
+        if r.get("ok") and r.get("rows"):
+            row = list(r["rows"][0]) + [None, None, None]
+            c = (row[0] or "").strip()
+            b = (row[1] or "").strip()
+            if c and b:
+                if "-" in c:
+                    pre, num = c.rsplit("-", 1)
+                    return {"cislo": num.strip(), "banka": b, "predcisli": pre.strip()}
+                return {"cislo": c, "banka": b}
+    except Exception:
+        pass
+    return None
 
 
 def generate_nempri_xml(firma, priloha_id, ucet=None):

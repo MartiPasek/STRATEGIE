@@ -91,6 +91,12 @@ def _validate_root(root, test: bool = True) -> dict:
         ok = all(v.get("ok") for v in vysledky) if vysledky else False
         return {"ok": ok, "typ": "JMHZ", "prostredi": prostredi, "pocet": len(osoby), "vysledky": vysledky}
 
+    # NEMPRI (Příloha k žádosti o dávku) → obal celý kořen
+    if rtag == "NEMPRI":
+        payload = etree.tostring(root, encoding="unicode")
+        res = _call(payload, test=test)
+        return {"ok": res.get("ok"), "typ": "NEMPRI", "prostredi": prostredi, **res}
+
     # PREZEC / REGZEC → obal celý kořen
     if rtag in ("PREZEC", "REGZEC"):
         payload = etree.tostring(root, encoding="unicode")

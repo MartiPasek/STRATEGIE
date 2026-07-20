@@ -39410,6 +39410,26 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
                 "rows": [["%s: %s" % (type(_ejg).__name__, str(_ejg)[:300]), _tbjg.format_exc()[-500:]]], "count": 1})
 
+    #   @@EPVALSTR | <xml>  -> validace libovolneho e-Podani XML (NEMPRI/JMHZ/PREZEC/REGZEC)
+    #   z retezce proti oficialnimu validatoru CSSZ (test). Bez souboru/gitu.
+    if sql.upper().startswith("@@EPVALSTR"):
+        import traceback as _tbes
+        try:
+            _rest = sql[len("@@EPVALSTR"):]
+            _xmlin = _rest.partition("|")[2].strip()
+            if not _xmlin:
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@EPVALSTR | <xml>"]], "count": 1})
+            from modules.erp.api.epodani_validace import validate_xml_string as _vxs
+            _rv = _vxs(_xmlin, test=True)
+            _det = " | ".join(_rv.get("detaily", []))[:600] or (_rv.get("chyba_spojeni") or _rv.get("raw") or _rv.get("error") or "")
+            return JSONResponse({"ok": True,
+                "columns": ["typ", "prostredi", "VysledekKod", "ok", "detaily"],
+                "rows": [[_rv.get("typ") or "?", _rv.get("prostredi") or "test",
+                          _rv.get("VysledekKod"), str(_rv.get("ok")), _det]], "count": 1})
+        except Exception as _ees:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                "rows": [["%s: %s" % (type(_ees).__name__, str(_ees)[:250]), _tbes.format_exc()[-400:]]], "count": 1})
+
     #   @@EPVAL <soubor> [PROD]  → ověří XML (docs/jmhz/) proti oficiálnímu validátoru ČSSZ
     #   (SOAP, anonymní, test t-epodani.cssz.cz). JMHZ = per formularOsoby; PREZEC/REGZEC = celý root.
     if sql.upper().startswith("@@EPVAL"):

@@ -39419,6 +39419,8 @@ async def diag_sql(req: Request) -> JSONResponse:
             _hdr_ok = bool(_pc) and int(_pc.group(1)) == len(_forms) + _nso + _npv
             _e315 = 0
             _e267 = 0
+            _badid = 0
+            _badlist = []
             for _f in _forms:
                 _vz = _rejg.search(r"<form:pismenoA>(\d+)</form:pismenoA>", _f)
                 _sp = _rejg.search(r"<form:pojisteniZamestnanec>\s*<form:socialniPojisteni>(\d+)</form:socialniPojisteni>", _f, _rejg.S)
@@ -39430,6 +39432,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _mz = _rejg.search(r"<form:mzdaZuctovana>(\d+)</form:mzdaZuctovana>\s*<form:mzdaRozpad>", _f)
                 if _mz and int(_mz.group(1)) == 0:
                     _e267 += 1
+                _ip = _rejg.search(r"<form:idPpv>([^<]+)</form:idPpv>", _f)
+                if _ip and len(_ip.group(1).strip()) != 13:
+                    _badid += 1
+                    _ik2 = _rejg.search(r"<form:ikMpsv>([^<]+)</form:ikMpsv>", _f)
+                    _badlist.append("%s(ik=%s)" % (_ip.group(1).strip(), _ik2.group(1) if _ik2 else "?"))
             _cssz = ""
             try:
                 from modules.erp.api import epodani_validace as _evjg
@@ -39439,11 +39446,12 @@ async def diag_sql(req: Request) -> JSONResponse:
             except Exception as _eev:
                 _cssz = "chyba: %s" % str(_eev)[:120]
             return JSONResponse({"ok": True,
-                "columns": ["soubor", "osob", "pocetCelkem", "20235", "20315", "20267", "CSSZ validace/osoba"],
+                "columns": ["soubor", "osob", "pocetCelkem", "20235", "20315", "20267", "IDPPV!=13", "CSSZ/osoba"],
                 "rows": [[_fn, len(_forms), (_pc.group(1) if _pc else "?"),
                           "OK" if _hdr_ok else "CHYBA",
                           ("OK" if _e315 == 0 else "%dx" % _e315),
-                          ("OK" if _e267 == 0 else "%dx" % _e267), _cssz]], "count": 1})
+                          ("OK" if _e267 == 0 else "%dx" % _e267),
+                          ("OK" if _badid == 0 else "%dx: %s" % (_badid, ", ".join(_badlist)[:200])), _cssz]], "count": 1})
         except Exception as _ejg:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
                 "rows": [["%s: %s" % (type(_ejg).__name__, str(_ejg)[:300]), _tbjg.format_exc()[-500:]]], "count": 1})

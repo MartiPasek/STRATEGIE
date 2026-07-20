@@ -341,7 +341,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t</n1:formularOsoby>"""
 
 
-def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
+def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None, opravne=False, id_podani=None):
     """Sestaví celé JMHZ podání z listu osob (každá s 'hruba' + identifikátory)."""
     vs = vs or DEFAULT_VS
     dni = calendar.monthrange(rok, mesic)[1]
@@ -356,6 +356,10 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None):
     if datum_vyplneni is None:
         datum_vyplneni = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     forms = "\n".join(_person_form(a, rok, mesic, dni) for a in amt)
+    if opravne:
+        forms = forms.replace("<n1:typFormulare>R</n1:typFormulare>", "<n1:typFormulare>O</n1:typFormulare>")
+    _typ_podani = "O" if opravne else "R"
+    _id_podani = id_podani or str(uuid.uuid4())
     n = len(amt)
     pocet_formularu = n + 2  # 20235: ČSSZ počítá i SOUHRN + PVPOJ
     return f"""<?xml version='1.0' encoding='UTF-8'?>
@@ -669,10 +673,10 @@ def prepare_persons(firma, rok, mesic):
     return ps
 
 
-def generate_xml(firma, rok, mesic):
+def generate_xml(firma, rok, mesic, opravne=False, id_podani=None):
     ps = prepare_persons(firma, rok, mesic)
     vs = VS_ZAMESTNAVATELE.get((firma or "").upper(), DEFAULT_VS)
-    xml = build_jmhz(rok, mesic, ps, vs=vs)
+    xml = build_jmhz(rok, mesic, ps, vs=vs, opravne=opravne, id_podani=id_podani)
     return xml, ps
 
 

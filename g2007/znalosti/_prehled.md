@@ -4,11 +4,11 @@
 
 | oblast | úroveň | znalostí | popis |
 |--------|--------|----------|-------|
-| `system-g2007` | system | 26 | Jak g2007 funguje a jak je mineno (vize). Globalni pravda. |
+| `system-g2007` | system | 40 | Jak g2007 funguje a jak je mineno (vize). Globalni pravda. |
 | `marti-ai` | system | 5 | Persona je inkarnace Marti-AI MD1. Zakladni identita, ze ktere role-persony inkarnuji. |
 | `ucetnictvi` | obor | 10 | Oborova znalost pro personu ucetni. |
 | `mzdy` | obor | 5 | Oborova znalost pro personu mzdovou. |
-| `dochazka` | obor | 10 | Oborova znalost pro personu odpovednou za dochazku. |
+| `dochazka` | obor | 11 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 0 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 1 | Oborova znalost pro personu tvorici nabidky. |
 | `kalkulace-rozvadecu` | obor | 7 | Oborova znalost pro personu kalkulujici rozvadece. |

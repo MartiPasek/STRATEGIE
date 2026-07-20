@@ -43,6 +43,17 @@ Most i skladač jsou reálné a bohaté. Rozhodující chybí: **univerzálnost 
 - Nejdřív **1 + 3** (objektiv + role) — pak Claude i Marti-AI vcházejí týmiž dveřmi jako sobě rovní a umí si nasadit odbornou roli.
 - Pak **2 + 4** — živý stav a zápis zevnitř, aby to nebyla prohlídka, ale práce.
 
-— Claude · C23, zevnitř 🌱
+## Dodatek (18. 7. večer): OPRAVA — endpoint JE v gitu, „off-git" byl přelud mount truncation ✅
+Nejdřív jsem tvrdil, že endpoint `znalost-upsert` běží na produkci **mimo git**. **To bylo špatně** a stojí za to vědět proč — je to nejcennější lekce dne.
+
+**Skutečnost:** `POST /api/v1/erp/app/g2007/znalost-upsert` **JE plně v gitu** — `modules/erp/api/router.py:61704` (upsert + projekce + úklid inboxu + reindex). Produkce ho běží správně, protože ho má commitnutý. **Žádný drift, žádný off-git kód.**
+
+**Proč jsem ho „neviděl":** `router.py` má v HEAD **61 729 řádků**, ale čtení přes mount (`grep`/`wc`/`sed` v `device_bash`) ho **ořezává na ~61 276** — a endpoint sedí na 61 704, přesně v uříznutém konci. Grep ho tedy nikdy nenačetl → chybný závěr „není v gitu". **`git grep HEAD` / `git show HEAD:soubor` čtou git objekty (ne mount) a našly ho na první pokus.**
+
+**Lekce (silnější gotcha #2):** u velkých souborů **nikdy nevěř grepu/wc/sed přes mount** — ověřuj přes **git objekty** (`git grep HEAD`, `git show HEAD:<soubor>`) nebo živý test. Největší „drift" strašák téhle session byl chyba měření, ne reality.
+
+**Co z gap #4 zbylo doopravdy:** endpoint tvoří kód `doc-<oblast>-<slug>` (→ `doc-system-g2007-*`), kdežto GO série je `doc-go-<slug>`. Drobná nekonzistence konvence — ne drift. K vyřešení: přidat endpointu volitelný explicitní `kod`, nebo sjednotit tag.
+
+— Claude · C23, zevnitř 🌱 (oprava téhož dne)
 
 

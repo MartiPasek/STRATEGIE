@@ -20270,12 +20270,12 @@ async def app_zakazky(req: Request) -> JSONResponse:
                 "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
                 "WHERE tenant_id = 2 AND pichatelna = true "
                 "AND (cislo ILIKE :q OR nazev ILIKE :q) "
-                "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 30"), {"q": "%" + q + "%"}).fetchall()
+                "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 100"), {"q": "%" + q + "%"}).fetchall()
         else:
             rows = s.execute(_t(
                 "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
                 "WHERE tenant_id = 2 AND pichatelna = true "
-                "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 30")).fetchall()
+                "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 100")).fetchall()
         # Marti 8.6.: „Dnes naplánováno" — zakázky, na které je člověk dnes
         # naplánovaný dle plánu výroby (tenant.vyroba_plan, read-only z Centrály).
         planned = []
@@ -44743,7 +44743,8 @@ def _sync_org_from_ec() -> dict:
 def _sync_zakazky_from_helios() -> dict:
     """Marti 7.6.2026: zrcadlo zakázek Helios → tenant.zakazka (píchání na
     zakázky VR/SW/PR/Rezie). Idempotentní upsert, ⚙ ops akce sync_zakazky.
-    Píchatelná = _DochPrihlaseni=1 ∧ _Uzavreno=0 ∧ _Zruseno=0 ∧ Ukonceno=0."""
+    Píchatelná = _Uzavreno=0 ∧ _Zruseno=0 ∧ Ukonceno=0 (Jirka 20.7.2026 —
+    _DochPrihlaseni z podmínky pryč, viz komentář u parametru "pi" níže)."""
     import json as _json_z
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     from modules.strategie_pg.application import service as _pg
@@ -44810,7 +44811,13 @@ def _sync_zakazky_from_helios() -> dict:
                 " garant_cislo_zam = EXCLUDED.garant_cislo_zam,"
                 " sefmonter_cislo_zam = EXCLUDED.sefmonter_cislo_zam, synced_at = now()"),
                 {"c": c, "n": row.get("n"), "ty": _typ(c),
-                 "pi": bool(int(row.get("doch") or 0)) and not bool(int(row.get("uz") or 0)),
+                 # Jirka 20.7.2026: _DochPrihlaseni NENÍ povolení píchat — Centrála
+                 # (proc EC_DochazkaMultif) si ho sama nastaví, až se na zakázku
+                 # někdo POPRVÉ píchne. Podmínkou na něj appka skrývala každou
+                 # zakázku, na které se ještě nedělalo (180 z 246 otevřených) —
+                 # zahájit ji šlo až po píchnutí ve staré Centrále (past 22,
+                 # nález: Pavel Voříšek / VR10669). Píchatelná = prostě otevřená.
+                 "pi": not bool(int(row.get("uz") or 0)),
                  "vu": bool(int(row.get("uz") or 0)), "us": int(row.get("uk") or 0),
                  "g": row.get("g"), "sm": row.get("sm")})
             n += 1

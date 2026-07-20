@@ -19634,6 +19634,11 @@ async def att_fix_entry(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "nahrazeno opravou #" + str(nid) + " (" + actor + ")"})
+        # Jirka 20.7.2026: zápisy do work_alloc už NEMLČÍ. Dřív byly všechny
+        # v `except: pass`, takže při selhání oprava docházky prošla a den se
+        # tiše rozešel s výkazem (hodiny sedí, alokace ne). Teď se chyba loguje
+        # (logger.error → fw.diag_log) a zapíše do auditu, ať je dohledatelná.
+        _wa_fail = []
         # work_alloc: úseky zakázek patřící k původnímu segmentu zkrátit na nový konec
         if row[6] in ("work", "overhead") and row[4] is not None:
             try:
@@ -19663,27 +19668,42 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                             {"t": _ATT_TENANT, "u": tu, "np": pref, "op": row[7],
                              "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
             except Exception:
-                pass
+                logger.error("att fix/entry: srovnání work_alloc selhalo (entry=%s, emp=%s)",
+                             eid, emp, exc_info=True)
+                _wa_fail.append("úseky zakázek")
         if cin_new and new_code in ("work", "overhead"):
             try:
                 _tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
                 _cn = s.execute(_t("SELECT name, COALESCE(icon,'') FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"), {"c": cin_new}).first()
                 if _tu and _cn:
+                    # Jirka 20.7.2026: filtruj podle zakázky záznamu — stejně jako
+                    # u změny zakázky výše. Bez filtru se v multi-zakázkovém okně
+                    # přepsala činnost VŠEM segmentům (i těm, které s opravovaným
+                    # záznamem nesouvisí) — tichá ztráta. Pravda o segmentech je
+                    # work_alloc (precedent Voříšek 27.6.). Efektivní zakázka =
+                    # nová, když ji oprava měnila, jinak původní.
+                    _eff_pref = pref if (pref_sent and new_code == "work" and pref != row[7]) else row[7]
                     s.execute(_t(
                         "UPDATE tenant.work_alloc SET cinnost_id=:ci, cinnost_name=:cn, cinnost_icon=:cic, updated_at=now() "
                         "WHERE user_id=:u AND started_at >= CAST(:ns AS timestamptz) - interval '1 minute' "
-                        "  AND started_at < CAST(:ne AS timestamptz)"),
-                        {"u": _tu, "ci": cin_new, "cn": _cn[0], "cic": _cn[1],
+                        "  AND started_at < CAST(:ne AS timestamptz) "
+                        "  AND project_ref IS NOT DISTINCT FROM :ep"),
+                        {"u": _tu, "ci": cin_new, "cn": _cn[0], "cic": _cn[1], "ep": _eff_pref,
                          "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
             except Exception:
-                pass
+                logger.error("att fix/entry: zápis činnosti do work_alloc selhal (entry=%s, emp=%s, cinnost=%s)",
+                             eid, emp, cin_new, exc_info=True)
+                _wa_fail.append("činnost")
         s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
                      "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
                   {"t": _ATT_TENANT, "i": eid})
         zm_zak = (" | zakázka " + (row[7] or "—") + " → " + (pref or "—")) if (pref_sent and new_code == "work" and pref != row[7]) else ""
+        # Selhání zápisu do work_alloc patří do auditu — den může být rozejitý
+        # s výkazem a ten, kdo ho bude řešit, se to musí dozvědět odsud.
+        wa_err = (" | ⚠ work_alloc NEsrovnán (" + ", ".join(_wa_fail) + ") — výkaz může nesedět") if _wa_fail else ""
         _att_fix_audit(s, "fix", nid, emp, uid, actor,
                        old_note=old_desc.strip(), new_note=(new_code + " " + zac + "–" + kon + ((" 🧾 " + pref) if pref else "")),
-                       detail=reason + zm_zak + " | původní #" + str(eid), old_date=sd.isoformat())
+                       detail=reason + zm_zak + wa_err + " | původní #" + str(eid), old_date=sd.isoformat())
         _att_fix_notify(s, emp, uid, actor, "🛠 Oprava docházky",
                         actor + " opravil(a) tvou docházku " + sd.strftime("%d.%m.") + ": "
                         + old_desc.strip() + " → " + zac + "–" + kon
@@ -19796,9 +19816,15 @@ async def att_fix_add(req: Request) -> JSONResponse:
                          "pr": pref, "pn": _pn, "ci": cin_add, "cn": (_cn[0] if _cn else None), "cic": (_cn[1] if _cn else None),
                          "rz": (tcode == "overhead")})
             except Exception:
-                pass
+                # Jirka 20.7.2026: nemlčet — bez segmentu jsou hodiny v docházce,
+                # ale ve výkazu/vytížení chybí. Musí být vidět v logu i v auditu.
+                logger.error("att fix/add: založení work_alloc segmentu selhalo (entry=%s, emp=%s, zakazka=%s)",
+                             nid, emp, pref, exc_info=True)
+                _wa_add_fail = True
         _att_fix_audit(s, "add", nid, emp, uid, actor,
-                       new_note=(tcode + " " + zac + "–" + kon), detail=reason,
+                       new_note=(tcode + " " + zac + "–" + kon),
+                       detail=reason + (" | ⚠ work_alloc segment NEzaložen — výkaz může nesedět"
+                                        if locals().get("_wa_add_fail") else ""),
                        old_date=day.isoformat())
         _att_fix_notify(s, emp, uid, actor, "🛠 Doplnění docházky",
                         actor + " doplnil(a) do tvé docházky " + day.strftime("%d.%m.") + " záznam "

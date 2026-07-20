@@ -81,7 +81,9 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
 - **Filtrovací řádek je POD názvy sloupců** (ne nad nimi) — jako to má Marti (17.7.2026).
   Pořadí v `<thead>`: nejdřív řádek s názvy (`<tr>` s `<th>`), pod ním `<tr class="frow">` s filtry.
   Oba řádky jsou přilepené (sticky): názvy `top:0`, filtry `top:<výška hlavičky>` (u faktur/pokladen 31px).
-- **Filtrovací kolonky tlumené** (světle šedomodré `#9fb2c8`, tmavý text) — NE zářivé.
+- **Filtrovací kolonky černé, ohraničené** (tmavé pozadí `#0b0d10`, neutrální šedý rámeček
+  `#363b43`, světlý text; řádek filtrů `#08090c`) — jako Marti, ať jsou vidět jako samostatná
+  okénka a nesplývají. (Dřív byly světle šedomodré `#9fb2c8` — 20.7.2026 změněno na černé.)
 - **Buňky:** jemné oddělovače sloupců, přetečení se ořízne třemi tečkami (…), řádek se při najetí
   myší zvýrazní.
 - **Zaškrtávací (ano/ne) sloupce:** hlavička jen 1 písmeno (R/Ú/S/Z…) + tooltip s celým názvem, úzké.

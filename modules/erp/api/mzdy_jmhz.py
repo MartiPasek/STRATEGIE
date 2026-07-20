@@ -91,6 +91,7 @@ def compute_person_amounts(p):
     proh = bool(p.get("prohlaseni", True))
     a = dict(p)
     a["vz_sp"] = int(p["vz_sp"]) if p.get("vz_sp") is not None else _r(h)
+    a["sp_firma_form"] = int(math.ceil(a["vz_sp"] * SP_FIRMA))  # 20315: pojistne zamestnavatele na formulari = ceil(VZ*0.248)
     a["zuctovanoCelkem"] = _r(h)
     fond_h = float(p.get("fond_hodin", 160) or 160)
     a["vydelekPrumernyHod"] = round(h / fond_h, 2) if fond_h else 0.0
@@ -261,7 +262,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t\t<form:socialniPojisteni>{a['sp_zam']}</form:socialniPojisteni>
 \t\t\t\t</form:pojisteniZamestnanec>
 \t\t\t\t<form:pojisteniZamestnavatel>
-\t\t\t\t\t<form:socialniPojisteni>{a['sp_firma']}</form:socialniPojisteni>
+\t\t\t\t\t<form:socialniPojisteni>{a['sp_firma_form']}</form:socialniPojisteni>
 \t\t\t\t</form:pojisteniZamestnavatel>
 \t\t\t\t<form:slevaZamestnance>
 \t\t\t\t\t<form:slevaZamestnanceEvidovana>false</form:slevaZamestnanceEvidovana>

@@ -39424,6 +39424,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _sp = _rejg.search(r"<form:pojisteniZamestnanec>\s*<form:socialniPojisteni>(\d+)</form:socialniPojisteni>", _f, _rejg.S)
                 if _vz and _sp and int(_sp.group(1)) != _mjmath.ceil(int(_vz.group(1)) * 0.071):
                     _e315 += 1
+                _spf = _rejg.search(r"<form:pojisteniZamestnavatel>\s*<form:socialniPojisteni>(\d+)</form:socialniPojisteni>", _f, _rejg.S)
+                if _vz and _spf and int(_spf.group(1)) != _mjmath.ceil(int(_vz.group(1)) * 0.248):
+                    _e315 += 1
                 _mz = _rejg.search(r"<form:mzdaZuctovana>(\d+)</form:mzdaZuctovana>\s*<form:mzdaRozpad>", _f)
                 if _mz and int(_mz.group(1)) == 0:
                     _e267 += 1

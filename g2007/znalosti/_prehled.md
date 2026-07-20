@@ -11,7 +11,7 @@
 | `dochazka` | obor | 11 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 0 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 1 | Oborova znalost pro personu tvorici nabidky. |
-| `kalkulace-rozvadecu` | obor | 7 | Oborova znalost pro personu kalkulujici rozvadece. |
+| `kalkulace-rozvadecu` | obor | 8 | Oborova znalost pro personu kalkulujici rozvadece. |
 | `bozp-po` | obor | 0 | Oborova znalost pro personu BOZP a pozarni ochrany. |
 | `tisax` | obor | 1 | Oborova znalost pro personu odpovednou za TISAX. |
 | `iso27001` | obor | 37 | Oborova znalost pro personu odpovednou za ISO 27001. |

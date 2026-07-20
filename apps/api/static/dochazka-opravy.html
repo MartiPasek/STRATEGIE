@@ -499,14 +499,32 @@ function openDay(uid,name,day){
 }
 // ── start ──
 api('GET','/api/v1/erp/app/attendance/fix/allowed').then(function(j){
-  if(!(j&&j.ok&&j.can_fix)){
+  // Jirka 20.7.2026: na stránku pustíme i toho, kdo NENÍ editor, ale smí zamykat
+  // období (typicky rodič — Kristý přestala být editorem, právo zámku jí zůstalo).
+  // Bez tohohle by držitel zámku neměl kudy zamknout/odemknout: celá stránka
+  // včetně záložky Zámek visela na can_fix.
+  CAN_LOCK=!!(j&&j.can_lock);
+  var canFix=!!(j&&j.ok&&j.can_fix);
+  if(!(j&&j.ok&&(canFix||CAN_LOCK))){
     document.getElementById('gate').textContent=(j&&j.error==='unauthorized')?'Přihlas se prosím (otevři přes ERP/aplikaci).':'Nemáš oprávnění k opravám docházky — jen členové skupiny DOCHÁZKA - OPRAVY.';
     return;
   }
-  CAN_LOCK=!!j.can_lock;
   document.getElementById('gate').style.display='none';
   document.getElementById('ui').style.display='';
   if(CAN_LOCK)document.getElementById('tabLock').style.display='';
+  if(!canFix){
+    // Jen zámek: fronta/lidé/historie by stejně vrátily 403 (scoping na serveru),
+    // tak je vůbec nenabízíme a rovnou otevřeme Zámek období.
+    ['queue','people','audit'].forEach(function(t){
+      var b=document.querySelector('.chip[data-t="'+t+'"]'); if(b)b.style.display='none';
+    });
+    var lb=document.getElementById('tabLock');
+    document.querySelectorAll('.chip').forEach(function(c){c.classList.remove('on');});
+    if(lb)lb.classList.add('on');
+    document.getElementById('right').innerHTML='<div class="rph"><div class="ic">🔒</div>Máš právo zamykat a odemykat období.<br>Opravy docházky nejsou ve tvé působnosti.</div>';
+    loadLock();
+    return;
+  }
   loadQueue();
 }).catch(function(){document.getElementById('gate').textContent='Nepodařilo se ověřit oprávnění.';});
 </script>

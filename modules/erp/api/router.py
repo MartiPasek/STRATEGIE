@@ -39397,6 +39397,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             _repo = _g2007_repo_root()
             _fn = "JMHZ_%s_%04d-%02d.xml" % (_firma, _rok, _mes)
             _fp = _osjg.path.join(_repo, "docs", "jmhz", _fn)
+            _osjg.makedirs(_osjg.path.dirname(_fp), exist_ok=True)
             with open(_fp, "w", encoding="utf-8") as _fh:
                 _fh.write(_xml)
             _forms = _rejg.findall(r"<n1:formularOsoby>.*?</n1:formularOsoby>", _xml, _rejg.S)
@@ -39414,12 +39415,20 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _mz = _rejg.search(r"<form:mzdaZuctovana>(\d+)</form:mzdaZuctovana>\s*<form:mzdaRozpad>", _f)
                 if _mz and int(_mz.group(1)) == 0:
                     _e267 += 1
+            _cssz = ""
+            try:
+                from modules.erp.api import epodani_validace as _evjg
+                _vr = _evjg.validate_xml_string(_xml, test=True)
+                _vok = sum(1 for _v in _vr.get("vysledky", []) if _v.get("ok"))
+                _cssz = "%d/%d OK" % (_vok, len(_vr.get("vysledky", [])))
+            except Exception as _eev:
+                _cssz = "chyba: %s" % str(_eev)[:120]
             return JSONResponse({"ok": True,
-                "columns": ["soubor", "osob", "pocetCelkem", "20235 hlavicka", "20315 VZ~pojistne", "20267 nulova mzda"],
+                "columns": ["soubor", "osob", "pocetCelkem", "20235", "20315", "20267", "CSSZ validace/osoba"],
                 "rows": [[_fn, len(_forms), (_pc.group(1) if _pc else "?"),
                           "OK" if _hdr_ok else "CHYBA",
                           ("OK" if _e315 == 0 else "%dx" % _e315),
-                          ("OK" if _e267 == 0 else "%dx" % _e267)]], "count": 1})
+                          ("OK" if _e267 == 0 else "%dx" % _e267), _cssz]], "count": 1})
         except Exception as _ejg:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
                 "rows": [["%s: %s" % (type(_ejg).__name__, str(_ejg)[:300]), _tbjg.format_exc()[-500:]]], "count": 1})

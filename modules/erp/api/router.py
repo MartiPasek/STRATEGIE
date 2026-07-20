@@ -36794,6 +36794,56 @@ def davka_ciselnik_rodvztah(req: Request):
         return {"ok": True, "kody": [{"kod": "PL", "popis": "potomek/dítě"}], "warn": str(e)[:120]}
 
 
+@api_router.get("/app/davka/helios-list")
+def davka_helios_list(req: Request):
+    """Seznam mzdových příloh DNP z Heliosu (kompletní data vč. rozhodného období)
+    pro výběr → generování NEMPRI. Kristý/HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _has_capability(uid, 'neschopenky', 'read'):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    firma = (q.get("firma") or "ES").upper()
+    rok = q.get("rok"); mesic = q.get("mesic")
+    try:
+        from modules.erp.api import mzdy_nempri as _mn
+        lst = _mn.load_nempri_list(firma, int(rok) if rok else None, int(mesic) if mesic else None)
+        # zatím podporujeme OSE (Helios DruhDavky=1)
+        ose = [x for x in lst if str(x.get("druhDavky_helios")) == "1"]
+        return {"ok": True, "firma": firma, "polozky": ose, "count": len(ose)}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:200]})
+
+
+@api_router.post("/app/davka/helios-generuj")
+async def davka_helios_generuj(req: Request):
+    """Vygeneruje NEMPRI25 z Heliosovy přílohy (+ zadané platební spojení) a ověří u ČSSZ."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _has_capability(uid, 'neschopenky', 'write'):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    firma = (b.get("firma") or "ES").upper()
+    pid = b.get("id")
+    ucet = b.get("ucet")
+    if not pid:
+        return JSONResponse({"ok": False, "error": "chybí id přílohy"})
+    try:
+        from modules.erp.api import mzdy_nempri as _mn
+        xml = _mn.generate_nempri_xml(firma, int(pid), ucet=ucet)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": "generování selhalo: " + str(e)[:200]})
+    val = None
+    try:
+        from modules.erp.api.epodani_validace import validate_xml_string as _vx
+        val = _vx(xml, test=True)
+    except Exception as _ve:
+        val = {"ok": None, "error": str(_ve)[:200]}
+    fname = "NEMPRI25_OSE_%s_%s.xml" % (firma, pid)
+    return {"ok": True, "xml": xml, "validace": val, "filename": fname}
+
+
 @api_router.get("/app/davka/detail")
 def davka_detail(req: Request):
     uid = _uid_from_token_or_cookie(req)
@@ -39524,9 +39574,10 @@ async def diag_sql(req: Request) -> JSONResponse:
             _a = sql[len("@@NEMPRIGEN"):].split()
             _firma = (_a[0] if _a else "ES").upper()
             _pid = int(_a[1]) if len(_a) > 1 else 1053
+            _ucetng = _a[2] if len(_a) > 2 else None
             from modules.erp.api import mzdy_nempri as _mng
             from modules.erp.api.epodani_validace import validate_xml_string as _vxng
-            _xmlng = _mng.generate_nempri_xml(_firma, _pid)
+            _xmlng = _mng.generate_nempri_xml(_firma, _pid, ucet=_ucetng)
             _rvng = _vxng(_xmlng, test=True)
             return JSONResponse({"ok": True, "columns": ["priloha", "VysledekKod", "ok", "bytu", "detaily"],
                 "rows": [["%s/%d" % (_firma, _pid), _rvng.get("VysledekKod"), str(_rvng.get("ok")), len(_xmlng),

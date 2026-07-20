@@ -236,7 +236,7 @@ def load_nempri_list(firma, rok=None, mesic=None):
     return out
 
 
-def load_nempri_priloha(firma, priloha_id):
+def load_nempri_priloha(firma, priloha_id, ucet=None):
     """Načte přílohu DNP + rozhodné období z Heliosu → params pro build_nempri (zatím OSE)."""
     cdb = _cloud_db(firma)
     fi = FIRMA_INFO.get((firma or "").upper(), FIRMA_INFO["ES"])
@@ -299,7 +299,8 @@ def load_nempri_priloha(firma, priloha_id):
             "prevedenaNaJinouPraci": _b2(v[23]),
             "volnoBezNahrady": bool(v[24]),
             "odeDne": v[1], "doDne": v[2],
-            "osetrovanaOsoba": {"jmeno": v[3], "prijmeni": v[4], "rodneCislo": rc(v[5]), "datumNarozeni": v[6]},
+            "osetrovanaOsoba": {"jmeno": v[3], "prijmeni": v[4],
+                                "rodneCislo": (rc(v[5]) if _rc_valid(rc(v[5])) else None), "datumNarozeni": v[6]},
             "duvod": duvod, "nazevSkoly": v[13], "icSkoly": v[14],
             "spolecnaDomacnost": _b2(v[15]), "jeOsamely": _b2(v[16]), "vPeciDiteDo16Let": _b2(v[17]),
             "narokNaPPMjinouOsobou": _b2(v[18]), "pecovalOsobne": _b2(v[19]),
@@ -309,11 +310,15 @@ def load_nempri_priloha(firma, priloha_id):
         },
         "kontakt": {"pracovnik": v[28], "telefon": (v[29] or None), "email": (v[30] or None)},
     }
+    if ucet:
+        _u = _parse_ucet(ucet)
+        if _u:
+            p["ucet"] = _u
     return p
 
 
-def generate_nempri_xml(firma, priloha_id):
-    return build_nempri(load_nempri_priloha(firma, priloha_id))
+def generate_nempri_xml(firma, priloha_id, ucet=None):
+    return build_nempri(load_nempri_priloha(firma, priloha_id, ucet=ucet))
 
 
 # ── Číselník CIS_RODVZTAH (vztah ošetřované osoby k pojištěnci) ────────────────
@@ -322,6 +327,45 @@ def generate_nempri_xml(firma, priloha_id):
 _RODVZTAH_XLSX_URL = ("https://www.cssz.gov.cz/documents/20143/2748490/"
                       "CIS_RODVZTAH.xlsx/e313d26e-412a-7153-7204-baec96bcec0f")
 _RODVZTAH_FALLBACK = [{"kod": "PL", "popis": "potomek v přímé linii (dítě, vnuk/vnučka)"}]
+# Helios číselné kódy vztahu → ČSSZ CIS_RODVZTAH (1 = dítě → potomek PL).
+HELIOS_VZTAH = {"1": "PL"}
+
+
+def _rc_valid(rc):
+    """Kontrola RČ: 10 číslic dělitelných 11 (po 1954); 9 číslic = staré RČ (bez kontroly)."""
+    d = "".join(ch for ch in str(rc or "") if ch.isdigit())
+    if len(d) == 9:
+        return True
+    if len(d) != 10:
+        return False
+    try:
+        return int(d) % 11 == 0
+    except Exception:
+        return False
+
+
+def _parse_ucet(ucet):
+    """'[predcisli-]ucet/kodBanky' → dict pro build_nempri, jinak None."""
+    s = str(ucet or "").strip()
+    if not s:
+        return None
+    banka = ""
+    if "/" in s:
+        s, banka = s.split("/", 1)
+    banka = "".join(ch for ch in banka if ch.isdigit())
+    predcisli, cislo = "", s
+    if "-" in s:
+        predcisli, cislo = s.rsplit("-", 1)
+    predcisli = "".join(ch for ch in predcisli if ch.isdigit())
+    cislo = "".join(ch for ch in cislo if ch.isdigit())
+    if not cislo or not banka:
+        return None
+    u = {"cislo": cislo, "banka": banka}
+    if predcisli:
+        u["predcisli"] = predcisli
+    return u
+
+
 _RODVZTAH_TEXT = {
     "dite": "PL", "syn": "PL", "dcera": "PL", "potomek": "PL",
     "vnuk": "PL", "vnucka": "PL", "vnouce": "PL",
@@ -397,16 +441,22 @@ def load_rodvztah_ciselnik(force=False):
 
 
 def _rodvztah_kod(v):
-    """Volný text / kód vztahu → platný kód číselníku ([0-9A-Z]{1,3}); jinak None."""
+    """Text / Helios kód / ČSSZ kód vztahu → platný kód CIS_RODVZTAH; jinak None (vynechat)."""
     if not v:
         return None
     s = str(v).strip()
     if not s:
         return None
     up = s.upper()
-    if re.match(r"^[0-9A-Z]{1,3}$", up):
+    try:
+        valid = {e["kod"] for e in load_rodvztah_ciselnik()}
+    except Exception:
+        valid = {"PL"}
+    if up in valid:                       # už je to platný ČSSZ kód
         return up
-    key = _strip_diac(s).lower().strip()
+    if up in HELIOS_VZTAH:                # Helios číselný kód → ČSSZ
+        return HELIOS_VZTAH[up]
+    key = _strip_diac(s).lower().strip()  # volný text (dítě, syn…)
     if key in _RODVZTAH_TEXT:
         return _RODVZTAH_TEXT[key]
     try:

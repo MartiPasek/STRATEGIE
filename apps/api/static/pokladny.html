@@ -50,6 +50,7 @@
   table.dokl thead th .dgrip:hover{background:#2563eb;opacity:.6}
   table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
   table.dokl .frow input::placeholder{color:#6a7078}
+  table.dokl tbody tr{cursor:pointer}
   table.dokl tbody tr:hover{background:#131d2b}
 </style>
 </head>
@@ -144,6 +145,8 @@ const DCOLS=[
 const DCOLW_DEF={uctovano:30,scan:32,pocet_polozek:30,bv:30,bv_seznam:80,poradove_cislo:56,popis:190,typ_dokladu:86,dat_porizeni:94,dat_pripad:94,uhrada:90,saldo_dokladu:98,castka_dokladu:100,utvar:50,zakazka:88,poznamka:220,stav_pokladny:112,dat_porizeno:114,autor:80};
 let DOKLW=(function(){try{return JSON.parse(localStorage.getItem('pokl_dokl_colw')||'{}')||{};}catch(_){return {};}})();
 let DFIL={}, DACTIVE=null, DOKLADY=[];
+let _doklSel={}, _doklLastIdx=null;
+function clearDoklFilters(){DFIL={};DACTIVE=null;renderDoklady();}
 function dcw(k){return DOKLW[k]||DCOLW_DEF[k]||80;}
 function dTotW(){var t=0;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
 function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKLW));}catch(_){}}
@@ -180,10 +183,10 @@ function renderDoklady(){
   h+='</colgroup><thead><tr>';
   DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'"'+(c.tt?' title="'+esc(c.tt)+'"':'')+'>'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
   h+='</tr><tr class="frow">';
-  DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
+  DCOLS.forEach(function(c,ci){if(ci===0){h+='<td style="text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700" title="Zrušit filtry sloupců" onclick="clearDoklFilters()">✕</td>';}else{h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';}});
   h+='</tr></thead><tbody>';
-  rows.forEach(function(d){
-    h+='<tr>';
+  rows.forEach(function(d,idx){var _k=(d.poradove_cislo==null?('_'+idx):(''+d.poradove_cislo));
+    h+='<tr class="drow" data-k="'+esc(_k)+'" data-idx="'+idx+'"'+(_doklSel[_k]?' style="background:rgba(88,166,255,.10)"':'')+'>';
     DCOLS.forEach(function(c){
       var ti=(c.k==='poznamka'||c.k==='popis')?' title="'+esc(d[c.k]||'')+'"':'';
       h+='<td'+(c.r?' class="r"':'')+ti+'>'+dcell(d,c)+'</td>';
@@ -193,8 +196,20 @@ function renderDoklady(){
   h+='</tbody></table></div>';
   h+='<div class="muted" style="margin-top:6px">'+rows.length+(anyF?(' z '+DOKLADY.length):'')+' dokladů · rok '+ROK+(anyF?' · <a href="#" id="dclear" style="color:#2dd4bf;text-decoration:none">zrušit filtr</a>':'')+'</div>';
   box.innerHTML=h;
-  bindDGrips(); bindDFilters();
+  bindDGrips(); bindDFilters(); bindDoklRows();
   var dc=document.getElementById('dclear'); if(dc)dc.onclick=function(e){e.preventDefault();DFIL={};DACTIVE=null;renderDoklady();};
+}
+function bindDoklRows(){
+  document.querySelectorAll('#doklBox table.dokl tbody tr.drow').forEach(function(tr){tr.onclick=function(e){
+    if(e.target.closest('input,select,a,button,label'))return;
+    var idx=parseInt(this.dataset.idx,10),k=this.dataset.k;
+    if(e.shiftKey&&_doklLastIdx!=null&&!isNaN(idx)){
+      var rows2=DOKLADY.filter(dmatch),a=Math.min(_doklLastIdx,idx),z=Math.max(_doklLastIdx,idx);
+      for(var i=a;i<=z;i++){var dd=rows2[i];if(!dd)continue;var kk=(dd.poradove_cislo==null?('_'+i):(''+dd.poradove_cislo));_doklSel[kk]=true;}
+    }else{ if(_doklSel[k])delete _doklSel[k]; else _doklSel[k]=true; }
+    if(!isNaN(idx))_doklLastIdx=idx;
+    renderDoklady();
+  };});
 }
 function bindDGrips(){
   document.querySelectorAll('#doklBox table.dokl thead th .dgrip').forEach(function(g){

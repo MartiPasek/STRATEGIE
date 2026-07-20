@@ -47,6 +47,7 @@
   #faktury-body table.fakt thead th .colgrip:hover{background:#2563eb;opacity:.6}
   #faktury-body table.fakt .frow input,#faktury-body table.fakt .frow select{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
   #faktury-body table.fakt .frow input::placeholder{color:#6a7078}
+  #faktury-body table.fakt tbody tr{cursor:pointer}
   #faktury-body table.fakt tbody tr:hover{background:#131d2b}
   th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
   th{background:var(--head);color:#a9c7f0;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
@@ -514,7 +515,7 @@ function loadPlataky(force){
       _plataky=d.plataky||[]; if(d.firmy)_firmy=d.firmy; _ptotal=d.total||0; _psums=d.sums||{}; _pshown=d.shown||_plataky.length; renderPlataky();
     }).catch(function(){document.getElementById('plataky-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
-var _ffFirma='all',_ffStav='open',_fCol={},_fActive=null,_faktury=[],_fsums={},_ftotal=0,_fshown=0,_faktSel={},_faktLastIdx=null,_fSyncAt=null,_faktColW={};
+var _ffFirma='all',_ffStav='open',_fCol={},_fActive=null,_faktury=[],_fsums={},_ftotal=0,_fshown=0,_faktSel={},_faktLastIdx=null,_fSyncAt=null,_faktColW={},_faktRendered=[];
 var FCOLS=[
   {k:'realizovano',h:'R',t:'b',tt:'Realizováno'},{k:'uctovano',h:'Ú',t:'b',tt:'Účtováno'},{k:'schvaleno',h:'S',t:'b',tt:'Schváleno'},{k:'zakaz',h:'Z',t:'b',tt:'Zákaz'},
   {k:'rada',h:'Řada',t:'t'},{k:'doklad',h:'Doklad',t:'dok'},{k:'vs',h:'VS',t:'t'},{k:'dodavatel',h:'Dodavatel',t:'t'},
@@ -615,7 +616,7 @@ function bindFaktFilters(){
     if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
 }
 function bindFaktSel(){
-  var _selList=_fAny()?_faktury.filter(_faktMatch):_faktury;
+  var _selList=_faktRendered;
   document.querySelectorAll('#faktury-body .faktSel').forEach(function(el){el.onclick=function(e){
     var idx=parseInt(this.dataset.idx,10);
     if(e.shiftKey&&_faktLastIdx!=null&&!isNaN(idx)){
@@ -634,7 +635,19 @@ function bindFaktSel(){
   document.querySelectorAll('#faktury-body .nvchk').forEach(function(el){el.onchange=function(){
     var id=this.dataset.nid; if(id==='')return;
     toggleNavrh([id],this.checked);};});
+  document.querySelectorAll('#faktury-body tbody tr.drow').forEach(function(tr){tr.onclick=function(e){
+    if(e.target.closest('input,select,a,button,label,.chip,.nvchk,.faktSel'))return;
+    var idx=parseInt(this.dataset.idx,10),id=this.dataset.fid;
+    if(id===''||id==null)return;
+    if(e.shiftKey&&_faktLastIdx!=null&&!isNaN(idx)){
+      var a=Math.min(_faktLastIdx,idx),z=Math.max(_faktLastIdx,idx);
+      for(var i=a;i<=z;i++){var pp=_selList[i];if(!pp||pp.id_fak==null)continue;_faktSel[pp.id_fak]=true;}
+    }else{ if(_faktSel[id])delete _faktSel[id]; else _faktSel[id]=true; }
+    if(!isNaN(idx))_faktLastIdx=idx;
+    renderFaktury();
+  };});
 }
+function clearFaktFilters(){_fCol={};_fActive=null;renderFaktury();}
 function toggleNavrh(ids,on){
   ids=ids.filter(function(x){return x!==''&&x!=null;});
   if(!ids.length)return;
@@ -738,6 +751,7 @@ function renderFaktury(){
   var cekaMode=(_ffStav==='ceka');
   var list=anyF?_faktury.filter(_faktMatch):_faktury;
   if(cekaMode)list=list.filter(function(p){return p.ceka_vypis;});
+  _faktRendered=list;
   var sh=cekaMode?'v platáku, čeká na potvrzení bankovním výpisem':(Object.keys(_fsums).map(function(m){return _fsums[m].pocet+'× '+money(_fsums[m].otevreno,m)+' otevř.';}).join(' · ')||'—');
   var cap=(!cekaMode&&_fshown<_ftotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_fshown+' nejnovějších)</span>'):'';
   var poc=(anyF||cekaMode)?(list.length+(cekaMode?' čeká na výpis':(' z '+_ftotal))):(''+_ftotal);
@@ -746,7 +760,7 @@ function renderFaktury(){
   var selBtn=selIds.length?' <span class="chip on" onclick="changeNavrhSelected()" style="font-size:11px;padding:2px 8px;margin-left:10px;vertical-align:middle" title="Označí/odznačí Návrh k platbě u vybraných">✎ Změna návrhu k platbě ('+selIds.length+')</span>':'';
   var navrhN=_faktury.filter(function(p){return p.navrh;}).length;
   var genBtn=navrhN?' <span class="chip" onclick="openGenPopup()" style="font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle;background:#1f6feb;color:#fff;border-color:#1f6feb" title="Vygeneruj platební příkazy z faktur označených Návrh">🧾 Generovat platební příkazy ('+navrhN+')</span>':'';
-  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+clr+selBtn+genBtn+'</div>'+
+  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+selBtn+genBtn+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   h+='<div class="doklwrap"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
   FCOLS.forEach(function(c){h+='<col data-col="'+c.k+'" style="width:'+_colw(c.k)+'px">';});
@@ -754,7 +768,7 @@ function renderFaktury(){
   var allSel=list.length&&selIds.length===list.length;
   h+='<tr><th data-col="_sel" style="text-align:center"><input type="checkbox" id="faktSelAll"'+(allSel?' checked':'')+' title="Vybrat vše" style="cursor:pointer"><span class="colgrip" data-col="_sel" title="Táhni pro roztažení/zúžení sloupce"></span></th>';
   FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-col="'+c.k+'"'+(c.tt?' title="'+c.tt+'"':'')+'>'+c.h+'<span class="colgrip" data-col="'+c.k+'" title="Táhni pro roztažení/zúžení sloupce"></span></th>';});h+='</tr>';
-  h+='<tr class="frow"><td></td>';FCOLS.forEach(function(c){
+  h+='<tr class="frow"><td style="text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700" title="Zrušit filtry sloupců" onclick="clearFaktFilters()">✕</td>';FCOLS.forEach(function(c){
     if(c.t==='b'){h+='<td><select data-fcol="'+c.k+'"><option value="">–</option><option value="1"'+(_fCol[c.k]==='1'?' selected':'')+'>✓</option><option value="0"'+(_fCol[c.k]==='0'?' selected':'')+'>✗</option></select></td>';}
     else if(c.t==='date'){h+='<td><input readonly value="'+esc(_splatSummary())+'" placeholder="datum…" onclick="openSplatFilter(this)" style="cursor:pointer" title="Klikni pro výběr data nebo období"></td>';}
     else{h+='<td><input data-fcol="'+c.k+'" value="'+esc(_fCol[c.k]||'')+'"></td>';}});
@@ -762,7 +776,7 @@ function renderFaktury(){
   h+='</thead><tbody>';
   if(!list.length){h+='<tr><td colspan="'+(FCOLS.length+1)+'" style="padding:16px;color:var(--dim)">Žádná faktura neodpovídá filtru.</td></tr>';}
   list.forEach(function(p,idx){var _fid=(p.id_fak==null?'':p.id_fak);
-    h+='<tr'+(_faktSel[p.id_fak]?' style="background:rgba(88,166,255,.10)"':'')+'>';
+    h+='<tr class="drow" data-fid="'+_fid+'" data-idx="'+idx+'"'+(_faktSel[p.id_fak]?' style="background:rgba(88,166,255,.10)"':'')+'>';
     h+='<td style="text-align:center"><input type="checkbox" class="faktSel" data-fid="'+_fid+'" data-idx="'+idx+'"'+(_faktSel[p.id_fak]?' checked':'')+' style="cursor:pointer" title="Tip: Shift+klik označí celý úsek"></td>';
     FCOLS.forEach(function(c){
     var cls=c.r?'r money':(c.k==='dodavatel'?'dod':'');

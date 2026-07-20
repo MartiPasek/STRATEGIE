@@ -25,7 +25,8 @@
   thead th{color:var(--muted);font-weight:600;border-bottom:1px solid var(--line)}
   tbody tr{border-top:1px solid var(--line2)}
   tbody tr.sum{background:#12181f;font-weight:800;color:var(--title)}
-  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid #6b5b2a;border-radius:0 10px 10px 0;padding:12px 14px;font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid #2a5b6b;border-radius:0 10px 10px 0;padding:12px 14px;font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  .note.warn{border-left-color:#6b5b2a}
   .note b{color:var(--txt)}
   .src{font-size:11.5px;color:#5d6b7c;padding:0 2px}
   @media(max-width:640px){.cards{grid-template-columns:1fr}}
@@ -54,33 +55,38 @@
   </div>
 
   <div class="card">
-    <div class="hd">Kancelář vs. výroba (zaměstnanci HPP)</div>
+    <div class="hd">Kancelář vs. výroba — zaměstnanci HPP (48 z 48)</div>
     <table>
       <thead><tr><th>Firma</th><th>Kancelář (THP)</th><th>Výroba (D)</th><th>Celkem</th></tr></thead>
       <tbody>
-        <tr><td>EUROSOFT – System</td><td>11</td><td>20</td><td>31</td></tr>
-        <tr><td>EUROSOFT – Control</td><td>6</td><td>6</td><td>12</td></tr>
-        <tr class="sum"><td>Celkem</td><td>17</td><td>26</td><td>43</td></tr>
+        <tr><td>EUROSOFT – System</td><td>13</td><td>20</td><td>33</td></tr>
+        <tr><td>EUROSOFT – Control</td><td>8</td><td>7</td><td>15</td></tr>
+        <tr class="sum"><td>Celkem</td><td>21</td><td>27</td><td>48</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="note">
-    <b>Jak číst rozpad kancelář/výroba:</b> vychází z názvů pozic dle tištěných smluv (výroční audit, únor 2026)
-    a pokrývá <b>43 HPP zaměstnanců</b>. Nezahrnuje 30 OSVČ ani DPP a několik novějších nástupů —
-    proto se součet liší od tabulky výše. Do „výroby“ patří elektromontér, mechanik, zámečník,
-    přípravář obráběcího centra a sklad; do „kanceláře“ projekce, nákup a logistika, asistentky,
-    kalkulace, IT, personalistika, vedení projektů, obchod a kvalita.
+    <b>Rozpad pokrývá všech 48 HPP zaměstnanců.</b> Do „výroby“ patří elektromontér, mechanik,
+    zámečník, přípravář obráběcího centra a sklad; do „kanceláře“ projekce, nákup a logistika,
+    asistentky, kalkulace, IT, personalistika, vedení projektů, obchod, kvalita a vedení společnosti.
+    Z toho <b>1 osoba je na mateřské dovolené</b> (počítá se do stavu, ale aktuálně nepracuje).
   </div>
 
-  <div class="note">
+  <div class="note warn">
+    <b>Co v rozpadu není:</b> 30 OSVČ a 2 DPP — u nich se kancelář/výroba nesleduje.
+    Proto 48 ≠ 80.
+  </div>
+
+  <div class="note warn">
     <b>Chybí v systému:</b> pozice a středisko zatím nejsou u lidí vyplněné v databázi
-    (<code>engagement.position_id</code> má vyplněné jen 2 osoby z 80). Až se pozice doplní,
-    půjde tenhle rozpad počítat automaticky a nebude potřeba auditní tabulka.
+    (<code>engagement.position_id</code> má vyplněné jen 2 osoby z 80). Rozpad výše proto vychází
+    z názvů pozic dle tištěných smluv (výroční audit 2026) doplněných o nástupy po auditu.
+    Až se pozice doplní do systému, půjde tenhle přehled počítat automaticky.
   </div>
 
-  <p class="src">Zdroje: <b>tenant.engagement</b> (is_current, platná smlouva) pro počty · <b>výroční audit 2026</b>
-  (preaudit_Control / preaudit_System) pro pozice dle smluv · bez 3 osob, které již odešly.</p>
+  <p class="src">Zdroje: <b>tenant.engagement</b> (is_current, platná smlouva) pro počty ·
+  <b>výroční audit 2026</b> + doplnění HR pro zařazení pozic · bez osob, které již odešly.</p>
 </div>
 </body>
 </html>

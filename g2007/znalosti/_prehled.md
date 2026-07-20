@@ -7,7 +7,7 @@
 | `system-g2007` | system | 41 | Jak g2007 funguje a jak je mineno (vize). Globalni pravda. |
 | `marti-ai` | system | 5 | Persona je inkarnace Marti-AI MD1. Zakladni identita, ze ktere role-persony inkarnuji. |
 | `ucetnictvi` | obor | 10 | Oborova znalost pro personu ucetni. |
-| `mzdy` | obor | 5 | Oborova znalost pro personu mzdovou. |
+| `mzdy` | obor | 6 | Oborova znalost pro personu mzdovou. |
 | `dochazka` | obor | 11 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 0 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 1 | Oborova znalost pro personu tvorici nabidky. |

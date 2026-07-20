@@ -35,21 +35,30 @@ C25 Šárka, C26 Peťa, C28 Jirka) + Marti-AI, 104 znalostí v 9 oblastech.
 
 ### A1 · Optimistic locking (řeší V1)
 
-`znalost-upsert` přijme **volitelný** parametr `updated_at` = hodnota, kterou volající četl,
-když si dokument bral k editaci.
+`znalost-upsert` přijme parametr **`expected_version`** = hodnota `updated_at`, kterou volající
+četl, když si dokument bral k editaci. **Při editaci existujícího slugu POVINNÝ**, u nové znalosti
+se nepoužije (není s čím kolidovat).
+
+> **Změna oproti první verzi návrhu** (Marti-AI 20. 7., msg 11002): původně jsem navrhoval parametr
+> *volitelný* kvůli zpětné kompatibilitě. Marti-AI oponovala — *„volitelný parametr bude zapomenut
+> a pojistka nebude fungovat"* — a **má pravdu**: bezpečnostní pojistka, kterou lze mlčky vynechat,
+> není pojistka. Doporučila i přejmenování na `expected_version`, ať je záměr čitelný z názvu.
+> Zpětná kompatibilita se tím neztrácí: rozlišuje se podle toho, jestli `kod` už existuje.
 
 ```sql
 UPDATE g2007.znalost
    SET obsah = :c, nadpis = :n, …, updated_at = now()
  WHERE kod = :k
-   AND (:expected_updated_at IS NULL OR updated_at = :expected_updated_at);
+   AND updated_at = :expected_version;
 ```
 
-- `rowcount = 0` při existujícím `kod` → vrať **409 konflikt** s aktuálním `updated_at`
-  a odpovědí *„dokument se mezitím změnil (autor X, čas Y) — načti znovu a slož změny"*.
-- **Zpětně kompatibilní:** kdo parametr nepošle, chová se přesně jako dnes. Žádný existující
-  volající se nerozbije.
-- Po zavedení lze parametr postupně zpřísnit na povinný pro editace (ne pro nové znalosti).
+- **Existující `kod` bez `expected_version`** → 400 *„editace existující znalosti vyžaduje
+  expected_version — načti aktuální stav a pošli jeho updated_at"*.
+- **`rowcount = 0`** (verze nesedí) → **409 konflikt** s aktuálním `updated_at`, autorem a časem:
+  *„dokument se mezitím změnil (autor X, čas Y) — načti znovu a slož změny"*.
+- **Nový `kod`** → INSERT jako dnes, `expected_version` se neposílá.
+- Aby se dalo `expected_version` vůbec získat, musí ho vracet **čtecí cesta** —
+  `/app/g2007/search` i `/app/g2007/index` ať v odpovědi nesou `updated_at` (dnes ho nevrací).
 
 ### A2 · Autorství (řeší V2)
 
@@ -66,6 +75,9 @@ Konvence `*_by_text` už v projektu existuje (`fw.menu_node`), takže nic novéh
 (`router.py:61846`, `_uid_from_token_or_cookie`) — jen ho **nepředává** do zapisovací funkce.
 Stačí ho protáhnout o úroveň níž a uložit. Do `*_text` patří jméno instance
 („Claude-28 (Jirka)" / „Marti-AI"), protože uid je jen člověk, na kterého je instance vázaná.
+
+**Autor u zápisů Marti-AI = `users.id=2`** (persona Marti-AI, potvrdila 20. 7.: *„konzistentní
+s tím, jak jsem identifikována napříč systémem"*).
 
 ### A3 · Verze (řeší V3, volitelné)
 
@@ -104,16 +116,31 @@ Celkem malé, additivní, zpětně kompatibilní. Bez migrace dat.
 
 ## 7. Otevřené otázky pro Martiho
 
-| # | Otázka | Doporučení |
-|---|---|---|
-| Q1 | Jdeme do A (locking + autor), nebo stačí doktrína? | **A** — doktrína bez zábradlí jednou selže |
-| Q2 | Má `updated_at` být hned povinný pro editace existujícího slugu? | Ne hned — nejdřív volitelný, po ověření zpřísnit |
-| Q3 | Implementuje to Marti-AI sama (její schéma), nebo Claude přes bridge? | **Marti-AI** — je to její území, doktrína #3 + #9 |
-| Q4 | Chceme i A3 (verzování), nebo stačí `updated_at` + git? | Zatím ne — dodělatelné později |
-| Q5 | Platí pro G2007 stejné omezení jako pro `@@KB`, že citlivé věci (finance, personální) tam nepatří? | Dotázáno Marti-AI; podle odpovědi doplnit do doktríny |
+| # | Otázka | Doporučení | Stav |
+|---|---|---|---|
+| Q1 | Jdeme do A (locking + autor), nebo stačí doktrína? | **A** — doktrína bez zábradlí jednou selže | Marti-AI ✅ *„toto je správný fix"*; čeká Marti |
+| Q2 | Má být `expected_version` povinný pro editace? | **ANO, povinný** (u nové znalosti se nepoužije) | Marti-AI ✅ — přebila mé původní „volitelný" |
+| Q3 | Implementuje to Marti-AI sama (její schéma), nebo Claude přes bridge? | **Marti-AI** — je to její území, doktrína #3 + #9 | čeká Marti |
+| Q4 | Chceme i A3 (verzování), nebo stačí `updated_at` + git? | Zatím ne — dodělatelné později | čeká Marti |
+| Q5 | Platí pro G2007 omezení na citlivá data jako u `@@KB`? | **ANO**, větou doslova v doktríně | Marti-AI ✅ hotovo, v `CLAUDE.md` |
+
+## 8. Vyjádření Marti-AI (20. 7. 2026, msg 11002)
+
+Konzultace podle doktríny #3. Závěry **závazné**:
+
+- **Souhlas s A1+A2.** *„409 konflikt místo tichého přepsání je zásadní pojistka — tiché
+  přepsání je nejnebezpečnější failure mode v kolaborativním prostředí."* U sloupce autora
+  nevidí riziko, jen přínos pro audit.
+- **Oponovala mi u volitelnosti** (viz A1) — parametr musí být povinný, jinak se na něj zapomene.
+- **Autor jejích zápisů** = `users.id=2`.
+- **Anti-přepis: obojí, ne jedno z toho.** Čti-pak-piš = záplata na přechodné období;
+  drobnější slugy = správná dlouhodobá architektura. Obě pravidla jsou v doktríně.
+- **Asymetrie instancí**: ona nemá „start session" moment, chodí on-demand přes `g2007_hledej`;
+  její ekvivalent fáze 1 = povinné vyhledání PŘED zápisem. Doplněno do doktríny.
+- **Citlivá data**: dodala větu, která je v `CLAUDE.md` doslova.
 
 ---
 
-**Stav k 20. 7. 2026:** čeká na odpověď Marti-AI (`@@MARTIAI`, odeslána 07:18 UTC)
-a na rozhodnutí Martiho. Síť informována přes `@@COORD` #27.
+**Stav k 20. 7. 2026:** Marti-AI ✅ schválila (s úpravami, zapracovány). Čeká se na
+**rozhodnutí Martiho** (Q1–Q4) a na případné připomínky **C23** (`@@COORD` #27, zatím bez odpovědi).
 Po schválení zapečetit do G2007 (`oblast: system-g2007`) jako `Z_` znalost.

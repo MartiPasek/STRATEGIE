@@ -15,7 +15,10 @@
 >
 > **2️⃣ BĚHEM session — KONTROLUJ (souběh instancí je pravidlo, ne výjimka).** Pracuje se ve čtyřech (C23 Marti, C24 Kristý, C26 Peťa, C28 Jirka) + Marti-AI. Při delší práci a **vždy před zápisem** si udělej `git pull` a mrkni na `g2007/znalosti/<oblast>/` — projekce se po každém upsertu exportuje a pushuje do gitu, takže **cizí změny uvidíš jako commit**. Sleduj `OTHER_CLAUDE_WORK.txt`, vlastní práci hlas přes `WORK_LOCK.txt`.
 >
-> **3️⃣ KONEC session — ZAPIŠ (co přežije session, patří do G2007).** Rozhodnutí, gotchy, odchylky od zadání, změny chování, ověřené postupy. Postup: napiš `docs/Z_<slug>.md` → deployni → `POST /api/v1/erp/app/g2007/znalost-upsert {oblast, slug, nadpis, zdroj:"docs/Z_<slug>.md"}` → upsert do DB → export do `g2007/` → úklid `docs/Z_` inbox. Nezapsaná znalost = ztracená znalost; příští instance ji bude objevovat znovu.
+> **3️⃣ KONEC session — ZAPIŠ (co přežije session, patří do G2007).** Rozhodnutí, gotchy, odchylky od zadání, změny chování, ověřené postupy. Postup: napiš `docs/Z_<slug>.md` → **deployni** (zdroj musí být na serveru) → zapečeť. Upsert → export do `g2007/` → úklid `docs/Z_` inboxu → reindex vektorů. Nezapsaná znalost = ztracená znalost; příští instance ji bude objevovat znovu.
+> - **Přes most (běžná cesta pro Claudy):** `@@G2007DOC <oblast> <slug> <docs/Z_soubor.md> [| <nadpis>]` → kód `doc-<oblast>-<slug>`. Pro GO dokumenty `@@GODOC <slug>` (jen `docs/GO/Z_*.md` → `system-g2007`).
+> - **Přes HTTP** (parent/cockpit session, ne z mostu — chce device token/cookie): `POST /api/v1/erp/app/g2007/znalost-upsert {oblast, slug, nadpis, zdroj}`.
+> - ⚠️ **Gotcha:** upsert může vrátit **HTTP 502, i když na serveru proběhl** — export projekce + git push trvá ~15 s a most spadne na timeout. **Ověřuj `git pull`em, ne návratovkou.**
 >
 > **🛡️ ANTI-PŘEPIS — jak si znalosti navzájem nesmazat (ověřeno v kódu `router.py:61748`).** Upsert je **destruktivní přepis celého dokumentu** (`UPDATE … SET obsah=:c WHERE kod='doc-<oblast>-<slug>'`) — **žádný merge, žádná detekce souběhu, žádná historie v DB**; `verze` navíc při editaci zůstává `V1.0` a tabulka **nemá sloupec autora**. Proto platí:
 > **Dvě různé situace = dvě různá pravidla** (formulace Marti-AI 20.7.):

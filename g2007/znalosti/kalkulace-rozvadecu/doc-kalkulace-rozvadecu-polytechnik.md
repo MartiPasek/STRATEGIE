@@ -78,19 +78,25 @@ Kalkulace `EK263390_PolyClean_RH_260720.xlsx` = kopie STANDARDu (listy `BJY30 OB
 - **Beistellung/Siemens se nenacení — mechanismus funguje.** V `BJY30 OBJ` je 13 položek
   s dodavatelem „Beistellung" a cenou **0,00** (= Siemens od zákazníka, mimo naši cenu). ✓
 - **BJY30 (hotová):** 72 položek, materiál **819,51 €**, instalovaná cena **1 886 €**, **24 h**.
-- **BJY31 (rozpracovaná) — konkrétní mezery:**
-  1. Naceněno jen **36 z 53** položek kusovníku (~17 chybí).
-  2. **Chybí chladička Rittal `SK 3302.100` (~1 250 €)** — ve STANDARDu je (řádky ~204–212),
-     Stückzahl prázdný → BJY31 podhodnocená. Místo Rittal AX je v kalkulaci Eldon (180,94 €).
-  3. Beistellung Siemens označeno jen **7 z 10**.
-  4. `DUMMY` bez obj. čísla: PT100/2‑Leiter, 100 µF/63 V, 2200 µF/100 V, FST5,0H.
+- **BJY31 (rozpracovaná):** naceněný materiál jen **442,95 €**.
+
+**Rekonciliace BJY31 (kusovník 53 položek vs. STANDARD):** 29 nastaveno · 24 k doplnění ·
+10 Beistellung (7 hotovo, **3 chybí**). **Chybějící materiál ≈ 1 869 €** (kusovníkové ceny)
+proti 442,95 € naceněným → **BJY31 je výrazně podstřelená.** Konkrétní mezery:
+  1. **Chladička Rittal `SK 3302.100` ≈ 1 100 €** (v EPLANu ~1 250) — ve STANDARDu chybí,
+     přidat řádek. Největší chybějící položka. Místo Rittal AX je v kalkulaci Eldon (180,94 €).
+  2. 3× **Beistellung Siemens** (`6XV1830`, `6ES7155` IM 155‑6DP, Keyence `FS-V33CP`) → cena 0.
+  3. `DUMMY` bez obj. čísla: PT100/2‑Leiter, 100 µF/63 V, 2200 µF/100 V, FST5,0H, kanál, lišta.
+  4. Zbývající ~18 položek (856T maják, Turck, Gung kabel…) přidat s nákupní cenou + koef.
 - **List `Souhrn` je stále ze šablony** (`#REF!`, odkazy na cizí skříně BJY11/13/14/18/21‑26)
   → předrátovat na BJY30/BJY31, aby dal celkovou cenu.
 - Drobnost: 1 Siemens položka `ET 200SP server modul` (26,04 €) je naceněná (ne Beistellung).
 
-**Punch‑list pro Radka** (dle dopadu na cenu): chladička ~1 250 € → sjednotit skříň →
-dorovnat 17 položek → 3× Beistellung Siemens → DUMMY → Souhrn. (Soubor
-`BJY31_punchlist_EN263390.md`, 20. 7. 2026.)
+**Bezpečně hned** (bez cenového rizika): 3 Beistellung Siemens (cena 0) + 2 Phoenix díly
+s protějškem ve STANDARDu (`NLS-CU` ř.1303, `AB/SS-M` ř.1302).
+**Výstupy (odesláno Martimu e‑mailem 20. 7.):** `BJY31_doplneni_EN263390.xlsx`
+(rekonciliace všech 53 položek + list rozhodnutí), `BJY31_punchlist_EN263390.md`,
+`EN263390_PolyClean_souhrn.md`.
 
 ## 8. Poznámky do budoucna
 - Polytechnik = **opakovaný typ zakázky** (rozváděče k biomasovým technologiím, EPLAN +

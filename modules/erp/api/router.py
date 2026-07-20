@@ -39383,6 +39383,47 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de2).__name__, str(_de2)[:200]),
                                  "tb": _tbd.format_exc()[-600:]})
 
+    #   @@JMHZGEN <firma> <rok> <mesic>  -> vygeneruje JMHZ z Heliosu FIXNUTYM generatorem,
+    #   ulozi do docs/jmhz/JMHZ_<firma>_<rok>-<mesic>.xml + rychla lokalni kontrola 20235/20315/20267.
+    if sql.upper().startswith("@@JMHZGEN"):
+        import os as _osjg, math as _mjmath, re as _rejg, traceback as _tbjg
+        try:
+            _jg = sql[len("@@JMHZGEN"):].split()
+            _firma = (_jg[0] if len(_jg) > 0 else "EC").upper()
+            _rok = int(_jg[1]) if len(_jg) > 1 else 2026
+            _mes = int(_jg[2]) if len(_jg) > 2 else 6
+            from modules.erp.api import mzdy_jmhz as _mj
+            _xml, _ps = _mj.generate_xml(_firma, _rok, _mes)
+            _repo = _g2007_repo_root()
+            _fn = "JMHZ_%s_%04d-%02d.xml" % (_firma, _rok, _mes)
+            _fp = _osjg.path.join(_repo, "docs", "jmhz", _fn)
+            with open(_fp, "w", encoding="utf-8") as _fh:
+                _fh.write(_xml)
+            _forms = _rejg.findall(r"<n1:formularOsoby>.*?</n1:formularOsoby>", _xml, _rejg.S)
+            _pc = _rejg.search(r"formularePocetCelkem>(\d+)<", _xml)
+            _nso = len(_rejg.findall(r"<so:souhrn>", _xml))
+            _npv = len(_rejg.findall(r"<pvpoj:PVPOJ>", _xml))
+            _hdr_ok = bool(_pc) and int(_pc.group(1)) == len(_forms) + _nso + _npv
+            _e315 = 0
+            _e267 = 0
+            for _f in _forms:
+                _vz = _rejg.search(r"<form:pismenoA>(\d+)</form:pismenoA>", _f)
+                _sp = _rejg.search(r"<form:pojisteniZamestnanec>\s*<form:socialniPojisteni>(\d+)</form:socialniPojisteni>", _f, _rejg.S)
+                if _vz and _sp and int(_sp.group(1)) != _mjmath.ceil(int(_vz.group(1)) * 0.071):
+                    _e315 += 1
+                _mz = _rejg.search(r"<form:mzdaZuctovana>(\d+)</form:mzdaZuctovana>\s*<form:mzdaRozpad>", _f)
+                if _mz and int(_mz.group(1)) == 0:
+                    _e267 += 1
+            return JSONResponse({"ok": True,
+                "columns": ["soubor", "osob", "pocetCelkem", "20235 hlavicka", "20315 VZ~pojistne", "20267 nulova mzda"],
+                "rows": [[_fn, len(_forms), (_pc.group(1) if _pc else "?"),
+                          "OK" if _hdr_ok else "CHYBA",
+                          ("OK" if _e315 == 0 else "%dx" % _e315),
+                          ("OK" if _e267 == 0 else "%dx" % _e267)]], "count": 1})
+        except Exception as _ejg:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                "rows": [["%s: %s" % (type(_ejg).__name__, str(_ejg)[:300]), _tbjg.format_exc()[-500:]]], "count": 1})
+
     #   @@EPVAL <soubor> [PROD]  → ověří XML (docs/jmhz/) proti oficiálnímu validátoru ČSSZ
     #   (SOAP, anonymní, test t-epodani.cssz.cz). JMHZ = per formularOsoby; PREZEC/REGZEC = celý root.
     if sql.upper().startswith("@@EPVAL"):

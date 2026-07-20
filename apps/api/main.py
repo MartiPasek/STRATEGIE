@@ -1334,6 +1334,18 @@ def finance_podminky_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/hr-headcount")
+def hr_headcount_page():
+    """👥 Přehled zaměstnanců a OSVČ (Šárka 20.7.2026) — souhrnné počty.
+    Rozpad podle firmy (System/Control), typu poměru (HPP/DPP/OSVČ) a
+    kancelář/výroba. Stránka obsahuje POUZE agregovaná čísla — žádná jména
+    ani mzdové údaje."""
+    return FileResponse(os.path.join(static_dir, "hr-headcount.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/karta-zamestnance")
 def karta_zamestnance_page():
     """🪪 Karta zaměstnance (Šárka 8.7.2026) — 360° karta v ERP (Pinya × Centrála),

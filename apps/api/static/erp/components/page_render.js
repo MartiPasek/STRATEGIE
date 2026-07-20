@@ -71,6 +71,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Přehled zaměstnanců a OSVČ (Šárka 20.7.2026): jádro hr.headcount = iframe
+      // stránky /hr-headcount. Jen agregovaná čísla (firma × typ × kancelář/výroba).
+      if (String(coreCode) === 'hr.headcount') {
+        mainContent.innerHTML = '<iframe src="/hr-headcount" title="Přehled zaměstnanců a OSVČ" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // HR přehled (Šárka 3.7.2026): jádro hr.prehled je záměrně „drafted" (bez
       // root gridu) — obsah dodává HR pult (Pinya styl). Mount ho MÍSTO placeholderu.
       if (String(coreCode) === 'hr.prehled'

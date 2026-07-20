@@ -118,6 +118,23 @@
       border-color: var(--border);
       margin-top: 12px;
     }
+    .demo-split {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 20px;
+      color: var(--text-dim);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .demo-split::before,
+    .demo-split::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
     .spinner {
       text-align: center;
       font-size: 48px;
@@ -189,6 +206,13 @@
                  placeholder="jmeno@eurosoft.com">
           <button type="submit" id="submitBtn">Pošli ověřovací odkaz</button>
         </form>
+        <!-- Prohlídkový režim bez přihlášení (Marti OK 20.7.2026 přes Jirku).
+             Důvod: Google Play zamítl v73 s „Login credentials are missing" —
+             čerstvá instalace jde na /app-pair → sem, a demo tlačítko bylo jen
+             na /mobile, kam se nepřihlášený recenzent nikdy nedostal. -->
+        <div class="demo-split"><span>nebo</span></div>
+        <button type="button" id="demoBtn" class="secondary">▶️ Vyzkoušet ukázku</button>
+        <p class="hint" style="margin-top:10px;">Bez přihlášení — ukázková firma se smyšlenými daty.</p>
       </div>
     </section>
 
@@ -350,6 +374,12 @@
         submitBtn.disabled = false;
         submitBtn.textContent = 'Pošli ověřovací odkaz';
       }
+    });
+
+    // Demo vždy končí v appce (/mobile), NE v ?next= — ?next=/app-pair by
+    // recenzenta poslalo na párovací obrazovku místo do obsahu appky.
+    document.getElementById('demoBtn').addEventListener('click', () => {
+      window.location.href = '/api/v1/auth/demo-login?next=%2Fmobile';
     });
 
     document.getElementById('cancelBtn').addEventListener('click', () => {

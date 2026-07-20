@@ -9358,6 +9358,11 @@ async def app_hr_finance_lide(req: Request) -> JSONResponse:
         return _ab
     if not _finance_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    # Bývalí zaměstnanci (ukončená smlouva) se defaultně SKRÝVAJÍ (Šárka 20.7.2026).
+    # ?vsichni=1 je zobrazí i s příznakem aktivni=false (u financí se hodí historie).
+    vsichni = (req.query_params.get("vsichni") or "").lower() in ("1", "true", "ano")
+    _aktivni_expr = "bool_or(en.smlouva_do IS NULL OR en.smlouva_do >= CURRENT_DATE)"
+    _having = "" if vsichni else (" HAVING " + _aktivni_expr)
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
@@ -9372,18 +9377,20 @@ async def app_hr_finance_lide(req: Request) -> JSONResponse:
             " string_agg(DISTINCT COALESCE(en.druh_text, en.engagement_type), ', ') AS typy,"
             " max(en.pozice_text) AS pozice,"
             " string_agg(DISTINCT jp.label, ', ') AS pozice_cis,"
-            " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo"
+            " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo,"
+            " " + _aktivni_expr + " AS aktivni"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"
             " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
             " WHERE en.tenant_id=2 AND en.is_current AND ae.user_id IS NOT NULL"
-            " GROUP BY ae.user_id ORDER BY jmeno")).fetchall()
+            " GROUP BY ae.user_id" + _having + " ORDER BY jmeno")).fetchall()
         lide = [{"user_id": r[0], "jmeno": (r[1] or "").strip() or ("ID " + str(r[0])),
                  "firmy": r[2] or "", "typy": r[3] or "",
                  "pozice": (r[5] or r[4] or ""), "pozice_ciselnik": (r[5] or ""),
-                 "cislo": r[6] or ""} for r in rows]
-        return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
+                 "cislo": r[6] or "", "aktivni": bool(r[7])} for r in rows]
+        return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide),
+                             "vsichni": vsichni})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

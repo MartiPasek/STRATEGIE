@@ -71,6 +71,7 @@
     </div>
     <div class="fexp">
       <button class="sbtn" onclick="exportCsv()">⬇ Export (CSV)</button>
+      <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="fbyv" style="margin:0"> i bývalé</label>
       <span class="ph" id="fcnt"></span>
     </div>
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
@@ -85,7 +86,8 @@ async function j(u){const r=await fetch(u,{credentials:'same-origin'});return r.
 function kc(n){return n==null?'—':n.toLocaleString('cs-CZ',{maximumFractionDigits:2})+' Kč';}
 
 async function load(){
-  const d=await j(API+"/app/hr/finance/lide");
+  const _b=document.getElementById('fbyv');
+  const d=await j(API+"/app/hr/finance/lide"+((_b&&_b.checked)?"?vsichni=1":""));
   const l=document.getElementById('lst');
   if(!d.ok){l.innerHTML='<div class="empty">🔒 Nemáš oprávnění zobrazit finanční podmínky.</div>';return;}
   LIDE=d.lide||[];
@@ -114,16 +116,18 @@ function render(){
   const c=document.getElementById('fcnt'); if(c)c.textContent=f.length+' z '+LIDE.length;
   if(!f.length){l.innerHTML='<div class="empty">Nic nenalezeno.</div>';return;}
   l.innerHTML=f.map(p=>'<div class="prow" data-u="'+p.user_id+'" onclick="openP('+p.user_id+',this)">'+
-    '<div class="nm">'+esc(p.jmeno)+(p.cislo?' <span class="chip">č. '+esc(p.cislo)+'</span>':'')+'</div><div class="mt">'+
+    '<div class="nm">'+esc(p.jmeno)+(p.cislo?' <span class="chip">č. '+esc(p.cislo)+'</span>':'')+
+    (p.aktivni===false?' <span class="chip" style="background:#3a2622;color:#ff9a8a">bývalý</span>':'')+'</div><div class="mt">'+
     (p.firmy?'<span class="chip">'+esc(p.firmy)+'</span>':'')+esc(p.typy||'')+
     (p.pozice?' · '+esc(p.pozice):'')+'</div></div>').join('');
 }
 function exportCsv(){
   const rows=applyFilters();
   const esc2=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
-  const head=['Jméno','Číslo zaměstnance','Firma','Typ úvazku','Pozice'];
+  const head=['Jméno','Číslo zaměstnance','Firma','Typ úvazku','Pozice','Stav'];
   const lines=[head.map(esc2).join(';')];
-  rows.forEach(p=>lines.push([p.jmeno,p.cislo,p.firmy,p.typy,p.pozice].map(esc2).join(';')));
+  rows.forEach(p=>lines.push([p.jmeno,p.cislo,p.firmy,p.typy,p.pozice,
+    (p.aktivni===false?'bývalý':'aktivní')].map(esc2).join(';')));
   const csv='﻿'+lines.join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
@@ -132,6 +136,7 @@ function exportCsv(){
 }
 document.getElementById('srch').addEventListener('input',render);
 ['fpoz','ffirma','fdruh','fsort'].forEach(id=>{const e=document.getElementById(id); if(e)e.addEventListener('change',render);});
+{const b=document.getElementById('fbyv'); if(b)b.addEventListener('change',load);}
 let POZ=[];
 async function loadPozice(){ const d=await j(API+"/app/hr/finance/pozice-ciselnik"); if(d.ok){ POZ=d.pozice||[]; const f=document.getElementById('fpoz'); if(f)f.innerHTML='<option value="">Všechny pozice</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join(''); } }
 function pozOpts(sel){ return '<option value="">— nezařazeno —</option>'+POZ.map(o=>'<option value="'+o.id+'"'+(o.id===sel?' selected':'')+'>'+esc(o.label)+'</option>').join(''); }

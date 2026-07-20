@@ -41,8 +41,8 @@
   .doklwrap::-webkit-scrollbar-thumb:hover{background:#5473a0}
   table.dokl{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
   table.dokl th,table.dokl td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
-  table.dokl thead tr.frow td{position:sticky;top:0;z-index:3;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
-  table.dokl thead th{position:sticky;top:29px;z-index:2;background:#1c2636;color:#ffffff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid #34506f}
+  table.dokl thead th{position:sticky;top:0;z-index:3;background:#1c2636;color:#ffffff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid #34506f}
+  table.dokl thead tr.frow td{position:sticky;top:26px;z-index:2;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
   table.dokl tbody td{color:#f4f7fc}
   table.dokl th{position:relative}
   table.dokl th.r,table.dokl td.r{text-align:right}
@@ -177,10 +177,10 @@ function renderDoklady(){
   var rows=DOKLADY.filter(dmatch), anyF=dAnyFilter();
   var h='<div class="doklwrap"><table class="dokl" style="width:'+dTotW()+'px"><colgroup>';
   DCOLS.forEach(function(c){h+='<col data-dcol="'+c.k+'" style="width:'+dcw(c.k)+'px">';});
-  h+='</colgroup><thead><tr class="frow">';
-  DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
-  h+='</tr><tr>';
+  h+='</colgroup><thead><tr>';
   DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'"'+(c.tt?' title="'+esc(c.tt)+'"':'')+'>'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
+  h+='</tr><tr class="frow">';
+  DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
   h+='</tr></thead><tbody>';
   rows.forEach(function(d){
     h+='<tr>';

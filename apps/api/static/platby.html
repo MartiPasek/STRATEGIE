@@ -38,8 +38,8 @@
   #faktury-body .doklwrap::-webkit-scrollbar-thumb:hover{background:#5473a0}
   #faktury-body table.fakt{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
   #faktury-body table.fakt th,#faktury-body table.fakt td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
-  #faktury-body table.fakt thead tr.frow td{position:sticky;top:0;z-index:3;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
-  #faktury-body table.fakt thead th{position:sticky;top:29px;z-index:2;background:#1c2636;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid #34506f}
+  #faktury-body table.fakt thead th{position:sticky;top:0;z-index:3;background:#1c2636;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;text-align:left;border-bottom:2px solid #34506f}
+  #faktury-body table.fakt thead tr.frow td{position:sticky;top:26px;z-index:2;padding:3px 4px;background:#16233a;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
   #faktury-body table.fakt tbody td{color:#f4f7fc}
   #faktury-body table.fakt th{position:relative}
   #faktury-body table.fakt th.r,#faktury-body table.fakt td.r{text-align:right}
@@ -751,14 +751,14 @@ function renderFaktury(){
   h+='<div class="doklwrap"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
   FCOLS.forEach(function(c){h+='<col data-col="'+c.k+'" style="width:'+_colw(c.k)+'px">';});
   h+='</colgroup><thead>';
+  var allSel=list.length&&selIds.length===list.length;
+  h+='<tr><th data-col="_sel" style="text-align:center"><input type="checkbox" id="faktSelAll"'+(allSel?' checked':'')+' title="Vybrat vše" style="cursor:pointer"><span class="colgrip" data-col="_sel" title="Táhni pro roztažení/zúžení sloupce"></span></th>';
+  FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-col="'+c.k+'"'+(c.tt?' title="'+c.tt+'"':'')+'>'+c.h+'<span class="colgrip" data-col="'+c.k+'" title="Táhni pro roztažení/zúžení sloupce"></span></th>';});h+='</tr>';
   h+='<tr class="frow"><td></td>';FCOLS.forEach(function(c){
     if(c.t==='b'){h+='<td><select data-fcol="'+c.k+'"><option value="">–</option><option value="1"'+(_fCol[c.k]==='1'?' selected':'')+'>✓</option><option value="0"'+(_fCol[c.k]==='0'?' selected':'')+'>✗</option></select></td>';}
     else if(c.t==='date'){h+='<td><input readonly value="'+esc(_splatSummary())+'" placeholder="datum…" onclick="openSplatFilter(this)" style="cursor:pointer" title="Klikni pro výběr data nebo období"></td>';}
     else{h+='<td><input data-fcol="'+c.k+'" value="'+esc(_fCol[c.k]||'')+'"></td>';}});
   h+='</tr>';
-  var allSel=list.length&&selIds.length===list.length;
-  h+='<tr><th data-col="_sel" style="text-align:center"><input type="checkbox" id="faktSelAll"'+(allSel?' checked':'')+' title="Vybrat vše" style="cursor:pointer"><span class="colgrip" data-col="_sel" title="Táhni pro roztažení/zúžení sloupce"></span></th>';
-  FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-col="'+c.k+'"'+(c.tt?' title="'+c.tt+'"':'')+'>'+c.h+'<span class="colgrip" data-col="'+c.k+'" title="Táhni pro roztažení/zúžení sloupce"></span></th>';});h+='</tr>';
   h+='</thead><tbody>';
   if(!list.length){h+='<tr><td colspan="'+(FCOLS.length+1)+'" style="padding:16px;color:var(--dim)">Žádná faktura neodpovídá filtru.</td></tr>';}
   list.forEach(function(p,idx){var _fid=(p.id_fak==null?'':p.id_fak);

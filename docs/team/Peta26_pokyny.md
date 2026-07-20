@@ -77,7 +77,10 @@ Všechny velké přehledy (Faktury přijaté, Pokladní doklady a další) mají
 Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html` (`table.fakt`).
 - **Rámeček** kolem tabulky (1px `#2a3546`, radius 8px) + silnější stylované posuvníky (scrollbary).
 - **Hlavička přilepená (sticky):** VELKÁ PÍSMENA, bílá, tučná (700), tmavé pozadí `#1c2636`,
-  modré podtržení 2px `#34506f`. Nad hlavičkou přilepený **filtrovací řádek**.
+  modré podtržení 2px `#34506f`.
+- **Filtrovací řádek je POD názvy sloupců** (ne nad nimi) — jako to má Marti (17.7.2026).
+  Pořadí v `<thead>`: nejdřív řádek s názvy (`<tr>` s `<th>`), pod ním `<tr class="frow">` s filtry.
+  Oba řádky jsou přilepené (sticky): názvy `top:0`, filtry `top:<výška hlavičky>` (u faktur ~26px).
 - **Filtrovací kolonky tlumené** (světle šedomodré `#9fb2c8`, tmavý text) — NE zářivé.
 - **Buňky:** jemné oddělovače sloupců, přetečení se ořízne třemi tečkami (…), řádek se při najetí
   myší zvýrazní.

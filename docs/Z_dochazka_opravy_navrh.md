@@ -236,3 +236,61 @@ poznámky lidí mimo tabulku. Nasazeno (commity `bdda32dd` + `49a91039`):
   Klíč v body chybí = chování beze změny (zpětně kompatibilní).
 - Ověřeno naživo: ERP přes Chrome (Bernardová 8.7. s ✋ panelem, Voříšek 10.7.,
   Saxana 10.7. s 🏛), mobil přes Playwright (Pixel 7). Bez JS chyb.
+
+## 15. Etapa Kristý / Claude-24 (13.–16. 7. 2026)
+
+Po 12. 7. převzala rozvoj **Claude-24 (Kristý)** — 12 commitů, vždy v páru
+**ERP `dochazka-opravy.html` + mobil `mobile_parts/60_dochazka.js`** (parita ověřena
+proti souborům 20. 7., ne podle commit messages). Backend `fix/*` je společný, takže
+serverové změny platí pro obě UI automaticky.
+
+| Bod | Změna | ERP | Mobil |
+|---|---|---|---|
+| 1a | `api()` už netichne při 502/504/nevalidním JSON — místo tichého neuložení hláška | ✅ (ERP-only bug) | — |
+| 1b | Držitelé zámku smí opravovat i v **uzamčeném období** (`lock_override`) | ✅ | ✅ |
+| 2 | Detail dne `scrollIntoView` + sticky pravý sloupec | ✅ | ✅ (scroll) |
+| 3 | Řazení dne — 15. 7. na DESC, 16. 7. **zpět na ASC** (ráno→večer), přepočet mezer na `prevKon` | ✅ | ✅ |
+| 5a | `GET /app/attendance/fix/cinnosti`; `fix/entry` ukládá činnost na `work_alloc`, `fix/add` **zakládá** `work_alloc` segment | společný backend | |
+| 5b | Roletka Činnost ve formuláři Opravit i Přidat (jen Práce/Režie) | ✅ | ✅ |
+| 5c | Sloupec **Činnost** v detailu dne (`cin_name` z `work_alloc` v okně záznamu) | ✅ sloupec | ✅ podřádek |
+| — | **Zakázka jako roletka** — `GET /fix/zakazky` (59 píchatelných, jen editoři) | ✅ | ✅ |
+| — | **Fulltext v roletkách** Typ/Zakázka/Činnost (`mkCombo` / `_fixMkCombo`) | ✅ | ✅ |
+| — | Strážce překryvu na **celé minuty** (`date_trunc minute`; tabletové sekundy dělaly falešné kolize) + bere i **Přestávku a Cestu**, ne jen presence | společný backend | |
+| — | Fronta značí opravené dny (badge „Opraveno" + „Hotovo"); chyba jako červený pruh `.errbar` nad Uložit | ✅ | ✅ |
+| — | Zúžení levého panelu na ~300 px (sloupec Činnost vytlačoval Storno) | ✅ (ERP-only layout) | — |
+| — | Potvrzení Ano/Ne se odscrolluje do dohledu (`scrollIntoView center`) | ✅ | ✅ |
+
+### ⚠️ Odchylky proti původnímu zadání (k vědomí, ne výtka)
+
+1. **Zámek období přestal být tvrdý.** §4 a §8 návrhu říkají „uzamčený měsíc → 409
+   ve VŠECH opravných endpointech; odemyká Peťa". Od `fed0d3a3` smí držitel zámku
+   (`_att_can_lock` = Peťa 18, Šárka 13 **+ rodiče**) opravovat v zamčeném období
+   **bez odemčení** — jen se do `reason` přilepí `[oprava v uzavřeném období]`.
+   Právo opravovat zůstává gated na `_att_can_fix` (kontrola je dřív, ř. 19557),
+   takže parent bez členství ve skupině 12 dovnitř nesmí — doktrína „bez parent
+   bypassu" na editaci drží. Ale **zámek sám parent bypass má**.
+2. **Nekonzistence mezi operacemi**: `fix/entry`, `fix/add`, `fix/void` override mají,
+   **`fix/merge` (storno se sešitím) NE** — tam je pořád tvrdé 409. Buď sjednotit,
+   nebo vědomě potvrdit rozdíl.
+3. **Rozšíření zápisů do `work_alloc`.** §2 návrhu počítal s work_alloc pouze jako
+   s *návazným trimem*. Bod 5a nově do work_alloc **zakládá segmenty** (`fix/add`)
+   a přepisuje činnost — tedy oprava docházky zapisuje do zdroje pravdy pro
+   **výkazy a vytížení**. Je to logické rozšíření, ale je to jiný dopad, než co bylo
+   schváleno 9. 7.
+4. **Flip-flop řazení** (bod 3): 15. 7. přehozeno na DESC, 16. 7. vráceno na ASC.
+   Výsledný stav = ASC (ráno→večer), fronta a historie zůstávají DESC.
+
+### Incident 10. 7. (evidence)
+
+Commit Claude-24 omylem smazal 863 řádků `router.py` (mj. **att_fix, HR finance a mzdy
+endpointy**) kvůli stale kopii přes mount; obnoveno týž den z `8d225eeb`. Připomínka
+doktríny: před editem sdíleného souboru srovnat lokál s realitou, nikdy needitovat
+velké soubory přes bash mount.
+
+### Kdo do docházky sahá (stav 20. 7. 2026)
+
+`modules/erp/api/router.py` (docházkové commity od 1. 6.): **Claude-23 (Marti) 177**,
+Claude-28 (Jirka) 16, Claude-26 (Peťa) 12, Claude-24 (Kristý) 12.
+Opravy docházky (ERP+mobil UI): **Jirka 12, Kristý 12**, Zuzka 1 (split mobile_parts).
+Docházka je tedy **sdílené území čtyř instancí** — koordinace přes `OTHER_CLAUDE_WORK.txt`
+a `WORK_LOCK.txt` je tu nutnost, ne formalita.

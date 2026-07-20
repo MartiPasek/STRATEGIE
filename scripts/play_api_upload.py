@@ -5,12 +5,18 @@ Google Play Developer API (androidpublisher v3) — plne autonomni upload (bez f
 Servisni ucet klic: APP/Mobile/play-api-key.json (gitignored, TAJNY).
 
 Pouziti:
-  python scripts/play_api_upload.py screenshots          # nahraje snimky (phone+tablet)
-  python scripts/play_api_upload.py aab                   # BLOKOVANO dokud neni v73 schvalene
-  python scripts/play_api_upload.py aab --v73-approved    # az PO schvaleni v73: nahraje v74 AAB do produkce
+  python scripts/play_api_upload.py screenshots     # nahraje snimky (phone+tablet)
+  python scripts/play_api_upload.py aab             # BLOKOVANO (vypise, co si overit)
+  python scripts/play_api_upload.py aab --confirm    # nahraje AAB do produkce + odesle ke kontrole
 
-Pojistka AAB: uploadu noveho AAB (v74) do produkce se aktivuje az po schvaleni v73 ->
-proto vyzaduje explicitni flag --v73-approved (jinak neudela nic). Nerozhazi bezici revizi.
+POZOR: kazdy edits.commit = NOVE odeslani ke kontrole. Zrusi pravave bezici
+submission a resetuje review timer. Proto commit dela az posledni krok, kdyz je
+vse ostatni (listing, Sign in details, serverove zmeny) hotove a overene.
+
+Pojistka AAB: vyzaduje explicitni flag --confirm (jinak neudela nic).
+Historie: driv se flag jmenoval --v73-approved (cekalo se na schvaleni v73).
+Google v73 dne 15.7.2026 ZAMITL ("Login credentials are missing" - recenzent
+se nedostal pres prihlaseni), takze zadna revize nebezi a posila se rovnou v74.
 """
 import os, sys, glob
 from google.oauth2 import service_account
@@ -52,9 +58,12 @@ def upload_screenshots():
 
 def upload_aab(confirmed):
     if not confirmed:
-        print("BLOKOVANO: AAB auto-upload se aktivuje az PO schvaleni v73 (aby nerozhodil bezici revizi).")
-        print("Az bude v73 schvalene/Aktivni, spust:")
-        print("   python scripts/play_api_upload.py aab --v73-approved")
+        print("BLOKOVANO: upload AAB = nove odeslani ke kontrole (resetuje review timer).")
+        print("Nez to spustis, over, ze je hotove VSE ostatni:")
+        print("  - Sign in details v Play Console (instrukce k demu pro recenzenty)")
+        print("  - serverove zmeny nasazene a overene zive")
+        print("Pak spust:")
+        print("   python scripts/play_api_upload.py aab --confirm")
         return
     if not os.path.exists(AAB):
         print("CHYBA: AAB nenalezen:", AAB, "\n(nejdriv build: scripts/build_aab.ps1)"); return
@@ -81,7 +90,7 @@ def main():
     if cmd == "screenshots":
         upload_screenshots()
     elif cmd == "aab":
-        upload_aab("--v73-approved" in sys.argv)
+        upload_aab("--confirm" in sys.argv)
     else:
         print(__doc__)
 

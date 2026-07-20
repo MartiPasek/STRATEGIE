@@ -38805,8 +38805,95 @@ async def diag_sql(req: Request) -> JSONResponse:
                                      "count": len(rows), "note": "%d souborů, %d složek proskenováno" % (len(rows), seen)})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES GETB64 <abs_path> — BEZZTRÁTOVÝ přenos binárky (Claude-26, 20.7.2026).
+        #   Vrátí surový base64 z RO namespace BEZ text-dekódu (READ ho kazil u xlsx/msg).
+        #   Watcher uloží ASCII base64 do files/<name>.b64 → Claude si ho stáhne a dekóduje.
+        if op == "GETB64":
+            import base64 as _b64g
+            abs_path = path.strip().strip('"')
+            if not abs_path:
+                return JSONResponse({"ok": False, "error": "@@FILES GETB64 <abs_path>"})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                _base = _op.dirname(abs_path); _fn = _op.basename(abs_path)
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                         {"user_namespace": "ro", "base_override": _base, "path": _fn,
+                                          "encoding": "base64"}, conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok") is False:
+                    return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
+                b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+                try:
+                    nbytes = len(_b64g.b64decode(b64))
+                except Exception:
+                    nbytes = 0
+                return JSONResponse({"ok": True, "file_read": True, "binary": True,
+                                     "path": abs_path + ".b64", "encoding": "base64",
+                                     "length": len(b64), "bytes": nbytes, "content": b64})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES XLSX <abs_path> — extrakce buněk na serveru (data, ne binárka).
+        #   Vrátí TSV per list (data minimization: binárka neopustí server).
+        if op == "XLSX":
+            import base64 as _b64x, io as _iox
+            abs_path = path.strip().strip('"')
+            if not abs_path:
+                return JSONResponse({"ok": False, "error": "@@FILES XLSX <abs_path>"})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                _base = _op.dirname(abs_path); _fn = _op.basename(abs_path)
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                         {"user_namespace": "ro", "base_override": _base, "path": _fn,
+                                          "encoding": "base64"}, conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok") is False:
+                    return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
+                data = _b64x.b64decode((r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r))
+                low = _fn.lower()
+                out_lines = []
+                try:
+                    if low.endswith((".xlsx", ".xlsm")):
+                        import openpyxl as _ox
+                        wb = _ox.load_workbook(_iox.BytesIO(data), data_only=True, read_only=True)
+                        for ws in wb.worksheets:
+                            out_lines.append("### LIST: %s (%sx%s)" % (ws.title, ws.max_row, ws.max_column))
+                            rn = 0
+                            for row in ws.iter_rows(values_only=True):
+                                rn += 1
+                                if rn > 500:
+                                    out_lines.append("… (ořez 500 řádků)"); break
+                                cells = ["" if c is None else str(c) for c in row]
+                                while cells and cells[-1] == "":
+                                    cells.pop()
+                                if cells:
+                                    out_lines.append("\t".join(cells))
+                    else:
+                        import xlrd as _xlrd
+                        wb = _xlrd.open_workbook(file_contents=data)
+                        for ws in wb.sheets():
+                            out_lines.append("### LIST: %s (%dx%d)" % (ws.name, ws.nrows, ws.ncols))
+                            for ri in range(min(ws.nrows, 500)):
+                                cells = [str(ws.cell_value(ri, ci)) for ci in range(ws.ncols)]
+                                while cells and cells[-1] == "":
+                                    cells.pop()
+                                if cells:
+                                    out_lines.append("\t".join(cells))
+                except ImportError as _ie:
+                    return JSONResponse({"ok": False, "error":
+                        "chybí knihovna %s na serveru — použij @@FILES GETB64 a parsuj lokálně" % getattr(_ie, "name", "?")})
+                text = "\n".join(out_lines)
+                return JSONResponse({"ok": True, "file_read": True, "path": abs_path + ".txt",
+                                     "length": len(text), "content": text})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])})
         if op not in ("LIST", "READ") or not path:
-            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|COPY|COPYBATCH|LISTREC|PUTREPO|PUTREPODIR <cesta>"})
+            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|GETB64|XLSX|COPY|COPYBATCH|LISTREC|PUTREPO|PUTREPODIR <cesta>"})
         try:
             from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
             mcp = get_eurosoft_mcp_client()

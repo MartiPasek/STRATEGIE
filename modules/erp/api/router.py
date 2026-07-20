@@ -9378,17 +9378,35 @@ async def app_hr_finance_lide(req: Request) -> JSONResponse:
             " max(en.pozice_text) AS pozice,"
             " string_agg(DISTINCT jp.label, ', ') AS pozice_cis,"
             " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo,"
-            " " + _aktivni_expr + " AS aktivni"
+            " " + _aktivni_expr + " AS aktivni,"
+            " COALESCE("
+            "  (SELECT p.last_name FROM tenant.hr_person p"
+            "     WHERE p.user_id=ae.user_id AND p.tenant_id=2 AND p.is_current"
+            "     ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT u.last_name FROM public.users u WHERE u.id=ae.user_id), '') AS prijmeni,"
+            " COALESCE("
+            "  (SELECT p.first_name FROM tenant.hr_person p"
+            "     WHERE p.user_id=ae.user_id AND p.tenant_id=2 AND p.is_current"
+            "     ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT u.first_name FROM public.users u WHERE u.id=ae.user_id), '') AS krestni"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"
             " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
             " WHERE en.tenant_id=2 AND en.is_current AND ae.user_id IS NOT NULL"
-            " GROUP BY ae.user_id" + _having + " ORDER BY jmeno")).fetchall()
-        lide = [{"user_id": r[0], "jmeno": (r[1] or "").strip() or ("ID " + str(r[0])),
-                 "firmy": r[2] or "", "typy": r[3] or "",
-                 "pozice": (r[5] or r[4] or ""), "pozice_ciselnik": (r[5] or ""),
-                 "cislo": r[6] or "", "aktivni": bool(r[7])} for r in rows]
+            " GROUP BY ae.user_id" + _having
+            + " ORDER BY prijmeni, krestni")).fetchall()
+        # Zobrazení „Příjmení Jméno" + řazení dle příjmení (Šárka 20.7.2026).
+        lide = []
+        for r in rows:
+            _prij = (r[8] or "").strip()
+            _krest = (r[9] or "").strip()
+            _disp = (_prij + " " + _krest).strip() or (r[1] or "").strip() or ("ID " + str(r[0]))
+            lide.append({"user_id": r[0], "jmeno": _disp,
+                         "prijmeni": _prij, "krestni": _krest,
+                         "firmy": r[2] or "", "typy": r[3] or "",
+                         "pozice": (r[5] or r[4] or ""), "pozice_ciselnik": (r[5] or ""),
+                         "cislo": r[6] or "", "aktivni": bool(r[7])})
         return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide),
                              "vsichni": vsichni})
     except Exception as exc:

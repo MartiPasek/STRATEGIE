@@ -67,7 +67,7 @@
       <select id="ffirma" class="flt"><option value="">Všechny firmy</option><option value="EC">EUROSOFT-Control (EC)</option><option value="ES">EUROSOFT-System (ES)</option></select>
       <select id="fdruh" class="flt"><option value="">Všechny typy</option><option value="HPP">HPP</option><option value="OSVC">OSVČ</option><option value="DPP">DPP</option></select>
       <select id="fpoz" class="flt"><option value="">Všechny pozice</option></select>
-      <select id="fsort" class="flt"><option value="az">Jméno A–Z</option><option value="za">Jméno Z–A</option><option value="poz">Dle pozice</option><option value="cislo">Dle čísla</option></select>
+      <select id="fsort" class="flt"><option value="az">Příjmení A–Z</option><option value="za">Příjmení Z–A</option><option value="poz">Dle pozice</option><option value="cislo">Dle čísla</option></select>
     </div>
     <div class="fexp">
       <button class="sbtn" onclick="exportCsv()">⬇ Export (CSV)</button>
@@ -102,11 +102,12 @@ function applyFilters(){
     && (!fp || (p.pozice_ciselnik||'')===fp)
     && (!ff || (p.firmy||'').toUpperCase().includes(ff))
     && (!fd || (p.typy||'').toUpperCase().includes(fd)));
+  const _k=p=>((p.prijmeni||p.jmeno||'')+' '+(p.krestni||'')).trim();
   f=f.slice().sort((a,b)=>{
-    if(fs==='za') return b.jmeno.localeCompare(a.jmeno,'cs');
-    if(fs==='poz') return (a.pozice||'žžž').localeCompare(b.pozice||'žžž','cs')||a.jmeno.localeCompare(b.jmeno,'cs');
-    if(fs==='cislo') return ((parseInt(a.cislo,10)||0)-(parseInt(b.cislo,10)||0))||a.jmeno.localeCompare(b.jmeno,'cs');
-    return a.jmeno.localeCompare(b.jmeno,'cs');
+    if(fs==='za') return _k(b).localeCompare(_k(a),'cs');
+    if(fs==='poz') return (a.pozice||'žžž').localeCompare(b.pozice||'žžž','cs')||_k(a).localeCompare(_k(b),'cs');
+    if(fs==='cislo') return ((parseInt(a.cislo,10)||0)-(parseInt(b.cislo,10)||0))||_k(a).localeCompare(_k(b),'cs');
+    return _k(a).localeCompare(_k(b),'cs');
   });
   return f;
 }
@@ -124,9 +125,9 @@ function render(){
 function exportCsv(){
   const rows=applyFilters();
   const esc2=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
-  const head=['Jméno','Číslo zaměstnance','Firma','Typ úvazku','Pozice','Stav'];
+  const head=['Příjmení','Jméno','Číslo zaměstnance','Firma','Typ úvazku','Pozice','Stav'];
   const lines=[head.map(esc2).join(';')];
-  rows.forEach(p=>lines.push([p.jmeno,p.cislo,p.firmy,p.typy,p.pozice,
+  rows.forEach(p=>lines.push([(p.prijmeni||p.jmeno),(p.krestni||''),p.cislo,p.firmy,p.typy,p.pozice,
     (p.aktivni===false?'bývalý':'aktivní')].map(esc2).join(';')));
   const csv='﻿'+lines.join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});

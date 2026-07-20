@@ -19713,6 +19713,12 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                         + " (" + reason + "). "
                         "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
         s.commit()
+        # Doplnění do fondu spočtené před opravou už neplatí — přepočítat hned,
+        # ať Peťa po uložení vidí správný den (20.7.2026). Oprava mohla záznam
+        # přesunout i na jiné datum, proto oba dny.
+        _att_automat_recalc_day(emp, sd)
+        if new_start.date() != sd:
+            _att_automat_recalc_day(emp, new_start.date())
         return JSONResponse({"ok": True, "id": nid, "hours": hrs})
     except Exception as exc:
         s.rollback()
@@ -19833,6 +19839,7 @@ async def att_fix_add(req: Request) -> JSONResponse:
                         + zac + "–" + kon + " (" + reason + "). "
                         "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
         s.commit()
+        _att_automat_recalc_day(emp, day)   # doplnění do fondu po zásahu (20.7.2026)
         return JSONResponse({"ok": True, "id": nid, "hours": hrs})
     except Exception as exc:
         s.rollback()
@@ -19906,6 +19913,7 @@ async def att_fix_void(req: Request) -> JSONResponse:
         # sloučení (UI se zeptá, sešití dělá /fix/merge).
         offer = _att_fix_merge_candidate(s, emp, row[1], row[7], row[8], eid)
         s.commit()
+        _att_automat_recalc_day(emp, row[1])   # doplnění do fondu po zásahu (20.7.2026)
         return JSONResponse({"ok": True, "merge_offer": offer})
     except Exception as exc:
         s.rollback()
@@ -20074,6 +20082,7 @@ async def att_fix_merge(req: Request) -> JSONResponse:
                         + (new_end.strftime("%H:%M") if new_end else "běží") + " (" + reason + "). "
                         "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
         s.commit()
+        _att_automat_recalc_day(emp, A[2])   # doplnění do fondu po zásahu (20.7.2026)
         return JSONResponse({"ok": True, "id": a_id, "running": b_running})
     except Exception as exc:
         s.rollback()
@@ -25386,7 +25395,8 @@ def _att_automat_fond_odpich(tenant: int = 2, days_back: int = 14) -> dict:
         cm.__exit__(None, None, None)
 
 
-def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
+def _att_automat_level_day(tenant: int = 2, days_back: int = 4,
+                           employee_id=None, day=None) -> dict:
     """DOCHÁZKOVÝ AUTOMAT — denní srovnání na úvazek (Marti 26.6.2026). Sjednocuje
     dopíchnutí i odpíchnutí do JEDNÉ přesné logiky (stejné jako měsíční dorovnání):
     reálná přítomnost dne = SLOUČENÉ intervaly presence MINUS pauzy (řeší duplicitní
@@ -25404,13 +25414,26 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
                        {"t": tenant}).scalar()
         if not nt or not ft:
             return {"ok": False, "error": "typy fond_doplneni/nenarokova chybí"}
+        # Cílený přepočet JEDNOHO dne jednoho člověka (po ručním zásahu do docházky,
+        # Peťa 20.7.2026) vs. původní noční okno posledních `days_back` dnů.
+        # Cílený režim záměrně nemá podmínku `< current_date` — dnešek musí jít
+        # srovnat hned po opravě; že den neběží, hlídá _att_automat_recalc_day.
+        targeted = bool(employee_id and day)
+        p = {"t": tenant, "ft": ft, "nt": nt}
+        if targeted:
+            p["emp"] = int(employee_id)
+            p["day"] = str(day)
+            dcond = " AND e.entry_date = CAST(:day AS date) AND e.employee_id = :emp "
+        else:
+            p["db"] = days_back
+            dcond = (" AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') "
+                     " AND e.entry_date < current_date ")
         # 1) přepočet okna — smaž stávající automat joby (idempotence)
         s.execute(_t(
             "DELETE FROM tenant.att_entry e USING tenant.att_entry_type et "
             "WHERE et.id=e.entry_type_id AND e.tenant_id=:t AND e.source='automat' "
             "  AND et.code IN ('fond_doplneni','nenarokova') "
-            "  AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') "
-            "  AND e.entry_date < current_date"), {"t": tenant, "db": days_back})
+            + dcond), p)
         # 2) srovnání dne (merged net minus pauzy, per-osobu fond) — dopíchnutí i odpíchnutí
         r = s.execute(_t(
             "WITH iv AS ("
@@ -25421,7 +25444,7 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
             "  JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
             "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.dopichavat_fond=true AND k.aktivni=true "
             "  WHERE e.tenant_id=:t AND et.category='presence' "
-            "    AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') AND e.entry_date < current_date "
+            + dcond +
             "    AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL AND e.ended_at > e.started_at "
             "    AND e.status NOT IN ('superseded')), "
             "ordd AS (SELECT employee_id, entry_date, s, en, "
@@ -25437,7 +25460,7 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
             "brk AS (SELECT e.employee_id, e.entry_date, sum(COALESCE(e.hours,0)) AS break_h "
             "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "  WHERE e.tenant_id=:t AND et.code='break' "
-            "    AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') AND e.entry_date < current_date "
+            + dcond +
             "  GROUP BY e.employee_id, e.entry_date), "
             "fondp AS (SELECT em.id AS employee_id, COALESCE("
             "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
@@ -25466,8 +25489,7 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
             "WHERE nf.net > 0.1 AND abs(nf.fond - nf.net) >= 0.1 "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type a2 ON a2.id=a.entry_type_id "
             "     WHERE a.tenant_id=:t AND a.employee_id=nf.employee_id AND a.entry_date=nf.entry_date "
-            "       AND a2.category='absence' AND a.status IN ('pending','approved'))"),
-            {"t": tenant, "db": days_back, "ft": ft, "nt": nt})
+            "       AND a2.category='absence' AND a.status IN ('pending','approved'))"), p)
         cnt = r.rowcount
         s.commit()
         return {"ok": True, "leveled": cnt}
@@ -25479,6 +25501,43 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
         return {"ok": False, "error": str(exc)}
     finally:
         cm.__exit__(None, None, None)
+
+
+def _att_automat_recalc_day(employee_id, day, tenant: int = 2) -> None:
+    """Přepočet 'doplnění do fondu' pro JEDEN den jednoho člověka. Volá se hned
+    po každém ručním zásahu do docházky (oprava / doplnění / storno / sloučení),
+    ještě před odpovědí do prohlížeče — aby doplnění nezůstalo viset na staré
+    hodnotě spočtené před zásahem (Peťa 20.7.2026; do té doby se to srovnalo
+    až nočním během, a u dnů starších než 4 dny nikdy).
+    NIKDY nevyhodí výjimku — oprava sama je už zapsaná a nesmí spadnout kvůli
+    automatu."""
+    from datetime import date as _date
+    from sqlalchemy import text as _t
+    try:
+        d = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+        if d == _date.today().isoformat():
+            # Dnešek srovnáváme jen když je den dokončený — pokud člověku ještě
+            # něco běží, fond by se počítal z nedopsaného dne.
+            cm, s = _att_session()
+            try:
+                run = s.execute(_t(
+                    "SELECT 1 FROM tenant.att_entry e "
+                    "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+                    "WHERE e.tenant_id=:t AND e.employee_id=:e "
+                    "  AND e.entry_date=CAST(:d AS date) AND et.category='presence' "
+                    "  AND e.ended_at IS NULL AND e.status NOT IN ('superseded') LIMIT 1"),
+                    {"t": tenant, "e": int(employee_id), "d": d}).first()
+                s.commit()
+            finally:
+                cm.__exit__(None, None, None)
+            if run:
+                return
+        out = _att_automat_level_day(tenant=tenant, employee_id=int(employee_id), day=d)
+        logger.info("[automat] prepocet fondu po zasahu: emp=%s den=%s -> %s",
+                    employee_id, d, out)
+    except Exception:
+        logger.exception("[automat] prepocet fondu po zasahu selhal (emp=%s den=%s)",
+                         employee_id, day)
 
 
 def _maybe_long_shift_nudge():

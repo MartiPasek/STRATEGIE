@@ -77,6 +77,7 @@ OD_MAP = [
 # do UCTO_EC/ES, odvodit druh vztahu z Helios (TabMzJmhzPP / pojistný vztah) a mapu zrušit.
 ZMR_KOD = {("EC", 374): "T++", ("EC", 525): "T++"}
 ZMR_KOD_DEFAULT = "T++"
+JEDNATEL_OIC = {"1122284229"}  # Marti Pašek — jednatel (druh činnosti S) → cinnostKS (40343)
 
 
 def _r(x):
@@ -207,6 +208,36 @@ def _person_form(a, rok, mesic, dni_v_mesici):
                        "\t\t\t\t<form:vymerovaciZakladParagraf5>\n"
                        "\t\t\t\t\t<form:pismenoA>%d</form:pismenoA>\n"
                        "\t\t\t\t</form:vymerovaciZakladParagraf5>" % (a['vz_sp'], a['vz_sp']))
+
+    if str(a.get("ikMpsv", "")).strip() in JEDNATEL_OIC:
+        # cinnostKS = jednatel / člen orgánu PO (druh činnosti "S"). Struktura ověřena proti
+        # produkčnímu validátoru ČSSZ 20.7.2026 (bez vymerovaciZakladParagraf5 a slevaZamestnavatele,
+        # bez prubehZamestnani a mzda). Řeší chybu 40343.
+        return (
+            "\t<n1:formularOsoby>"
+            "<n1:hlavicka><n1:idFormulare>%s</n1:idFormulare><n1:typFormulare>R</n1:typFormulare><n1:primarniPpv>true</n1:primarniPpv></n1:hlavicka>"
+            "<form:cinnostKS>"
+            "<form:identifikace><form:ikMpsv>%s</form:ikMpsv><form:idPpv>%s</form:idPpv></form:identifikace>"
+            "<form:souhrnDataZec>"
+            "<form:prijmy><form:zuctovanoCelkem>%d</form:zuctovanoCelkem></form:prijmy>"
+            "<form:zalohaNaDan><form:zakladDane>%d</form:zakladDane><form:vypoctenaZaloha>%d</form:vypoctenaZaloha><form:danZalohaPoSleve>%d</form:danZalohaPoSleve></form:zalohaNaDan>"
+            "<form:prohlaseniPoplatnika>%s</form:prohlaseniPoplatnika>"
+            "<form:prohlaseniPoplatnikaDane><form:zakladniSleva>%d</form:zakladniSleva></form:prohlaseniPoplatnikaDane>"
+            "<form:zdravPojZamestnanec><form:zdravotniPojisteni>%d</form:zdravotniPojisteni></form:zdravPojZamestnanec>"
+            "</form:souhrnDataZec>"
+            "<form:pojisteni>"
+            "<form:trvani><form:pojisteniOd>%s</form:pojisteniOd><form:pojisteniDo>%s</form:pojisteniDo></form:trvani>"
+            "<form:vymerovaciZaklad><form:castkaOdvodPojistneho>%d</form:castkaOdvodPojistneho><form:prijemNepojistenaCinnost>0</form:prijemNepojistenaCinnost></form:vymerovaciZaklad>"
+            "<form:eldpSeznam><form:eldp><form:kod>%s</form:kod><form:platnostOd>%s</form:platnostOd><form:platnostDo>%s</form:platnostDo><form:pocetDnu>%d</form:pocetDnu><form:vymerovaciZaklad>%d</form:vymerovaciZaklad></form:eldp></form:eldpSeznam>"
+            "<form:pojisteniZamestnanec><form:socialniPojisteni>%d</form:socialniPojisteni></form:pojisteniZamestnanec>"
+            "<form:pojisteniZamestnavatel><form:socialniPojisteni>%d</form:socialniPojisteni></form:pojisteniZamestnavatel>"
+            "<form:slevaZamestnance><form:slevaZamestnanceEvidovana>false</form:slevaZamestnanceEvidovana><form:slevaZamestnanceOvoZelEvidovana>false</form:slevaZamestnanceOvoZelEvidovana></form:slevaZamestnance>"
+            "</form:pojisteni>"
+            "<form:vykonavanaPozice><form:mistoVykonuPrace><form:obec>%s</form:obec><form:kodObce>%s</form:kodObce><form:kodStatu>CZ</form:kodStatu></form:mistoVykonuPrace><form:uplatnujiPrispevekApz>false</form:uplatnujiPrispevekApz><form:funkcniPozitky>false</form:funkcniPozitky><form:docasnePrideleniEvidovano>false</form:docasnePrideleniEvidovano><form:fondPracovniDoby><form:stanovenyFond>%d</form:stanovenyFond><form:sjednanyFond>%d</form:sjednanyFond><form:stanovenaTydenniDoba>%d</form:stanovenaTydenniDoba></form:fondPracovniDoby></form:vykonavanaPozice>"
+            "<form:prijem><form:dan><form:zakladDane>%d</form:zakladDane></form:dan></form:prijem>"
+            "</form:cinnostKS>"
+            "</n1:formularOsoby>"
+        ) % (uuid.uuid4(), a["ikMpsv"], a["idPpv"], h, h, a["vypoctenaZaloha"], a["danZalohaPoSleve"], proh, a["zakladniSleva"], a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>

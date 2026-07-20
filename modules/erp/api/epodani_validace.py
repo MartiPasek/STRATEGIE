@@ -65,7 +65,7 @@ def _call(payload_xml: str, test: bool = True) -> dict:
         for el in rt.iter():
             tag = etree.QName(el).localname
             if tag in ("Chyba", "chyba", "Text", "Popis", "Detail", "Kod", "faultstring") and (el.text or "").strip():
-                chyby.append("%s: %s" % (tag, el.text.strip()[:300]))
+                chyby.append("%s: %s" % (tag, el.text.strip()[:1500]))
         if chyby:
             out["detaily"] = chyby[:40]
     except Exception:

@@ -39421,7 +39421,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@EPVALSTR | <xml>"]], "count": 1})
             from modules.erp.api.epodani_validace import validate_xml_string as _vxs
             _rv = _vxs(_xmlin, test=True)
-            _det = " | ".join(_rv.get("detaily", []))[:600] or (_rv.get("chyba_spojeni") or _rv.get("raw") or _rv.get("error") or "")
+            _det = " | ".join(_rv.get("detaily", []))[:3000] or (_rv.get("chyba_spojeni") or _rv.get("raw") or _rv.get("error") or "")
             return JSONResponse({"ok": True,
                 "columns": ["typ", "prostredi", "VysledekKod", "ok", "detaily"],
                 "rows": [[_rv.get("typ") or "?", _rv.get("prostredi") or "test",

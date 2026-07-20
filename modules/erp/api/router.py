@@ -57868,6 +57868,7 @@ def _render_workspace_page(user_id: int) -> str:
          (context menu, grid header, workspace toolbar). Marti doctrine
          "stejne zobrazit, stejne funkce". -->
     <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/ec_vyhodnoceni_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/erp_spec_form.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Cell actions Fáze 1 (1.6.2026, Marti: dvojklik na telefon/email/web
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher
@@ -62654,3 +62655,6 @@ async def g2007_znalost_upsert(req: Request):
         return JSONResponse({"ok": False, "error": "chybi oblast/slug/nadpis/zdroj"}, status_code=200)
     out = await _rtp(_g2007_znalost_upsert_work, oblast, slug, nadpis, zdroj, uroven, typ)
     return JSONResponse(out, status_code=200)
+
+# ec.* action runner (Vyhodnoceni zakazek) -> POST /api/v1/erp/action/run
+from modules.erp.api import vyhodnoceni_actions as _vyh_act  # noqa: E402,F401

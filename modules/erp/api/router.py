@@ -19461,7 +19461,9 @@ async def att_fix_day(req: Request) -> JSONResponse:
         if _emps is not None and int(emp) not in _emps:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         locked = _att_period_locked(s, day)
-        _lock_ovr = _att_can_lock(s, uid)
+        # can_unlock: držitel zámku sice v zamčeném měsíci NEopravuje (tvrdé 409,
+        # Jirka 20.7.), ale UI mu má nabídnout, že období smí odemknout.
+        _can_unlock = _att_can_lock(s, uid)
         rows = s.execute(_t(
             "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
             "       e.hours, e.project_ref, e.note, et.label, et.code, et.category, "
@@ -19482,7 +19484,7 @@ async def att_fix_day(req: Request) -> JSONResponse:
             "WHERE tenant_id=:t AND employee_id=:e AND day=:d"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).first()
         s.commit()
-        return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": bool(locked and _lock_ovr),
+        return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": False, "can_unlock": bool(locked and _can_unlock),
             "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
             "entries": [
             {"id": r[0], "zac": r[1], "kon": r[2],
@@ -19490,7 +19492,7 @@ async def att_fix_day(req: Request) -> JSONResponse:
              "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
              "status": r[9], "running": bool(r[10] and not r[2]),
              "source_system": r[11], "source": r[12], "cin_name": r[13], "cin_id": r[14],
-             "editable": ((not locked) or _lock_ovr) and (not r[11]) and r[9] != "superseded"} for r in rows]})
+             "editable": (not locked) and (not r[11]) and r[9] != "superseded"} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 
@@ -19574,10 +19576,16 @@ async def att_fix_entry(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "Běžící záznam nelze opravit — člověk zrovna maká (počkej na odchod)."})
         if row[3] is None:
             return JSONResponse({"ok": False, "error": "Záznam bez času začátku (absence) — oprav přes absence, ne tady."})
+        # Zámek je TVRDÝ i pro držitele zámku (Jirka 20.7.2026, varianta A).
+        # Od 15.7. tu byl override (Peťa/Šárka/rodiče mohli psát do zamčeného
+        # měsíce, jen se do reason přilepilo „[oprava v uzavřeném období]").
+        # Audit ukázal, že ho NIKDO ani jednou nepoužil (0 oprav se dnem před
+        # červencem), zatímco správná cesta odemkni→oprav→zamkni proběhla 2×
+        # (Marešová 15.7., Šafránková 16.7., obojí 6/2026, do minuty). Zámek nad
+        # zpracovanými mzdami má být brána, ne štítek v poznámce: odemčení je
+        # vědomý akt a je vidět v auditu, override byl neviditelný.
         if _att_period_locked(s, row[2]):
-            if not _att_can_lock(s, uid):
-                return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — opravu musí nejdřív povolit Peťa/Šárka odemčením období."}, status_code=409)
-            reason = (reason + " [oprava v uzavřeném období]").strip()
+            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak opravit a zase zamknout."}, status_code=409)
         emp = int(row[1])
         _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if _emps is not None and emp not in _emps:
@@ -19732,10 +19740,9 @@ async def att_fix_add(req: Request) -> JSONResponse:
     try:
         if not _att_can_fix(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Tvrdý zámek i pro držitele zámku — viz komentář u fix/entry.
         if _att_period_locked(s, day):
-            if not _att_can_lock(s, uid):
-                return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — přidání musí nejdřív povolit Peťa/Šárka odemčením období."}, status_code=409)
-            reason = (reason + " [oprava v uzavřeném období]").strip()
+            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak přidat záznam a zase zamknout."}, status_code=409)
         emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
                         {"t": _ATT_TENANT, "u": tuid}).scalar()
         if not emp:
@@ -19843,10 +19850,9 @@ async def att_fix_void(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "Záznam už je zneplatněný."})
         if row[5]:
             return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále."})
+        # Tvrdý zámek i pro držitele zámku — viz komentář u fix/entry.
         if _att_period_locked(s, row[1]):
-            if not _att_can_lock(s, uid):
-                return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — storno musí nejdřív povolit Peťa/Šárka odemčením období."}, status_code=409)
-            reason = (reason + " [storno v uzavřeném období]").strip()
+            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak stornovat a zase zamknout."}, status_code=409)
         emp = int(row[0])
         _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if _emps is not None and emp not in _emps:

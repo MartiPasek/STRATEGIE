@@ -1984,7 +1984,7 @@
       api("GET","/api/v1/erp/app/attendance/fix/day?uid="+ctx.uid+"&day="+encodeURIComponent(dt.value||""),"").then(function(j){
         box.innerHTML="";
         if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
-        if(j.locked) box.appendChild(el('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px;">'+(j.lock_override?'🔓 Období je uzamčeno (mzdy zpracovány) — ty (zámek) opravit můžeš; každá změna se zapíše do auditu.':'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Odemknout smí Peťa/Šárka.')+'</div>'));
+        if(j.locked) box.appendChild(el('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px;">'+(j.can_unlock?'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Ty ho smíš odemknout: odemkni, oprav a zase zamkni.':'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Odemknout smí Peťa/Šárka.')+'</div>'));
         // Jirka 12.7.: co člověk hlásí (✋ rozpor dne + rozpory na záznamech) = důležité, NAD tabulkou
         var hlasi=[];
         if(j.dispute&&j.dispute.disputed&&(j.dispute.note||"").trim())hlasi.push('<b>Den:</b> „'+esc(j.dispute.note)+'“');
@@ -1996,9 +1996,9 @@
         // ➕ doplnění chybějícího záznamu — z tlačítka i z řádku „mezera" (Dušan 12.7., předvyplněné časy)
         var addB=el('<button class="ghost full" style="margin-bottom:8px;border-color:var(--green);color:var(--green);">➕ Přidat záznam (zapomenutý příchod, mezera…)</button>');
         var addFx=el('<div style="margin-bottom:8px;"></div>');
-        if(!j.locked||j.lock_override){ box.appendChild(addB); box.appendChild(addFx); }
+        if(!j.locked){ box.appendChild(addB); box.appendChild(addFx); }
         function openAdd(prefZ,prefK){
-          if(j.locked&&!j.lock_override)return;
+          if(j.locked)return;
           addFx.innerHTML="";
           var w=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;"></div>');
           var sel=_fixMkTyp(null);

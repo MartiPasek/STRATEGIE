@@ -35937,6 +35937,200 @@ async def prefakturace_vystavit(req: Request):
             "message": "Vystavení čeká na schválení v banneru (Marti/Braňo)."}
 
 
+def _pref_popis_case_col(col):
+    """CASE <col> -> popis (bez přípony 'za M/R'), pro detailní rozpad Excelu."""
+    whens = "\n".join(
+        "      WHEN %s like N'%s' THEN N'%s'" % (col, pat.replace("'", "''"), pop.replace("'", "''"))
+        for pat, pop in _PREF_POPIS_MAP)
+    return "CASE\n%s\n      ELSE isnull(%s,'CHYBI SKUPINA')\n    END" % (whens, col)
+
+
+def _pref_skup_popis(cisla):
+    """{cislo: (isit, skupina_text, popis)} z office pro seznam osobních čísel."""
+    cisla = [int(c) for c in cisla if c is not None]
+    if not cisla:
+        return {}
+    vals = ",".join("(%d)" % c for c in cisla)
+    sql = ("SELECT cislo, isit, skupina, %s AS popis FROM ("
+           "SELECT q.cislo AS cislo, "
+           "CASE WHEN EXISTS(SELECT 1 FROM EC_SkupinyVazby WHERE CisloZam=q.cislo AND IDSkupiny=5) THEN 1 ELSE 0 END AS isit, "
+           "(SELECT S.Nazev + ', ' FROM EC_SkupinyVazby SV LEFT OUTER JOIN EC_Skupiny S ON SV.IDSkupiny=S.ID "
+           " WHERE SV.cislozam=q.cislo AND SV.IDSkupiny not in(16,17,19,20,21,22,23,26,27,28,39,40,41,42) FOR XML PATH('')) AS skupina "
+           "FROM (VALUES %s) q(cislo)) x" % (_pref_popis_case_col("skupina"), vals))
+    out = {}
+    for d in _pref_clean(_pref_ec_rows(sql)):
+        try:
+            out[int(d.get("cislo"))] = (int(d.get("isit") or 0),
+                                        (d.get("skupina") or "").strip().rstrip(","),
+                                        (d.get("popis") or "").strip())
+        except Exception:
+            pass
+    return out
+
+
+@api_router.get("/app/prefakturace/detail-xlsx")
+def prefakturace_detail_xlsx(req: Request):
+    """Excel rozpad přefakturace (Souhrn VF + Detail po zaměstnancích/fakturách) —
+    vrací base64 xlsx v JSON (stažení v mobilu přes Blob). Mzdy z Prahy, doklady/
+    nájem/režie z Plzně, marže. Kristý 20.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        m = int(req.query_params.get("mesic")); r = int(req.query_params.get("rok"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí měsíc/rok"}, status_code=400)
+    try:
+        marze = float(req.query_params.get("marze", 6))
+    except Exception:
+        marze = 6.0
+    if marze < 0 or marze > 100:
+        marze = 6.0
+    mf = marze / 100.0
+    try:
+        cloud = _firma_cloud_db(2)
+        detail = []  # (cislo, jmeno, utvar, popis, zdroj, base, marze_frac)
+        qp = ("SELECT z.Cislo, RTRIM(z.Prijmeni)+' '+RTRIM(z.Jmeno), "
+              "CAST(ISNULL(v.HrubaMzda,0)+ISNULL(v.SocPojFirma,0)+ISNULL(v.ZdrPojFirma,0)+ISNULL(st.stravne,0) AS int) "
+              "FROM %s.dbo.TabZamVyp v JOIN %s.dbo.TabCisZam z ON z.ID=v.ZamestnanecId "
+              "LEFT JOIN (SELECT CisloZam, SUM(Castka) AS stravne FROM %s.dbo.TabDenik "
+              " WHERE CisloUcet IN (527000,527001) AND YEAR(DatumPripad)=%d AND MONTH(DatumPripad)=%d GROUP BY CisloZam) st "
+              " ON st.CisloZam=z.Cislo "
+              "WHERE v.IdObdobi=(SELECT IdObdobi FROM %s.dbo.TabMzdObd WHERE Rok=%d AND Mesic=%d) "
+              "ORDER BY z.Prijmeni, z.Jmeno" % (cloud, cloud, cloud, r, m, cloud, r, m))
+        rp = _mssql188_query(qp)
+        if not rp.get("ok"):
+            raise RuntimeError("Praha mzdy: %s" % rp.get("error"))
+        mzdy = [(int(x[0]), (x[1] or "").strip(), int(x[2] or 0)) for x in (rp.get("rows") or []) if x and x[0] is not None]
+        sp = _pref_skup_popis([c for c, _, _ in mzdy])
+        for cislo, jmeno, nak in mzdy:
+            isit, skup, popis = sp.get(cislo, (0, "", ""))
+            base = nak / 2.0 if isit else nak
+            detail.append((cislo, jmeno, skup, popis, "Mzdový list" + (" – IT ½" if isit else ""), round(base, 2), mf))
+        pf = _pref_clean(_pref_ec_rows(
+            "SELECT Z.Cislo AS cislo, RTRIM(Z.Prijmeni)+' '+RTRIM(Z.Jmeno) AS jmeno, "
+            "CAST(SUM(D.SumaKcBezDPH) AS numeric(18,2)) AS castka "
+            "FROM TabDokladyZbozi D LEFT JOIN TabCisOrg VO ON D.CisloOrg=VO.CisloOrg "
+            "LEFT JOIN TabCisZam_EXT ZE ON ZE._CisloOrgVazbaMzdy=VO.CisloOrg "
+            "LEFT JOIN TabCisZam Z ON Z.ID=ZE.ID "
+            "WHERE YEAR(D.DUZP)=%d AND MONTH(D.DUZP)=%d AND D.DruhPohybuZbo>=18 AND D.DruhPohybuZbo<=19 "
+            "AND D.PoradoveCislo>=0 AND D.RadaDokladu IN ('501','511','521','531','541') "
+            "AND ISNULL(ZE._CisloOrgVazbaMzdy,0)<>0 GROUP BY Z.Cislo, RTRIM(Z.Prijmeni)+' '+RTRIM(Z.Jmeno)" % (r, m)))
+        sp2 = _pref_skup_popis([d.get("cislo") for d in pf])
+        for d in pf:
+            try:
+                cislo = int(d.get("cislo")); amt = float(d.get("castka") or 0)
+            except Exception:
+                continue
+            isit, skup, popis = sp2.get(cislo, (0, "", ""))
+            base = amt / 2.0 if isit else amt
+            detail.append((cislo, d.get("jmeno") or "", popis, popis, "Přijatá faktura" + (" – IT ½" if isit else ""), round(base, 2), mf))
+        najem = _pref_clean(_pref_ec_rows(
+            "SELECT CAST(SUM(D.SumaKcBezDPH) AS numeric(18,2)) AS castka FROM TabDokladyZbozi D "
+            "WHERE YEAR(D.DUZP)=%d AND MONTH(D.DUZP)=%d AND D.RadaDokladu like '6%%' AND D.CisloOrg=1 "
+            "AND EXISTS(SELECT 1 FROM TabPohybyZbozi P WHERE P.IDDoklad=D.ID AND (P.Poznamka like '%%nájem%%' OR P.Poznamka like 'najem'))" % (r, m)))
+        nj = float((najem[0].get("castka") if najem else 0) or 0)
+        if nj:
+            detail.append(("", "Nájemné", "Nájemné", "Nájemné", "Nájem", round(nj, 2), 0.0))
+        rez = _pref_clean(_pref_ec_rows(
+            "SELECT ISNULL(VO.Nazev,'?') AS dodavatel, D.PoradoveCislo AS doklad, LEFT(ISNULL(D.PopisDodavky,''),70) AS popis, "
+            "CAST(D.SumaKcBezDPH AS numeric(18,2)) AS castka "
+            "FROM TabDokladyZbozi D LEFT JOIN TabCisOrg VO ON D.CisloOrg=VO.CisloOrg "
+            "LEFT JOIN TabCisZam_EXT ZE ON ZE._CisloOrgVazbaMzdy=VO.CisloOrg "
+            "WHERE YEAR(D.DUZP)=%d AND MONTH(D.DUZP)=%d AND D.DruhPohybuZbo>=18 AND D.DruhPohybuZbo<=19 "
+            "AND D.PoradoveCislo>=0 AND D.RadaDokladu IN ('501','511','521','531','541') "
+            "AND ISNULL(ZE._CisloOrgVazbaMzdy,0)=0 AND D.CisloOrg NOT IN (878,0) ORDER BY D.SumaKcBezDPH DESC" % (r, m)))
+        for d in rez:
+            try:
+                amt = float(d.get("castka") or 0)
+            except Exception:
+                amt = 0.0
+            nm = ((d.get("dodavatel") or "").strip() + " – " + (d.get("popis") or "").strip()).strip(" –")
+            detail.append((d.get("doklad"), nm, "Režie", "Režijní náklady", "Přijatá faktura", round(amt, 2), mf))
+        from collections import OrderedDict as _OD
+        sou = _OD()
+        for row in detail:
+            popis = row[3]
+            if popis not in sou:
+                sou[popis] = [0.0, row[6]]
+            sou[popis][0] += row[5]
+        souhrn = sorted(([k, round(v[0], 2), v[1]] for k, v in sou.items()), key=lambda x: -x[1])
+        import io as _io, base64 as _b64
+        import openpyxl as _ox
+        from openpyxl.styles import Font as _F, PatternFill as _PF, Border as _B, Side as _S, Alignment as _AL
+        AR = _F(name='Arial', size=10); ARB = _F(name='Arial', size=10, bold=True); ARH = _F(name='Arial', size=10, bold=True, color='FFFFFF')
+        HF = _PF('solid', fgColor='305496'); TF = _PF('solid', fgColor='D9E1F2')
+        thin = _S(style='thin', color='BFBFBF'); bd = _B(left=thin, right=thin, top=thin, bottom=thin)
+        KC = '#,##0.00'; PC = '0 %'
+        def _hd(ws, row, n):
+            for c in range(1, n + 1):
+                x = ws.cell(row=row, column=c); x.font = ARH; x.fill = HF; x.border = bd
+                x.alignment = _AL(horizontal='center', vertical='center', wrap_text=True)
+        wb = _ox.Workbook()
+        ws = wb.active; ws.title = 'Souhrn VF'
+        ws['A1'] = 'Přefakturace služeb EUROSOFT-System s.r.o. -> EUROSOFT-Control'; ws['A1'].font = _F(name='Arial', size=12, bold=True)
+        ws['A2'] = 'Období %d/%d  ·  marže %s %% (nájem 0 %%)' % (m, r, ('%g' % marze)); ws['A2'].font = _F(name='Arial', size=9, italic=True)
+        for j, h in enumerate(['Položka na faktuře', 'Bez marže (Kč)', 'Marže %', 'Marže (Kč)', 'S marží (Kč)'], 1):
+            ws.cell(row=4, column=j, value=h)
+        _hd(ws, 4, 5); rr = 5; tb = tm = ts = 0.0
+        for popis, b, mp in souhrn:
+            mk = round(b * mp, 2); sm = round(b + mk, 2); tb += b; tm += mk; ts += sm
+            ws.cell(row=rr, column=1, value=popis).font = AR
+            ws.cell(row=rr, column=2, value=round(b, 2)).font = AR; ws.cell(row=rr, column=2).number_format = KC
+            ws.cell(row=rr, column=3, value=mp).font = AR; ws.cell(row=rr, column=3).number_format = PC
+            ws.cell(row=rr, column=4, value=mk).font = AR; ws.cell(row=rr, column=4).number_format = KC
+            ws.cell(row=rr, column=5, value=sm).font = AR; ws.cell(row=rr, column=5).number_format = KC
+            for c in range(1, 6): ws.cell(row=rr, column=c).border = bd
+            rr += 1
+        ws.cell(row=rr, column=1, value='CELKEM základ (bez DPH)').font = ARB
+        ws.cell(row=rr, column=2, value=round(tb, 2)).font = ARB; ws.cell(row=rr, column=2).number_format = KC
+        ws.cell(row=rr, column=4, value=round(tm, 2)).font = ARB; ws.cell(row=rr, column=4).number_format = KC
+        ws.cell(row=rr, column=5, value=round(ts, 2)).font = ARB; ws.cell(row=rr, column=5).number_format = KC
+        for c in range(1, 6): ws.cell(row=rr, column=c).fill = TF; ws.cell(row=rr, column=c).border = bd
+        dph = round(ts * 0.21, 2)
+        ws.cell(row=rr + 1, column=4, value='DPH 21 %').font = ARB
+        ws.cell(row=rr + 1, column=5, value=dph).font = ARB; ws.cell(row=rr + 1, column=5).number_format = KC
+        ws.cell(row=rr + 2, column=4, value='CELKEM s DPH').font = ARB
+        ws.cell(row=rr + 2, column=5, value=round(ts + dph, 2)).font = ARB; ws.cell(row=rr + 2, column=5).number_format = KC
+        ws.cell(row=rr + 2, column=5).fill = TF
+        for w, col in zip([46, 16, 10, 16, 16], 'ABCDE'): ws.column_dimensions[col].width = w
+        ws.freeze_panes = 'A5'
+        ws2 = wb.create_sheet('Detail po zaměstnancích')
+        ws2['A1'] = 'Detail po zaměstnancích / fakturách — podklad ke schválení (%d/%d)' % (m, r); ws2['A1'].font = _F(name='Arial', size=11, bold=True)
+        for j, h in enumerate(['Číslo', 'Jméno / položka', 'Skupina / útvar', 'Řádek faktury', 'Zdroj', 'Bez marže (Kč)', 'Marže %', 'Marže (Kč)', 'S marží (Kč)'], 1):
+            ws2.cell(row=3, column=j, value=h)
+        _hd(ws2, 3, 9); rr = 4; db_ = dh = dss = 0.0
+        for cislo, jmeno, utvar, popis, zdroj, b, mp in detail:
+            mk = round(b * mp, 2); sm = round(b + mk, 2); db_ += b; dh += mk; dss += sm
+            ws2.cell(row=rr, column=1, value=cislo).font = AR
+            ws2.cell(row=rr, column=2, value=jmeno).font = AR
+            ws2.cell(row=rr, column=3, value=utvar).font = AR
+            ws2.cell(row=rr, column=4, value=popis).font = AR
+            ws2.cell(row=rr, column=5, value=zdroj).font = AR
+            ws2.cell(row=rr, column=6, value=round(b, 2)).font = AR; ws2.cell(row=rr, column=6).number_format = KC
+            ws2.cell(row=rr, column=7, value=mp).font = AR; ws2.cell(row=rr, column=7).number_format = PC
+            ws2.cell(row=rr, column=8, value=mk).font = AR; ws2.cell(row=rr, column=8).number_format = KC
+            ws2.cell(row=rr, column=9, value=sm).font = AR; ws2.cell(row=rr, column=9).number_format = KC
+            for c in range(1, 10): ws2.cell(row=rr, column=c).border = bd
+            rr += 1
+        ws2.cell(row=rr, column=2, value='CELKEM').font = ARB
+        ws2.cell(row=rr, column=6, value=round(db_, 2)).font = ARB; ws2.cell(row=rr, column=6).number_format = KC
+        ws2.cell(row=rr, column=8, value=round(dh, 2)).font = ARB; ws2.cell(row=rr, column=8).number_format = KC
+        ws2.cell(row=rr, column=9, value=round(dss, 2)).font = ARB; ws2.cell(row=rr, column=9).number_format = KC
+        for c in range(1, 10): ws2.cell(row=rr, column=c).fill = TF; ws2.cell(row=rr, column=c).border = bd
+        for w, col in zip([8, 34, 34, 30, 20, 15, 9, 14, 15], 'ABCDEFGHI'): ws2.column_dimensions[col].width = w
+        ws2.freeze_panes = 'A4'
+        buf = _io.BytesIO(); wb.save(buf)
+        b64 = _b64.b64encode(buf.getvalue()).decode('ascii')
+    except Exception as exc:
+        logger.exception("[prefakturace_detail_xlsx] %s", exc)
+        return JSONResponse({"ok": False, "error": "Rozpad nelze vytvořit: %s" % str(exc)[:200]}, status_code=502)
+    return {"ok": True, "filename": "Rozpad_prefakturace_ES_%d-%d.xlsx" % (m, r),
+            "celkem_s_dph": round(ts + dph, 2), "b64": b64}
+
+
 @api_router.get("/app/prefakturace/stav")
 def prefakturace_stav(req: Request):
     """Po schválení: vrátí číslo vystavené faktury za daný měsíc (UI poll)."""

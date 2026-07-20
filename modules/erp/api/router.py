@@ -39488,6 +39488,24 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
                 "rows": [["%s: %s" % (type(_ejg).__name__, str(_ejg)[:300]), _tbjg.format_exc()[-500:]]], "count": 1})
 
+    #   @@NEMPRIGEN <firma> <priloha_id>  -> načte přílohu DNP z Heliosu → build_nempri → ověří u ČSSZ.
+    if sql.upper().startswith("@@NEMPRIGEN"):
+        import traceback as _tbng
+        try:
+            _a = sql[len("@@NEMPRIGEN"):].split()
+            _firma = (_a[0] if _a else "ES").upper()
+            _pid = int(_a[1]) if len(_a) > 1 else 1053
+            from modules.erp.api import mzdy_nempri as _mng
+            from modules.erp.api.epodani_validace import validate_xml_string as _vxng
+            _xmlng = _mng.generate_nempri_xml(_firma, _pid)
+            _rvng = _vxng(_xmlng, test=True)
+            return JSONResponse({"ok": True, "columns": ["priloha", "VysledekKod", "ok", "bytu", "detaily"],
+                "rows": [["%s/%d" % (_firma, _pid), _rvng.get("VysledekKod"), str(_rvng.get("ok")), len(_xmlng),
+                          " | ".join(_rvng.get("detaily", []))[:600] or (_rvng.get("chyba_spojeni") or "")]], "count": 1})
+        except Exception as _eng:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                "rows": [["%s: %s" % (type(_eng).__name__, str(_eng)[:250]), _tbng.format_exc()[-400:]]], "count": 1})
+
     #   @@NEMPRIDEMO  -> postaví NEMPRI (OSE) demo (Marešová) přes build_nempri + ověří u ČSSZ validátoru.
     if sql.upper().startswith("@@NEMPRIDEMO"):
         import traceback as _tbnd

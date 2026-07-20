@@ -278,7 +278,7 @@ function loadLock(){
   api('GET','/api/v1/erp/app/attendance/period-lock').then(function(j){
     L.innerHTML='';
     if(!j.ok){L.innerHTML='<div class="hint">✗ '+esc(j.error||'chyba')+'</div>';return;}
-    L.appendChild(el('<div class="hint" style="margin-bottom:8px;">Uzamčený měsíc nelze opravovat (mzdy zpracovány). Zamyká/odemyká Peťa, Šárka a rodiče.</div>'));
+    L.appendChild(el('<div class="hint" style="margin-bottom:8px;">Uzamčený měsíc nelze opravovat (mzdy zpracovány) — ani držitelem zámku. Nejdřív odemknout, opravit a zase zamknout. Zamyká/odemyká Peťa, Šárka, Jirka (administrátor docházky) a rodiče.</div>'));
     if(j.can_lock){
       var w=el('<div class="card"></div>');
       var r1=el('<div class="btns" style="margin-top:0;"></div>');

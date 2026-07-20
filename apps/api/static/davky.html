@@ -33,6 +33,19 @@
   <h1>📤 Podání dávek NP — ČSSZ (NEMPRI25)</h1>
   <div class="sub">Ošetřovné / nemoc / PPM / otcovská. Záchyt dat od zaměstnance → automatické podání na ČSSZ. <b>Žádný Excel.</b></div>
   <div id="msg"></div>
+  <div class="card">
+    <div style="font-weight:800;margin-bottom:2px">📁 Generovat z mzdového systému (Helios)</div>
+    <div class="hint" style="margin-bottom:8px">Vyber firmu a načti mzdové přílohy ošetřovného. Kompletní data (rozhodné období, vztah, RČ…) se doplní automaticky z Heliosu — stačí doplnit číslo účtu pro výplatu dávky, vygenerovat a ověřit u ČSSZ.</div>
+    <div class="row">
+      <div><label>Firma</label><select id="h_firma"><option value="EC">EUROSOFT – Control (EC)</option><option value="ES" selected>EUROSOFT – System (ES)</option></select></div>
+      <div><label>Rok (nepovinné)</label><input id="h_rok" type="number" placeholder="2026"></div>
+      <div><label>Měsíc (nepovinné)</label><input id="h_mesic" type="number" placeholder="6"></div>
+      <div style="display:flex;align-items:flex-end"><button class="btn" style="margin:0;width:100%" onclick="hload()">🔄 Načíst přílohy</button></div>
+    </div>
+    <div id="hlist" style="margin-top:10px"></div>
+    <div id="hxmlview"></div>
+  </div>
+  <div style="font-weight:700;margin:16px 0 4px">Ruční záchyt podání</div>
   <button class="btn" onclick="novy()">+ Nové podání</button>
   <div id="form"></div>
   <div id="list"></div>
@@ -94,21 +107,57 @@ function stahni(){
   var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=_lastXml.filename;
   document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);document.body.removeChild(a);},100);
 }
+function valDetail(val){var d=val.detaily;if(Array.isArray(d))d=d.join(" | ");return d||val.error||val.VysledekKod||"chyba";}
+function valBanner(val){
+  val=val||{};
+  if(val.ok===true)return '<div class="card" style="border-color:#34d39955;color:var(--green)">✓ ČSSZ: podání projde validací (0 chyb). Připraveno k odeslání do datové schránky (e-Podání ČSSZ 5ffu6xk / OSSZ Plzeň-město).</div>';
+  if(val.ok===false)return '<div class="card" style="border-color:#f8717155;color:#ff8a8a">✗ ČSSZ zamítlo — oprav data: '+esc(valDetail(val))+'</div>';
+  return '<div class="card" style="border-color:#fbbf2455;color:var(--amber)">⚠ Ověření u ČSSZ teď nedostupné — XML je vygenerované, před odesláním ho ověř. '+esc(val.error||"")+'</div>';
+}
+function xmlCard(xml,label){
+  return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">'
+    +'<div class="hint">NEMPRI25 XML (náhled) — '+esc(label)+'</div>'
+    +'<button class="btn" style="margin:0;white-space:nowrap" onclick="stahni()">⬇ Stáhnout XML</button></div>'
+    +'<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:11px;color:#bfe3c8;max-height:420px;overflow:auto;margin:0">'+esc(xml)+'</pre></div>';
+}
+function hload(){
+  var f=(document.getElementById("h_firma")||{}).value||"ES";
+  var rok=(document.getElementById("h_rok")||{}).value||"";
+  var mes=(document.getElementById("h_mesic")||{}).value||"";
+  var L=document.getElementById("hlist");L.innerHTML='<div class="hint">Načítám přílohy z Heliosu…</div>';
+  var qs="?firma="+encodeURIComponent(f)+(rok?"&rok="+rok:"")+(mes?"&mesic="+mes:"");
+  api("/api/v1/erp/app/davka/helios-list"+qs).then(function(j){
+    if(!j||!j.ok){L.innerHTML='<div class="err">'+esc((j&&j.error)||"chyba")+'</div>';return;}
+    var r=j.polozky||[];
+    if(!r.length){L.innerHTML='<div class="hint">Žádné přílohy ošetřovného (OSE) pro tento filtr.</div>';return;}
+    var h='<table><thead><tr><th>Zaměstnanec</th><th>Ošetřovaná osoba</th><th>Od</th><th>Do</th><th>Č. rozhodnutí</th><th>Účet pro výplatu</th><th></th></tr></thead><tbody>';
+    r.forEach(function(e){
+      h+='<tr><td>'+esc(e.zamestnanec||"")+'</td><td>'+esc(e.osetrovana||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td>'
+        +'<td style="font-size:11px">'+esc(e.cisloRozhodnuti||"")+'</td>'
+        +'<td><input id="hu_'+e.id+'" placeholder="247287648/0300" style="min-width:135px"></td>'
+        +'<td><button class="btn sec" style="margin:0;padding:5px 10px;white-space:nowrap" onclick="hgen(\''+f+'\','+e.id+')">📄 Generovat + ověřit</button></td></tr>';
+    });
+    h+='</tbody></table>';L.innerHTML=h;
+  });
+}
+function hgen(firma,id){
+  var ucet=(document.getElementById("hu_"+id)||{}).value||"";
+  var v=document.getElementById("hxmlview");
+  v.innerHTML='<div class="hint" style="margin-top:8px">Generuji NEMPRI25 a ověřuji u ČSSZ…</div>';
+  api("/api/v1/erp/app/davka/helios-generuj","POST",{firma:firma,id:id,ucet:ucet}).then(function(r){
+    if(!r||!r.ok){v.innerHTML='<div class="err">'+esc((r&&r.error)||"chyba")+'</div>';return;}
+    _lastXml={xml:r.xml,filename:(r.filename||("NEMPRI25_"+id+".xml"))};
+    v.innerHTML=valBanner(r.validace)+xmlCard(r.xml,"Helios příloha #"+id);
+    v.scrollIntoView({behavior:"smooth"});
+  });
+}
 function gen(id){
   var v=document.getElementById("xmlview");
   v.innerHTML='<div class="hint" style="margin-top:8px">Generuji NEMPRI25 a ověřuji u ČSSZ…</div>';
   api("/api/v1/erp/app/davka/generuj-xml","POST",{id:id}).then(function(r){
     if(!r||!r.ok){v.innerHTML='<div class="err">'+esc((r&&r.error)||"chyba")+'</div>';return;}
     _lastXml={xml:r.xml,filename:(r.filename||("NEMPRI25_"+id+".xml"))};
-    var val=r.validace||{},banner;
-    if(val.ok===true)banner='<div class="card" style="border-color:#34d39955;color:var(--green)">✓ ČSSZ: podání projde validací (0 chyb). Připraveno k odeslání.</div>';
-    else if(val.ok===false)banner='<div class="card" style="border-color:#f8717155;color:#ff8a8a">✗ ČSSZ zamítlo — oprav data: '+esc(val.detaily||val.error||val.VysledekKod||"chyba")+'</div>';
-    else banner='<div class="card" style="border-color:#fbbf2455;color:var(--amber)">⚠ Ověření u ČSSZ teď nedostupné — XML je vygenerované, ale před odesláním ověř. '+esc(val.error||"")+'</div>';
-    v.innerHTML=banner
-      +'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">'
-      +'<div class="hint">NEMPRI25 XML (náhled) — uloženo k podání #'+id+'</div>'
-      +'<button class="btn" style="margin:0;white-space:nowrap" onclick="stahni()">⬇ Stáhnout XML</button></div>'
-      +'<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:11px;color:#bfe3c8;max-height:420px;overflow:auto;margin:0">'+esc(r.xml)+'</pre></div>';
+    v.innerHTML=valBanner(r.validace)+xmlCard(r.xml,"podání #"+id);
     v.scrollIntoView({behavior:"smooth"});
   });
 }

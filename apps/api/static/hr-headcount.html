@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>👥 Přehled zaměstnanců a OSVČ</title>
+<style>
+  :root{--bg:#0f141a;--panel:#161c24;--panel2:#12181f;--line:#233040;--line2:#1e2730;
+        --txt:#cdd6e2;--title:#e8eef5;--accent:#aac8ec;--muted:#7f8ea0;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--txt);background:var(--bg)}
+  .top{background:var(--panel2);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+  .top .b{font-weight:800;font-size:16px;color:var(--title)}
+  .top .sub{font-size:12px;color:var(--muted)}
+  .wrap{max-width:980px;margin:18px auto;padding:0 14px}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .kpi .l{font-size:12px;color:var(--muted)}
+  .kpi .v{font-size:28px;font-weight:800;color:var(--title);margin-top:2px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:18px}
+  .card .hd{padding:11px 14px;font-weight:800;color:var(--title);border-bottom:1px solid var(--line);font-size:13.5px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:10px 14px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--muted);font-weight:600;border-bottom:1px solid var(--line)}
+  tbody tr{border-top:1px solid var(--line2)}
+  tbody tr.sum{background:#12181f;font-weight:800;color:var(--title)}
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid #6b5b2a;border-radius:0 10px 10px 0;padding:12px 14px;font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  .note b{color:var(--txt)}
+  .src{font-size:11.5px;color:#5d6b7c;padding:0 2px}
+  @media(max-width:640px){.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top"><span class="b">👥 Přehled zaměstnanců a OSVČ</span><span class="sub">· stav k 20. 7. 2026</span></div>
+<div class="wrap">
+
+  <div class="cards">
+    <div class="kpi"><div class="l">Celkem aktivních</div><div class="v">80</div></div>
+    <div class="kpi"><div class="l">Zaměstnanci (HPP + DPP)</div><div class="v">50</div></div>
+    <div class="kpi"><div class="l">OSVČ</div><div class="v">30</div></div>
+  </div>
+
+  <div class="card">
+    <div class="hd">Podle firmy a typu poměru</div>
+    <table>
+      <thead><tr><th>Firma</th><th>HPP</th><th>DPP</th><th>OSVČ</th><th>Celkem</th></tr></thead>
+      <tbody>
+        <tr><td>EUROSOFT – System</td><td>33</td><td>–</td><td>13</td><td>46</td></tr>
+        <tr><td>EUROSOFT – Control</td><td>15</td><td>2</td><td>17</td><td>34</td></tr>
+        <tr class="sum"><td>Celkem</td><td>48</td><td>2</td><td>30</td><td>80</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="hd">Kancelář vs. výroba (zaměstnanci HPP)</div>
+    <table>
+      <thead><tr><th>Firma</th><th>Kancelář (THP)</th><th>Výroba (D)</th><th>Celkem</th></tr></thead>
+      <tbody>
+        <tr><td>EUROSOFT – System</td><td>11</td><td>20</td><td>31</td></tr>
+        <tr><td>EUROSOFT – Control</td><td>6</td><td>6</td><td>12</td></tr>
+        <tr class="sum"><td>Celkem</td><td>17</td><td>26</td><td>43</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>Jak číst rozpad kancelář/výroba:</b> vychází z názvů pozic dle tištěných smluv (výroční audit, únor 2026)
+    a pokrývá <b>43 HPP zaměstnanců</b>. Nezahrnuje 30 OSVČ ani DPP a několik novějších nástupů —
+    proto se součet liší od tabulky výše. Do „výroby“ patří elektromontér, mechanik, zámečník,
+    přípravář obráběcího centra a sklad; do „kanceláře“ projekce, nákup a logistika, asistentky,
+    kalkulace, IT, personalistika, vedení projektů, obchod a kvalita.
+  </div>
+
+  <div class="note">
+    <b>Chybí v systému:</b> pozice a středisko zatím nejsou u lidí vyplněné v databázi
+    (<code>engagement.position_id</code> má vyplněné jen 2 osoby z 80). Až se pozice doplní,
+    půjde tenhle rozpad počítat automaticky a nebude potřeba auditní tabulka.
+  </div>
+
+  <p class="src">Zdroje: <b>tenant.engagement</b> (is_current, platná smlouva) pro počty · <b>výroční audit 2026</b>
+  (preaudit_Control / preaudit_System) pro pozice dle smluv · bez 3 osob, které již odešly.</p>
+</div>
+</body>
+</html>

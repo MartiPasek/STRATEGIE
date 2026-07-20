@@ -37721,6 +37721,41 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "kod": _kod, "id": _znid, "nadpis": _nadpis,
                              "zdroj": _zdroj, "reindexovano": _reidx})
 
+    # Seal znalosti do LIBOVOLNÉ oblasti G2007 (Claude-28, 20.7.2026, Marti OK):
+    #   @@G2007DOC <oblast> <slug> <docs/Z_soubor.md> [| <nadpis>]
+    # Doplňuje @@GODOC, který umí jen docs/GO/Z_* → system-g2007. Bez tohohle
+    # příkazu je krok „KONEC session — ZAPIŠ" z doktríny G2007 pro file-based
+    # instance neproveditelný: endpoint /app/g2007/znalost-upsert chce device
+    # token nebo cookie, které Claude přes most nemá (nález 20.7. — doktrína
+    # nařizovala krok, který polovina sítě technicky neuměla udělat).
+    # Sdílí worker s tím endpointem → jedna cesta, žádná divergence:
+    # upsert do g2007.znalost → export projekce do g2007/ → úklid docs/Z_ inboxu
+    # → reindex vektorů. Nadpis se bere z prvního „# " nadpisu, když se neuvede.
+    if sql.upper().startswith("@@G2007DOC"):
+        _rest = sql[len("@@G2007DOC"):].strip()
+        _p = [x.strip() for x in _rest.split("|", 1)]
+        _nadpis = _p[1].strip() if len(_p) > 1 else ""
+        _args = _p[0].split()
+        if len(_args) < 3:
+            return JSONResponse({"ok": False, "error":
+                                 "@@G2007DOC <oblast> <slug> <docs/Z_soubor.md> [| <nadpis>]"})
+        _obl = _args[0].strip().lower()
+        _slug = _args[1].strip().lower()
+        _zdroj = _args[2].strip()
+        _src = _os_ds.path.join(_g2007_repo_root(), _zdroj.replace("/", _os_ds.sep))
+        if not _nadpis and _os_ds.path.isfile(_src):
+            try:
+                with open(_src, "r", encoding="utf-8") as _fh:
+                    for _ln in _fh:
+                        if _ln.startswith("# "):
+                            _nadpis = _ln[2:].strip()
+                            break
+            except Exception:
+                _nadpis = ""
+        _out = _g2007_znalost_upsert_work(_obl, _slug, _nadpis or _slug,
+                                          _zdroj, "obor", "dokument")
+        return JSONResponse(_out)
+
     # Souborový most (Marti 20.6.2026): čtení reálných faktur pro EDI/auto-pořizování.
     #   @@FILES LIST <abs_cesta>            → výpis adresáře (soubor + velikost)
     #   @@FILES READ <abs_cesta_k_souboru>  → obsah souboru (text/base64)

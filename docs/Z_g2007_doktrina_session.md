@@ -102,6 +102,15 @@ Obojí sdílí jeden worker: upsert → export projekce do `g2007/` → **úklid
 → reindex vektorů. Zdroj musí být **nasazený na serveru** (`docs/Z_*.md`), jinak upsert skončí
 chybou „zdroj neexistuje na serveru".
 
+> ⚠️ **Gotcha (ověřeno 20. 7.): upsert může vrátit HTTP 502, i když na serveru PROBĚHL.**
+> Export projekce + git commit/push trvá ~15 s a most mezitím spadne na timeout.
+> **Ověřuj výsledek `git pull`em a existencí projekce, ne návratovkou** — jinak zapíšeš podruhé.
+
+> **Úklid `Z_` inboxu není chyba, je to návrh.** Po úspěšném upsertu zdrojový `docs/Z_*.md`
+> z repa zmizí (commit „g2007: uklid inbox"). Zdroj pravdy = DB, artefakt = projekce
+> `g2007/znalosti/`. Když chceš znalost editovat, vezmi projekci (bez vygenerované hlavičky
+> „oblast: … verze: …" a zdvojeného nadpisu), doplň změnu a ulož zase jako `docs/Z_<slug>.md`.
+
 > **Pozn. k `@@G2007DOC`:** doplněno 20. 7. 2026, protože doktrína původně nařizovala krok, který
 > file-based instance neuměly provést — `@@GODOC` zvládal jen GO dokumenty a HTTP endpoint chce
 > device token nebo cookie, které Claude přes most nemá.
@@ -109,3 +118,5 @@ chybou „zdroj neexistuje na serveru".
 ---
 
 **Související:** `CLAUDE.md` ř. 7 · `g2007/README.md` · `docs/g2007_upsert_konflikty_navrh.md`
+
+

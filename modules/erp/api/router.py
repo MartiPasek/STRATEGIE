@@ -41189,47 +41189,46 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@DISK  -> volne/obsazene misto na disku(cich), kde bezi STRATEGIE a kde
     #   se ukladaji dokumenty. Prevence kolapsu z preplneni disku. Claude C23 21.7.2026.
     if sql.upper().startswith("@@DISK"):
+        # Vsechny disky serveru (prevence kolapsu z preplneni). Claude C23 21.7.2026.
         import shutil as _shu_dsk
+        import string as _str_dsk
         _rows_dsk = []
         _gb = 1024.0 ** 3
-        _cands = []
+        _docdrv = None
         try:
             from modules.rag.application.storage import storage_root as _sr_dsk
-            try:
-                _cands.append(("dokumenty", str(_sr_dsk())))
-            except Exception:
-                pass
+            _docdrv = _os_ds.path.splitdrive(_os_ds.path.abspath(str(_sr_dsk())))[0].upper()
         except Exception:
-            pass
+            _docdrv = None
+        _drives_dsk = []
         try:
-            _cands.append(("system / proces", _os_ds.getcwd()))
+            if _os_ds.name == "nt":
+                for _L in _str_dsk.ascii_uppercase:
+                    _pp = "%s:\\" % _L
+                    if _os_ds.path.exists(_pp):
+                        _drives_dsk.append(("%s:" % _L, _pp))
+            else:
+                _drives_dsk.append(("/", "/"))
         except Exception:
-            pass
-        _seen_dsk = set()
-        for _lbl_dsk, _p_dsk in _cands:
-            try:
-                _drv = _os_ds.path.splitdrive(_os_ds.path.abspath(_p_dsk))[0].upper() or _p_dsk
-            except Exception:
-                _drv = _p_dsk
-            if _drv in _seen_dsk:
-                continue
-            _seen_dsk.add(_drv)
+            _drives_dsk = [("/", "/")]
+        for _drv_dsk, _p_dsk in _drives_dsk:
             try:
                 _u_dsk = _shu_dsk.disk_usage(_p_dsk)
                 _pct = (100.0 * _u_dsk.free / _u_dsk.total) if _u_dsk.total else 0.0
+                _note = " <- dokumenty" if (_docdrv and _drv_dsk.upper().startswith(_docdrv)) else ""
+                _flag = " !!!" if _u_dsk.free < 6 * _gb else (" !" if _u_dsk.free < 12 * _gb else "")
                 _rows_dsk.append([
-                    "%s (%s)" % (_lbl_dsk, _drv),
+                    "%s%s%s" % (_drv_dsk, _note, _flag),
                     "%.1f GB" % (_u_dsk.total / _gb),
                     "%.1f GB" % (_u_dsk.used / _gb),
                     "%.1f GB" % (_u_dsk.free / _gb),
                     "%.1f %%" % _pct,
                 ])
             except Exception as _de_dsk:
-                _rows_dsk.append(["%s (%s)" % (_lbl_dsk, _p_dsk), "chyba", str(_de_dsk)[:80], "", ""])
+                _rows_dsk.append([_drv_dsk, "chyba", str(_de_dsk)[:60], "", ""])
         return JSONResponse({"ok": True,
-                             "columns": ["misto", "celkem", "obsazeno", "volno", "volno %"],
+                             "columns": ["disk", "celkem", "obsazeno", "volno", "volno %"],
                              "rows": _rows_dsk, "count": len(_rows_dsk)})
-
     if sql.upper().startswith("@@MAILATTFIX"):
         import traceback as _tbaf
         try:

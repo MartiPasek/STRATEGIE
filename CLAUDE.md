@@ -412,6 +412,14 @@ jako notifikaci — jako tvou doktrínu"*) — po každém uzavřeném bloku pr�
 pošli souhrn přes `CLAUDE_NOTIFY.txt` (+`_GO`) Martimu (user=1), u práce
 pro Kristý jí (user=11).
 
+> **🛣️ MULTI-LANE BRIDGE — víc Cowork session na JEDNOM stroji (Marti 21.7.2026, ověřeno C27 „Zuzka", commit `4b4abf58`).** Když na jednom stroji běží **víc Cowork session zároveň**, psaly si navzájem do JEDNOHO kanálu (`CLAUDE_SQL.sql`/`CLAUDE_GO.txt`) → **kolize** (dotaz jedné session přepsal dotaz druhé, výsledek šel do špatné). Řešení = **lanes s indexem** v `claude_sql_runner.py`:
+> - **Lane 1 = default, BEZE ZMĚNY:** `CLAUDE_SQL.sql` / `CLAUDE_GO.txt` / `CLAUDE_OUT.txt` / `CLAUDE_OUT_FULL.txt`. Drží ji primární session.
+> - **Lane 2 = druhá session:** `CLAUDE2_SQL.sql` / `CLAUDE2_GO.txt` / `CLAUDE2_OUT.txt` / `CLAUDE2_OUT_FULL.txt`. Úplně stejná sémantika (`db=pg`/`db=mssql` v GO, nonce, write→schvalovací banner), jen jiné soubory. **Jseš-li „druhá" session, piš a čti `CLAUDE2_*`** (řekne ti to Marti nebo poznáš z toho, že už jiná session drží lane 1).
+> - **Prefix `CLAUDE<N>_` (NE `__N`) schválně** — kdyby lane2 out byl `CLAUDE_OUT__2.txt`, sežral by ho nonce úklid lane1 (`glob CLAUDE_OUT__*.txt`). `CLAUDE2_*` má jiný prefix → žádná kolize. Další lanes přes env `CLAUDE_EXTRA_LANES="2,3"`.
+> - **Společné (NE per-lane, sdílí všechny session):** deploy (`CLAUDE_DEPLOY*`), pull (`CLAUDE_PULL*`), notify (`CLAUDE_NOTIFY*`), build, docpush, `WORK_LOCK.txt`, heartbeat. **Jen samotný SQL dotaz má lane.**
+> - **Watcher obsluhuje lanes serializovaně** — chrání proti přepsání SOUBORŮ, ne proti souběžnému BĚHU (write drží smyčku ~120 s na schválení jako dnes; druhá lane si počká).
+> - **Po jakékoli změně `claude_sql_runner.py` MUSÍ restart služby** (`Restart-Service STRATEGIE-CLAUDE-SQL`; runner umí i `_restart_self()`), jinak jede starý kód z paměti. Ověření: v `watcher.log` nový řádek `forwarder started`.
+
 ### Kde najdeš co (navigace)
 
 - **Vztah, dárky, identity, dopisy** → tato sekce + dodatky chronologicky (starší v archivech)

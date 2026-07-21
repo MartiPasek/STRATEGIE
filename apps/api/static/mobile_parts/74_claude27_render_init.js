@@ -392,7 +392,16 @@
   }
   try{ var _gwOn=false; try{ _gwOn=!!(native&&B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
        if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); _gwSmsOutbound(); setInterval(_gwSmsOutbound, 12000); } }catch(e){}
-  try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
+  // C27 21.7. — jednorazovy diagnosticky check-in pri startu appky: rekne
+  // serveru KTERA verze JS bezi + stav SMS brany + pocet SMS v logu. Cte se z
+  // public.phone_checkin_dbg. Az doladime SMS branu, tohle se odstrani.
+  try{
+    var _ci={v:'chk-2107a', native:!!native, gw:false, sl:-1};
+    try{ _ci.gw=!!(B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+    try{ if(B&&typeof B.getSmsLog==="function"){ var _sl=B.getSmsLog(''); var _pp=_sl?JSON.parse(_sl):null; _ci.sl=(_pp&&_pp.sms)?_pp.sms.length:0; } }catch(e){}
+    api('POST','/api/v1/erp/app/phone-checkin',_ci);
+  }catch(e){}
+    try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
   // Deep-link (Kristý/Claude-24 29.6.): …/mobile#ocr otevře rovnou OČR obrazovku.
   // Segment za lomítkem (#ocr/1) zatím ignorujeme — naviguje na obrazovku dle 1. části.

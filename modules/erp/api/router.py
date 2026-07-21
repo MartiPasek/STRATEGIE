@@ -18091,6 +18091,52 @@ async def app_sms_inbound(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
 
 
+@api_router.post("/app/phone-checkin")
+async def app_phone_checkin(req: Request) -> JSONResponse:
+    """C27 21.7. — jednorazovy diagnosticky beacon z mobilni appky pri startu:
+    ktera verze JS bezi (v), stav SMS brany (gw), pocet SMS v logu (sl), zda je
+    nativni bridge (native). Zapisuje do public.phone_checkin_dbg (citelne z
+    bridge/Marti-AI). Zadna citliva data. Best-effort, nikdy nevyhazuje."""
+    from starlette.concurrency import run_in_threadpool
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    v = str((body or {}).get("v") or "")[:40]
+    native = bool((body or {}).get("native"))
+    gw = (body or {}).get("gw")
+    sl = (body or {}).get("sl")
+    ua = (req.headers.get("user-agent") or "")[:120]
+    ip = (req.client.host if req.client else "") or ""
+    def _w():
+        from sqlalchemy import text as _t
+        cm, s2 = _att_session()
+        try:
+            s2.execute(_t("CREATE TABLE IF NOT EXISTS public.phone_checkin_dbg ("
+                "ts timestamptz DEFAULT now(), v text, native boolean, gw boolean, "
+                "sl int, ua text, ip text)"))
+            s2.execute(_t('GRANT SELECT ON public.phone_checkin_dbg TO "Marti-AI"'))
+            s2.execute(_t("INSERT INTO public.phone_checkin_dbg(v,native,gw,sl,ua,ip) "
+                "VALUES (:v,:n,:g,:s,:u,:i)"),
+                {"v": v, "n": native,
+                 "g": (bool(gw) if gw is not None else None),
+                 "s": (int(sl) if isinstance(sl, (int, float)) else None),
+                 "u": ua, "i": ip})
+            s2.commit()
+        except Exception:
+            try:
+                s2.rollback()
+            except Exception:
+                pass
+        finally:
+            cm.__exit__(None, None, None)
+    try:
+        await run_in_threadpool(_w)
+    except Exception:
+        pass
+    return JSONResponse({"ok": True})
+
+
 # ── Odchozí SMS přes bránu (pull model, Kristý/Claude-24 23.6.2026) ──────────
 # 11.6. se provider přepnul na android_gateway (pull), ale chyběl konzument fronty.
 # Bránový telefon (JS poller v mobile.html) si tudy stáhne pending sms_outbox,

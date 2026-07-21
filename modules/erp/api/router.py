@@ -8852,6 +8852,159 @@ async def app_hr_people(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Fotky zaměstnanců (Šárka 21.7.2026) ─────────────────────────────────────
+# Úložiště: tenant.employee_photo (bytea, MIMO git – nezveřejní se). Routa jen
+# pro přihlášené (foto = osobní údaj, GDPR). Vlastník vidí/nahrává svou fotku;
+# HR vidí a spravuje všechny + schvaluje. Zaměstnancova nová fotka = 'pending',
+# HR ji pustí ('approved'). HR upload jde rovnou jako 'approved'.
+def _foto_zmensit(raw: bytes):
+    """Ořízne na čtverec a zmenší na 256 px JPEG. Vrací (bytes, 'image/jpeg')."""
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    im = ImageOps.exif_transpose(Image.open(BytesIO(raw))).convert("RGB")
+    w, h = im.size
+    sq = min(w, h)
+    im = im.crop(((w - sq) // 2, (h - sq) // 2, (w - sq) // 2 + sq, (h - sq) // 2 + sq)).resize((256, 256))
+    out = BytesIO()
+    im.save(out, "JPEG", quality=85)
+    return out.getvalue(), "image/jpeg"
+
+
+@api_router.get("/app/hr/photo/{target_uid}")
+async def app_hr_photo_get(target_uid: int, req: Request):
+    """Vrátí fotku zaměstnance (bytes). Přístup: vlastník (i svou pending),
+    HR (schválenou; s ?pending=1 i čekající), ostatní jen schválenou."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        is_hr = _hr_can_manage(s, uid)
+        pend = (req.query_params.get("pending") or "") in ("1", "true", "ano")
+        if is_hr or uid == int(target_uid):
+            row = s.execute(_t(
+                "SELECT foto, mime FROM tenant.employee_photo "
+                "WHERE tenant_id=2 AND user_id=:u AND (status='approved' OR :pend) "
+                "ORDER BY (status='approved') DESC, uploaded_at DESC LIMIT 1"),
+                {"u": int(target_uid), "pend": (pend or uid == int(target_uid))}).first()
+        else:
+            row = s.execute(_t(
+                "SELECT foto, mime FROM tenant.employee_photo "
+                "WHERE tenant_id=2 AND user_id=:u AND status='approved' LIMIT 1"),
+                {"u": int(target_uid)}).first()
+        if not row or not row[0]:
+            return Response(status_code=404)
+        return Response(content=bytes(row[0]), media_type=(row[1] or "image/jpeg"),
+                        headers={"Cache-Control": "private, max-age=300"})
+    except Exception as exc:
+        logger.exception("[hr_photo_get] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/photo/upload")
+async def app_hr_photo_upload(req: Request, file: UploadFile = File(...),
+                              target_uid: int = Form(0)):
+    """Nahraje fotku. Vlastník (sám sebe) → 'pending' (čeká na schválení HR).
+    HR → rovnou 'approved'; může nahrát i za jiného (target_uid)."""
+    import datetime as _dt
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        is_hr = _hr_can_manage(s, uid)
+        cil = int(target_uid) or uid
+        if cil != uid and not is_hr:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        raw = await file.read()
+        if not raw or len(raw) > 8 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "Prázdný nebo příliš velký soubor (max 8 MB)"}, status_code=400)
+        try:
+            data, mime = _foto_zmensit(raw)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "Nepodařilo se načíst obrázek (podporováno JPG/PNG)."}, status_code=400)
+        novy_stav = "approved" if is_hr else "pending"
+        s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u AND status=:st"),
+                  {"u": cil, "st": novy_stav})
+        s.execute(_t(
+            "INSERT INTO tenant.employee_photo (tenant_id, user_id, status, mime, foto, uploaded_by, "
+            " approved_by, approved_at, created_by_text) "
+            "VALUES (2, :u, :st, :m, :f, :by, :apby, :apat, :ct)"),
+            {"u": cil, "st": novy_stav, "m": mime, "f": data, "by": uid,
+             "apby": (uid if is_hr else None), "apat": (_dt.datetime.now() if is_hr else None),
+             "ct": ("HR upload" if is_hr else "vlastní upload")})
+        s.commit()
+        return JSONResponse({"ok": True, "status": novy_stav})
+    except Exception as exc:
+        logger.exception("[hr_photo_upload] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/photo-pending")
+async def app_hr_photo_pending(req: Request):
+    """Seznam čekajících fotek ke schválení (jen HR)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT p.user_id, p.uploaded_at, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '#'||p.user_id) AS jmeno "
+            "FROM tenant.employee_photo p LEFT JOIN public.users u ON u.id=p.user_id "
+            "WHERE p.tenant_id=2 AND p.status='pending' ORDER BY p.uploaded_at")).fetchall()
+        return JSONResponse({"ok": True, "cekajici": [
+            {"user_id": r[0], "jmeno": r[2]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/photo/approve")
+async def app_hr_photo_approve(req: Request):
+    """HR schválí (rozhodni='ano') nebo zamítne (='ne') čekající fotku zaměstnance."""
+    import datetime as _dt
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    body = {}
+    try:
+        body = await req.json()
+    except Exception:
+        pass
+    cil = int(body.get("user_id") or 0)
+    rozhodni = (body.get("rozhodni") or "").strip().lower()
+    if not cil or rozhodni not in ("ano", "ne"):
+        return JSONResponse({"ok": False, "error": "Chybí user_id / rozhodni (ano|ne)"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if rozhodni == "ne":
+            s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u AND status='pending'"), {"u": cil})
+        else:
+            s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u AND status='approved'"), {"u": cil})
+            s.execute(_t("UPDATE tenant.employee_photo SET status='approved', approved_by=:by, approved_at=:at "
+                         "WHERE tenant_id=2 AND user_id=:u AND status='pending'"),
+                      {"u": cil, "by": uid, "at": _dt.datetime.now()})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_photo_approve] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.

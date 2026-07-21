@@ -114,7 +114,12 @@ function openP(uid,row){
   if(row)row.classList.add('sel');
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const det=document.getElementById('det');
-  let h='<div class="phead"><div class="avatar">'+esc(ini(p.jmeno))+'</div>'+
+  // Šárka 21.7.2026: foto z /app/hr/photo/{id}; když není (404), fallback na iniciály.
+  const _ini=esc(ini(p.jmeno));
+  let h='<div class="phead"><div class="avatar">'+
+    '<img src="/app/hr/photo/'+p.user_id+'" alt="" '+
+    'style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" '+
+    'onerror="this.remove();this.parentNode.textContent=\''+_ini+'\'"></div>'+
     '<div><div class="nm">'+esc(p.jmeno||'')+'</div><div class="mt">'+esc(p.mesto||'')+'</div></div></div>';
   h+='<div class="sects">';
   for(const s of SEKCE){

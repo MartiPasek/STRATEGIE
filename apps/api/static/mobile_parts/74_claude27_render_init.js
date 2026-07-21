@@ -367,9 +367,13 @@
         var num=s.number||s.address||"";
         var key="stgfwd_"+num+"_"+(s.date||s.when||"")+"_"+body.replace(/\s/g,"").slice(0,16);
         try{ if(localStorage.getItem(key)) return; }catch(e){}
-        api("POST","/api/v1/erp/app/sms-inbound",{from:num,body:body}).then(function(r){
-          if(r&&r.ok){ try{ localStorage.setItem(key,"1"); }catch(e){} }
-        });
+        // C27 21.7.: RAW WebView fetch (ne nativni authedFetch — ten POSTy
+        // neposila, rozbite od zmeny certu ~1.5 mes). WebView fetch GET i POST
+        // proukazatelne chodi. credentials:same-origin = session cookie.
+        fetch("/api/v1/erp/app/sms-inbound",{method:"POST",credentials:"same-origin",
+          headers:{"Content-Type":"application/json"},body:JSON.stringify({from:num,body:body})})
+          .then(function(r){ if(r&&r.ok){ try{ localStorage.setItem(key,"1"); }catch(e){} } })
+          .catch(function(){});
       });
     }catch(e){}
   }
@@ -396,10 +400,12 @@
   // serveru KTERA verze JS bezi + stav SMS brany + pocet SMS v logu. Cte se z
   // public.phone_checkin_dbg. Az doladime SMS branu, tohle se odstrani.
   try{
-    var _ci={v:'chk-2107a', native:!!native, gw:false, sl:-1};
-    try{ _ci.gw=!!(B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
-    try{ if(B&&typeof B.getSmsLog==="function"){ var _sl=B.getSmsLog(''); var _pp=_sl?JSON.parse(_sl):null; _ci.sl=(_pp&&_pp.sms)?_pp.sms.length:0; } }catch(e){}
-    api('POST','/api/v1/erp/app/phone-checkin',_ci);
+    var _gw=false,_sln=-1;
+    try{ _gw=!!(B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+    try{ if(B&&typeof B.getSmsLog==="function"){ var _sl=B.getSmsLog(''); var _pp=_sl?JSON.parse(_sl):null; _sln=(_pp&&_pp.sms)?_pp.sms.length:0; } }catch(e){}
+    // dve cesty se ruznymi markery: 'chk-api' (nativni authedFetch) vs 'chk-raw' (WebView fetch)
+    try{ api('POST','/api/v1/erp/app/phone-checkin',{v:'chk-api',native:!!native,gw:_gw,sl:_sln}); }catch(e){}
+    try{ fetch('/api/v1/erp/app/phone-checkin',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({v:'chk-raw',native:!!native,gw:_gw,sl:_sln})}); }catch(e){}
   }catch(e){}
     try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);

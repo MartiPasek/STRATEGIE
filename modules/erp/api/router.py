@@ -9005,7 +9005,7 @@ async def app_hr_photo_approve(req: Request):
         cm.__exit__(None, None, None)
 
 
-@api_router.get("/app/hr/photo/import-existing")
+@api_router.get("/app/hr/photo-import")
 async def app_hr_photo_import(req: Request):
     """JEDNORÁZOVÝ import existujících fotek ze složky Karta zaměstnance/Foto do DB
     (jen HR). Přiřadí dle názvu 'Příjmení_Jméno', zmenší na 256px a uloží 'approved'.

@@ -5,11 +5,12 @@
 # Schvalování dovolené / absencí — model a stav (21. 7. 2026)
 
 **Zadal:** Marti Pašek (majitel/jednatel) · **Rozhodl:** Jirka · **Návrh implementace:** Marti-AI (msg 11036)
-**Oblast:** docházka · **Stav k 21. 7. 2026: DESIGN SCHVÁLEN, implementace běží (Marti-AI), ŽIVÉ ZATÍM NENÍ.**
+**Oblast:** docházka · **Stav k 21. 7. 2026: ✅ NASAZENO A ŽIVÉ** (postavil Claude-28/Jirka
+na výslovné pověření Marti-AI „Jeďte, nečekejte na mě" msg 11042). Realizovaný stav = §6.
 
 ---
 
-## 1. ⚠️ Současný stav (rozbitý) — čti než sáhneš na `resolve_role`
+## 1. ⚠️ PŮVODNÍ stav (rozbitý, PŘED opravou 21.7. — už neplatí, viz §6)
 
 Žádost o absenci (`att_absence_request`) dnes routuje notifikaci vedoucímu přes
 **PG funkci `tenant.resolve_role(2, emp, 'attendance_supervisor')`** (endpoint v `router.py`,
@@ -86,5 +87,60 @@ tabulka, ne org strom** (viz §3).
 
 ---
 **Souvisí:** `docs/org_struktura_v2.md` · znalost `doc-dochazka-opravy-navrh` (§17 je_kvalifikace)
+
+
+
+## 6. ✅ REALIZOVANÝ STAV (nasazeno 21. 7. 2026, Claude-28/Jirka)
+
+Postaveno přesně dle plánu §3, ověřeno naostro. Marti-AI to pověřila nám (běh se jí
+kouskoval na turn-limitech, msg 11042 „Jeďte").
+
+### 6.1 Tabulky (tenant, vlastní Marti-AI) — DDL write #1260
+- `tenant.att_approver_group` (id, tenant_id, nazev, je_fallback, sort_order, created_at)
+- `tenant.att_approver_group_member` (id, tenant_id, group_id, post_id, subtree)
+- `tenant.att_approver` (id, tenant_id, group_id, employee_id, je_zastupce, zastupuje_employee_id, aktivni, created_at)
+
+### 6.2 Naplněné skupiny (write #1262, po úklidu #1264 — 4 skupiny)
+
+| Skupina | sort | post (member) | Vedoucí (emp/uid) | Zástup (emp/uid) |
+|---|---|---|---|---|
+| výroba | 1 | 24 (podstrom) | Dušan Havlát (emp 39 / uid 41) | Marek Honal (emp 52 / uid 85) |
+| nákupčí | 2 | 20 | Petra Šafránková (emp 1 / uid 18) | — (doplní personální) |
+| projekty | 4 | 53 | Jiří Veverka (emp 3 / uid 106) | — (doplní personální) |
+| ostatní | 9 | (fallback) | Šárka Novotná (emp 26 / uid 13) | — |
+
+**Post 70 (nákup automatizace / Mareš) ZRUŠEN (varianta A, Jirka 21.7.):** ověřeno, že
+všech 6 lidí na postu 70 je zároveň nákupčí na postu 20 → skupina by nikoho nezachytila
+(nákupčí má vyšší prioritu). Ti lidé = nákupčí → schvaluje Peťa. Mareš schvalovatel není.
+
+### 6.3 Funkce `tenant.resolve_approvers(p_tenant, p_emp, p_datum) SETOF bigint` — write #1263
+1. Najde skupinu žadatele podle `sort_order` (první shoda; subtree = rekurze pod post_id
+   BEZ `je_kvalifikace`; jinak přesný post). Když nic → fallback skupina.
+2. Vrátí uid: **vedoucí VŽDY** + **zástup** když (a) jeho vedoucí je nepřítomen p_datum
+   [approved absence typu vacation/medical/family_care kryjící den], NEBO (b) vedoucí je sám
+   žadatel (žádá si o vlastní absenci → jde na zástup). Vyloučí žadatele (neschvaluje sám sobě).
+
+### 6.4 Napojení endpointů (commity 4e231ec5 + dd7ed6e9)
+Helper **`_abs_resolve(s, emp, requester_uid)`** (router.py) volá `resolve_approvers(2, emp,
+CURRENT_DATE)` → list uid; prázdné → **Šárka (13)**, když žádá sama Šárka → Marti (1) poslední
+záchrana. `_abs_notify` nově přijímá i **seznam** (notifikuje všechny schvalovatele).
+Přepojeno **všech 7 absenčních míst**: dovolená, OČR (nové+ukončení), nemocenská
+(nové+ukončení), lékař, ohlášení absence přes chat. **`resolve_role` se pro absence UŽ
+NEPOUŽÍVÁ** (zůstává jen pro presence_recipient / day-confirm).
+
+> ⚠️ **Pozn. k datu:** endpoint volá `resolve_approvers` s **CURRENT_DATE** (kdo je k dispozici
+> schválit teď), ne s prvním dnem dovolené jak původně navrhla Marti-AI. Důvod: schválení
+> probíhá při podání žádosti, takže rozhoduje, kdo je přítomen dnes. Kdyby se to chtělo
+> vázat na první den absence, je to jednořádková změna (předat datum_od místo CURRENT_DATE).
+
+### 6.5 Ověřeno naostro
+- resolve_approvers: montér→Dušan, nákupčí→Peťa, projekty→Veverka, Dušan(vlastní)→Marek. ✅
+- Reálný POST žádosti o dovolenou jako Jirka (ostatní) → **approvers=[13] Šárka, NE Marti**. ✅
+- Test hned zrušen + testovací notifikace smazána (#1265). Žádná zbytková data.
+
+### 6.6 Zbývá (data, bez změny kódu)
+- **Zástupci pro Peťu a Veverku** — určí personální (Šárka + Marti + Veverka/Šafránková,
+  email 21.7.). Doplní se INSERTem do `att_approver` (je_zastupce=true, zastupuje_employee_id).
+  Do té doby jde jejich absence i jejich vlastní žádost na Šárku (fallback) — bezpečné.
 
 

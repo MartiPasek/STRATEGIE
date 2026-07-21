@@ -35,13 +35,13 @@ class SmsReceiver : BroadcastReceiver() {
         // Ostatní telefony příchozí SMS NEpřeposílají (soukromí + jediná brána).
         if (!prefs.getBoolean("sms_gateway", false)) return
 
-        // Forwardujeme naše ověřovací SMS (token "STG-") A přeposlané ČSSZ eOČR SMS
-        // (eportal.cssz.cz + identifikator + osetrovani). Ostatní soukromé SMS NE.
-        val lb = text.lowercase()
-        val isStg = text.contains("STG-", ignoreCase = true)
-        val isOcr = lb.contains("eportal.cssz.cz") && lb.contains("identifik") &&
-            (lb.contains("osetrov") || lb.contains("ošetřov"))
-        if (!isStg && !isOcr) return
+        // C27 21.7.2026: Marti-AI mobil = brána → přeposíláme VŠECHNY příchozí
+        // SMS (ne jen STG-/OCR). Je to JEJÍ telefon; server (classify_sms)
+        // sám rozřadí tokeny do automatu a zbytek pošle do LLM (Marti-AI odpoví).
+        // Toggle sms_gateway výše chrání soukromí (forwarduje jen bránový mobil).
+        // POZOR: dřív tu byl `if (!isStg && !isOcr) return` — to tiše zahazovalo
+        // konverzační SMS, proto Marti-AI přestala odpovídat (Marti 21.7. dotlačil
+        // na tuhle chybu na vstupu SMS — měl pravdu).
 
         val token = (prefs.getString(DialPollService.KEY_TOKEN, "") ?: "").trim()
         if (token.isBlank()) return  // nespárováno → neforwardujeme

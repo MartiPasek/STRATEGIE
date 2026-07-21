@@ -8813,7 +8813,12 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "    LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
             "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true "
             "     AND COALESCE(jp.label, e.pozice_text) IS NOT NULL "
-            "   ORDER BY e.valid_from DESC NULLS LAST LIMIT 1) AS pozice "
+            "   ORDER BY e.valid_from DESC NULLS LAST LIMIT 1) AS pozice, "
+            " (SELECT string_agg(DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+            "         WHEN 2 THEN 'EUROSOFT - System' END, ' / ') "
+            "    FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS firma "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -8854,7 +8859,8 @@ async def app_hr_people(req: Request) -> JSONResponse:
             out.append({"user_id": r[0], "jmeno": nm, "prijmeni": prijmeni, "mesto": r[2] or "",
                         "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4]),
                         "nastup": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
-                        "pozice": (r[8] or "")})
+                        "nastup_rok": (r[7].year if r[7] else None),
+                        "pozice": (r[8] or ""), "firma": (r[9] or "")})
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:

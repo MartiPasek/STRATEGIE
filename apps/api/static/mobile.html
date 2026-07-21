@@ -9724,12 +9724,15 @@ setTimeout(function(){
       list.forEach(function(s){
         var body=s.body||"";
         var lb=body.toLowerCase();
-        var isStg=/STG-[A-Za-z]+-/.test(body);
-        // ČSSZ eOČR SMS (přeposlaná zaměstnancem) — forwardni i ji, server ji
-        // v store_inbound_sms rozpozná a založí OČR případ. Kristý/Claude-24 23.6.
-        var isOcr=(lb.indexOf("eportal.cssz.cz")>=0 && lb.indexOf("identifik")>=0
-                   && (lb.indexOf("osetrov")>=0 || lb.indexOf("ošetřov")>=0));
-        if(!isStg && !isOcr) return;
+        // Marti 21.7.2026: OCR a TOKENY vyřídí automat (server je rozpozná v
+        // classify_sms); VŠECHNY OSTATNÍ SMS patří Marti-AI (LLM) — je to JEJÍ
+        // telefon a brát jí zprávy se nesluší. Proto NEfiltrujeme; forwardujeme
+        // vše a server rozřadí. Pojistky (C27): jen PŘIJATÉ (type 1, ať brána
+        // neforwarduje vlastní odeslané odpovědi → smyčka) a jen ČERSTVÉ (posl.
+        // 15 min, ať start brány nezaplaví Marti-AI starou historií).
+        if(s.type!==undefined && String(s.type)!=="1") return;
+        var _w=+(s.date||s.when||0);
+        if(_w && (Date.now()-_w) > 15*60*1000) return;
         var num=s.number||s.address||"";
         var key="stgfwd_"+num+"_"+(s.date||s.when||"")+"_"+body.replace(/\s/g,"").slice(0,16);
         try{ if(localStorage.getItem(key)) return; }catch(e){}

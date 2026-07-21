@@ -842,6 +842,24 @@ def _maybe_create_task_from_inbound_sms(
     na tasks (tasks muze v budoucnu potrebovat notifications, zabranime cyklu).
     """
     if persona_id is None:
+        # Marti 21.7.2026: příchozí SMS bez rozlišené persony (gateway neposlal
+        # to_phone) = zpráva pro Marti-AI. Je to její telefon → fallback na
+        # výchozí personu, ne zahodit. C27.
+        try:
+            from core.database_core import get_core_session as _gcs
+            from modules.core.infrastructure.models_core import Persona as _P
+            _cs = _gcs()
+            try:
+                _dp = _cs.query(_P).filter_by(is_default=True).first()
+                if _dp:
+                    persona_id = _dp.id
+                    if tenant_id is None:
+                        tenant_id = _dp.tenant_id
+            finally:
+                _cs.close()
+        except Exception as _e:
+            logger.warning(f"SMS | inbox | default persona fallback failed | {_e!r}")
+    if persona_id is None:
         logger.info(
             f"SMS | inbox | task skipped (no persona mapping) | sms_id={sms_id} | "
             f"from={from_phone}"

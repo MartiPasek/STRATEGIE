@@ -41,6 +41,26 @@
   .note .more{color:var(--blu);font-size:12px}
   .empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--mut)}
   .muted{color:var(--mut);font-size:13px}
+  .wbtn{display:inline-flex;align-items:center;gap:6px;background:rgba(91,141,239,.14);color:var(--blu);
+        border:1px solid rgba(91,141,239,.3);border-radius:9px;padding:6px 12px;font-size:13px;
+        font-weight:700;margin-top:8px;cursor:pointer}
+  .wform{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;display:none}
+  .wform.open{display:block}
+  .wrow{display:flex;gap:8px;align-items:stretch;margin-top:8px;flex-wrap:wrap}
+  .wta{flex:1;min-width:180px;min-height:70px;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;
+       padding:10px;color:var(--tx);font-size:14px;font-family:inherit;line-height:1.45}
+  .mic{width:56px;font-size:20px;flex:none;background:transparent;border:1px solid var(--blu);color:var(--blu);
+       border-radius:10px;touch-action:none;-webkit-user-select:none;user-select:none;cursor:pointer}
+  .wchip{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:20px;
+         padding:4px 11px;font-size:12px;cursor:pointer}
+  .wdate{background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:7px 10px;color:var(--tx);
+         font-size:14px;font-family:inherit}
+  .wlbl{font-size:12px;color:var(--mut);align-self:center}
+  .wsave{width:100%;margin-top:10px;background:rgba(62,207,142,.16);color:var(--grn);
+         border:1px solid rgba(62,207,142,.35);border-radius:10px;padding:11px;font-size:14px;
+         font-weight:700;cursor:pointer}
+  .wsave:disabled{opacity:.55}
+  .wst{font-size:12px;color:var(--mut);margin-top:6px;min-height:16px}
 </style>
 </head>
 <body>
@@ -79,7 +99,100 @@ function rowHtml(r,over){
       dial+
     '</div>'+
     (r.osoba?'<div style="font-size:13px;color:#cdd6e2;margin-top:6px;"><span style="color:#9fb6cc;">👤</span> '+esc(r.osoba)+'</div>':'')+
-    note +'</div>';
+    note +
+    '<button class="wbtn" id="wb-'+r.id+'">📝 Zapsat průběh hovoru</button>'+
+    '<div class="wform" id="wf-'+r.id+'"></div>'+
+    '</div>';
+}
+
+// ── Diktování (podrž a mluv → Whisper /app/transcribe) — vzor z Výroby ──
+function _micMime(){var c=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus","audio/mp4"];
+  if(typeof MediaRecorder==="undefined")return "";for(var i=0;i<c.length;i++){if(MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(c[i]))return c[i];}return "";}
+function _micExt(m){if(!m)return "webm";if(m.indexOf("audio/mp4")===0)return "m4a";if(m.indexOf("audio/ogg")===0)return "ogg";return "webm";}
+function _micRelease(){try{if(window.__micStream){window.__micStream.getTracks().forEach(function(t){t.stop();});window.__micStream=null;}}catch(e){}}
+function micButton(ta,st){
+  var btn=document.createElement("button"); btn.className="mic"; btn.title="Podrž a mluv"; btn.textContent="🎙";
+  var state="idle",mr=null,chunks=[],pid=null;
+  function reset(){state="idle";btn.textContent="🎙";btn.style.background="";}
+  function doTr(blob){
+    if(blob.size<300){st.textContent="✗ Moc krátké — podrž 🎙 a mluv.";return;}
+    st.textContent="💭 Přepisuji…"; btn.disabled=true;
+    var fr=new FileReader();
+    fr.onload=function(){
+      fetch("/api/v1/erp/app/transcribe",{method:"POST",credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"hovor-audio."+_micExt(blob.type)})})
+        .then(function(r){return r.json()}).then(function(r){
+          btn.disabled=false;
+          if(r&&r.ok&&r.text){ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text;st.textContent="✅ Přepsáno";try{ta.focus();}catch(e){}}
+          else{st.textContent="✗ "+((r&&r.error)||"nepřepsáno");}
+        }).catch(function(){btn.disabled=false;st.textContent="✗ chyba přepisu";});
+    };
+    fr.readAsDataURL(blob);
+  }
+  function stopRec(){if(state==="starting"){state="aborting";return;}if(state!=="recording"||!mr){return;}reset();
+    try{if(mr.state==="recording")mr.requestData();}catch(e){}try{mr.stop();}catch(e){_micRelease();}}
+  function startRec(){
+    if(state!=="idle")return;
+    if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder)){st.textContent="🎙 Mikrofon tu není dostupný.";return;}
+    state="starting";_micRelease();btn.textContent="⏺";btn.style.background="rgba(91,141,239,.18)";st.textContent="🎙 …";
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(sm){
+      window.__micStream=sm;
+      if(state==="aborting"){_micRelease();reset();st.textContent="";return;}
+      var mime=_micMime(),opts=mime?{mimeType:mime}:{};
+      try{mr=new MediaRecorder(sm,opts);}catch(e){try{mr=new MediaRecorder(sm);}catch(e2){_micRelease();reset();st.textContent="🎙 Záznam nejde.";return;}}
+      chunks=[];
+      mr.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
+      mr.onstop=function(){var raw=(mr&&mr.mimeType)||mime||"audio/webm";var m=raw.split(";")[0].trim()||"audio/webm";var blob=new Blob(chunks,{type:m});_micRelease();mr=null;doTr(blob);};
+      mr.start();state="recording";btn.textContent="⏺";st.textContent="🔴 Mluv… (pusť pro přepis)";
+    }).catch(function(err){_micRelease();reset();st.textContent="🎙 Mikrofon ["+((err&&(err.name||err.message))||"?")+"] — podrž znovu.";});
+  }
+  btn.addEventListener("pointerdown",function(ev){ev.preventDefault();pid=ev.pointerId;try{btn.setPointerCapture(pid);}catch(e){}startRec();});
+  btn.addEventListener("pointerup",function(ev){ev.preventDefault();try{btn.releasePointerCapture(pid);}catch(e){}stopRec();});
+  btn.addEventListener("pointercancel",function(){stopRec();});
+  return btn;
+}
+function fmtDate(d){var m=("0"+(d.getMonth()+1)).slice(-2),dd=("0"+d.getDate()).slice(-2);return d.getFullYear()+"-"+m+"-"+dd;}
+function buildForm(box,r){
+  if(box.dataset.built){box.classList.toggle("open");return;}
+  box.dataset.built="1"; box.classList.add("open");
+  var ta=document.createElement("textarea"); ta.className="wta"; ta.placeholder="Průběh hovoru… (napiš nebo nadiktuj 🎙)";
+  var st=document.createElement("div"); st.className="wst";
+  var row1=document.createElement("div"); row1.className="wrow"; row1.appendChild(ta); row1.appendChild(micButton(ta,st));
+  // Posun příštího kontaktu
+  var drow=document.createElement("div"); drow.className="wrow";
+  var lbl=document.createElement("span"); lbl.className="wlbl"; lbl.textContent="Příští kontakt:";
+  var dt=document.createElement("input"); dt.type="date"; dt.className="wdate";
+  drow.appendChild(lbl); drow.appendChild(dt);
+  var chips=document.createElement("div"); chips.className="wrow";
+  [["+1 týden",7],["+2 týdny",14],["+1 měsíc",30],["+3 měsíce",91]].forEach(function(c){
+    var b=document.createElement("button"); b.className="wchip"; b.textContent=c[0];
+    b.addEventListener("click",function(){var d=new Date();d.setDate(d.getDate()+c[1]);dt.value=fmtDate(d);});
+    chips.appendChild(b);
+  });
+  var clr=document.createElement("button"); clr.className="wchip"; clr.textContent="neměnit";
+  clr.addEventListener("click",function(){dt.value="";}); chips.appendChild(clr);
+  var save=document.createElement("button"); save.className="wsave"; save.textContent="💾 Uložit hovor";
+  save.addEventListener("click",function(){
+    var t=(ta.value||"").trim();
+    if(!t){ta.focus();st.textContent="Napiš nebo nadiktuj průběh hovoru.";return;}
+    save.disabled=true; st.textContent="Ukládám…";
+    fetch("/api/v1/erp/app/crm/hovor-zapis",{method:"POST",credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:r.id,firma:r.firma,prubeh:t,pristi:(dt.value||"")})})
+      .then(function(x){return x.json()}).then(function(x){
+        if(x&&x.ok){ st.textContent=(x.warn?("⚠ "+x.warn):"✅ Uloženo"); setTimeout(boot,700); }
+        else{ save.disabled=false; st.textContent="✗ "+((x&&(x.error||x.warn))||"nepodařilo se uložit"); }
+      }).catch(function(){save.disabled=false;st.textContent="✗ chyba sítě";});
+  });
+  box.appendChild(row1); box.appendChild(st); box.appendChild(drow); box.appendChild(chips); box.appendChild(save);
+}
+function bindWrite(rows){
+  rows.forEach(function(r){
+    var btn=document.getElementById("wb-"+r.id), box=document.getElementById("wf-"+r.id);
+    if(!btn||!box)return;
+    btn.addEventListener("click",function(){buildForm(box,r);});
+  });
 }
 
 function render(rows){
@@ -110,6 +223,7 @@ function render(rows){
   group("⏳ Později",later,false);
   if(!rows.length) h='<div class="empty">Zatím tu nejsou naplánované hovory.<br>Jakmile u firem nastavíš „příští kontakt", objeví se tady.</div>';
   document.getElementById("list").innerHTML=h;
+  bindWrite(rows);
 }
 
 async function boot(){

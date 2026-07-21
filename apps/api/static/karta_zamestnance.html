@@ -143,21 +143,14 @@ document.getElementById('srch').addEventListener('input',render);
 document.getElementById('fpoz').addEventListener('change',render);
 document.getElementById('ftyp').addEventListener('change',render);
 
-function openP(uid,row){
-  CUR_UID=uid;
-  document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel'));
-  if(row)row.classList.add('sel');
-  const p=LIDE.find(x=>x.user_id===uid)||{};
-  const det=document.getElementById('det');
-  // Šárka 21.7.2026: foto z /app/hr/photo/{id}; když není (404), fallback na iniciály.
+// Šárka 21.7.2026: profilová hlavička (foto, pozice·bydliště, nástup·firma, stav, výročí, věk, narozeniny)
+function pheadHTML(p){
   const _ini=esc(ini(p.jmeno));
-  // Šárka 21.7.2026: hlavička = foto, pozice·středisko·firma, výročí, přehled dovolené.
   const roky = p.nastup_rok ? (new Date().getFullYear()-p.nastup_rok) : null;
-  const _rokySlovo = (n)=> n===1?'rok':((n>=2&&n<=4)?'roky':'let');
+  const _rs = (n)=> n===1?'rok':((n>=2&&n<=4)?'roky':'let');
   const chip=(t,bg,fg)=>'<span style="font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+bg+';color:'+fg+';margin-right:6px;white-space:nowrap">'+t+'</span>';
-  const dovT=(v,lab)=>'<div style="background:#12181f;border:1px solid #233040;border-radius:10px;padding:8px 12px;text-align:center;min-width:70px"><div style="font-size:20px;font-weight:800;color:#e8eef5">'+v+'</div><div style="font-size:10.5px;color:#7f8ea0">'+lab+'</div></div>';
   const idline = [p.pozice, p.stredisko, p.mesto].filter(Boolean).map(esc).join(' · ');
-  let h='<div class="phead" style="align-items:flex-start"><div class="avatar">'+
+  return '<div class="phead" style="align-items:flex-start"><div class="avatar">'+
     '<img src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
     'style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" '+
     'onerror="this.remove();this.parentNode.textContent=\''+_ini+'\'"></div>'+
@@ -167,12 +160,20 @@ function openP(uid,row){
       [p.nastup?('Nástup '+esc(p.nastup)):'', p.firma?esc(p.firma):''].filter(Boolean).join(' · ')+'</div>':'')+
     '<div style="margin-top:7px">'+
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
-      (roky!=null?chip('Výročí: '+roky+' '+_rokySlovo(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
+      (roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
     '</div>'+
     ((p.vek!=null||p.narozeniny)?'<div class="mt" style="margin-top:6px">'+
-      (p.vek!=null?('👤 '+esc(p.vek)+' '+_rokySlovo(p.vek)):'')+
+      (p.vek!=null?('👤 '+esc(p.vek)+' '+_rs(p.vek)):'')+
       (p.narozeniny?((p.vek!=null?' · ':'')+'🎂 narozeniny '+esc(p.narozeniny)):'')+'</div>':'')+
     '</div></div>';
+}
+function openP(uid,row){
+  CUR_UID=uid;
+  document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel'));
+  if(row)row.classList.add('sel');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const det=document.getElementById('det');
+  let h=pheadHTML(p);
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
@@ -198,12 +199,15 @@ async function zakUdaje(){
 }
 function renderZU(edit){
   const d=ZU_DATA, uid=ZU_UID, det=document.getElementById('det');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
   const btn = edit
     ? '<span><a href="#" onclick="zakUdajeSave();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a> &nbsp;·&nbsp; <a href="#" onclick="renderZU(false);return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></span>'
     : '<a href="#" onclick="renderZU(true);return false;" style="color:#aac8ec;text-decoration:none">✏️ Upravit</a>';
-  let h='<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px">'+back+btn+'</div>'+
-    '<div style="padding:0 16px 8px"><div class="nm" style="font-size:17px">'+esc(d.jmeno||'')+'</div><div class="mt">Základní údaje</div></div>';
+  let h=pheadHTML(p)+
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">🧾 Základní údaje</span>'+
+    '<span style="display:flex;gap:14px">'+back+btn+'</span></div>';
   for(const sec of (d.sections||[])){
     const rows=(sec.items||[]).map(it=>{
       let val;

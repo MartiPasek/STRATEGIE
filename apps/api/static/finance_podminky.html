@@ -52,6 +52,12 @@
   .flt:focus{border-color:var(--accent)}
   .fbar{padding:8px 12px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .fexp{padding:2px 12px 8px;display:flex;gap:8px;align-items:center}
+  /* Šárka 21.7.2026: embed režim = vloženo do karty zaměstnance (schová seznam + horní lištu) */
+  body.embed .top{display:none}
+  body.embed .wrap{grid-template-columns:1fr;margin:0;max-width:none;padding:0}
+  body.embed .wrap>.card:first-child{display:none}
+  body.embed .wrap>.card:last-child{border:0;border-radius:0}
+  body.embed .det{padding:10px 14px}
 </style>
 </head>
 <body>
@@ -217,6 +223,7 @@ async function savePozice(eg,pid){
   const d=await _post('/app/hr/finance/pozice-save',{engagement_id:eg,position_id:pid?parseInt(pid,10):null});
   if(d.ok){ await load(); openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
 }
+if(new URLSearchParams(location.search).get('embed'))document.body.classList.add('embed');
 loadTypy();
 loadPozice();
 // Šárka 21.7.2026: když přijde ?uid= (z karty zaměstnance), rovnou otevři tu osobu.

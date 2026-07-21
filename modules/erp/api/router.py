@@ -9241,6 +9241,159 @@ async def app_hr_person_absence(req: Request):
         cm.__exit__(None, None, None)
 
 
+# ── Dokumenty zaměstnance / digitální šanon (Šárka via Claude-25, 21.7.2026) ──────────
+# Osobní údaje (smlouvy, zápočťák, posudky) → bytea v tenant.employee_document (mimo git).
+_DOK_KAT_OK = {"smlouva", "dodatek", "zapoctovy", "posudek", "diplom", "ostatni"}
+
+
+def _velikost_h(n) -> str:
+    try:
+        n = int(n or 0)
+    except Exception:
+        return ""
+    if n < 1024:
+        return "%d B" % n
+    if n < 1024 * 1024:
+        return "%.0f kB" % (n / 1024.0)
+    return "%.1f MB" % (n / (1024.0 * 1024.0))
+
+
+@api_router.get("/app/hr/person-docs")
+async def app_hr_person_docs(req: Request):
+    """Seznam dokumentů člověka (jen HR). Bez binárního obsahu."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT d.id, d.kategorie, d.nazev, d.velikost, d.uploaded_at, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS kdo "
+            "FROM tenant.employee_document d LEFT JOIN public.users u ON u.id=d.uploaded_by "
+            "WHERE d.tenant_id=2 AND d.user_id=:u AND d.is_active=true "
+            "ORDER BY d.uploaded_at DESC"), {"u": tuid}).fetchall()
+        dokumenty = [{
+            "id": r[0], "kategorie": (r[1] or "ostatni"), "nazev": (r[2] or ""),
+            "velikost_h": _velikost_h(r[3]),
+            "uploaded_at": (r[4].strftime("%d.%m.%Y") if r[4] else ""),
+            "uploaded_by_h": (r[5] or ""),
+        } for r in rows]
+        return JSONResponse({"ok": True, "dokumenty": dokumenty})
+    except Exception as exc:
+        logger.exception("[hr_person_docs] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person-doc-upload")
+async def app_hr_person_doc_upload(req: Request, file: UploadFile = File(...),
+                                   uid: int = Form(0), kategorie: str = Form("ostatni")):
+    """HR nahraje dokument do spisu zaměstnance."""
+    import datetime as _dt
+    from sqlalchemy import text as _t
+    me = _uid_from_token_or_cookie(req)
+    if not me:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, me):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cil = int(uid or 0)
+        if not cil:
+            return JSONResponse({"ok": False, "error": "chybí uid"}, status_code=400)
+        kat = (kategorie or "ostatni").strip().lower()
+        if kat not in _DOK_KAT_OK:
+            kat = "ostatni"
+        raw = await file.read()
+        if not raw:
+            return JSONResponse({"ok": False, "error": "Prázdný soubor."}, status_code=400)
+        if len(raw) > 20 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "Příliš velký soubor (max 20 MB)."}, status_code=400)
+        nazev = (getattr(file, "filename", None) or "dokument").strip()[:255]
+        mime = (getattr(file, "content_type", None) or "application/octet-stream")[:120]
+        s.execute(_t(
+            "INSERT INTO tenant.employee_document "
+            " (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, uploaded_at) "
+            "VALUES (2, :u, :k, :n, :m, :o, :v, :by, :at)"),
+            {"u": cil, "k": kat, "n": nazev, "m": mime, "o": raw, "v": len(raw),
+             "by": me, "at": _dt.datetime.now()})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_person_doc_upload] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/person-doc/{doc_id}")
+async def app_hr_person_doc_get(req: Request, doc_id: int):
+    """Stažení dokumentu (HR nebo vlastník)."""
+    from urllib.parse import quote as _q
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT obsah, mime, nazev, user_id FROM tenant.employee_document "
+            "WHERE tenant_id=2 AND id=:i AND is_active=true"), {"i": int(doc_id)}).first()
+        if not row or not row[0]:
+            return Response(status_code=404)
+        if not (_hr_can_manage(s, uid) or uid == row[3]):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        nazev = row[2] or "dokument"
+        return Response(content=bytes(row[0]), media_type=(row[1] or "application/octet-stream"),
+                        headers={"Content-Disposition": "inline; filename*=UTF-8''" + _q(nazev),
+                                 "Cache-Control": "private, max-age=60"})
+    except Exception as exc:
+        logger.exception("[hr_person_doc_get] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person-doc-delete")
+async def app_hr_person_doc_delete(req: Request):
+    """Soft-delete dokumentu ze spisu (jen HR)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        did = int(body.get("id") or 0)
+    except Exception:
+        did = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if not did:
+            return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+        s.execute(_t("UPDATE tenant.employee_document SET is_active=false "
+                     "WHERE tenant_id=2 AND id=:i"), {"i": did})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_person_doc_delete] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.

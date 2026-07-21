@@ -75,8 +75,8 @@ function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).
 const SEKCE=[
   {ic:"🧾",t:"Základní údaje",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
   {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true,key:'pracovni'},
-  {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,go:"/finance-podminky"},
-  {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true},
+  {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
+  {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true,key:'absence'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
@@ -177,7 +177,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje'};
+    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -317,6 +317,62 @@ async function absUdaje(){
       d.zaznamy.map(z=>'<tr style="border-top:1px solid #1e2730"><td style="padding:6px 16px;color:#e8eef5">'+esc(z.typ)+'</td><td style="padding:6px 16px;color:#e8eef5">'+esc(z.od)+(z.do?(' – '+esc(z.do)):'')+'</td><td style="padding:6px 16px;color:'+col(z.stav)+'">'+esc(z.stav)+'</td></tr>').join('')+'</table>';
   }
   det.innerHTML=h;
+}
+
+// Šárka 21.7.2026: Finanční podmínky přímo v kartě (hlavička + fotka + editace uvnitř).
+function finUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const det=document.getElementById('det');
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">💰 Finanční podmínky</span>'+back+'</div>';
+  h+='<iframe src="/finance-podminky?uid='+uid+'&embed=1" style="width:100%;height:72vh;border:0;background:#0f141a" title="Finanční podmínky"></iframe>';
+  det.innerHTML=h;
+}
+
+// Šárka 21.7.2026: Dokumenty = digitální šanon (nahrát/stáhnout/smazat, uloženo v DB mimo git).
+const DOK_KAT={smlouva:'Pracovní smlouva',dodatek:'Dodatek',zapoctovy:'Zápočtový list',posudek:'Lékařský posudek',diplom:'Diplom / certifikát',ostatni:'Ostatní'};
+function dokKatOpts(sel){return Object.keys(DOK_KAT).map(k=>'<option value="'+k+'"'+(k===sel?' selected':'')+'>'+esc(DOK_KAT[k])+'</option>').join('');}
+async function dokUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/person-docs?uid='+uid);
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📄 Dokumenty (digitální šanon)</span>'+back+'</div>';
+  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
+  h+='<div style="padding:12px 16px;border-top:1px solid #1e2730;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+     '<select id="dokKat" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit">'+dokKatOpts('smlouva')+'</select>'+
+     '<input type="file" id="dokFile" style="color:#cdd6e2;font-size:12px">'+
+     '<button onclick="dokUpload('+uid+')" style="border:1px solid #3a8a4d;background:#2e6f3e;color:#eafff0;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">⬆ Nahrát</button>'+
+     '<span id="dokMsg" style="font-size:12px;color:#7fe0a0"></span></div>';
+  const docs=d.dokumenty||[];
+  if(!docs.length){ h+='<div class="empty">Zatím žádné dokumenty.</div>'; }
+  else {
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+      '<tr><td style="color:#7f8ea0;padding:6px 16px">Kategorie</td><td style="color:#7f8ea0;padding:6px 16px">Název</td><td style="color:#7f8ea0;padding:6px 16px">Nahráno</td><td style="padding:6px 16px"></td></tr>'+
+      docs.map(x=>'<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:6px 16px;color:#aac8ec">'+esc(DOK_KAT[x.kategorie]||x.kategorie)+'</td>'+
+        '<td style="padding:6px 16px;color:#e8eef5">'+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
+        '<td style="padding:6px 16px;color:#7f8ea0">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
+        '<td style="padding:6px 16px;white-space:nowrap"><a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> · <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>').join('')+'</table>';
+  }
+  det.innerHTML=h;
+}
+async function dokUpload(uid){
+  const f=document.getElementById('dokFile'), msg=document.getElementById('dokMsg');
+  if(!f.files||!f.files.length){ msg.style.color='#E0A94A'; msg.textContent='Vyber soubor.'; return; }
+  const fd=new FormData(); fd.append('uid',uid); fd.append('kategorie',document.getElementById('dokKat').value); fd.append('file',f.files[0]);
+  msg.style.color='#7f8ea0'; msg.textContent='Nahrávám…';
+  const r=await fetch(API+'/app/hr/person-doc-upload',{method:'POST',credentials:'same-origin',body:fd});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok){ dokUdaje(); } else { msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); }
+}
+async function dokDel(id,uid){
+  if(!confirm('Opravdu smazat dokument?')) return;
+  const r=await fetch(API+'/app/hr/person-doc-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok) dokUdaje(); else alert('Nepovedlo se: '+(d.error||''));
 }
 load();
 </script>

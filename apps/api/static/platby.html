@@ -43,7 +43,7 @@
   #faktury-body table.fakt tbody td{color:#f4f7fc}
   #faktury-body table.fakt th{position:relative}
   #faktury-body table.fakt th.r,#faktury-body table.fakt td.r{text-align:right}
-  #faktury-body table.fakt thead th .colgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:5;user-select:none}
+  #faktury-body table.fakt thead th .colgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5;user-select:none}
   #faktury-body table.fakt .frow input,#faktury-body table.fakt .frow select{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
   #faktury-body table.fakt .frow input::placeholder{color:#6a7078}
   #faktury-body table.fakt tbody tr{cursor:pointer}
@@ -730,7 +730,7 @@ function bindColResize(){
       e.preventDefault(); e.stopPropagation();
       var col=g.dataset.col, th=g.parentNode;
       var startX=e.clientX, startW=th.offsetWidth;
-      document.body.style.cursor='col-resize';
+      document.body.style.cursor='ew-resize';
       function _mv(ev){
         var w=Math.max(20, startW+(ev.clientX-startX)); _faktColW[col]=w;
         var c=document.querySelector('#faktury-body table.fakt col[data-col="'+col+'"]');

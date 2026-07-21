@@ -47,7 +47,7 @@
   table.dokl tbody td{color:#f4f7fc}
   table.dokl th{position:relative}
   table.dokl th.r,table.dokl td.r{text-align:right}
-  table.dokl thead th .dgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:5;user-select:none}
+  table.dokl thead th .dgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5;user-select:none}
   table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
   table.dokl .frow input::placeholder{color:#6a7078}
   table.dokl tbody tr{cursor:pointer}
@@ -217,7 +217,7 @@ function bindDGrips(){
   document.querySelectorAll('#doklBox table.dokl thead th .dgrip').forEach(function(g){
     g.onmousedown=function(e){e.preventDefault();e.stopPropagation();
       var col=g.dataset.dcol, th=g.parentNode, startX=e.clientX, startW=th.offsetWidth;
-      document.body.style.cursor='col-resize';
+      document.body.style.cursor='ew-resize';
       function mv(ev){var w=Math.max(24,startW+(ev.clientX-startX));DOKLW[col]=w;
         var c=document.querySelector('#doklBox table.dokl col[data-dcol="'+col+'"]');if(c)c.style.width=w+'px';
         var tb=document.querySelector('#doklBox table.dokl');if(tb)tb.style.width=dTotW()+'px';}

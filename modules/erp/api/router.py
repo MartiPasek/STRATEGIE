@@ -19762,14 +19762,23 @@ async def att_fix_entry(req: Request) -> JSONResponse:
             try:
                 tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
                 if tu and new_code not in ("work", "overhead"):
-                    # Peťa 21.7.2026: převod práce na NEPŘÍTOMNOST (dovolená, lékař…) —
-                    # úseky zakázek z výkazu vynulovat. Jinak by hodiny dál visely na
-                    # zakázce, i když člověk ten čas vůbec nepracoval.
+                    # Peťa 21.7.2026: převod práce na NEPŘÍTOMNOST (dovolená, lékař…).
+                    # Dovolená NENÍ výkon, ale počítá se do FPD a v Centrále visí na
+                    # zakázce Režie — držíme to stejně. Úsek ve výkazu proto NErušíme,
+                    # jen ho přehodíme na Režii a zahodíme činnost (ta patří k výkonu).
                     s.execute(_t(
-                        "UPDATE tenant.work_alloc SET ended_at=started_at, updated_at=now() "
+                        "UPDATE tenant.work_alloc SET project_ref = :rz, "
+                        "project_nazev = (SELECT z.nazev FROM tenant.zakazka z "
+                        "                  WHERE z.tenant_id = :t AND z.cislo = :rz), "
+                        "is_rezie = true, cinnost_id = NULL, cinnost_name = NULL, cinnost_icon = NULL, "
+                        "ended_at = GREATEST(CAST(:ns AS timestamptz), LEAST(ended_at, CAST(:ne AS timestamptz))), "
+                        "started_at = LEAST(CAST(:ne AS timestamptz), GREATEST(started_at, CAST(:ns AS timestamptz))), "
+                        "updated_at = now() "
                         "WHERE user_id=:u AND started_at >= CAST(:os AS timestamptz) - interval '1 minute' "
                         "  AND started_at < CAST(:oe AS timestamptz)"),
-                        {"u": tu, "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
+                        {"u": tu, "t": _ATT_TENANT, "rz": _REZIE_REF,
+                         "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
+                         "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
                 elif tu:
                     s.execute(_t(
                         "UPDATE tenant.work_alloc SET "

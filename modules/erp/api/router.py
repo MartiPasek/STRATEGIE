@@ -12181,9 +12181,15 @@ def _is_parent(s, uid: int) -> bool:
 
 def _abs_notify(s, target_uid, title, msg, quiet=False):
     """quiet=True → tiché potvrzovací 'claude_ok' (bez zvuku/vibrace na mobilu),
-    pro souhlasné/hotovo signály, které nemají rušit práci. Marti 14.6."""
+    pro souhlasné/hotovo signály, které nemají rušit práci. Marti 14.6.
+    target_uid smí být int NEBO list/tuple uid (Jirka 21.7. — schvalovatelé absence
+    přes _abs_resolve mohou být víc lidí: vedoucí + zástup)."""
     from sqlalchemy import text as _t
     if not target_uid:
+        return
+    if isinstance(target_uid, (list, tuple, set)):
+        for _u in target_uid:
+            _abs_notify(s, _u, title, msg, quiet=quiet)
         return
     ctype = "claude_ok" if quiet else "claude_msg"
     s.execute(_t("INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
@@ -12535,12 +12541,8 @@ async def ocr_start(req: Request) -> JSONResponse:
         if not emp:
             return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
         company = _ocr_company(s, emp)
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": emp}).scalar()
-        except Exception:
-            mgr = None
+        _abs_apprs = _abs_resolve(s, emp, uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
         # navázaná absence (datum_do zatím = od; doplní se na konci)
         arid = s.execute(_t(
             "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
@@ -12563,7 +12565,7 @@ async def ocr_start(req: Request) -> JSONResponse:
             pass
         msg = (who + " zahájil OČR (péče o: " + osoba + ") od "
                + str(d_od.day) + "." + str(d_od.month) + ". Po skončení doplní dny ke schválení.")
-        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🧑‍⚕️ Nové ošetřovné (OČR)", msg)
+        _abs_notify(s, _abs_apprs, "🧑‍⚕️ Nové ošetřovné (OČR)", msg)
         s.commit()
         return JSONResponse({"ok": True, "id": cid, "company": company})
     except Exception as exc:
@@ -12616,15 +12618,11 @@ async def ocr_end(req: Request) -> JSONResponse:
             _ocr_fill_dochazka(s, row[0], row[2], d_do, row[1], "OČR: " + (row[4] or ""), "ocr_end")
         except Exception:
             pass
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": row[0]}).scalar()
-        except Exception:
-            mgr = None
+        _abs_apprs = _abs_resolve(s, row[0], uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
         msg = ("OČR (péče o: " + (row[4] or "") + ") ukončeno k " + str(d_do.day) + "." + str(d_do.month)
                + ". (" + str(dny) + " dní) — ke schválení v Docházce → OČR.")
-        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🧑‍⚕️ OČR ke schválení", msg)
+        _abs_notify(s, _abs_apprs, "🧑‍⚕️ OČR ke schválení", msg)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -12787,12 +12785,8 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
                 "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
                 "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
                 {"e": emp}).scalar() or "Zaměstnanec"
-            mgr = None
-            try:
-                mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                                {"e": emp}).scalar()
-            except Exception:
-                mgr = None
+            _abs_apprs = _abs_resolve(s, emp, uid)
+            mgr = _abs_apprs[0] if _abs_apprs else None
             if je_ukonceni:
                 s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, cssz_link_konec=COALESCE(:lnk, cssz_link_konec), updated_at=now() WHERE id=:i"),
                           {"dd": d_od, "i": ex_id, "lnk": link})
@@ -12850,12 +12844,8 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
         except Exception:
             pass
         company = _ocr_company(s, emp)
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": emp}).scalar()
-        except Exception:
-            mgr = None
+        _abs_apprs = _abs_resolve(s, emp, uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
         arid = s.execute(_t(
             "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,"
             "datum_do,hours_per_day,note,stav,manager_user_id) "
@@ -13471,12 +13461,8 @@ async def sick_start(req: Request) -> JSONResponse:
         if not emp:
             return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
         company = _ocr_company(s, emp)
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": emp}).scalar()
-        except Exception:
-            mgr = None
+        _abs_apprs = _abs_resolve(s, emp, uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
         arid = s.execute(_t(
             "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
             "hours_per_day,note,stav,manager_user_id) "
@@ -13499,7 +13485,7 @@ async def sick_start(req: Request) -> JSONResponse:
         msg = (who + " hlásí nemocenskou od " + str(d_od.day) + "." + str(d_od.month) + "."
                + ((" (předpoklad do " + str(pdo.day) + "." + str(pdo.month) + ".)") if pdo else "")
                + ". Po ukončení doplní konec ke schválení.")
-        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🤒 Nemocenská (eNeschopenka)", msg)
+        _abs_notify(s, _abs_apprs, "🤒 Nemocenská (eNeschopenka)", msg)
         s.commit()
         return JSONResponse({"ok": True, "id": cid, "company": company})
     except Exception as exc:
@@ -13548,13 +13534,9 @@ async def sick_end(req: Request) -> JSONResponse:
             _ocr_fill_dochazka(s, row[0], row[2], d_do, row[1], "Nemocenská", "sick_end", "sick")
         except Exception:
             pass
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": row[0]}).scalar()
-        except Exception:
-            mgr = None
-        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🤒 Nemocenská ke schválení",
+        _abs_apprs = _abs_resolve(s, row[0], uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
+        _abs_notify(s, _abs_apprs, "🤒 Nemocenská ke schválení",
                     "Nemocenská ukončena k " + str(d_do.day) + "." + str(d_do.month)
                     + ". — ke schválení v Docházce → Nemoc/OČR.")
         s.commit()
@@ -13820,16 +13802,13 @@ async def med_start(req: Request) -> JSONResponse:
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
             {"e": emp}).scalar() or "Zaměstnanec"
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"), {"e": emp}).scalar()
-        except Exception:
-            mgr = None
+        _abs_apprs = _abs_resolve(s, emp, uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
         msg = (who + " eviduje lísteček od lékaře " + str(datum.day) + "." + str(datum.month) + "."
                + (" (" + str(doba) + " h)" if doba else "")
                + " — krytí: " + {"sick_day": "sick day", "listecek": "lísteček", "kombinace": "sick day + lísteček"}.get(kryti, kryti)
                + ". Ke schválení v Docházce → Lékař.")
-        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🩺 Lísteček od lékaře", msg)
+        _abs_notify(s, _abs_apprs, "🩺 Lísteček od lékaře", msg)
         s.commit()
         return JSONResponse({"ok": True, "id": cid, "doba_h": doba, "kryti": kryti,
                              "kryto_sick_h": kryto_sick, "proplaceno_listecek_h": propl,
@@ -23058,11 +23037,8 @@ async def att_announce(req: Request) -> JSONResponse:
         _abs_typ = _announce_absence_typ(note)
         if _abs_typ and emp:
             _dd = day or _dta.now().date().isoformat()
-            _mgr = None
-            try:
-                _mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"), {"e": emp}).scalar()
-            except Exception:
-                _mgr = None
+            _abs_apprs = _abs_resolve(s, emp, uid)
+            _mgr = _abs_apprs[0] if _abs_apprs else None
             _rid = s.execute(_t(
                 "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
                 "hours_per_day,note,stav,manager_user_id) "
@@ -23073,7 +23049,7 @@ async def att_announce(req: Request) -> JSONResponse:
                 "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
                 {"e": emp}).scalar() or "Zaměstnanec"
             try:
-                _abs_notify(s, _mgr if _mgr and int(_mgr) != uid else 1, "🗓️ Nová žádost o absenci",
+                _abs_notify(s, _abs_apprs, "🗓️ Nová žádost o absenci",
                             _who + " žádá o „" + _ABS_TYP[_abs_typ] + "“ na " + _dd + ((" — " + note) if note else "")
                             + ". Rozhodni v Docházce → Žádosti o absenci (schválení rovnou zapíše do docházky).")
             except Exception:

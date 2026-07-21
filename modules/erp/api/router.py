@@ -39233,6 +39233,33 @@ async def diag_sql(req: Request) -> JSONResponse:
                                           _zdroj, "obor", "dokument")
         return JSONResponse(_out)
 
+    # Inline autonomní přispění/korekce znalosti G2007 (Claude C27, 21.7.2026, Marti OK):
+    #   @@G2007ADD <oblast> <slug> | <nadpis>
+    #   <obsah na dalších řádcích>
+    # Konstruktivní operace (INSERT nový kód / UPDATE existující) BEZ banneru —
+    # Marti 21.7.: „konstruktivní operace musí jet autonomně, updaty taky; jen
+    # mazání se schvaluje". Doplňuje @@G2007DOC (soubor) o inline cestu (bez push).
+    if sql.upper().startswith("@@G2007ADD"):
+        _rest2 = sql[len("@@G2007ADD"):]
+        _parts2 = _rest2.split("\n", 1)
+        _head2 = _parts2[0].strip()
+        _obsah2 = _parts2[1] if len(_parts2) > 1 else ""
+        _hp2 = [x.strip() for x in _head2.split("|", 1)]
+        _nadpis2 = _hp2[1].strip() if len(_hp2) > 1 else ""
+        _hargs2 = _hp2[0].split()
+        if len(_hargs2) < 2 or not _obsah2.strip():
+            return JSONResponse({"ok": False, "error":
+                                 "@@G2007ADD <oblast> <slug> | <nadpis> pak newline a obsah"})
+        _obl2 = _hargs2[0].strip().lower()
+        _slug2 = _hargs2[1].strip().lower()
+        if not _nadpis2:
+            for _ln2 in _obsah2.split("\n"):
+                if _ln2.startswith("# "):
+                    _nadpis2 = _ln2[2:].strip()
+                    break
+        _out2 = _g2007_znalost_upsert_inline(_obl2, _slug2, _nadpis2 or _slug2, _obsah2)
+        return JSONResponse(_out2)
+
     # Souborový most (Marti 20.6.2026): čtení reálných faktur pro EDI/auto-pořizování.
     #   @@FILES LIST <abs_cesta>            → výpis adresáře (soubor + velikost)
     #   @@FILES READ <abs_cesta_k_souboru>  → obsah souboru (text/base64)
@@ -63663,6 +63690,52 @@ def _render_error_page(title: str, msg: str) -> str:
 def _g2007_repo_root():
     import os as _os
     return _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+
+
+def _g2007_znalost_upsert_inline(oblast, slug, nadpis, obsah, uroven="obor", typ="dokument"):
+    """Inline upsert znalosti do G2007 (bez souboru). INSERT novy kod / UPDATE existujici.
+    Konstruktivni operace bez schvalovaciho banneru (Marti 21.7.2026) + reindex vektoru."""
+    from sqlalchemy import text as _t
+    kod = "doc-%s-%s" % (oblast, slug)
+    g2007_zdroj = "g2007/znalosti/%s/%s.md" % (oblast, kod)
+    from core.database import get_session as _gg
+    sg = _gg()
+    try:
+        oid = sg.execute(_t("SELECT id FROM g2007.znalost_oblast WHERE kod=:k"), {"k": oblast}).scalar()
+        if not oid:
+            return {"ok": False, "error": "neznama oblast '%s' (viz g2007.znalost_oblast)" % oblast}
+        exists = sg.execute(_t("SELECT id FROM g2007.znalost WHERE kod=:k"), {"k": kod}).scalar()
+        if exists:
+            sg.execute(_t("UPDATE g2007.znalost SET oblast_id=:o, uroven=:u, typ=:t, nadpis=:n, "
+                          "obsah=:c, zdroj=:z, stav='aktivni', verze_schvalena=true, updated_at=now() "
+                          "WHERE kod=:k"),
+                       {"o": oid, "u": uroven, "t": typ, "n": nadpis, "c": obsah, "z": g2007_zdroj, "k": kod})
+            znid = exists
+            akce = "update"
+        else:
+            znid = sg.execute(_t("INSERT INTO g2007.znalost (oblast_id, uroven, typ, kod, nadpis, obsah, "
+                                 "zdroj, stav, verze, verze_schvalena) "
+                                 "VALUES (:o,:u,:t,:k,:n,:c,:z,'aktivni','V1.0',true) RETURNING id"),
+                              {"o": oid, "u": uroven, "t": typ, "k": kod, "n": nadpis, "c": obsah,
+                               "z": g2007_zdroj}).scalar()
+            akce = "insert"
+        sg.commit()
+    except Exception as _exc:
+        try:
+            sg.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "DB upsert %s: %s" % (type(_exc).__name__, str(_exc)[:300])}
+    finally:
+        sg.close()
+    reindexovano = None
+    try:
+        from modules.erp.api.g2007_vectors import reindex_by_kod as _reidx
+        reindexovano = _reidx(kod)
+    except Exception as _re:
+        reindexovano = "chyba reindex: %s" % str(_re)[:200]
+    return {"ok": True, "akce": akce, "id": znid, "kod": kod, "oblast": oblast,
+            "nadpis": nadpis, "delka_obsah": len(obsah), "reindexovano_chunku": reindexovano}
 
 
 def _g2007_znalost_upsert_work(oblast, slug, nadpis, zdroj, uroven, typ):

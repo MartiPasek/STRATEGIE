@@ -59,6 +59,14 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Registr absencí (Peťa 21.7.2026): jádro dochazka.absence = iframe stránky
+      // /registr-absenci. Spojuje naše žádosti (att_absence_request) se zrcadlem
+      // Centrály (att_planned_absence) — sloupec Zdroj říká, kde se to pořídilo.
+      if (String(coreCode) === 'dochazka.absence') {
+        mainContent.innerHTML = '<iframe src="/registr-absenci" title="Registr absencí" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Pozn. (Peťa 20.7.2026): „Docházka po zakázkách" (jádro dochazka.centrala)
       // byla nejdřív vlastní stránka /dochazka-centrala čtená živě z Centrály.
       // Peťa rozhodla, že se má čerpat ze stejných dat jako ostatní přehledy

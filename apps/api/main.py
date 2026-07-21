@@ -1572,6 +1572,17 @@ def dochazka_opravy_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/registr-absenci")
+def registr_absenci_page():
+    """Registr absencí — všechny nepřítomnosti, naše i ze staré Centrály, na jednom
+    místě (jako Správa docházky v Centrále). Peťa 21.7.2026. Data gated na serveru
+    (rodiče / HR / editoři oprav / Peťa+Šárka+Jirka). XFO/CSP kvůli ERP iframe."""
+    return FileResponse(os.path.join(static_dir, "registr-absenci.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/osnova")
 def osnova_page():
     """Účtová osnova po letech (z deníku) — porovnání let. Marti 25.6.2026."""

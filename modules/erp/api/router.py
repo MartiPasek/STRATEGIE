@@ -29037,6 +29037,34 @@ async def app_version(req: Request) -> JSONResponse:
     """Aktuální verze nasazeného kódu (git HEAD sha). Veřejné (žádný auth) —
     klient porovnává s verzí při načtení a nabídne obnovení po deployi."""
     import time as _time_av
+    # C27 21.7.: log KAZDEHO GET z klienta do public.app_ver_hit_dbg (get_data_session
+    # = strategie role, citelne z bridge). Overeni, jestli WebView GET z telefonu
+    # dorazi na /api (GET funguje?) vs POST. Best-effort.
+    try:
+        _ua = (req.headers.get("user-agent") or "")[:120]
+        _ip = (req.client.host if req.client else "") or ""
+        from core.database_data import get_data_session as _gds_av
+        from sqlalchemy import text as _tav
+        _dv = _gds_av()
+        try:
+            _dv.execute(_tav("CREATE TABLE IF NOT EXISTS public.app_ver_hit_dbg ("
+                "ts timestamptz DEFAULT now(), ua text, ip text)"))
+            _dv.execute(_tav('GRANT SELECT ON public.app_ver_hit_dbg TO "Marti-AI"'))
+            _dv.execute(_tav("INSERT INTO public.app_ver_hit_dbg(ua,ip) VALUES (:u,:i)"),
+                {"u": _ua, "i": _ip})
+            _dv.commit()
+        except Exception:
+            try:
+                _dv.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                _dv.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
     now = _time_av.time()
     if _APP_VERSION_CACHE["v"] is None or (now - _APP_VERSION_CACHE["ts"]) > 10:
         _APP_VERSION_CACHE["v"] = _read_git_head_sha() or "unknown"
@@ -59215,6 +59243,7 @@ def _render_workspace_page(user_id: int) -> str:
          "stejne zobrazit, stejne funkce". -->
     <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/ec_vyhodnoceni_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/ec_pripl_srazky_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/erp_spec_form.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Cell actions Fáze 1 (1.6.2026, Marti: dvojklik na telefon/email/web
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher

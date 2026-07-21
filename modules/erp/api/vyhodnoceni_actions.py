@@ -30,6 +30,9 @@ _EC_ACTIONS = {
     "slouci_zrus":       ("SELECT ec.slouci_zakazky_zrus(CAST(:zaks AS text[]))", "zaks"),
     "nastav_sefmontera": ("SELECT ec.nastav_sefmontera(:oid)",                    "oid"),
     "nastav_multif":     ("SELECT ec.nastav_multif(:oid, :mode)",                 "oid_mode"),
+    # Modul Příplatky a srážky (Claude-27, 21.7.2026) — p_id + p_cmd (mode 1/2)
+    "pripl_vyplatit":    ("SELECT ec.pripl_srazky_vyplatit(:id, :cmd)",           "id_cmd"),
+    "pripl_schvalit":    ("SELECT ec.pripl_srazky_schvalit(:id, :cmd)",           "id_cmd"),
 }
 
 
@@ -70,6 +73,10 @@ async def ec_action_run(req: Request) -> JSONResponse:
         elif kind == "oid_mode":
             oid = d.get("osoba_id", d.get("id"))
             params = {"oid": int(oid), "mode": int(d.get("mode") or 1)}
+        elif kind == "id_cmd":
+            if d.get("id") is None:
+                return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+            params = {"id": int(d["id"]), "cmd": int(d.get("mode") or d.get("cmd") or 1)}
 
         res = session.execute(_t(sql), params).scalar()
         session.commit()

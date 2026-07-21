@@ -19506,7 +19506,12 @@ async def att_fix_queue(req: Request) -> JSONResponse:
             "       em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
             "       (SELECT to_char(max(w.ended_at),'HH24:MI') FROM tenant.work_alloc w "
             "         WHERE w.user_id = em.user_id AND w.started_at::date = e.entry_date AND w.ended_at IS NOT NULL), "
-            "       EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
+            # „opraveno" (Peťa 21.7.2026): dřív se zelený štítek rozsvítil, jen když na dni
+            # vznikl OPRAVNÝ záznam. Po STORNU ale žádný nevzniká — jen se zneplatní staré —
+            # takže smazaný den zůstal ve frontě bez označení. Nově stačí, že na tom dni
+            # editor cokoliv udělal (oprava / doplnění / storno / sloučení) → audit.
+            "       (EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
+            "        OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=a.employee_id AND aa.old_entry_date=e.entry_date)) "
             "FROM tenant.att_anomaly a "
             "JOIN tenant.att_entry e ON e.id = a.entry_id "
             "JOIN tenant.att_employee em ON em.id = a.employee_id "
@@ -19518,7 +19523,8 @@ async def att_fix_queue(req: Request) -> JSONResponse:
         disp = s.execute(_t(
             "SELECT c.id, c.employee_id, c.day::text, COALESCE(c.note,''), em.user_id, "
             "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=c.employee_id AND fe.entry_date=c.day AND fe.source='manual_fix' AND fe.status<>'superseded') "
+            "       (EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=c.employee_id AND fe.entry_date=c.day AND fe.source='manual_fix' AND fe.status<>'superseded') "
+            "        OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=c.employee_id AND aa.old_entry_date=c.day)) "
             "FROM tenant.att_day_confirm c "
             "JOIN tenant.att_employee em ON em.id = c.employee_id "
             "LEFT JOIN public.users u ON u.id = em.user_id "

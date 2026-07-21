@@ -66,13 +66,14 @@
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
+let CUR_UID=null;
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 async function j(u){const r=await fetch(u,{credentials:'same-origin'});return r.json();}
 function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).join('').toUpperCase();}
 
 // Sekce karty (dle Pinya „Profil pracovníka" × Centrála). on=napojeno, go=cíl.
 const SEKCE=[
-  {ic:"🧾",t:"Základní údaje",d:"Osobní údaje, adresy, kontakty, doklady.",on:true},
+  {ic:"🧾",t:"Základní údaje",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
   {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true},
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,go:"/finance-podminky"},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true},
@@ -143,6 +144,7 @@ document.getElementById('fpoz').addEventListener('change',render);
 document.getElementById('ftyp').addEventListener('change',render);
 
 function openP(uid,row){
+  CUR_UID=uid;
   document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel'));
   if(row)row.classList.add('sel');
   const p=LIDE.find(x=>x.user_id===uid)||{};
@@ -174,12 +176,33 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const cls='sec'+(s.go?' on':'');
-    const click=s.go?(' onclick="window.open(\''+s.go+'\',\'_blank\')"'):'';
-    h+='<div class="'+cls+'"'+click+'><div class="si">'+s.ic+'</div><div>'+
+    const klik = s.key==='zakladni' ? (' onclick="zakUdaje()"') : (s.go?(' onclick="window.open(\''+s.go+'\',\'_blank\')"'):'');
+    const cls='sec'+((s.go||s.key==='zakladni')?' on':'');
+    h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
       '<div class="st">'+esc(s.t)+' '+tag+'</div><div class="sd">'+esc(s.d)+'</div></div></div>';
   }
   h+='</div>';
+  det.innerHTML=h;
+}
+
+// Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person a vykreslí sekce v kartě.
+async function zakUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det');
+  det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/person?uid='+uid);
+  const back='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div>';
+  if(!d.ok){ det.innerHTML=back+'<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
+  let h=back+'<div style="padding:0 16px 8px"><div class="nm" style="font-size:17px">'+esc(d.jmeno||'')+'</div>'+
+    '<div class="mt">Základní údaje</div></div>';
+  for(const sec of (d.sections||[])){
+    const rows=(sec.items||[]).map(it=>'<tr>'+
+      '<td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+esc(it.label)+'</td>'+
+      '<td style="padding:5px 16px;color:#e8eef5">'+(it.value?esc(it.value):'<span style="color:#5d6b7c">—</span>')+'</td></tr>').join('');
+    h+='<div style="margin:10px 0"><div style="font-weight:800;color:#e8eef5;padding:6px 16px;border-bottom:1px solid #233040">'+esc(sec.label)+'</div>'+
+       '<table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table></div>';
+  }
+  if(!(d.sections||[]).length) h+='<div class="empty">Zaměstnanec zatím nemá vyplněné žádné základní údaje.</div>';
   det.innerHTML=h;
 }
 load();

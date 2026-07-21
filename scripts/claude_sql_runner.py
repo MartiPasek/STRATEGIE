@@ -17,10 +17,11 @@ Protokol SQL (slozka scripts/claude_sql/, gitignored):
   CLAUDE_GO.txt    - trigger (Claude zapise JAKO POSLEDNI). Volitelne 1. radek:
                        db=pg (default) nebo db=mssql
   CLAUDE_OUT.txt   - watcher zapise vysledek (markdown tabulka + status).
-  MULTI-LANE (Marti 21.7.2026): kdyz na jednom stroji bezi VIC Cowork session,
-  kazda dalsi ma vlastni kanal, at se nepreskakuji. Lane 2 = CLAUDE2_SQL.sql /
-  CLAUDE2_GO.txt / CLAUDE2_OUT.txt / CLAUDE2_OUT_FULL.txt (default). Dalsi pres
-  env CLAUDE_EXTRA_LANES="2,3". Lane "" (bez indexu) je puvodni kanal beze zmeny.
+  MULTI-LANE (Marti 21.7.2026; lane 3 pridana 21.7. pro Kristy+Peta = 3 session):
+  kdyz na jednom stroji bezi VIC Cowork session, kazda dalsi ma vlastni kanal,
+  at se nepreskakuji. Lane 2 = CLAUDE2_*, Lane 3 = CLAUDE3_* (SQL.sql / GO.txt /
+  OUT.txt / OUT_FULL.txt). DEFAULT = lanes 2 a 3. Dalsi pres env
+  CLAUDE_EXTRA_LANES="2,3,4". Lane "" (bez indexu) je puvodni kanal beze zmeny.
 
 Protokol AUTO-DEPLOY (Marti 2.6.2026) — Claude nasadi bez rucniho git:
   CLAUDE_DEPLOY.txt     - 1. radek = commit message; dalsi radky = cesty souboru
@@ -99,9 +100,10 @@ NONCE_KEEP = 8                                        # kolik nonce kopií na ba
 # / CLAUDE2_GO.txt / CLAUDE2_OUT.txt / CLAUDE2_OUT_FULL.txt. Prefix CLAUDE<N>_ (NE __N)
 # schválně — kdyby lane out byl CLAUDE_OUT__2.txt, sežral by ho nonce úklid lane1
 # (glob CLAUDE_OUT__*.txt). CLAUDE2_* má jiný prefix → žádná kolize s nonce kopiemi.
-# Rozšíření: env CLAUDE_EXTRA_LANES="2,3". Watcher obsluhuje lanes serializovaně
+# DEFAULT = lanes 2 a 3 (Marti 21.7.2026: Kristý+Peťa jedou 3 Cowork session naráz).
+# Rozšíření na víc: env CLAUDE_EXTRA_LANES="2,3,4". Watcher obsluhuje lanes serializovaně
 # (žádný file-clobber; souběžný BĚH dotazů se neřeší — write drží smyčku jako dnes).
-_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2").split(",") if s.strip()]
+_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2,3").split(",") if s.strip()]
 LANES = [""] + _EXTRA_LANES
 
 

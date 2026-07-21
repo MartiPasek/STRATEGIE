@@ -27893,8 +27893,15 @@ async def disk_report(req: Request) -> JSONResponse:
     disks = body.get("disks") or []
     if not server or not isinstance(disks, list):
         return JSONResponse({"ok": False, "error": "server+disks required"}, status_code=400)
+    def _crit(fg, fp):
+        try:
+            fg = float(fg or 0); fp = float(fp or 0)
+        except (TypeError, ValueError):
+            return False
+        return (fg < 100) and (fp < 10 or (fg < 10 and fp < 20))
     ds = _gdr()
     n = 0
+    newly = []
     try:
         for d in disks:
             if not isinstance(d, dict):
@@ -27902,6 +27909,11 @@ async def disk_report(req: Request) -> JSONResponse:
             drive = (str(d.get("drive") or "")).strip()[:8]
             if not drive:
                 continue
+            crit = _crit(d.get("free_gb"), d.get("free_pct"))
+            prev = ds.execute(_tdr(
+                "SELECT low FROM fw.disk_monitor WHERE server_name=:s AND drive=:dr"),
+                {"s": server, "dr": drive}).fetchone()
+            was = bool(prev[0]) if prev else False
             ds.execute(_tdr(
                 "INSERT INTO fw.disk_monitor (server_name, drive, total_gb, used_gb, free_gb, free_pct, low, checked_at) "
                 "VALUES (:s,:dr,:tot,:us,:fr,:pct,:low, now()) "
@@ -27909,16 +27921,66 @@ async def disk_report(req: Request) -> JSONResponse:
                 "total_gb=EXCLUDED.total_gb, used_gb=EXCLUDED.used_gb, free_gb=EXCLUDED.free_gb, "
                 "free_pct=EXCLUDED.free_pct, low=EXCLUDED.low, checked_at=now()"),
                 {"s": server, "dr": drive, "tot": d.get("total_gb"), "us": d.get("used_gb"),
-                 "fr": d.get("free_gb"), "pct": d.get("free_pct"), "low": bool(d.get("low"))})
+                 "fr": d.get("free_gb"), "pct": d.get("free_pct"), "low": crit})
+            if crit and not was:
+                newly.append("%s %s (%s GB / %s %%)" % (server, drive, d.get("free_gb"), d.get("free_pct")))
             n += 1
+        if newly:
+            try:
+                ds.execute(_tdr(
+                    "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                    "VALUES ('mobile', :uid, 'claude_msg', :title, :msg, NULL)"),
+                    {"uid": int(_DEFAULT_APPROVER_UID),
+                     "title": "Dochazi misto na disku",
+                     "msg": ("KRITICKY nizke volne misto: " + "; ".join(newly))[:600]})
+            except Exception:
+                pass
         ds.commit()
-        return JSONResponse({"ok": True, "server": server, "upserted": n})
+        return JSONResponse({"ok": True, "server": server, "upserted": n, "critical_new": len(newly)})
     except Exception as exc:
         ds.rollback()
         logger.exception("[disk_report] failed: %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         ds.close()
+
+
+@api_router.get("/app/disk/status")
+async def disk_status_view(req: Request) -> JSONResponse:
+    """Stav disku serveru pro cockpit (rodic/HR). fw.disk_monitor + pravidlo
+    kriticnosti (>=100 GB volno = vzdy OK). Claude C23 21.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _gds2
+    from sqlalchemy import text as _tds2
+    ds = _gds2()
+    try:
+        rows = ds.execute(_tds2(
+            "SELECT server_name, drive, total_gb, free_gb, free_pct, "
+            "round(extract(epoch from (now()-checked_at))/60)::int AS stari_min "
+            "FROM fw.disk_monitor ORDER BY server_name, drive")).fetchall()
+    finally:
+        ds.close()
+    disks = []
+    any_crit = False
+    any_stale = False
+    for r in rows:
+        try:
+            fg = float(r[3] or 0); fp = float(r[4] or 0); stari = int(r[5] or 0)
+        except (TypeError, ValueError):
+            fg = 0.0; fp = 0.0; stari = 0
+        crit = (fg < 100) and (fp < 10 or (fg < 10 and fp < 20))
+        stale = stari > 180
+        if crit:
+            any_crit = True
+        if stale:
+            any_stale = True
+        disks.append({"server": r[0], "drive": r[1],
+                      "total_gb": float(r[2] or 0), "free_gb": fg, "free_pct": fp,
+                      "stari_min": stari, "critical": crit, "stale": stale})
+    return JSONResponse({"ok": True, "disks": disks, "any_critical": any_crit,
+                         "any_stale": any_stale, "count": len(disks)})
 
 
 @api_router.post("/app/netscan/ingest")

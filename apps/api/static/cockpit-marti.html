@@ -59,6 +59,9 @@
 <div class="lbl" id="zaloha-lbl">🟩 Záloha (blue‑green API B)</div>
 <div class="cards" id="zaloha"><div class="c"><div class="ds">Načítám…</div></div></div>
 
+<div class="lbl" id="disky-lbl">💽 Disky serverů</div>
+<div class="cards" id="disky"><div class="c"><div class="ds">Načítám…</div></div></div>
+
 <div class="lbl">🏦 Účetnictví, finance & migrace do cloudu</div>
 <div class="mods">
   <a class="mod" href="/zrcadla"><span class="i">🪞</span><span class="t">Zrcadla</span><span class="d">kancelář → cloud + monitor</span></a>
@@ -191,7 +194,33 @@ function zRefresh(){
 }
 
 loadStats(); loadZaloha();
+function loadDisky(){
+  return fetch(API+'/api/v1/erp/app/disk/status',{credentials:'include'}).then(x=>x.json()).then(function(d){
+    var el=document.getElementById('disky'), lbl=document.getElementById('disky-lbl');
+    if(!el)return;
+    if(!d||d.ok===false){ if(lbl)lbl.style.display='none'; el.style.display='none'; return; }
+    var disks=d.disks||[];
+    if(!disks.length){ el.innerHTML='<div class="c"><div class="ds">Agent DiskWatch zatim nereportuje.</div></div>'; return; }
+    var badge = d.any_critical
+      ? '<span class="b" style="background:rgba(248,113,113,.18);color:#f87171">⚠️ Kriticky</span>'
+      : (d.any_stale
+        ? '<span class="b" style="background:rgba(240,179,90,.18);color:#f0b35a">⏳ Agent stoji</span>'
+        : '<span class="b live">✅ OK</span>');
+    var rows=disks.map(function(x){
+      var col = x.critical?'#f87171':(x.free_pct<20?'#f0b35a':'#7fe9b6');
+      var st = x.stale?(' <span style="color:#f0b35a;font-size:11px">('+x.stari_min+' min)</span>'):'';
+      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid rgba(27,39,64,.5)">'
+        +'<span style="color:#bcd0ee">'+zEsc(x.server)+' <b>'+zEsc(x.drive)+'</b>'+st+'</span>'
+        +'<span style="color:'+col+';font-weight:700;white-space:nowrap">'+Math.round(x.free_gb)+' GB · '+Math.round(x.free_pct)+' %</span></div>';
+    }).join('');
+    el.innerHTML='<div class="c"><div class="top"><span class="nm">\U0001f4bd Volne misto na discich</span>'+badge+'</div>'
+      +'<div class="ds" style="margin-top:6px">'+rows+'</div>'
+      +'<div style="margin-top:8px;font-size:11px;color:#56688a">Kriticke jen kdyz &lt;100 GB volnych a zaroven nizke %. Denni prehled 8:00 (e-mail+push), okamzita notifikace pri propadu do kritickeho.</div></div>';
+  }).catch(function(){});
+}
+loadDisky();
 setInterval(loadStats,60000);
+setInterval(loadDisky,60000);
 setInterval(function(){if(!zpoll)loadZaloha();},60000);
 </script>
 </body>

@@ -74,7 +74,7 @@ function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).
 // Sekce karty (dle Pinya „Profil pracovníka" × Centrála). on=napojeno, go=cíl.
 const SEKCE=[
   {ic:"🧾",t:"Základní údaje",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
-  {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true},
+  {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true,key:'pracovni'},
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,go:"/finance-podminky"},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true},
   {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true},
@@ -177,8 +177,10 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const klik = s.key==='zakladni' ? (' onclick="zakUdaje()"') : (s.go?(' onclick="window.open(\''+s.go+'\',\'_blank\')"'):'');
-    const cls='sec'+((s.go||s.key==='zakladni')?' on':'');
+    const klik = s.key==='zakladni' ? ' onclick="zakUdaje()"'
+      : (s.key==='pracovni' ? ' onclick="pracUdaje()"'
+      : (s.go?(' onclick="window.open(\''+s.go+'\',\'_blank\')"'):''));
+    const cls='sec'+((s.go||s.key==='zakladni'||s.key==='pracovni')?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
       '<div class="st">'+esc(s.t)+' '+tag+'</div><div class="sd">'+esc(s.d)+'</div></div></div>';
   }
@@ -229,6 +231,60 @@ async function zakUdajeSave(){
   let d={}; try{ d=await r.json(); }catch(e){}
   if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }
   zakUdaje();
+}
+
+// Šárka 21.7.2026: „Pracovní údaje" — poměry z /app/hr/person-work, editace pozice + poznámky.
+let PU_DATA=null, PU_UID=null;
+async function pracUdaje(){
+  const uid=CUR_UID; if(!uid) return; PU_UID=uid;
+  const det=document.getElementById('det');
+  det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/person-work?uid='+uid);
+  if(!d.ok){ det.innerHTML='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div><div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
+  PU_DATA=d; renderPU(false);
+}
+function renderPU(edit){
+  const d=PU_DATA, uid=PU_UID, det=document.getElementById('det');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  const btn = edit
+    ? '<span><a href="#" onclick="pracUdajeSave();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a> &nbsp;·&nbsp; <a href="#" onclick="renderPU(false);return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></span>'
+    : '<a href="#" onclick="renderPU(true);return false;" style="color:#aac8ec;text-decoration:none">✏️ Upravit</a>';
+  let h=pheadHTML(p)+
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">💼 Pracovní údaje</span>'+
+    '<span style="display:flex;gap:14px">'+back+btn+'</span></div>';
+  const rRO=(lab,val)=>'<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lab+'</td><td style="padding:5px 16px;color:#e8eef5">'+(val?esc(val):'<span style="color:#5d6b7c">—</span>')+'</td></tr>';
+  const rIN=(lab,k,val,eid)=>'<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lab+'</td><td style="padding:5px 16px"><input data-eid="'+eid+'" data-k="'+k+'" value="'+esc(val||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit"></td></tr>';
+  for(const po of (d.pomery||[])){
+    let rows='';
+    rows+=rRO('Typ poměru', po.typ);
+    rows+=rRO('Druh smlouvy', po.druh);
+    rows+=rRO('Smlouva od', po.smlouva_od);
+    rows+=rRO('Smlouva do', po.smlouva_do || 'na dobu neurčitou');
+    rows+=rRO('Zkušební doba do', po.zkusebni_do);
+    rows+=rRO('Úvazek (h/týden)', po.uvazek);
+    rows += edit ? rIN('Pozice','pozice',po.pozice,po.id) : rRO('Pozice', po.pozice);
+    rows += edit ? rIN('Poznámka','note',po.note,po.id) : rRO('Poznámka', po.note);
+    const audit=(po.zmenil||po.zmeneno)?'<div style="font-size:10.5px;color:#5d6b7c;padding:4px 16px 0">naposledy upravil: '+esc(po.zmenil||'—')+(po.zmeneno?(' · '+esc(po.zmeneno)):'')+'</div>':'';
+    h+='<div style="margin:10px 0"><div style="font-weight:800;color:#e8eef5;padding:6px 16px;border-bottom:1px solid #233040">'+esc(po.firma)+' · '+esc(po.typ)+'</div><table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table>'+audit+'</div>';
+  }
+  if(!(d.pomery||[]).length) h+='<div class="empty">Žádný aktuální pracovní poměr.</div>';
+  if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:0 16px 12px">Editovat lze pozici a poznámku. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul, ať se nerozbijí výplaty.</div>';
+  det.innerHTML=h;
+}
+async function pracUdajeSave(){
+  const byE={};
+  document.querySelectorAll('#det input[data-eid]').forEach(i=>{
+    const eid=i.getAttribute('data-eid'); byE[eid]=byE[eid]||{id:parseInt(eid)};
+    byE[eid][i.getAttribute('data-k')]=i.value;
+  });
+  for(const eid in byE){
+    const r=await fetch(API+'/app/hr/person-work/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(byE[eid])});
+    let d={}; try{ d=await r.json(); }catch(e){}
+    if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }
+  }
+  pracUdaje();
 }
 load();
 </script>

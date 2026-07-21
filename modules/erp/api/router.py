@@ -9102,6 +9102,86 @@ async def app_hr_photo_import(req: Request):
         cm.__exit__(None, None, None)
 
 
+# ── Pracovní údaje (Šárka 21.7.2026) — aktuální poměry z tenant.engagement ──────
+@api_router.get("/app/hr/person-work")
+async def app_hr_person_work(req: Request):
+    """Pracovní údaje (aktuální poměry) člověka pro HR: firma, typ, smlouva, úvazek,
+    pozice, zařazení + kdo/kdy naposledy měnil."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT e.id, CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+            "  WHEN 2 THEN 'EUROSOFT - System' ELSE e.company_id::text END, "
+            " upper(COALESCE(e.engagement_type,'')), COALESCE(e.druh_text,''), "
+            " e.smlouva_od, e.smlouva_do, e.zkusebni_do, e.uvazek_tyden_h, "
+            " COALESCE(jp.label, e.pozice_text), COALESCE(e.note,''), "
+            " COALESCE(e.changed_by_text,''), e.changed_at "
+            "FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "WHERE ae.user_id=:u AND e.tenant_id=2 AND e.is_current=true "
+            "ORDER BY e.company_id"), {"u": tuid}).fetchall()
+
+        def _d(x):
+            return x.strftime("%d.%m.%Y") if x else ""
+        pomery = [{"id": r[0], "firma": r[1], "typ": r[2], "druh": r[3],
+                   "smlouva_od": _d(r[4]), "smlouva_do": _d(r[5]), "zkusebni_do": _d(r[6]),
+                   "uvazek": ("" if r[7] is None else str(r[7])), "pozice": (r[8] or ""),
+                   "note": r[9], "zmenil": r[10],
+                   "zmeneno": (r[11].strftime("%d.%m.%Y %H:%M") if r[11] else "")} for r in rows]
+        return JSONResponse({"ok": True, "pomery": pomery})
+    except Exception as exc:
+        logger.exception("[hr_person_work] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person-work/save")
+async def app_hr_person_work_save(req: Request):
+    """HR úprava pracovních údajů — zatím pozice + poznámka (smluvní/úvazek řeší mzdový
+    modul přes verzování). Audit: changed_by_text + changed_at na poměru."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    eid = int((b or {}).get("id") or 0)
+    pozice = (str((b or {}).get("pozice") or "")).strip()
+    note = (str((b or {}).get("note") or "")).strip()
+    if not eid:
+        return JSONResponse({"ok": False, "error": "Chybí id poměru"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        who = _self_person_name(s, uid) or ("HR #" + str(uid))
+        s.execute(_t("UPDATE tenant.engagement SET pozice_text=:p, note=:n, "
+                     "changed_by_text=:by, changed_at=now() "
+                     "WHERE id=:id AND tenant_id=2 AND is_current=true"),
+                  {"p": (pozice or None), "n": (note or None), "by": who, "id": eid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_person_work_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.

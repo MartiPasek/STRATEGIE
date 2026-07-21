@@ -8818,7 +8818,13 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "         WHEN 2 THEN 'EUROSOFT - System' END, ' / ') "
             "    FROM tenant.engagement e "
             "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
-            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS firma "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS firma, "
+            " (SELECT string_agg(DISTINCT CASE lower(e.engagement_type) "
+            "         WHEN 'hpp' THEN 'HPP' WHEN 'osvc' THEN 'OSVČ' WHEN 'dpp' THEN 'DPP' "
+            "         ELSE upper(e.engagement_type) END, ' / ') "
+            "    FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS typ "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -8860,7 +8866,7 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4]),
                         "nastup": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
                         "nastup_rok": (r[7].year if r[7] else None),
-                        "pozice": (r[8] or ""), "firma": (r[9] or "")})
+                        "pozice": (r[8] or ""), "firma": (r[9] or ""), "typ": (r[10] or "")})
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:

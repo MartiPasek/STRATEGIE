@@ -96,3 +96,25 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
 - **DŮLEŽITÉ chování šířek:** je **pevné VÝCHOZÍ nastavení pro všechny**. Tažení je jen **DOČASNÉ** —
   po obnovení stránky se vše vrátí na výchozí. **NEUKLÁDAT** šířky do prohlížeče (localStorage).
   (Výchozí šířky měň v kódu v `_faktColDef` / `DCOLW_DEF`.)
+- **Krajní úzký sloupec značek (18px) úplně vlevo, PŘED prvním sloupcem** (21.7.2026): v řádku filtru
+  je v něm **✕**, které zruší jen filtry sloupců (na data/šířku sloupce nemá vliv). V datových řádcích
+  značky výběru — **tečka •** u vybraných řádků, **šipka ▶** u řádku, na kterém uživatel naposledy
+  stál. (U faktur tuhle roli plní sloupec se zaškrtávátky; šipka ▶ je u aktuálního řádku.)
+  Pozor: úzký sloupec potřebuje `padding:0`/`2px 0` na buňkách, jinak se ✕/šipka ořízne.
+- **Výběr řádků myší:** klik na řádek ho označí/odznačí (zvýrazní modře), **Shift+klik** označí celý
+  úsek. U faktur je výběr napojený na stejnou množinu jako zaškrtávátka (pro „Změna návrhu k platbě");
+  u pokladen zatím jen vizuální. Klik do filtru/vstupu řádek NEvybírá (guard `closest('input,select,…')`).
+- **Filtr čísel bere čárku i tečku:** hodnotu i hledaný text normalizuj (číslo přes `toFixed(2)`,
+  pak `replace(/,/g,'.')`), ať „280,02" i „280.02" najde totéž (i „1 597,20"). Pokladny to 21.7.
+  ztratily → vráceno; faktury (`_faktMatch`) to mají odjakživa.
+
+## POJISTKA 2 — po deploji ověř, že server SERVÍRUJE novou verzi (21.7.2026)
+Deploy může napsat **„DEPLOY: OK · cloud: OK"**, a přesto cloud NEPŘEVEZME novou verzi. Stalo se
+21.7.: commit `platby.html`+`pokladny.html` prošel a byl na disku i v gitu, ale server pořád posílal
+**starou** verzi — Peta viděla „pořád stejné" i po vypnutí/zapnutí aplikace.
+- Proto po KAŽDÉM deploji **ověř skutečně servírovaný obsah**, ne jen hlášku „OK":
+  `fetch('/platby?__t='+Math.random(),{cache:'no-store'})` (nebo `/pokladny`) a zkontroluj, že tam
+  je tvoje konkrétní změna (nějaký unikátní kousek kódu/textu).
+- Když tam změna NENÍ → **vynuť redeploy**: drobná změna (např. komentář `<!-- redeploy … -->`),
+  ať vznikne nový commit, a nasaď znovu. Napodruhé to obvykle projde.
+- Teprve pak řekni Petře „hotovo" a ať dá Ctrl+F5.

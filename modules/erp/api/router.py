@@ -23727,10 +23727,16 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         body = {}
-    pr = str((body or {}).get("project_ref") or "").strip()[:40]
+    pr = _norm_zakazka(str((body or {}).get("project_ref") or "").strip()[:40])
     pn = str((body or {}).get("project_nazev") or "").strip()[:200] or None
     if not pr:
         return JSONResponse({"ok": False, "error": "project_ref"})
+    # Peťa 21.7.2026: „Rezie" vybraná ze SEZNAMU ZAKÁZEK je BĚŽNÁ PRÁCE NA ZAKÁZCE
+    # (zakázka se jmenuje Režie) — NEpřeklápět na typ overhead. Číslo jen sjednotíme
+    # na tvar 'Rezie' (viz _norm_zakazka). Název necháme jen když se liší od čísla,
+    # ať v appce nesvítí „Rezie — Rezie".
+    if pn and pn.strip().lower() == pr.lower():
+        pn = None
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -23780,12 +23786,14 @@ async def app_work_set_rezie(req: Request) -> JSONResponse:
         _ci = rc[0] if rc else None
         _cn = rc[1] if rc else None
         _cic = (rc[2] if (rc and rc[2]) else None)
-        _wp_save(s, uid, project_ref=None, project_nazev=None,
+        # Peťa 21.7.2026: režie nese číslo zakázky 'Rezie' (dřív NULL), ať je vidět
+        # v přehledech docházky i v osách práce. Příznak is_rezie zůstává rozhodující.
+        _wp_save(s, uid, project_ref=_REZIE_REF, project_nazev=None,
                  cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=True)
         if _att_is_working(s, emp):
-            _wa_open(s, uid, project_ref=None, project_nazev=None,
+            _wa_open(s, uid, project_ref=_REZIE_REF, project_nazev=None,
                      cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=True)
-            _att_apply_work_selection(s, emp, None, True)
+            _att_apply_work_selection(s, emp, _REZIE_REF, True)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

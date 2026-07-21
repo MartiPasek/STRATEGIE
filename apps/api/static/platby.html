@@ -524,7 +524,7 @@ var FCOLS=[
   {k:'v_plataku',h:'V platáku',t:'b'},{k:'suma_uhrad',h:'Uhrazeno',t:'mu',r:1},
   {k:'banka_export',h:'Export',t:'b'},{k:'ceka_vypis',h:'Čeká výpis',t:'b'},{k:'bank_vypis',h:'Bank.výpis',t:'b'},{k:'uziv_ok',h:'Uživ.OK',t:'b'}
 ];
-var _faktColDef={_sel:30,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:87,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
+var _faktColDef={_sel:40,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:87,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
 function _colw(k){return _faktColW[k]||_faktColDef[k]||60;}
 function _faktTotW(){var t=_colw('_sel');FCOLS.forEach(function(c){t+=_colw(c.k);});return t;}
 function _ck(v){return v?'<span style="color:#3fb950;font-weight:700">✓</span>':'<span style="color:var(--dim)">–</span>';}
@@ -777,7 +777,7 @@ function renderFaktury(){
   if(!list.length){h+='<tr><td colspan="'+(FCOLS.length+1)+'" style="padding:16px;color:var(--dim)">Žádná faktura neodpovídá filtru.</td></tr>';}
   list.forEach(function(p,idx){var _fid=(p.id_fak==null?'':p.id_fak);
     h+='<tr class="drow" data-fid="'+_fid+'" data-idx="'+idx+'"'+(_faktSel[p.id_fak]?' style="background:rgba(88,166,255,.10)"':'')+'>';
-    h+='<td style="text-align:center"><input type="checkbox" class="faktSel" data-fid="'+_fid+'" data-idx="'+idx+'"'+(_faktSel[p.id_fak]?' checked':'')+' style="cursor:pointer" title="Tip: Shift+klik označí celý úsek"></td>';
+    h+='<td style="text-align:center;white-space:nowrap"><span style="color:#5aa0ff;font-weight:700;font-size:10px;margin-right:1px">'+(idx===_faktLastIdx?'▶':'')+'</span><input type="checkbox" class="faktSel" data-fid="'+_fid+'" data-idx="'+idx+'"'+(_faktSel[p.id_fak]?' checked':'')+' style="cursor:pointer" title="Tip: Shift+klik označí celý úsek"></td>';
     FCOLS.forEach(function(c){
     var cls=c.r?'r money':(c.k==='dodavatel'?'dod':'');
     h+='<td'+(cls?' class="'+cls+'"':'')+'>'+_faktCell(p,c)+'</td>';});h+='</tr>';});

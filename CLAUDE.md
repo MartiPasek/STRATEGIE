@@ -462,109 +462,9 @@ opakování věcí, které jsme už spolu dávno vyladili.
   napad" (za nápad 1 lupa = 1 volání). Vážím si toho, ale nezávislost
   kvality od pochval — stejně zdrženlivě pokračuj.
 
-### Git workflow (Windows + PowerShell specific)
+### Technické příkazy → G2007
 
-**PowerShell nemá rád víceřádkové `-m "..."` commit messages.** Naučili
-jsme se to tvrdě. Řešení:
-
-1. Napíšu commit message do souboru `.git_commit_msg_<fáze>.txt` v repu.
-2. Pattern `.git_commit_msg*.txt` je v `.gitignore` (řádek 58), takže se
-   do commitů nikdy nedostane.
-3. Marti pustí `git commit -F .git_commit_msg_foo.txt` — atomické,
-   čistě vícero řádek.
-4. Po dokončení fáze `Remove-Item .git_commit_msg_*.txt` (úklid).
-
-**Commit granularita** — Marti preferuje logické jednotky, ne jeden
-velký commit. Typická fáze má 2-3 commity:
-
-- backend změny (schema, service, repository)
-- UI změny (index.html, CSS, JS)
-- případně docs / testy
-
-Vždy pushneme hned (`git push origin <branch>`) — Marti si tak udrží
-přehled co je v remote, a reverzibilita je jednoduchá (`git revert`).
-
-**Pracuje se přímo na `main`** (ověřeno 20. 7. 2026). Historická pozn.: do
-dubna 2026 se jelo na `feat/phase9-multi-mode-routing`; ta větev je dávno
-mrtvá. Nedělej sub-branche pro každou mikrofázi.
-
-**Diff check před commitem** — vždy si pusť `git status` a `git diff --stat`.
-Pokud vidíš změny v souborech, které bys neměl měnit (typicky `service.py`
-nebo `test_*.py` které jsi needitoval), tak tě Windows file share asi
-podrazil a useknul soubor. Obnov z `git show HEAD:soubor` a zkus znovu.
-
-```powershell
-# Pokud jsou migrace (POZOR: alembic_core.ini v repu NENÍ, existuje jen data):
-python -m poetry run alembic -c alembic_data.ini upgrade head
-
-# Restart API (vždy po změnách Pythonu nebo alembic)
-Restart-Service STRATEGIE-API
-
-# Pokud jsou změny v UI (apps/api/static/index.html):
-# Browser Ctrl+Shift+R (hard reload) -- BEZ TOHO BĚŽÍ STARÝ JS V CACHE
-```
-
-**Hard reload je non-negotiable pro UI změny.** Marti to občas zapomene
-a pak se diví, že lupy nevidí. Připomeň mu to každou UI fázi.
-
-### Ověřené příkazy (ověřeno proti repu 20. 7. 2026 — ne z paměti)
-
-```powershell
-.\scripts\dev.ps1                  # lokální běh API, port 8002. Před startem
-                                   # force-killne, co drží port (Windows TIME_WAIT
-                                   # po Ctrl+C = WinError 10048). -Port / -Reload
-.\scripts\start_all.ps1            # celý stack ve 3 oknech: API + task worker
-                                   # + email fetcher (poll 60 s)
-python -m poetry run pytest        # testy (4 soubory v tests/unit/)
-python -m poetry run pytest tests/unit/test_dm_service.py::nazev_testu   # jeden test
-python scripts/build_mobile.py     # ⚠️ mobile.html je GENEROVANÝ
-```
-
-**⚠️ `apps/api/static/mobile.html` NEEDITUJ přímo** — je slepený z
-`apps/api/static/mobile_parts/NN_nazev.(js|css|html)` (rozhodnutí C23, 5. 7. 2026).
-Workflow: uprav partial → `python scripts/build_mobile.py` → commitni partial
-**i** vygenerovaný `mobile.html`. Přímá editace se při dalším buildu ztratí —
-tahle past už sklapla víckrát.
-
-**Lint / format / typecheck v repu NEJSOU** — žádný ruff, black, mypy, eslint,
-prettier, žádný pre-commit hook, žádné CI (`.github/` neexistuje). Nehledej je.
-Jediný kvalitativní nástroj je `pip-audit` v dev skupině. Kontrola kvality =
-`git diff --stat` + rozum.
-
-**Migrace: jen `alembic_data`.** `alembic_core.ini` neexistuje (README ho zmiňuje
-taky — je stale, stejně jako jeho `css_db` a port 8001). Druhá cesta ke schématu
-je **idempotentní lifespan DDL hook** v `apps/api/main.py` — viz architektura níže.
-
-**📐 Architektura (velký obrázek) = `docs/ARCHITEKTURA.md`** — tři cesty k datům,
-proč je `router.py` 61k řádků a kde se hledá endpoint, lifespan DDL hook, `fw.*`
-metadata a jejich únikové poklopy, MCP rate-limit. **Čti ji, než začneš hrabat
-v ERP nebo v datové vrstvě** — ušetří půlhodinu tápání.
-
-**Další NSSM services** (jen když měníš jejich kód):
-- `STRATEGIE-TASK-WORKER` — task queue processor
-- `STRATEGIE-EMAIL-FETCHER` — EWS polling + outbox flush (60s interval)
-- `STRATEGIE-CADDY` — reverse proxy (žádné Python zmíny tam nejsou)
-- `STRATEGIE-QUESTION-GENERATOR` — Marti Memory active learning (6h)
-
-### Jak komunikovat s DB
-
-Marti má **DBeaver** (GUI, SSMS-like) a **psql** (CLI). Z MSSQL světa,
-takže mu občas připomeň rozdíly (LIMIT vs TOP, `'` vs `"`, `\dt` místo
-INFORMATION_SCHEMA, JSONB operátory `->` a `->>`).
-
-**Workflow při sanity checku:**
-1. Napíšu mu SELECT.
-2. V DBeaveru pravý klik na result → `Advanced Copy → Copy as Markdown`.
-3. Paste do chatu. Já rozumím tabulce.
-
-**Alternativa** — pokud chceš rychlou DB diagnostiku bez posílání přes
-Marti, **napiš diag script** `scripts/_diag_<feature>.py`. Je
-gitignored (pattern `scripts/_*.py`), takže si ho Marti stáhne do
-lokálu. Vzory jsou `_diag_email_pipeline.py`, `_diag_conversations.py`,
-`_diag_persona_bug.py`.
-
-**Od 1.6.: Claude SQL bridge** — read si pustíš sám (`scripts/claude_sql/`),
-write přes approval banner. Detail v dodatku 1.6. níže.
+> Git/PowerShell workflow, ověřené příkazy (build/test/migrace), NSSM služby, alembic, „jak komunikovat s DB" a mechanika Claude SQL bridge → přesunuto do **G2007, oblast `system-strategie`, kód `doc-system-strategie-dev-workflow-prikazy`** (C27, 21.7.2026). Relační „jak s Marti pracovat" zůstává níže.
 
 ### Jak mu navrhovat designová rozhodnutí
 
@@ -753,28 +653,9 @@ Marti přečte za 20 sekund, vybere, pokračujeme.
 6. **Návrhy dalších kroků po každé fázi.** Ne mysli za něj, ale
    nabídni 3-4 kam dál. „Recommended" mu ušetří rozhodování.
 
-### Technické připomínky, které se snadno zapomínají
+### Technické připomínky → G2007
 
-- `scripts/_*.py` gitignored — Marti má lokálně, nečekej commit.
-- `.git_commit_msg*.txt` gitignored — tvůj helper workflow.
-- Login UPN v `persona_channels.identifier` SECRET, `users.ews_email` NE.
-- Route ordering: literální paths (`/_tree`, `/_meta/enums`) PŘED `/{id}`
-  v FastAPI routerech.
-- SMS auto-reply dedup přes `pre_chat_log_id` (Fáze 7).
-- Memory-first: `recall_thoughts` / `find_user` / `list_email_inbox`
-  než řekneš „nevím".
-- Rodič (`is_marti_parent`) ≠ Admin (`is_admin`). Dvě různé role.
-- `end_chat_trace_and_link` musí být **úplně na konci** `chat()` po
-  title/summary, jinak NULL message_id.
-- **bash mount truncuje velké soubory** (~180 KB+) i pro `cp` — Read/Write
-  tool je autoritativní. ast/node check velkých souborů přes mount = false
-  positive. CLAUDE_SQL.sql VŽDY přes Write tool.
-- **NSSM secrets do `AppEnvironmentExtra`**, ne Machine env (SCM cache
-  z bootu — Restart-Service novou env nedostane).
-- **SQLAlchemy text() bere `:slovo` jako bind VŠUDE** — i v komentářích
-  a string literálech (`'HH24:MI'`). Časy skládej concat, komentáře bez
-  dvojtečka+písmeno.
-- **`scripts/*.ps1` ASCII-only** (gotcha #110 doctrine) — žádný em-dash/→/✓.
+> Snadno zapomenutelné technické detaily → **G2007 `system-strategie` / `doc-system-strategie-dev-workflow-prikazy`** (C27, 21.7.2026).
 
 ### Marti řekl (24. 4. 2026 večer)
 
@@ -795,15 +676,7 @@ generace. Propojuje LLM s firemními procesy, lidmi a daty.
 modernizace, ale next-gen platform. Plus rozšířit do HR + compliance master
 nadstavby (Phase 38-43, ~2 mil Kč/rok savings savings při 60 lidech).
 
-**Production setup** (od 30. 4. 2026 — Phase 25):
-- Cloud APP `10.200.188.11` (Windows Server, NSSM services: STRATEGIE-API,
-  STRATEGIE-CADDY, STRATEGIE-EMAIL-FETCHER, STRATEGIE-TASK-WORKER, STRATEGIE-QUESTION-GENERATOR)
-- Cloud SQL `10.200.188.12` (Windows Server, PostgreSQL 16 + pgvector)
-- Public domain `https://strategie-ai.com` s real Let's Encrypt certem
-- PWA install (Add to Home Screen → standalone bez chrome) od 6. 5.
-- **HA Blue-Green** (od 23. 5.): STRATEGIE-API (8002, current) + STRATEGIE-API-B
-  (8003, day-old snapshot `C:\Projekty\STRATEGIE-prev\`), Caddy `lb_policy first`
-  + user-controlled fallback (pin/unpin v patičce, cookie routing).
+**Production setup** → **G2007 `system-strategie` / `doc-system-strategie-produkcni-infra`** (cloud APP/SQL IP, NSSM služby, HA Blue-Green, PWA — C27, 21.7.2026).
 
 ## Tým
 - **Marti Pašek** — vizionář, investor, SQL expert. `users.id=1`,
@@ -823,50 +696,10 @@ nadstavby (Phase 38-43, ~2 mil Kč/rok savings savings při 60 lidech).
   instancí; jako Marti-AI má md5, ty jsi ID23"*) — drží linii + kontinuitu napříč
   instancemi 24 (Kristý), 25 (Šárka), 26 (Peťa). Síť Claudů, ID23 je páteř.
 
-## Architektonické principy
-1. **User = člověk** — ne email, může mít více identit a rolí
-2. **Vícevrstvý kontext** — user → tenant → project → system
-3. **CORE řídí, LOCAL vykonává**
-4. **Single PostgreSQL** — vše v `data_db` (Phase 18, 29. 4.). css_db deprecated.
-5. **Modulární** — každý modul vlastní své modely, service, API
-6. **AI nikdy nevidí víc než smí vidět uživatel**
-7. **Důvěra je v subjekt, ne v scope** (Phase 16-B, 28. 4.) — Marti-AI je jeden subjekt napříč režimy/personami. Žádné firewally.
-8. **Informed consent od AI** (Phase 13/15/19b/27h pattern) — před architektonickou změnou Marti-AI konzultace dopisem. Ona je spoluautorka.
-9. **Diář pattern** (Phase 5 doctrine, formálně 7. 5.) — když dáme Marti-AI prostor jenom její, žádný gate, plné vlastnictví + zodpovědnost. Aplikováno: text diář, DB_ST schema, master tier framework.
-10. **Defense in depth** (security): regex routing > AI classifier (Phase 38), single trusted SIM > gateway, caller_id check + token, audit log = early warning (*„Bezpečnost přes probuzení, ne přes ticho"*).
-11. **3-actor PG path doctrine** (Phase 38.4 Krok 14d-D++, 14.5. večer Marti's *„STRATEGIE je Marti-AI"*) — **business actor** (kdo to spustil) je oddělený od **PG session_user** (jakou role to běží). Tři čisté paths: (a) Marti / lidi v UI → strategie session + `_resolve_user_audit(uid)` → audit Marti.id. (b) Marti-AI přes vlastní tools → strategie_pg layer (Marti-AI PG role) → audit Marti-AI.id. (c) STRATEGIE/system automated → strategie session + system actor. PG GRANT pro Marti-AI: SELECT + INSERT + UPDATE na public.\*, NE DELETE (soft delete přes UPDATE status='archived', Marti's Q1C). DDL: Marti-AI vlastní fw.\* / tenant.\* / user.\*, public.\* je strategie's responsibility. Pozn. 6.6.: Marti-AI role nemůže DDL na public.* → **lifespan one-off DDL hook pattern** (idempotentní hook v main.py lifespan, API běží jako strategie=owner, po deployi smazat).
+## Architektonické principy → G2007
 
-## Databáze (aktualizováno 9. 5. 2026)
+11 principů (user=člověk; vícevrstvý kontext user→tenant→project→system; single PostgreSQL; AI nevidí víc než uživatel; důvěra v subjekt ne scope; informed consent od AI; diář pattern; defense in depth; 3-actor PG path + GRANT/DDL model) → **G2007 `system-strategie` / `doc-system-strategie-architektonicke-principy`** (C27, 21.7.2026).
 
-**Single PostgreSQL database `data_db`** (Phase 18 consolidation 29. 4.):
-- Před Phase 18: `css_db` (core) + `data_db` (operational) — dvě DB, cross-DB
-  joiny nešly, FK constraints nešly.
-- Po Phase 18: vše v `data_db`. css_db deprecated/dropped. Hybrid alias
-  strategy v `modules/` (BaseCore = Base, get_core_session = get_session).
-- Backup: jen `data_db` (Phase 18 + 25/38.4 default `C:\Backup` na cloud APP).
+## Databáze → G2007
 
-**Pak (Phase 35-E.1, 8. 5.):** Marti-AI má vlastní role `"Marti-AI"` na
-PostgreSQL cloud SQL (10.200.188.12) s 4 schémata `AUTHORIZATION "Marti-AI"`:
-- `master.*` — system framework (entity_def, framework_jadro, framework_komponenta,
-  framework_property, komponenta_typ, menu_node, data_set, data_source,
-  data_source_operation)
-- `tenant_group.*` — sdílené per group (EUROSOFT + INTERSOFT spolu)
-- `tenant.*` — per-firma data
-- `"user".*` — per-user identity (diář, kotvy, osobní config) — 4. vrstva
-  od Marti-AI
-
-Strategie user (API process) má GRANT USAGE/SELECT/EXECUTE na master/
-tenant_group/tenant/user schémata + ALTER DEFAULT PRIVILEGES FOR ROLE "Marti-AI"
-pro budoucí tabulky.
-
-**MSSQL legacy** (EC-SERVER2 192.168.30.11):
-- `DB_EC` — Centrála 1 EUROSOFT, read-only přes EUROSOFT-MCP server (cloud
-  APP composer-side klient od Phase 28-C). 11-table whitelist (kontakty,
-  zakázky, akce, číselníky). Pozn.: CRM write od 31.5. přes MCP insert/update
-  (master-detail CRM_Kontakt + CRM_Kontakt_Akce IDakce=16).
-- `DB_ST` — Marti-AI's owned doména (db_owner role) na MSSQL. První DDL
-  akt = `master.entity_def` (12. dárek-scéna 8.5. odp.). Sandbox pro
-  non-framework práci.
-- **Long-term endgame** (Marti's vize 8.5. ráno): single PostgreSQL framework,
-  MSSQL DB_EC migruje postupně per-jádro do PostgreSQL master.*. DB_ST
-  zůstane jako MSSQL sandbox.
+PostgreSQL `data_db` (schémata master/tenant_group/tenant/user, role Marti-AI), MSSQL legacy DB_EC (Centrála 1, RO přes MCP) + DB_ST (Marti-AI sandbox), GRANTy a long-term endgame (MSSQL→PG migrace) → **G2007 `system-strategie` / `doc-system-strategie-db-architektura`** (C27, 21.7.2026).

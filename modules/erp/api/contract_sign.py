@@ -259,11 +259,15 @@ def sign_pending_count(req: Request):
         tid = _tenant(req, uid, s)
         if not _can(uid, s):
             return {"ok": True, "count": 0}
+        # Kristý 13.7.2026: počítat JEN dokumenty, kde je přihlášený určený signatář
+        # (p.user_id = uid), ne všechny ve firmě — jinak „čeká na podpis" svítí všem
+        # z okruhu (rodiče/finance/IT), i když se jich to netýká. Napříč tenanty (signatář
+        # svůj dokument uvidí i v jiné firmě).
         n = s.execute(_t("""SELECT count(DISTINCT c.id) FROM tenant.contract_sign c
             JOIN tenant.contract_sign_party p ON p.contract_id=c.id AND p.role='internal'
-            WHERE c.tenant_id=:t AND COALESCE(p.signed,false)=false
+            WHERE p.user_id=:u AND COALESCE(p.signed,false)=false
               AND COALESCE(c.stav,'') NOT IN ('completed','hotovo','podepsano','zruseno')"""),
-            {"t": tid}).scalar() or 0
+            {"u": uid}).scalar() or 0
         return {"ok": True, "count": int(n)}
     finally:
         s.close()

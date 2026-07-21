@@ -367,6 +367,7 @@
     dochLoad();
   }
   function fmtHM(h){ var m=Math.round(Number(h||0)*60); var hh=Math.floor(m/60), mm=m%60; return hh+":"+(mm<10?"0":"")+mm; }
+  function fmtDec(h){ return Number(h||0).toFixed(2).replace('.',','); }  // desetinné hodiny (5,90) — parita s ERP, Peťa 21.7.
   function dochLoad(){
     _dochViewUid=null;
     if(window._canManageVyroba===undefined){ window._canManageVyroba=false;
@@ -2083,12 +2084,23 @@
         tbl.innerHTML='<thead><tr><th style="'+TH+'">Typ</th><th style="'+TH+'white-space:nowrap;">Od–Do</th><th style="'+TH+'text-align:right;">Hod</th><th style="'+TH+'text-align:right;">Akce</th></tr></thead>';
         var tb=document.createElement('tbody'); tbl.appendChild(tb);
         var poznBelow=[], maCentralu=false;
+        // Peťa 21.7.: akumulace pro ∑ Součet dne (parita s ERP). Práce (přítomnost),
+        // pauzy a „ostatní" (dovolená/lékař/doplnění do fondu…) zvlášť.
+        var _PRES=['work','overhead','homeoffice','commute'];
+        var ivPrace=[],ivPauzy=[],sumPauzyBezCasu=0,sumPauzyH=0,ostMap={},ostPor=[];
         function tdc(html,style){ var c=document.createElement('td'); if(style)c.style.cssText=style; c.innerHTML=html; return c; }
         function hmMin(x){ var p=String(x||"").split(":"); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
         var prevKon=null;  // konec předchozího (dřívějšího) viditelného záznamu — mezery vzestupně
         es.forEach(function(e2){
           var gone=(e2.status==="superseded");
           var isDE=(e2.code==="day_end");  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
+          if(!gone&&!isDE&&e2.hours!=null){
+            var _h=Number(e2.hours)||0, _iv=null;
+            if(e2.zac&&e2.kon){ var _s=hmMin(e2.zac),_e=hmMin(e2.kon); if(_e<_s)_e+=1440; if(_e>_s)_iv={s:_s,e:_e}; }
+            if(e2.code==='break'){ sumPauzyH+=_h; if(_iv)ivPauzy.push(_iv); else sumPauzyBezCasu+=_h; }
+            else if(_PRES.indexOf(e2.code)>=0&&_iv)ivPrace.push(_iv);
+            else{ var _lab=(e2.typ||'Ostatní'); if(ostMap[_lab]===undefined){ostMap[_lab]=0;ostPor.push(_lab);} ostMap[_lab]+=_h; }
+          }
           if(!gone&&!isDE&&e2.zac&&prevKon&&(hmMin(e2.zac)-hmMin(prevKon))>=5&&!j.locked){
             var gz=prevKon, gk=e2.zac;
             var gr=document.createElement('tr');
@@ -2114,7 +2126,7 @@
           if(!isDE&&e2.cin_name) tdT.appendChild(el('<div style="font-size:11px;color:var(--mut);margin-top:1px;">🔧 '+esc(e2.cin_name)+'</div>'));
           tr0.appendChild(tdT);
           tr0.appendChild(tdc(e2.zac?(esc(e2.zac)+(isDE?'':("–"+esc(e2.kon||"…")))):"—",TD+'white-space:nowrap;font-variant-numeric:tabular-nums;'));
-          tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
+          tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtDec(e2.hours):"",TD+'text-align:right;font-variant-numeric:tabular-nums;'));
           var tdA=tdc('',TD+'text-align:right;white-space:nowrap;'); tr0.appendChild(tdA);
           tb.appendChild(tr0);
           if(!gone&&!isDE&&e2.kon) prevKon=e2.kon;
@@ -2200,7 +2212,56 @@
             });
           }
         });
+        // Peťa 21.7.: Celkem přímo v tabulce ve sloupci Hod pod posledním řádkem (parita s ERP).
+        (function(){
+          var _mg0=ivPrace.slice().sort(function(a,b){return a.s-b.s;}),_m0=[];
+          _mg0.forEach(function(v){var l=_m0[_m0.length-1];if(l&&v.s<=l.e){if(v.e>l.e)l.e=v.e;}else _m0.push({s:v.s,e:v.e});});
+          var min0=0;_m0.forEach(function(v){min0+=v.e-v.s;});
+          var vev0=0;ivPauzy.forEach(function(p){_m0.forEach(function(v){var o=Math.min(p.e,v.e)-Math.max(p.s,v.s);if(o>0)vev0+=o;});});
+          var celk=min0/60-(vev0/60+sumPauzyBezCasu);
+          ostPor.forEach(function(lab){celk+=ostMap[lab];});
+          if(ivPrace.length||ostPor.length){
+            var ctr=document.createElement('tr');
+            ctr.appendChild(tdc('<b>Celkem</b>',TD));
+            ctr.appendChild(tdc('<span style="font-size:11px;color:var(--mut);">bez přestávek</span>',TD+'white-space:nowrap;'));
+            ctr.appendChild(tdc('<b>'+fmtDec(celk)+'</b>',TD+'text-align:right;font-variant-numeric:tabular-nums;'));
+            ctr.appendChild(tdc('',TD));
+            tb.appendChild(ctr);
+          }
+        })();
         box.appendChild(tbl);
+        // Peťa 21.7.: ∑ SOUČET DNE pod tabulkou (parita s ERP) — jak se den skládá, ať jde
+        // zkontrolovat, jestli doplnění do fondu sedí (odhalilo chybu s pauzami 21.7.).
+        if(ivPrace.length||sumPauzyH||ostPor.length){
+          var _mg=ivPrace.slice().sort(function(a,b){return a.s-b.s;}),_m=[];
+          _mg.forEach(function(v){var last=_m[_m.length-1];if(last&&v.s<=last.e){if(v.e>last.e)last.e=v.e;}else _m.push({s:v.s,e:v.e});});
+          var minPrace=0;_m.forEach(function(v){minPrace+=v.e-v.s;});
+          var minPauzVev=0;
+          ivPauzy.forEach(function(p){var uvnitr=0;_m.forEach(function(v){var o=Math.min(p.e,v.e)-Math.max(p.s,v.s);if(o>0)uvnitr+=o;});minPauzVev+=uvnitr;});
+          var pauzOdecist=minPauzVev/60+sumPauzyBezCasu;
+          var cisty=minPrace/60-pauzOdecist;
+          var sb=el('<div style="margin-top:12px;"></div>');
+          sb.appendChild(el('<div style="font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--mut);text-transform:uppercase;">∑ Součet dne</div>'));
+          var stb=document.createElement('table'); stb.style.cssText='width:100%;max-width:360px;border-collapse:collapse;margin-top:6px;font-size:13px;';
+          var stbody=document.createElement('tbody'); stb.appendChild(stbody);
+          function srow(label,val,bold){
+            var r=document.createElement('tr');
+            var c1=document.createElement('td'); c1.style.cssText='padding:5px 4px;border-bottom:1px solid var(--bord);'; c1.innerHTML=bold?('<b>'+label+'</b>'):label;
+            var c2=document.createElement('td'); c2.style.cssText='padding:5px 4px;border-bottom:1px solid var(--bord);text-align:right;font-variant-numeric:tabular-nums;'; c2.innerHTML=bold?('<b>'+val+'</b>'):val;
+            r.appendChild(c1); r.appendChild(c2); stbody.appendChild(r);
+          }
+          srow('Odpracováno (bez přestávek)',fmtDec(cisty),true);
+          var celkem=cisty;
+          ostPor.forEach(function(lab){celkem+=ostMap[lab];srow(esc(lab),fmtDec(ostMap[lab]));});
+          srow('Celkem',fmtDec(celkem),true);
+          if(sumPauzyH){
+            srow('<span style="color:var(--mut);">Přestávky (mimo součet)</span>','<span style="color:var(--mut);">'+fmtDec(sumPauzyH)+'</span>');
+            if(pauzOdecist)srow('<span style="color:var(--mut);">… z toho odečteno od práce</span>','<span style="color:var(--mut);">−'+fmtDec(pauzOdecist)+'</span>');
+          }
+          sb.appendChild(stb);
+          sb.appendChild(el('<div class="hint" style="margin-top:4px;">Hodiny v desetinné soustavě (5,90 = 5 h 54 min). Stornované řádky se nepočítají. Přestávka se odečítá od práce jen když leží uvnitř pracovního záznamu.</div>'));
+          box.appendChild(sb);
+        }
         // Jirka 12.7.: systémové poznámky (stopy oprav, automaty…) POD tabulkou, ať je nahoře čistá
         if(maCentralu) box.appendChild(el('<div class="hint" style="margin-top:8px;">🏛 Záznamy z tabletu staré Centrály se opravují v Centrále (Dušan) — sem se přezrcadlí.</div>'));
         if(poznBelow.length){

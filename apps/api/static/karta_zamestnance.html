@@ -156,10 +156,6 @@ function openP(uid,row){
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rokySlovo(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
     '</div>'+
-    '<div style="margin-top:11px;font-size:11px;color:#7f8ea0">🏖️ Dovolená</div>'+
-    '<div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">'+
-      dovT('—','dní zbývá')+dovT('—','dní využito')+dovT('—','dní v plánu')+'</div>'+
-    '<div style="font-size:10.5px;color:#5d6b7c;margin-top:5px">zůstatek se doplní, až bude vedená evidence dovolené</div>'+
     '</div></div>';
   h+='<div class="sects">';
   for(const s of SEKCE){

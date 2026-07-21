@@ -9005,6 +9005,68 @@ async def app_hr_photo_approve(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/photo/import-existing")
+async def app_hr_photo_import(req: Request):
+    """JEDNORÁZOVÝ import existujících fotek ze složky Karta zaměstnance/Foto do DB
+    (jen HR). Přiřadí dle názvu 'Příjmení_Jméno', zmenší na 256px a uloží 'approved'.
+    Idempotentní — spuštění nadvakrát nezduplikuje (přepíše approved fotku)."""
+    import os as _os, re as _re, unicodedata as _ud
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        root = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", ".."))
+        fdir = _os.path.join(root, "Karta zaměstnance", "Foto")
+        if not _os.path.isdir(fdir):
+            return JSONResponse({"ok": False, "error": "Složka Foto na serveru nenalezena: " + fdir}, status_code=404)
+
+        def _norm(x):
+            return _re.sub(r'[^a-z]', '', _ud.normalize('NFKD', str(x or '')).encode('ascii', 'ignore').decode().lower())
+
+        rows = s.execute(_t(
+            "SELECT u.id, u.first_name, u.last_name FROM public.users u "
+            "WHERE EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "  AND ut.membership_status IN ('active','invited'))")).fetchall()
+        lidi = [(r[0], _norm(r[1]), _norm(r[2])) for r in rows if r[2]]
+
+        naimportovano = 0
+        nesparovano = []
+        for fn in sorted(_os.listdir(fdir)):
+            if fn.startswith("_") or not fn.lower().endswith((".jpg", ".jpeg", ".png")):
+                continue
+            base = _os.path.splitext(fn)[0]
+            toks = set(_norm(t) for t in _re.findall(r'[A-Za-zÀ-ž]+', base) if len(t) > 1)
+            kand = list({pid for (pid, fnm, lnm) in lidi if lnm and lnm in toks and (not fnm or fnm in toks)})
+            if len(kand) != 1:
+                nesparovano.append(fn)
+                continue
+            cil = kand[0]
+            try:
+                with open(_os.path.join(fdir, fn), "rb") as fh:
+                    data, mime = _foto_zmensit(fh.read())
+            except Exception:
+                nesparovano.append(fn + " (nešlo načíst)")
+                continue
+            s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u AND status='approved'"), {"u": cil})
+            s.execute(_t(
+                "INSERT INTO tenant.employee_photo (tenant_id, user_id, status, mime, foto, uploaded_by, "
+                " approved_by, approved_at, created_by_text) "
+                "VALUES (2, :u, 'approved', :m, :f, :by, :by, now(), 'import existujicich fotek')"),
+                {"u": cil, "m": mime, "f": data, "by": uid})
+            naimportovano += 1
+        s.commit()
+        return JSONResponse({"ok": True, "naimportovano": naimportovano, "nesparovano": nesparovano})
+    except Exception as exc:
+        logger.exception("[hr_photo_import] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.

@@ -9,7 +9,7 @@
 | `ucetnictvi` | obor | 10 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 1 |  |
 | `mzdy` | obor | 9 | Oborova znalost pro personu mzdovou. |
-| `dochazka` | obor | 12 | Oborova znalost pro personu odpovednou za dochazku. |
+| `dochazka` | obor | 13 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 0 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 1 | Oborova znalost pro personu tvorici nabidky. |
 | `kalkulace-rozvadecu` | obor | 8 | Oborova znalost pro personu kalkulujici rozvadece. |

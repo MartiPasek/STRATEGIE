@@ -82,6 +82,7 @@ const SEKCE=[
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
   {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, protokol.",on:false},
   {ic:"🧭",t:"Onboarding",d:"Nástupní checklist a úkoly.",on:false},
+  {ic:"👋",t:"Offboarding",d:"Ukončení poměru, dopočet dovolené, vrácení majetku, archivace.",on:false},
   {ic:"📚",t:"Interní předpisy",d:"Seznámení se směrnicemi.",on:false},
   {ic:"⭐",t:"Hodnocení / KPI",d:"Periodické hodnocení, cíle.",on:false},
   {ic:"📝",t:"Dotazníky",d:"Evidence dotazníků.",on:false},
@@ -166,6 +167,9 @@ function openP(uid,row){
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rokySlovo(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
     '</div>'+
+    ((p.vek!=null||p.narozeniny)?'<div class="mt" style="margin-top:6px">'+
+      (p.vek!=null?('👤 '+esc(p.vek)+' '+_rokySlovo(p.vek)):'')+
+      (p.narozeniny?((p.vek!=null?' · ':'')+'🎂 narozeniny '+esc(p.narozeniny)):'')+'</div>':'')+
     '</div></div>';
   h+='<div class="sects">';
   for(const s of SEKCE){

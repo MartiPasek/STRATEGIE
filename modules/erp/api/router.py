@@ -8824,7 +8824,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "         ELSE upper(e.engagement_type) END, ' / ') "
             "    FROM tenant.engagement e "
             "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
-            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS typ "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS typ, "
+            " (SELECT max(hp.birth_date) FROM tenant.hr_person hp "
+            "   WHERE hp.user_id=u.id AND hp.tenant_id=2 AND hp.is_current) AS narozeni "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -8835,6 +8837,8 @@ async def app_hr_people(req: Request) -> JSONResponse:
         # Šárka 20.7.2026: řadit dle PŘÍJMENÍ a zobrazovat „Příjmení Jméno"
         # (dosud se řadilo dle křestního, protože jméno je slepenec „Jméno Příjmení").
         import unicodedata as _ud
+        import datetime as _dtp
+        _dnes = _dtp.date.today()
         _SUFFIX = {"ml", "ml.", "st", "st.", "jr", "jr.", "2"}
 
         def _rozdel(first, last, cele):
@@ -8866,7 +8870,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4]),
                         "nastup": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
                         "nastup_rok": (r[7].year if r[7] else None),
-                        "pozice": (r[8] or ""), "firma": (r[9] or ""), "typ": (r[10] or "")})
+                        "pozice": (r[8] or ""), "firma": (r[9] or ""), "typ": (r[10] or ""),
+                        "vek": ((_dnes.year - r[11].year - ((_dnes.month, _dnes.day) < (r[11].month, r[11].day))) if r[11] else None),
+                        "narozeniny": (r[11].strftime("%d.%m.") if r[11] else "")})
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:

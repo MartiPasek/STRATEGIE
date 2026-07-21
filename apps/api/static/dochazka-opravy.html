@@ -54,6 +54,19 @@
   #who{max-width:440px}
   #left{flex:0 1 300px;min-width:0}
   #right{align-self:flex-start;position:sticky;top:8px;flex:1 1 0;min-width:0}
+  /* Peťa 21.7.2026: u velké opravy je detail delší než obrazovka. Dřív se rolovala
+     celá stránka — nejdřív projel sloupec chyb a teprve pak se hnul detail opravy.
+     Na širokém displeji má teď každý sloupec vlastní posuvník a rolování myší
+     nepřeskakuje do toho druhého (overscroll-behavior:contain). Na mobilu/úzkém
+     okně se sloupce skládají pod sebe, tam se nechá rolovat celá stránka jako dřív. */
+  @media (min-width:900px){
+    #left,#right{position:sticky;top:8px;max-height:calc(100vh - 22px);
+                 overflow-y:auto;overscroll-behavior:contain}
+    #left::-webkit-scrollbar,#right::-webkit-scrollbar{width:10px}
+    #left::-webkit-scrollbar-track,#right::-webkit-scrollbar-track{background:#141b26;border-radius:6px}
+    #left::-webkit-scrollbar-thumb,#right::-webkit-scrollbar-thumb{background:#3a4656;border-radius:6px}
+    #left::-webkit-scrollbar-thumb:hover,#right::-webkit-scrollbar-thumb:hover{background:#4a586b}
+  }
   /* Claude-24 16.7.: searchable combobox pro roletky (Typ/Zakázka/Činnost) */
   .scb-list{margin-top:3px;max-height:220px;overflow-y:auto;background:#0f1620;border:1px solid #2e3a4c;border-radius:9px}
   .scb-it{padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);font-size:13.5px}

@@ -339,7 +339,8 @@ async function dokUdaje(){
   const d=await j(API+'/app/hr/person-docs?uid='+uid);
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
-  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📄 Dokumenty (digitální šanon)</span>'+back+'</div>';
+  const audit='<a href="#" onclick="dokAudit('+uid+');return false;" style="color:#aac8ec;text-decoration:none">📜 Audit</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📄 Dokumenty (digitální šanon)</span><span>'+audit+' · '+back+'</span></div>';
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
   h+='<div style="padding:12px 16px;border-top:1px solid #1e2730;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
      '<select id="dokKat" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit">'+dokKatOpts('smlouva')+'</select>'+
@@ -373,6 +374,27 @@ async function dokDel(id,uid){
   const r=await fetch(API+'/app/hr/person-doc-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
   const d=await r.json().catch(()=>({ok:false,error:'server'}));
   if(d.ok) dokUdaje(); else alert('Nepovedlo se: '+(d.error||''));
+}
+// Šárka 21.7.2026: audit dokumentů (kdo co nahrál/stáhl/smazal).
+async function dokAudit(uid){
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/person-doc-log?uid='+uid);
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="dokUdaje();return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na dokumenty</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📜 Audit dokumentů</span>'+back+'</div>';
+  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; }
+  else if(!(d.udalosti||[]).length){ h+='<div class="empty">Zatím žádné události.</div>'; }
+  else {
+    const col=(a)=> a==='smazal'?'#ff8a7a':(a==='nahrál'?'#7fe0a0':'#aac8ec');
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+      '<tr><td style="color:#7f8ea0;padding:6px 16px">Kdy</td><td style="color:#7f8ea0;padding:6px 16px">Kdo</td><td style="color:#7f8ea0;padding:6px 16px">Akce</td><td style="color:#7f8ea0;padding:6px 16px">Dokument</td></tr>'+
+      d.udalosti.map(x=>'<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:6px 16px;color:#7f8ea0;white-space:nowrap">'+esc(x.kdy)+'</td>'+
+        '<td style="padding:6px 16px;color:#e8eef5">'+esc(x.kdo)+'</td>'+
+        '<td style="padding:6px 16px;color:'+col(x.akce)+';font-weight:700">'+esc(x.akce)+'</td>'+
+        '<td style="padding:6px 16px;color:#cdd6e2">'+esc(x.nazev||'')+'</td></tr>').join('')+'</table>';
+  }
+  det.innerHTML=h;
 }
 load();
 </script>

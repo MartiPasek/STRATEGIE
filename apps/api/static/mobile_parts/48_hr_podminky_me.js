@@ -206,6 +206,7 @@
       cont.appendChild(btn);
       var cb=el('<div id="mesec_deti"></div>'); cont.appendChild(cb); _selfChildren(cb); anchors.push({icon:"👨‍👩‍👧",label:"Děti",id:"mesec_deti"});
       var vb=el('<div id="mesec_trezor" style="margin-top:6px;"></div>'); cont.appendChild(vb); _selfVault(vb); anchors.push({icon:"🔐",label:"Trezor",id:"mesec_trezor"});
+      var kb=el('<div id="mesec_doky" style="margin-top:6px;"></div>'); cont.appendChild(kb); _selfDocs(kb); anchors.push({icon:"📄",label:"Dokumenty",id:"mesec_doky"});
       cont.appendChild(el('<div style="height:30px;"></div>'));
       buildRail();
     });
@@ -292,5 +293,41 @@
     }
     function load(){ api("GET","/api/v1/erp/app/self-secret","").then(render); }
     load();
+  }
+  // --- karta: moje dokumenty (jen náhled; nahrává HR) — Šárka 21.7.2026 ---
+  function _b64ToBlob(b64, mime){
+    var bin=atob(b64), len=bin.length, arr=new Uint8Array(len);
+    for(var i=0;i<len;i++) arr[i]=bin.charCodeAt(i);
+    return new Blob([arr], {type: mime||"application/octet-stream"});
+  }
+  function _selfDocs(box){
+    var KAT={smlouva:"Pracovní smlouva",dodatek:"Dodatek",zapoctovy:"Zápočtový list",posudek:"Lékařský posudek",diplom:"Diplom / certifikát",ostatni:"Ostatní"};
+    var card=_card("📄 Moje dokumenty","Kopie dokumentů od HR k nahlédnutí (smlouva, dodatky, zápočtový list…). Nahrává a spravuje HR — tady si je jen prohlédneš a stáhneš.");
+    box.appendChild(card);
+    api("GET","/api/v1/erp/app/hr/my-docs","").then(function(j){
+      if(!j||!j.ok){ card.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+      var docs=j.dokumenty||[];
+      if(!docs.length){ card.appendChild(el('<div class="hint" style="padding:8px 0;">Zatím tu nemáš žádné dokumenty.</div>')); return; }
+      docs.forEach(function(x){
+        var r=el('<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1b2742;"></div>');
+        var sub=[(KAT[x.kategorie]||x.kategorie), x.uploaded_at, x.velikost_h].filter(Boolean).join(" · ");
+        r.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(x.nazev)+'</div><div class="hint">'+esc(sub)+'</div></div>'));
+        var b=el('<button style="background:#1d3a2a;border:0;color:#9f9;border-radius:8px;padding:8px 12px;">⬇</button>');
+        b.addEventListener("click",function(){
+          b.textContent="…";
+          api("GET","/api/v1/erp/app/hr/my-doc-data?id="+x.id,"").then(function(d){
+            b.textContent="⬇";
+            if(!d||!d.ok){ alert("Nelze otevřít: "+((d&&d.error)||"chyba")); return; }
+            try{
+              var url=URL.createObjectURL(_b64ToBlob(d.b64,d.mime));
+              var a=document.createElement("a"); a.href=url; a.download=d.nazev||"dokument";
+              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              setTimeout(function(){ try{ URL.revokeObjectURL(url); }catch(e){} },4000);
+            }catch(e){ alert("Nelze otevřít soubor."); }
+          });
+        });
+        r.appendChild(b); card.appendChild(r);
+      });
+    });
   }
   // --- HR: prehled lidi + karta (jen HR/rodice; citlive se nezobrazuji) ---

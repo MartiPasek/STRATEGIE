@@ -9258,6 +9258,25 @@ def _velikost_h(n) -> str:
     return "%.1f MB" % (n / (1024.0 * 1024.0))
 
 
+def _doc_log(s, doc_id, owner_uid, akce, by_uid):
+    """Append-only audit dokumentů (doktrína #13). Savepoint = nikdy neshodí
+    hlavní akci (i kdyby tabulka logu chvíli nebyla / zápis selhal)."""
+    from sqlalchemy import text as _t
+    try:
+        bt = _self_person_name(s, by_uid)
+    except Exception:
+        bt = None
+    try:
+        with s.begin_nested():
+            s.execute(_t(
+                "INSERT INTO tenant.employee_document_log "
+                " (tenant_id, doc_id, owner_uid, akce, by_uid, by_text) "
+                "VALUES (2, :d, :o, :a, :by, :bt)"),
+                {"d": doc_id, "o": owner_uid, "a": akce, "by": by_uid, "bt": bt})
+    except Exception as exc:
+        logger.warning("[doc_log] %s", exc)
+
+
 @api_router.get("/app/hr/person-docs")
 async def app_hr_person_docs(req: Request):
     """Seznam dokumentů člověka (jen HR). Bez binárního obsahu."""
@@ -9319,12 +9338,13 @@ async def app_hr_person_doc_upload(req: Request, file: UploadFile = File(...),
             return JSONResponse({"ok": False, "error": "Příliš velký soubor (max 20 MB)."}, status_code=400)
         nazev = (getattr(file, "filename", None) or "dokument").strip()[:255]
         mime = (getattr(file, "content_type", None) or "application/octet-stream")[:120]
-        s.execute(_t(
+        new_id = s.execute(_t(
             "INSERT INTO tenant.employee_document "
             " (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, uploaded_at) "
-            "VALUES (2, :u, :k, :n, :m, :o, :v, :by, :at)"),
+            "VALUES (2, :u, :k, :n, :m, :o, :v, :by, :at) RETURNING id"),
             {"u": cil, "k": kat, "n": nazev, "m": mime, "o": raw, "v": len(raw),
-             "by": me, "at": _dt.datetime.now()})
+             "by": me, "at": _dt.datetime.now()}).scalar()
+        _doc_log(s, new_id, cil, "nahral", me)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -9352,6 +9372,8 @@ async def app_hr_person_doc_get(req: Request, doc_id: int):
         if not (_hr_can_manage(s, uid) or uid == row[3]):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         nazev = row[2] or "dokument"
+        _doc_log(s, int(doc_id), row[3], "stahl", uid)
+        s.commit()
         return Response(content=bytes(row[0]), media_type=(row[1] or "application/octet-stream"),
                         headers={"Content-Disposition": "inline; filename*=UTF-8''" + _q(nazev),
                                  "Cache-Control": "private, max-age=60"})
@@ -9383,12 +9405,111 @@ async def app_hr_person_doc_delete(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         if not did:
             return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+        own = s.execute(_t("SELECT user_id FROM tenant.employee_document "
+                           "WHERE tenant_id=2 AND id=:i"), {"i": did}).scalar()
         s.execute(_t("UPDATE tenant.employee_document SET is_active=false "
                      "WHERE tenant_id=2 AND id=:i"), {"i": did})
+        _doc_log(s, did, own, "smazal", uid)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
         logger.exception("[hr_person_doc_delete] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/my-docs")
+async def app_hr_my_docs(req: Request):
+    """Vlastní dokumenty přihlášeného zaměstnance (jen náhled/stažení)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, kategorie, nazev, velikost, uploaded_at "
+            "FROM tenant.employee_document "
+            "WHERE tenant_id=2 AND user_id=:u AND is_active=true "
+            "ORDER BY uploaded_at DESC"), {"u": uid}).fetchall()
+        dokumenty = [{
+            "id": r[0], "kategorie": (r[1] or "ostatni"), "nazev": (r[2] or ""),
+            "velikost_h": _velikost_h(r[3]),
+            "uploaded_at": (r[4].strftime("%d.%m.%Y") if r[4] else ""),
+        } for r in rows]
+        return JSONResponse({"ok": True, "dokumenty": dokumenty})
+    except Exception as exc:
+        logger.exception("[hr_my_docs] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/my-doc-data")
+async def app_hr_my_doc_data(req: Request):
+    """Dokument jako base64 (mobil se autentizuje tokenem → nemůže prostý odkaz).
+    Vlastník nebo HR. Loguje 'stahl'."""
+    import base64 as _b64
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        did = int(req.query_params.get("id") or 0)
+    except Exception:
+        did = 0
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT obsah, mime, nazev, user_id FROM tenant.employee_document "
+            "WHERE tenant_id=2 AND id=:i AND is_active=true"), {"i": did}).first()
+        if not row or not row[0]:
+            return JSONResponse({"ok": False, "error": "nenalezeno"}, status_code=404)
+        if not (uid == row[3] or _hr_can_manage(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        _doc_log(s, did, row[3], "stahl", uid)
+        s.commit()
+        return JSONResponse({"ok": True, "nazev": (row[2] or "dokument"),
+                             "mime": (row[1] or "application/octet-stream"),
+                             "b64": _b64.b64encode(bytes(row[0])).decode("ascii")})
+    except Exception as exc:
+        logger.exception("[hr_my_doc_data] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/person-doc-log")
+async def app_hr_person_doc_log(req: Request):
+    """Audit dokumentů člověka (jen HR) — posledních 100 událostí."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT l.akce, l.by_text, l.at, d.nazev "
+            "FROM tenant.employee_document_log l "
+            "LEFT JOIN tenant.employee_document d ON d.id=l.doc_id "
+            "WHERE l.tenant_id=2 AND l.owner_uid=:u "
+            "ORDER BY l.at DESC LIMIT 100"), {"u": tuid}).fetchall()
+        AKCE = {"nahral": "nahrál", "stahl": "stáhl", "smazal": "smazal"}
+        udalosti = [{
+            "akce": AKCE.get(r[0], r[0]), "kdo": (r[1] or ""),
+            "kdy": (r[2].strftime("%d.%m.%Y %H:%M") if r[2] else ""),
+            "nazev": (r[3] or ""),
+        } for r in rows]
+        return JSONResponse({"ok": True, "udalosti": udalosti})
+    except Exception as exc:
+        logger.exception("[hr_person_doc_log] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

@@ -185,25 +185,46 @@ function openP(uid,row){
   det.innerHTML=h;
 }
 
-// Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person a vykreslí sekce v kartě.
+// Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person, zobrazí a umožní HR editaci.
+let ZU_DATA=null, ZU_UID=null;
 async function zakUdaje(){
   const uid=CUR_UID; if(!uid) return;
+  ZU_UID=uid;
   const det=document.getElementById('det');
   det.innerHTML='<div class="empty">Načítám…</div>';
   const d=await j(API+'/app/hr/person?uid='+uid);
-  const back='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div>';
-  if(!d.ok){ det.innerHTML=back+'<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
-  let h=back+'<div style="padding:0 16px 8px"><div class="nm" style="font-size:17px">'+esc(d.jmeno||'')+'</div>'+
-    '<div class="mt">Základní údaje</div></div>';
+  if(!d.ok){ det.innerHTML='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div><div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
+  ZU_DATA=d; renderZU(false);
+}
+function renderZU(edit){
+  const d=ZU_DATA, uid=ZU_UID, det=document.getElementById('det');
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  const btn = edit
+    ? '<span><a href="#" onclick="zakUdajeSave();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a> &nbsp;·&nbsp; <a href="#" onclick="renderZU(false);return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></span>'
+    : '<a href="#" onclick="renderZU(true);return false;" style="color:#aac8ec;text-decoration:none">✏️ Upravit</a>';
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px">'+back+btn+'</div>'+
+    '<div style="padding:0 16px 8px"><div class="nm" style="font-size:17px">'+esc(d.jmeno||'')+'</div><div class="mt">Základní údaje</div></div>';
   for(const sec of (d.sections||[])){
-    const rows=(sec.items||[]).map(it=>'<tr>'+
-      '<td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+esc(it.label)+'</td>'+
-      '<td style="padding:5px 16px;color:#e8eef5">'+(it.value?esc(it.value):'<span style="color:#5d6b7c">—</span>')+'</td></tr>').join('');
-    h+='<div style="margin:10px 0"><div style="font-weight:800;color:#e8eef5;padding:6px 16px;border-bottom:1px solid #233040">'+esc(sec.label)+'</div>'+
-       '<table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table></div>';
+    const rows=(sec.items||[]).map(it=>{
+      let val;
+      if(edit){
+        const t = it.type==='date'?'date':'text';
+        val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit">';
+      } else { val=it.value?esc(it.value):'<span style="color:#5d6b7c">—</span>'; }
+      return '<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+esc(it.label)+'</td><td style="padding:5px 16px;color:#e8eef5">'+val+'</td></tr>';
+    }).join('');
+    h+='<div style="margin:10px 0"><div style="font-weight:800;color:#e8eef5;padding:6px 16px;border-bottom:1px solid #233040">'+esc(sec.label)+'</div><table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table></div>';
   }
   if(!(d.sections||[]).length) h+='<div class="empty">Zaměstnanec zatím nemá vyplněné žádné základní údaje.</div>';
   det.innerHTML=h;
+}
+async function zakUdajeSave(){
+  const values={};
+  document.querySelectorAll('#det input[data-k]').forEach(i=>{ values[i.getAttribute('data-k')]=i.value; });
+  const r=await fetch(API+'/app/hr/person/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:ZU_UID,values})});
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }
+  zakUdaje();
 }
 load();
 </script>

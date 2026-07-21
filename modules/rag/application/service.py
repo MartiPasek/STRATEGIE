@@ -225,7 +225,23 @@ def process_document(document_id: int) -> None:
         raise RuntimeError(f"Extrakce textu selhala: {e}")
 
     if not text_content or not text_content.strip():
-        raise RuntimeError("Z dokumentu nebyl extrahovan zadny text (prazdny nebo nekompatibilni format)")
+        # Prazdna extrakce (obrazky bez OCR textu -- loga/podpisy/fotky z mailu,
+        # obrazkova PDF bez textove vrstvy) NENI chyba. Spadni na storage_only
+        # (filename chunk), at je dokument dohledatelny podle jmena a NESPAMUJE
+        # error log. Kristy/Claude-24 21.7.2026 -- fix RAG image flood z e-mailovych priloh.
+        logger.info(
+            f"RAG | zadny text -> storage_only fallback | document_id={document_id} | ext={doc_ext}"
+        )
+        _s = get_data_session()
+        try:
+            _d = _s.query(Document).filter_by(id=document_id).first()
+            if _d is not None:
+                _d.storage_only = True
+                _s.commit()
+        finally:
+            _s.close()
+        _process_storage_only(document_id, doc_name, doc_ext, doc_project_id)
+        return
 
     # 2) Chunking
     chunks = chunk_text(text_content)

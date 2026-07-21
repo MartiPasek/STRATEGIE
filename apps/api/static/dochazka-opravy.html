@@ -45,6 +45,8 @@
   .dtab tr.frow>td{background:#141b26;white-space:normal;padding:10px 12px}
   .dtab .sm{font-size:11px;color:#8fa3bd}
   .dtab tr.gap td{border-bottom:1px dashed #2e3a4c;color:#8fa3bd;font-size:11.5px;padding:4px 8px;background:rgba(255,255,255,.015)}
+  /* Peťa 21.7.2026: řádek Celkem přímo v tabulce dne */
+  .dtab tr.sum td{border-top:2px solid #34506f;border-bottom:0;background:#1c2636;padding-top:9px}
   .dtabwrap{overflow-x:auto}
   .rph{border:1px dashed #2e3a4c;border-radius:14px;padding:56px 24px;text-align:center;color:#8fa3bd;font-size:13.5px;margin-top:34px;background:rgba(255,255,255,.015)}
   .rph .ic{font-size:34px;margin-bottom:10px;opacity:.7}
@@ -528,6 +530,26 @@ function openDay(uid,name,day){
           });
         }
       });
+      // Peťa 21.7.2026: CELKEM přímo v tabulce, ve sloupci Hodiny pod posledním
+      // řádkem — ať je součet vidět hned u čísel, ne až dole v rozpisu.
+      (function(){
+        var _mg0=ivPrace.slice().sort(function(a,b){return a.s-b.s;}),_m0=[];
+        _mg0.forEach(function(v){var l=_m0[_m0.length-1];if(l&&v.s<=l.e){if(v.e>l.e)l.e=v.e;}else _m0.push({s:v.s,e:v.e});});
+        var min0=0;_m0.forEach(function(v){min0+=v.e-v.s;});
+        var vev0=0;ivPauzy.forEach(function(p){_m0.forEach(function(v){var o=Math.min(p.e,v.e)-Math.max(p.s,v.s);if(o>0)vev0+=o;});});
+        var celk=min0/60-(vev0/60+sumPauzyBezCasu);
+        ostPor.forEach(function(lab){celk+=ostMap[lab];});
+        if(ivPrace.length||ostPor.length){
+          var ctr=document.createElement('tr');ctr.className='sum';
+          ctr.appendChild(tdc('<b>Celkem</b>'));
+          ctr.appendChild(tdc(''));ctr.appendChild(tdc(''));
+          ctr.appendChild(tdc('<b>'+fmtDec(celk)+'</b>','num','text-align:right;'));
+          ctr.appendChild(tdc(''));ctr.appendChild(tdc(''));
+          ctr.appendChild(tdc('<span class="sm">bez přestávek</span>'));
+          ctr.appendChild(tdc(''));
+          tb.appendChild(ctr);
+        }
+      })();
       wrap.appendChild(tbl);box.appendChild(wrap);
       // Peťa 21.7.2026: SOUČET DNE pod tabulkou. Ukazuje, jak se den skládá, ať jde
       // zkontrolovat, jestli doplnění do fondu sedí (odhalilo chybu s pauzami 21.7.).

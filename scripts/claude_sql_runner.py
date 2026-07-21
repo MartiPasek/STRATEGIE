@@ -17,11 +17,10 @@ Protokol SQL (slozka scripts/claude_sql/, gitignored):
   CLAUDE_GO.txt    - trigger (Claude zapise JAKO POSLEDNI). Volitelne 1. radek:
                        db=pg (default) nebo db=mssql
   CLAUDE_OUT.txt   - watcher zapise vysledek (markdown tabulka + status).
-  MULTI-LANE (Marti 21.7.2026; lane 3 pridana 21.7. pro Kristy+Peta = 3 session):
-  kdyz na jednom stroji bezi VIC Cowork session, kazda dalsi ma vlastni kanal,
-  at se nepreskakuji. Lane 2 = CLAUDE2_*, Lane 3 = CLAUDE3_* (SQL.sql / GO.txt /
-  OUT.txt / OUT_FULL.txt). DEFAULT = lanes 2 a 3. Dalsi pres env
-  CLAUDE_EXTRA_LANES="2,3,4". Lane "" (bez indexu) je puvodni kanal beze zmeny.
+  MULTI-LANE (Marti 21.7.2026): kdyz na jednom stroji bezi VIC Cowork session,
+  kazda dalsi ma vlastni kanal, at se nepreskakuji. Lane 2 = CLAUDE2_SQL.sql /
+  CLAUDE2_GO.txt / CLAUDE2_OUT.txt / CLAUDE2_OUT_FULL.txt (default). Dalsi pres
+  env CLAUDE_EXTRA_LANES="2,3". Lane "" (bez indexu) je puvodni kanal beze zmeny.
 
 Protokol AUTO-DEPLOY (Marti 2.6.2026) — Claude nasadi bez rucniho git:
   CLAUDE_DEPLOY.txt     - 1. radek = commit message; dalsi radky = cesty souboru
@@ -30,6 +29,12 @@ Protokol AUTO-DEPLOY (Marti 2.6.2026) — Claude nasadi bez rucniho git:
   CLAUDE_DEPLOY_OUT.txt  - watcher zapise vysledek (git add/commit/push + cloud deploy).
   Tok: git add <soubory> -> commit -> push (PAT) -> POST cloud /deploy/now
        (git pull + restart API pres RESTART-WATCHER).
+
+Protokol OPS (Marti 21.7.2026) — restart sluzeb primo z mostu, BEZ schvaleni, S AUDITEM:
+  CLAUDE_OPS.txt     - 1. radek = akce: restart_service <NAME> | restart_self |
+                         service_status [<NAME>]. Whitelist sluzeb = jen STRATEGIE-*.
+  CLAUDE_OPS_GO.txt   - trigger (zapsat JAKO POSLEDNI).
+  CLAUDE_OPS_OUT.txt  - vysledek. CLAUDE_OPS_LOG.txt - append-only audit.
 
 Env (povinne):
   STRATEGIE_DEPLOY_TOKEN  - stejny token jako na cloud APP (auth diag-sql + deploy).
@@ -100,10 +105,9 @@ NONCE_KEEP = 8                                        # kolik nonce kopií na ba
 # / CLAUDE2_GO.txt / CLAUDE2_OUT.txt / CLAUDE2_OUT_FULL.txt. Prefix CLAUDE<N>_ (NE __N)
 # schválně — kdyby lane out byl CLAUDE_OUT__2.txt, sežral by ho nonce úklid lane1
 # (glob CLAUDE_OUT__*.txt). CLAUDE2_* má jiný prefix → žádná kolize s nonce kopiemi.
-# DEFAULT = lanes 2 a 3 (Marti 21.7.2026: Kristý+Peťa jedou 3 Cowork session naráz).
-# Rozšíření na víc: env CLAUDE_EXTRA_LANES="2,3,4". Watcher obsluhuje lanes serializovaně
+# Rozšíření: env CLAUDE_EXTRA_LANES="2,3". Watcher obsluhuje lanes serializovaně
 # (žádný file-clobber; souběžný BĚH dotazů se neřeší — write drží smyčku jako dnes).
-_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2,3").split(",") if s.strip()]
+_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2").split(",") if s.strip()]
 LANES = [""] + _EXTRA_LANES
 
 
@@ -147,6 +151,17 @@ PULL_OUT_FILE = BRIDGE_DIR / "CLAUDE_PULL_OUT.txt"      # watcher zapíše výsl
 DOCPUSH_MSG_FILE = BRIDGE_DIR / "CLAUDE_DOCPUSH.txt"    # ř.1 = lokální složka; ř.2 (volit.) = ro_subdir
 DOCPUSH_GO_FILE = BRIDGE_DIR / "CLAUDE_DOCPUSH_GO.txt"  # trigger (zapsat JAKO POSLEDNÍ)
 DOCPUSH_OUT_FILE = BRIDGE_DIR / "CLAUDE_DOCPUSH_OUT.txt"
+
+# ── Bridge OPS lane (Marti 21.7.2026): restart služeb PŘÍMO z mostu — BEZ
+# schvalovacího banneru, ale S AUDITEM (doctrine #21 „audit = paradoxně víc bezpečí").
+# Rozšířený rozsah = jakákoli služba `STRATEGIE-*` (whitelist přes regex, nic
+# systémového). Claude zapíše CLAUDE_OPS.txt (1. řádek = akce) + CLAUDE_OPS_GO.txt
+# (JAKO POSLEDNÍ) → watcher vykoná, zapíše CLAUDE_OPS_OUT.txt + append-only audit
+# CLAUDE_OPS_LOG.txt. Akce: restart_service <NAME> | restart_self | service_status [<NAME>].
+OPS_MSG_FILE = BRIDGE_DIR / "CLAUDE_OPS.txt"           # 1. řádek = akce + arg
+OPS_GO_FILE = BRIDGE_DIR / "CLAUDE_OPS_GO.txt"         # trigger (zapsat JAKO POSLEDNÍ)
+OPS_OUT_FILE = BRIDGE_DIR / "CLAUDE_OPS_OUT.txt"       # výsledek
+OPS_AUDIT_FILE = BRIDGE_DIR / "CLAUDE_OPS_LOG.txt"     # append-only audit (doctrine #13)
 
 # Sync Claudů (Marti 3.6.2026): freshness + work-lock
 WORK_LOCK_FILE = BRIDGE_DIR / "WORK_LOCK.txt"           # Claude píše: 1.ř popis, další ř soubory
@@ -674,6 +689,7 @@ def _run_lane(fs: dict) -> None:
 
 # ── Auto-deploy (git add/commit/push na NB → cloud /deploy/now) ──────────
 import subprocess
+import re
 
 
 def _git_exe() -> str:
@@ -1010,6 +1026,113 @@ def _restart_self() -> None:
                          stderr=subprocess.DEVNULL)
     except Exception as exc:
         _log(f"restart_self spawn failed: {exc}")
+
+
+# ── Bridge OPS: restart služeb z mostu (whitelist STRATEGIE-*, audit, bez banneru) ──
+_OPS_SVC_RE = re.compile(r"^STRATEGIE-[A-Za-z0-9][A-Za-z0-9-]*$")
+
+
+def _ops_audit(action: str, target: str, status: str, detail: str = "") -> None:
+    """Append-only audit ops akce (doctrine #13) → CLAUDE_OPS_LOG.txt + watcher.log."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    line = f"[{ts}] {INSTANCE_LABEL}@{HOSTNAME} · {action} target={target!r} · {status}"
+    if detail:
+        line += f" · {detail}"
+    try:
+        with OPS_AUDIT_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError as exc:
+        _log(f"ops audit write failed: {exc}")
+    _log(f"OPS bridge: {action} target={target} → {status}")
+
+
+def _run_ps_capture(ps_cmd: str, timeout: int = 60) -> tuple:
+    """Spusť PowerShell synchronně, vrať (returncode, stdout+stderr)."""
+    full = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd]
+    try:
+        p = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, ((p.stdout or "") + (p.stderr or "")).strip()
+    except Exception as exc:
+        return 1, f"exception: {exc}"
+
+
+def _process_ops() -> None:
+    """Bridge OPS lane: přečti CLAUDE_OPS.txt, vykonej whitelist akci, zapiš
+    CLAUDE_OPS_OUT.txt + audit. BEZ schvalování (Marti 21.7.2026). GO se uklidí."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    own_svc = os.environ.get("CLAUDE_WATCHER_SERVICE", "STRATEGIE-CLAUDE-SQL")
+    try:
+        raw = OPS_MSG_FILE.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        raw = ""
+    parts = raw.split()
+    action = (parts[0].lower() if parts else "")
+    arg = (parts[1] if len(parts) > 1 else "")
+
+    def _out(status: str, body: str) -> None:
+        try:
+            OPS_OUT_FILE.write_text(f"# OPS: {status}\n# {ts}\n{body}\n", encoding="utf-8")
+        except OSError as exc:
+            _log(f"write OPS_OUT failed: {exc}")
+
+    def _drop_go() -> None:
+        try:
+            if OPS_GO_FILE.exists():
+                OPS_GO_FILE.unlink()
+        except OSError:
+            pass
+
+    try:
+        if action in ("restart_service", "restart"):
+            svc = arg
+            if not _OPS_SVC_RE.match(svc):
+                _ops_audit("restart_service", svc, "ODMITNUTO", "mimo whitelist STRATEGIE-*")
+                _out("ODMITNUTO", f"Sluzba {svc!r} neni na whitelistu (povoleno jen STRATEGIE-*).")
+                return
+            if svc.upper() == own_svc.upper():
+                # sám sebe nejde synchronně restartovat → detached self-restart
+                _ops_audit("restart_service", svc, "OK", "detached self-restart ~3 s")
+                _out("OK", f"Restartuji {svc} (detached; watcher naskoci fresh za ~3 s).")
+                _restart_self()
+                time.sleep(1.0)
+                _drop_go()
+                sys.exit(0)
+            rc, detail = _run_ps_capture(
+                f"Restart-Service -Name '{svc}' -Force; (Get-Service -Name '{svc}').Status",
+                timeout=90)
+            status = "OK" if rc == 0 else "CHYBA"
+            _ops_audit("restart_service", svc, status, detail.replace(chr(10), " ")[:200])
+            _out(status, f"Restart {svc}: rc={rc}\n{detail}")
+        elif action == "restart_self":
+            _ops_audit("restart_self", own_svc, "OK", "detached self-restart ~3 s")
+            _out("OK", f"Restartuji watcher {own_svc} (fresh za ~3 s).")
+            _restart_self()
+            time.sleep(1.0)
+            _drop_go()
+            sys.exit(0)
+        elif action in ("service_status", "status"):
+            if arg and not _OPS_SVC_RE.match(arg):
+                _ops_audit("service_status", arg, "ODMITNUTO", "mimo whitelist")
+                _out("ODMITNUTO", f"Sluzba {arg!r} neni na whitelistu (jen STRATEGIE-*).")
+                return
+            filt = arg if arg else "STRATEGIE-*"
+            rc, detail = _run_ps_capture(
+                f"Get-Service -Name '{filt}' | Select-Object Name,Status | "
+                f"Format-Table -HideTableHeaders | Out-String", timeout=30)
+            status = "OK" if rc == 0 else "CHYBA"
+            _ops_audit("service_status", filt, status)
+            _out(status, detail or "(zadna sluzba)")
+        else:
+            _ops_audit("?", action or "(prazdne)", "NEZNAMA")
+            _out("NEZNAMA", "Neznama akce. Podporovano: restart_service <NAME>, "
+                            "restart_self, service_status [<NAME>].")
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _ops_audit(action or "?", arg or "-", "CHYBA", str(exc)[:200])
+        _out("CHYBA", f"Vyjimka: {exc}")
+    finally:
+        _drop_go()
 
 
 def _read_app_version() -> tuple:
@@ -1674,6 +1797,8 @@ def main() -> None:
                     _process_notify(); _did_work = True
                 if DOCPUSH_GO_FILE.exists():
                     _process_docpush(); _did_work = True
+                if OPS_GO_FILE.exists():
+                    _process_ops(); _did_work = True
                 for _pfx in LANES:
                     _fs = _laneset(_pfx)
                     if _fs["go"].exists():

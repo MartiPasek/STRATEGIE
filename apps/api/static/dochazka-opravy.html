@@ -405,7 +405,7 @@ function openDay(uid,name,day){
          UVNITŘ pracovního záznamu. Když je práce rozdělená na dva kusy a pauza
          je v mezeře mezi nimi (09:40–13:09 / pauza / 13:24–16:04), je z práce
          už vynechaná a druhé odečtení by ubralo hodiny dvakrát. */
-      var ivPrace=[],ivPauzy=[],sumPauzyBezCasu=0,sumPauzyH=0,ostMap={},ostPor=[];
+      var ivPrace=[],ivPauzy=[],sumPauzyBezCasu=0,sumPauzyH=0,ostMap={},ostPor=[],sumNenar=0;
       function tdc(html,cls,style){var c=document.createElement('td');if(cls)c.className=cls;if(style)c.style.cssText=style;c.innerHTML=html;return c;}
       function hmMin(x){var p=String(x||'').split(':');return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0);}
       var prevKon=null;  // konec předchozího (dřívějšího) viditelného záznamu — mezery vzestupně
@@ -435,6 +435,11 @@ function openDay(uid,name,day){
           }
           if(e2.code==='break'){ sumPauzyH+=_h; if(_iv)ivPauzy.push(_iv); else sumPauzyBezCasu+=_h; }
           else if(PRES.indexOf(e2.code)>=0&&_iv)ivPrace.push(_iv);   // přítomnost v práci
+          /* Peťa 21.7.2026: NENÁROKOVÁ PRÁCE se do součtu NEPŘIČÍTÁ. Není to čas
+             navíc — je to ta ČÁST odpracovaných hodin, která přesáhla denní fond.
+             Odpracováno 15,02 při fondu 8 => nenárokových 7,02 je uvnitř těch 15,02.
+             Přičtením by den vyšel 22,04. Ukazujeme ji jen jako „z toho". */
+          else if(e2.code==='nenarokova')sumNenar+=_h;
           else{                                    // dovolená, lékař, SD, doplnění do fondu…
             var _lab=(e2.typ||'Ostatní');
             if(ostMap[_lab]===undefined){ostMap[_lab]=0;ostPor.push(_lab);}
@@ -600,6 +605,9 @@ function openDay(uid,name,day){
         }
         // Odpracováno = čistý čas v práci, už BEZ přestávek
         srow('Odpracováno (bez přestávek)',fmtDec(cisty),true);
+        // nenároková práce je ČÁST toho čísla nad ním — jen se ukáže, nepřičítá se
+        if(sumNenar)srow('<span style="color:#8fa3bd;">… z toho nenároková (nad fond)</span>',
+                         '<span style="color:#8fa3bd;">'+fmtDec(sumNenar)+'</span>');
         // každá další činnost, co patří do docházky, na vlastním řádku
         var celkem=cisty;
         ostPor.forEach(function(lab){celkem+=ostMap[lab];srow(esc(lab),fmtDec(ostMap[lab]));});

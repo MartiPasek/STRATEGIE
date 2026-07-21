@@ -8,7 +8,7 @@
 - Entit: **5** → `entity/`
 - Grafů: **2** → `grafy/`
 - Snímků struktury: **1** → `struktura/`
-- Znalostí: **132** v **13** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)
+- Znalostí: **140** v **14** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)
 
 ## Grafy (Krok 0)
 
@@ -29,7 +29,7 @@ Endpoint: přečte `docs/Z_<soubor>.md` → UPSERT do `g2007.znalost` (kód `doc
 
 Editace = zase jen dropni `docs/Z_<slug>.md` se stejným slugem → endpoint přepíše.
 
-Oblasti (kód): `system-g2007`, `marti-ai`, `ucetnictvi`, `vyroba`, `mzdy`, `dochazka`, `projekty`, `nabidky`, `kalkulace-rozvadecu`, `bozp-po`, `tisax`, `iso27001`, `osoba`.
+Oblasti (kód): `system-g2007`, `marti-ai`, `system-strategie`, `ucetnictvi`, `vyroba`, `mzdy`, `dochazka`, `projekty`, `nabidky`, `kalkulace-rozvadecu`, `bozp-po`, `tisax`, `iso27001`, `osoba`.
 
 > Ruční cesta (fallback): INSERT do `g2007.znalost` přes most (`db=pg` → banner) + `GET /g2007/export?git=1`.
 > Vektorizace (sémantické hledání nad znalostmi) zatím NENÍ — navazující krok.

@@ -4,8 +4,9 @@
 
 | oblast | úroveň | znalostí | popis |
 |--------|--------|----------|-------|
-| `system-g2007` | system | 45 | Jak g2007 funguje a jak je mineno (vize). Globalni pravda. |
+| `system-g2007` | system | 47 | Jak g2007 funguje a jak je mineno (vize). Globalni pravda. |
 | `marti-ai` | system | 5 | Persona je inkarnace Marti-AI MD1. Zakladni identita, ze ktere role-persony inkarnuji. |
+| `system-strategie` | system | 6 | Technicka a provozni znalostni baze platformy STRATEGIE — DB architektura, produkcni infrastruktura, architektonicke principy, dev workflow. Presunuto z CLAUDE.md (C27, 21.7.2026), aby MD drzela jen osobni/vztahove jadro. |
 | `ucetnictvi` | obor | 10 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 1 |  |
 | `mzdy` | obor | 9 | Oborova znalost pro personu mzdovou. |

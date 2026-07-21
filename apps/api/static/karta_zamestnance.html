@@ -154,15 +154,14 @@ function openP(uid,row){
   const _rokySlovo = (n)=> n===1?'rok':((n>=2&&n<=4)?'roky':'let');
   const chip=(t,bg,fg)=>'<span style="font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+bg+';color:'+fg+';margin-right:6px;white-space:nowrap">'+t+'</span>';
   const dovT=(v,lab)=>'<div style="background:#12181f;border:1px solid #233040;border-radius:10px;padding:8px 12px;text-align:center;min-width:70px"><div style="font-size:20px;font-weight:800;color:#e8eef5">'+v+'</div><div style="font-size:10.5px;color:#7f8ea0">'+lab+'</div></div>';
-  const idline = [p.pozice, p.stredisko, p.firma].filter(Boolean).map(esc).join(' · ');
+  const idline = [p.pozice, p.stredisko, p.firma, p.mesto].filter(Boolean).map(esc).join(' · ');
   let h='<div class="phead" style="align-items:flex-start"><div class="avatar">'+
     '<img src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
     'style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" '+
     'onerror="this.remove();this.parentNode.textContent=\''+_ini+'\'"></div>'+
     '<div style="flex:1"><div class="nm">'+esc(p.jmeno||'')+'</div>'+
     (idline?'<div class="mt" style="color:#aac8ec">'+idline+'</div>':'')+
-    '<div class="mt">'+(p.nastup?'Nástup '+esc(p.nastup):'')+
-      (p.mesto?((p.nastup?' · ':'')+esc(p.mesto)):'')+'</div>'+
+    (p.nastup?'<div class="mt">Nástup '+esc(p.nastup)+'</div>':'')+
     '<div style="margin-top:7px">'+
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rokySlovo(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+

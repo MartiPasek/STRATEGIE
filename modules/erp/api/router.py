@@ -18216,7 +18216,7 @@ async def att_dispute_day(req: Request) -> JSONResponse:
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id WHERE em.id = :e"),
             {"e": emp}).scalar() or ("zaměstnanec " + str(emp))
-        targets = _att_fix_editors_for_emp(s, emp) or {1}
+        targets = _att_fix_editors_for_emp(s, emp) or {20}  # fallback = Jirka (admin), NE rodič (Jirka 21.7.)
         msg = (who + " rozporoval docházku za " + str(day.day) + ". " + str(day.month) + "."
                + ((" — „" + note + "“") if note else "") + " Mrkni na záznamy a doladěte to spolu.")
         for uid2 in sorted(targets):
@@ -19243,7 +19243,7 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
             {"t": _ATT_TENANT, "e": int(row[4]), "d": str(row[1]), "u": uid, "n": note[:300]})
         who = _user_jmeno(s, uid)
         # Marti 10.7.: rozpor na jobu → editorům oprav dle působnosti, ne Martimu.
-        targets = _att_fix_editors_for_emp(s, int(row[4])) or {1}
+        targets = _att_fix_editors_for_emp(s, int(row[4])) or {20}  # fallback = Jirka (admin), NE rodič (Jirka 21.7.)
         msg = (who + " hlásí problém na záznamu " + str(row[1]) + " "
                + (row[2] or "?") + "–" + (row[3] or "…") + " — „" + note + "“")
         for uid2 in sorted(targets):
@@ -19277,7 +19277,12 @@ _ATT_LOCK_UIDS = frozenset({18, 13, 20})  # Peťa (mzdy/finance) + Šárka (HR) 
 
 
 def _att_can_fix(s, uid) -> bool:
-    """Členství ve skupině DOCHÁZKA - OPRAVY. Vědomě BEZ parent/admin bypassu."""
+    """Přístup do modulu Opravy docházky = členství ve skupině DOCHÁZKA - OPRAVY,
+    NEBO rodič (Jirka 21.7.2026). Rodiče vidí a mohou totéž co administrátor
+    (scope 'vse' — viz _att_fix_scope), ale do notifikací nikdy nespadnou
+    (nemají řádek v att_fix_scope → _att_fix_editors_for_emp je vynechá).
+    Editoři samotní jsou dál JEN členové skupiny bez parent bypassu — rodičovský
+    přístup je vědomé rozšíření viditelnosti pro dohled, ne editorská role."""
     if not uid:
         return False
     from sqlalchemy import text as _t
@@ -19285,7 +19290,12 @@ def _att_can_fix(s, uid) -> bool:
         "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
         "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false AND g.name=:g AND m.user_id=:u"),
         {"g": _ATT_FIX_GROUP, "u": uid}).first()
-    return m is not None
+    if m is not None:
+        return True
+    try:
+        return bool(is_marti_parent(uid))
+    except Exception:
+        return False
 
 
 def _att_fix_scope(s, uid):
@@ -45376,7 +45386,7 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                     if eds:
                         targets |= eds
                     else:
-                        targets.add(1)  # fallback — ať se chyba nikdy neztratí
+                        targets.add(20)  # fallback = Jirka (admin), NE rodič — ať se chyba nikdy neztratí (Jirka 21.7.)
                 for uid2 in sorted(targets):
                     mine = (emp_uid is not None and uid2 == int(emp_uid))
                     if rule == "nepotvrzeny_den":

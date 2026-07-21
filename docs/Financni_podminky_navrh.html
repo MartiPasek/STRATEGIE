@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finanční podmínky — návrh</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.6;
+         color: #23211c; background: #f7f6f2; margin: 0; padding: 2rem 1rem; }
+  main { max-width: 820px; margin: 0 auto; background: #fff; border: 1px solid #e5e2d9;
+         border-radius: 14px; padding: 2rem 2.4rem; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 .3rem; }
+  h2 { font-size: 20px; font-weight: 600; margin: 2rem 0 .6rem; padding-top: .8rem;
+       border-top: 1px solid #eceae3; }
+  h3 { font-size: 16px; font-weight: 600; margin: 1.4rem 0 .4rem; }
+  p, li { font-size: 15.5px; }
+  .lead { color: #6b675e; font-size: 14px; margin-top: 0; }
+  .note { background: #fff7e6; border: 1px solid #f0d999; border-radius: 10px;
+          padding: .8rem 1rem; margin: 1rem 0; font-size: 14.5px; }
+  .ok { background: #ecf6ec; border-color: #bfe0bf; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; font-size: 14.5px; }
+  th, td { border: 1px solid #e5e2d9; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f4f2ec; font-weight: 600; }
+  code { background: #f1efe8; padding: .1rem .35rem; border-radius: 5px; font-size: 13.5px; }
+  ol.q { background: #f4f6fb; border: 1px solid #d6def0; border-radius: 10px; padding: 1rem 1rem 1rem 2.2rem; }
+  ol.q li { margin: .35rem 0; }
+  .muted { color: #8a877e; }
+  hr { border: none; border-top: 1px solid #eceae3; margin: 2rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Finanční podmínky — jak to bude uložené</h1>
+<p class="lead">Pro Šárku · 9. 7. 2026 · návrh, jak držet finanční podmínky lidí ve STRATEGII. Bez konkrétních jmen a čísel — téma je citlivé.</p>
+
+<div class="note ok">
+<strong>Nejdřív klid:</strong> tohle je jen návrh na papíře. Do databáze se <strong>nic nezapsalo ani nepřepsalo</strong> — jen jsem se podíval, jak to dnes vypadá. Celý návrh je <strong>jen přidávání</strong> (nová políčka, nové seznamy); nic stávajícího se nemaže ani nemění. Naostro se cokoli spustí až po tvém potvrzení a přes schvalovací banner.
+</div>
+
+<h2>Jak si to představit</h2>
+<p>Každý člověk má <strong>jednu „kartu podmínek"</strong>. Skládá se ze šesti přihrádek — jako v Centrále:</p>
+<ol>
+<li><strong>Kdo a jaká smlouva</strong> — pracovník, firma (EC/ES), druh (HPP / OSVČ / DPP…), od–do, zkušebka.</li>
+<li><strong>Kolik hodin</strong> — úvazek, hodiny za měsíc, u výroby min/max hodin.</li>
+<li><strong>Peníze</strong> — jednotlivé složky odměny (základ, osobní ohodnocení, prémie, montáž…).</li>
+<li><strong>Volno</strong> — dovolená a sick days (dle aktuální domluvy).</li>
+<li><strong>Poznámky</strong> — proč se co domluvilo (citlivé, uzamčené).</li>
+<li><strong>Požadovaný plat v čase</strong> — jak se domluvená mzda vyvíjí.</li>
+</ol>
+<p>Když někdo dostane novou domluvu, <strong>stará verze se nepřemaže — uloží se jako historie</strong> (kdo a kdy to změnil). Vždy tak víme, jak podmínky vypadaly k jakémukoli datu.</p>
+
+<h2>Co už dnes funguje</h2>
+<ul>
+<li>Karta vztahu (kdo, firma, druh smlouvy, úvazek, hodiny, historie verzí).</li>
+<li>Složky odměny jako seznam (přidat / upravit / smazat).</li>
+<li>Volno a sick days jako nároky.</li>
+<li>Zámek na 8 lidí (HR + Marti) a záznam „kdo a kdy měnil".</li>
+</ul>
+
+<h2>Co chceme doplnit (6 věcí)</h2>
+<table>
+<tr><th>#</th><th>Co chybí</th><th>Proč</th><th>Jak to vyřešíme</th></tr>
+<tr><td>1</td><td>Kategorie + mzdová pásma</td><td>Stejná pozice = stejné rozpětí; příprava na novelu o transparentnosti</td><td>Číselník kategorií (OSVČ výroba, HPP kancelář…) + pásmo od–do</td></tr>
+<tr><td>2</td><td>Cizí měna (EUR) + kurz</td><td>Někteří OSVČ jsou v eurech</td><td>K částce přidáme měnu a kurz (Kč zůstává výchozí)</td></tr>
+<tr><td>3</td><td>Pár chybějících políček</td><td>Zdrav. pojišťovna, sleva na dani, min/max hodin, náborový poplatek, přepínače</td><td>Přidají se na kartu vztahu</td></tr>
+<tr><td>4</td><td>Požadovaný plat v čase</td><td>Vidět vývoj domluvené mzdy</td><td>Malý seznam „od kdy / kolik"</td></tr>
+<tr><td>5</td><td>Strukturované poznámky</td><td>Volný text nese citlivá rozhodnutí</td><td>Poznámka dostane „kdo / kdy / proč"</td></tr>
+<tr><td>6</td><td>PLC programátoři (režie Mirka)</td><td>Jejich sazby v systému nejsou</td><td>Vlastní kategorie + doplnit data (zjistit zdroj)</td></tr>
+</table>
+
+<h2>Kategorie — jednou větou</h2>
+<p><strong>Kategorie = druh smlouvy × typ práce.</strong> Při zakládání člověka vybereš kategorii, ona předvyplní relevantní políčka a nabídne pásmo, ty doladíš individuální domluvu. Např.: OSVČ výroba · OSVČ kancelář · OSVČ PLC (režie Mirka) · HPP výroba · HPP kancelář · DPP krátkodobě · <span class="muted">(později management / garant)</span>.</p>
+
+<h2>Bezpečnost</h2>
+<p>Finanční podmínky vidí a edituje <strong>jen 8 lidí</strong> (HR + Marti). Konkrétní částky se ukazují jen při práci s podmínkami. Každá změna se podepisuje (kdo, kdy). Centrála zůstává jen ke čtení — <strong>STRATEGIE je jediné místo, kde se edituje.</strong></p>
+
+<h2>Rozhodnutí, na kterých jsme se domluvily</h2>
+<ul>
+<li><strong>Fond hodin / měsíc = průměr 174 h</strong> (stabilní průměr při 40h týdnu), nepočítá se z kalendáře.</li>
+<li><strong>Zkušební doba = standardně 4 měsíce</strong>, výjimečně 3 měsíce (dle domluvy) — předvyplní se, jde upravit.</li>
+<li><strong>Upozornění na vznik nároku na stravenkový paušál</strong> (konec ZD) — zachováme jako notifikaci Petře Šafránkové, jako to dělala Centrála.</li>
+</ul>
+
+<h2>Co potřebuju od tebe</h2>
+<ol class="q">
+<li>Sedí seznam kategorií? Management/garant hned, nebo později?</li>
+<li>Mzdové pásmo „od–do" — jen u základní mzdy, nebo i u dalších složek?</li>
+<li>„Náborový poplatek" = „jednorázový poplatek" z Centrály?</li>
+<li>„Placen od hodiny" vs „hodinovka" — jedno a totéž, nebo dvě různé věci?</li>
+<li>Kde dnes najdeme sazby PLC programátorů (Excel / režie v Centrále / u Mirka)?</li>
+<li>Nárok na stravenkový paušál vzniká vždy přesně na konci zkušební doby, nebo se domlouvá zvlášť?</li>
+</ol>
+
+<h2>Kontrola proti vašim kartám — nic nechybí</h2>
+<p>Porovnala jsem návrh proti reálným printscreenům (OSVČ: Voříšek, Saad, Benetka; HPP: Diviš, Hladíková; DPP: Řeháková). Všechna pole z karet už model pokrývá — zdravotní pojišťovna a sleva na dani (jen HPP/DPP), placen od hodiny (OSVČ), min/max hodin (výroba), měna + kurz (Benetka v EUR), náborový poplatek i přepínače. <strong>Jediná díra: OSVČ PLC programátoři (režie Mirka)</strong> — jejich sazby v systému nejsou, vidí je jen Mirek; nejdřív zjistit, kde ta data má.</p>
+
+<h2>Předvyplnění podle druhu</h2>
+<p>Při zakládání karty vybereš druh, předvyplní se relevantní pole a defaulty, ty doladíš domluvu.</p>
+<table>
+<tr><th>Pole</th><th>OSVČ výroba</th><th>OSVČ kancelář</th><th>OSVČ PLC</th><th>HPP výroba</th><th>HPP kancelář</th><th>DPP</th></tr>
+<tr><td>Zdrav. pojišťovna</td><td>—</td><td>—</td><td>—</td><td>ano</td><td>ano</td><td>ano</td></tr>
+<tr><td>Sleva na dani</td><td>—</td><td>—</td><td>—</td><td>ano</td><td>ano</td><td>dle</td></tr>
+<tr><td>Placen od hodiny</td><td>ano</td><td>dle</td><td>ano</td><td>ne</td><td>ne</td><td>ano</td></tr>
+<tr><td>Základ</td><td>za hodinu</td><td>měsíční</td><td>za hodinu</td><td>měsíční</td><td>měsíční</td><td>za hodinu</td></tr>
+<tr><td>Min/max hodin</td><td>ano</td><td>—</td><td>dle</td><td>ano</td><td>—</td><td>—</td></tr>
+<tr><td>Osobní ohodnocení</td><td>—</td><td>—</td><td>—</td><td>ano</td><td>ano</td><td>—</td></tr>
+<tr><td>Volno + sick days</td><td>—</td><td>—</td><td>—</td><td>ano</td><td>ano (víc SD)</td><td>—</td></tr>
+<tr><td>Stravenkový paušál</td><td>—</td><td>—</td><td>—</td><td>ano</td><td>ano</td><td>—</td></tr>
+<tr><td>Měna + kurz</td><td>i EUR</td><td>dle</td><td>i EUR</td><td>Kč</td><td>Kč</td><td>Kč</td></tr>
+<tr><td>Zkušební doba</td><td>—</td><td>—</td><td>—</td><td>4 měs.</td><td>4 měs.</td><td>—</td></tr>
+</table>
+<p class="muted" style="font-size:13.5px;">Defaulty HPP z vašich pravidel: dovolená 25 dní (20+5, +1 po 10/15/20 letech), sick days 2/rok (nevyčerpané proplaceny 70 %), stravenka 82 Kč/směna, limit přesčasů 150 h/rok, fond 174 h/měs, zkušebka 4 měsíce (výjimka 3). U konkrétního člověka se přepíšou individuální domluvou.</p>
+
+<hr>
+<p class="muted" style="font-size:13px;">Technická příloha k datovému modelu (tabulky, sloupce, pořadí DDL) je v souboru <code>hr_financni_podminky_datovy_model.md</code>; předvyplněné profily v <code>hr_financni_podminky_profily.md</code> — pro Martiho.</p>
+
+</main>
+</body>
+</html>

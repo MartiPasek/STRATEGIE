@@ -1,0 +1,19 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Mzdový výměr (šablona id 2)</title>
+<style>
+body{font-family:Verdana,Arial,sans-serif;font-size:9pt;color:#222;margin:40px}
+.hdr{font-weight:bold;color:#c00;border-bottom:2px solid #c00;padding-bottom:6px;margin-bottom:24px}
+h1{font-size:16pt}
+table{border-collapse:collapse;width:100%;margin:16px 0}
+th,td{border:1px solid #999;padding:6px 10px;text-align:left}
+th{background:#f0f0f0}
+.r{text-align:right}
+.foot{margin-top:48px}
+._nahled_note{background:#fff7d6;border:1px solid #e0c84a;padding:8px 12px;margin:0 0 16px 0;font-size:9pt;color:#5a4a00;border-radius:4px}
+</style></head><body>
+
+<div class="_nahled_note"><b>NÁHLED ŠABLONY</b> — id 2 · code <code>mzdovy_vymer</code> · „Mzdový výměr". Pole <code>{{...}}</code> se doplní z dat. Náhled pro revizi; zdroj v DB <code>tenant.doc_template</code>.</div>
+
+<div class="hdr">{{firma_nazev}}</div><h1>Mzdový výměr</h1><p>Zaměstnanec: <b>{{jmeno}}</b>, pozice {{pozice}}.</p><p>S účinností od {{smlouva_od}} se stanovuje měsíční mzda takto:</p><table><thead><tr><th>Složka mzdy</th><th class="r">Částka / měsíc</th></tr></thead><tbody><tr><td>Základní mzda</td><td class="r">{{zaklad}}</td></tr><tr><td>Osobní ohodnocení</td><td class="r">{{os_ohod}}</td></tr></tbody></table><p>Mzda je splatná na účet č. {{ucet}}.</p><p class="foot">V Plzni dne {{dnes}}</p>
+
+</body></html>

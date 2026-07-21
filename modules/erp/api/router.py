@@ -37311,20 +37311,32 @@ async def secondary_refresh(req: Request):
 
 @api_router.get("/app/davka/list")
 def davka_list(req: Request):
-    """Seznam podání dávek NP (NEMPRI25) — rodič/HR."""
+    """Seznam podání dávek NP (NEMPRI25) — rodič/HR.
+    Testovací záznamy (prostredi='test') se do ostrého přehledu standardně nezobrazí;
+    ?test=1 je ukáže (odlišené) pro potřeby ladění."""
     uid = _uid_from_token_or_cookie(req)
     if not uid or not _has_capability(uid, 'neschopenky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    ukaz_test = str(req.query_params.get("test") or "").strip() in ("1", "true", "ano")
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()
     try:
+        where = "" if ukaz_test else "WHERE COALESCE(prostredi,'') <> 'test' "
         rows = s.execute(_t(
             "SELECT id, typ_davky, emp_jmeno, emp_prijmeni, identifikator, "
             "to_char(datum_od,'DD.MM.YYYY') od, to_char(datum_do,'DD.MM.YYYY') do, "
             "stav, prostredi, osetrovana_jmeno, osetrovana_prijmeni "
-            "FROM tenant.davka_podani ORDER BY created_at DESC LIMIT 200")).mappings().all()
-        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
+            "FROM tenant.davka_podani " + where +
+            "ORDER BY created_at DESC LIMIT 200")).mappings().all()
+        # kolik testovacích je skryto (aby UI mohlo nabídnout přepínač)
+        skryto_test = 0
+        if not ukaz_test:
+            skryto_test = s.execute(_t(
+                "SELECT count(*) FROM tenant.davka_podani "
+                "WHERE COALESCE(prostredi,'')='test'")).scalar() or 0
+        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows),
+                "skryto_test": int(skryto_test)}
     finally:
         s.close()
 

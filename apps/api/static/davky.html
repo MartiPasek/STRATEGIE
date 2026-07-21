@@ -78,18 +78,25 @@ function uloz(){
     else m.innerHTML='<div class="err">'+esc((r&&r.error)||"chyba")+'</div>';
   });
 }
+var _showTest=false;
 function load(){
-  api("/api/v1/erp/app/davka/list").then(function(j){
+  api("/api/v1/erp/app/davka/list"+(_showTest?"?test=1":"")).then(function(j){
     var L=document.getElementById("list");
     if(!j||!j.ok){L.innerHTML='<div class="err">'+esc((j&&j.error)||"chyba")+'</div>';return;}
     var r=j.polozky||[];
-    if(!r.length){L.innerHTML='<div class="hint" style="margin-top:10px">Zatím žádná podání.</div>';return;}
+    var skryto=j.skryto_test||0;
+    var prepinac=(_showTest
+      ? '<a href="#" onclick="_showTest=false;load();return false" style="color:var(--mut);font-size:12px">skrýt testovací</a>'
+      : (skryto?'<a href="#" onclick="_showTest=true;load();return false" style="color:var(--mut);font-size:12px">zobrazit i testovací ('+skryto+')</a>':''));
+    if(!r.length){L.innerHTML='<div class="hint" style="margin-top:10px">Zatím žádná ostrá podání.'+(prepinac?' '+prepinac:'')+'</div>';return;}
     var h='<div class="card" style="margin-top:8px"><table><thead><tr><th>Typ</th><th>Zaměstnanec</th><th>Ošetřovaná</th><th>Od</th><th>Do</th><th>Stav</th><th>Prostředí</th></tr></thead><tbody>';
     r.forEach(function(e){
       var os=((e.osetrovana_jmeno||"")+" "+(e.osetrovana_prijmeni||"")).trim();
-      h+='<tr><td>'+esc(e.typ_davky)+'</td><td>'+esc((e.emp_jmeno||"")+" "+(e.emp_prijmeni||""))+'</td><td>'+esc(os||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td><td>'+stav(e.stav)+'</td><td><button class="btn sec" style="margin:0;padding:5px 10px" onclick="gen('+e.id+')">📄 NEMPRI XML</button></td></tr>';
+      var jeTest=(e.prostredi==="test");
+      var badge=jeTest?' <span style="font-size:10px;background:#f59e0b33;color:var(--amber);padding:1px 6px;border-radius:8px;vertical-align:middle">TEST</span>':'';
+      h+='<tr'+(jeTest?' style="opacity:.6"':'')+'><td>'+esc(e.typ_davky)+'</td><td>'+esc((e.emp_jmeno||"")+" "+(e.emp_prijmeni||""))+badge+'</td><td>'+esc(os||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td><td>'+stav(e.stav)+'</td><td><button class="btn sec" style="margin:0;padding:5px 10px" onclick="gen('+e.id+')">📄 NEMPRI XML</button></td></tr>';
     });
-    h+='</tbody></table></div><div id="xmlview"></div>';L.innerHTML=h;
+    h+='</tbody></table>'+(prepinac?'<div style="margin-top:6px">'+prepinac+'</div>':'')+'</div><div id="xmlview"></div>';L.innerHTML=h;
   });
 }
 var _lastXml=null;

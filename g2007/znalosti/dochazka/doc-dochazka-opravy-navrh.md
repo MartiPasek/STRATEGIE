@@ -432,3 +432,52 @@ Gate = **`can_fix || can_lock`** (dřív jen `can_fix`, commit `156ca885`). Kdo 
 `can_unlock` (drží­tel zámku), UI mu nabídne odemknout → opravit → zamknout.
 
 
+
+## 18. Viditelnost rodičů + notifikační routing — finální pravidla (21. 7. 2026, Jirka)
+
+Dvě citlivá pravidla o tom, KDO co vidí a komu chodí notifikace v modulu Opravy
+docházky. Ověřeno na skutečných datech (křížová kontrola všech aktivních zaměstnanců).
+
+### 18.1 ⭐ Notifikace o opravách/chybách — striktní scope, nikdy rodičům ani administrátorovi
+
+Notifikace (rozpor od člověka, chyby z automatické kontroly) routuje `_att_fix_editors_for_emp`
+**výhradně podle scope `kancelar`/`vyroba`** (`att_fix_scope` JOIN skupina 12). Z toho plyne:
+
+| Koho se týká | Notifikace dostane |
+|---|---|
+| Kancelářský člověk | **jen Peťa (18)** |
+| Výroba/dílna | **Dušan (41) + Míša (16)** |
+| Nezařazený | **všem třem** |
+
+- **Jirka (20)** má scope `vse` → funkce ho **záměrně vylučuje** (`WHERE scope IN ('kancelar','vyroba')`)
+  → **notifikace mu NEchodí**.
+- **Rodiče** (Marti 1, Kristý 11, Zuzana 6): **nemají řádek v `att_fix_scope` ani členství ve
+  skupině 12** → do routingu se nedostanou → **notifikace jim NEchodí, NIKDY**.
+- **Fallback** (prázdná množina editorů — v praxi nenastane) přesměrován z Martiho (1) na
+  **Jirku (20, admin)** na všech třech callsitech — ani v edge-case notifikace nespadne na rodiče.
+
+**Ověřeno daty (21.7.):** 35 kancelářských — vidí Peťa, Dušan/Míša 0. 37 výrobních — vidí
+Dušan/Míša, Peťa 0. 7 nezařazených — obě strany. **Žádná křížová kontaminace.** Platí pro
+frontu, seznam lidí i detail dne (cizí člověk = 403).
+
+### 18.2 Rodiče vidí v modulu VŠE (jako administrátor), ale bez notifikací
+
+`_att_can_fix` má od 21.7. **parent bypass** (commit `e825a477`): rodič (`is_marti_parent`) dostane
+přístup do modulu se scope `vse` — vidí frontu, lidi i historii **všech** (identická cesta jako
+Jirka, ověřeno naživo = 79 lidí). Rozšíření viditelnosti pro dohled.
+
+- **Rodiče technicky MOHOU i opravovat** (parent bypass dává plný `can_fix`, ne jen view).
+  Jirka 21.7. to vědomě nechal — plná parita s administrátorem. Kdyby se v budoucnu chtělo
+  „rodič jen vidí, needituje", je to frontend práce (skrýt editační tlačítka), backend by
+  potřeboval rozlišit view-scope od edit-scope.
+- **Editoři samotní zůstávají JEN členové skupiny 12** bez parent bypassu — parent přístup je
+  nad rámec editorů, ne editorská role. Notifikace se řídí `att_fix_scope` (viz 18.1), kde rodič
+  není → nedostává je.
+
+### 18.3 Oprava §16.1/17.3 — složení zámku
+
+Pro pořádek: zamykat/odemykat období smí **Peťa (18) + Šárka (13) + Jirka (20, admin) + rodiče**
+(`_ATT_LOCK_UIDS = {18,13,20}` + `is_marti_parent`). Text §16.1 „odemyká Peťa/Šárka" je zúžený —
+platí složení z §17.3.
+
+

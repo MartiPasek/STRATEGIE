@@ -93,6 +93,9 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
 - **Zaškrtávací (ano/ne) sloupce:** hlavička jen 1 písmeno (R/Ú/S/Z…) + tooltip s celým názvem, úzké.
 - **Číselné sloupce** (Částka, Saldo, …) zarovnané doprava a dost široké i na miliony.
 - **Sloupce roztahovací** tažením za pravý okraj; **dvojklik na okraj = zpět na výchozí šířku**.
+  Na okraji je jen **jednoduchá dvojšipka `cursor:ew-resize`** (↔), **žádný modrý proužek** na hover
+  (NE `col-resize` – ta má čárku uprostřed) – jako u Martiho (21.7.2026). Platí i pro kurzor těla
+  během tažení (`document.body.style.cursor='ew-resize'`).
 - **DŮLEŽITÉ chování šířek:** je **pevné VÝCHOZÍ nastavení pro všechny**. Tažení je jen **DOČASNÉ** —
   po obnovení stránky se vše vrátí na výchozí. **NEUKLÁDAT** šířky do prohlížeče (localStorage).
   (Výchozí šířky měň v kódu v `_faktColDef` / `DCOLW_DEF`.)

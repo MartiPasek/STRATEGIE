@@ -814,6 +814,11 @@ def _process_deploy() -> None:
                     if n.strip().endswith(".py")]
     else:
         _pyfiles = [f for f in file_specs if f.endswith(".py")]
+    # Claude-26 (Peťa) 21.7.2026: SMAZANÉ .py přeskoč — py_compile na neexistující
+    # cestu spadne na FileNotFoundError a zastavil by deploy, takže odstranit .py
+    # soubor přes most dosud vůbec nešlo (narazili jsme na to při úklidu
+    # modules/erp/api/dochazka_zakazky.py). Kontrolujeme jen to, co na disku je.
+    _pyfiles = [_p for _p in _pyfiles if (REPO_ROOT / _p).is_file()]
     _bad = []
     for _pf in _pyfiles:
         try:

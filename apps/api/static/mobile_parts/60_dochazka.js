@@ -289,15 +289,21 @@
     (function _fixGate(){
       function show(n){ _fixSec.style.display="block"; var old=_fixCell.querySelector('.appbadge'); if(old)old.remove();
         if(n>0)_fixCell.appendChild(el('<span class="appbadge" style="background:#f59e0b;">'+(n>99?"99+":n)+'</span>')); }
-      if(window._canFixDoch===false) return;
-      if(window._canFixDoch===true){ show(window._fixQueueN||0); }
+      // Jirka 21.7.: dlaždici vidí editor (can_fix) I držitel zámku bez editorství
+      // (can_lock — Šárka, rodiče). Lock-only nemá frontu → badge 0. Parita s ERP,
+      // kde je gate can_fix||can_lock. Bez tohoto se Šárka/rodič na mobilu k zámku nedostal.
+      if(window._canFixDoch===false&&window._canLockDoch===false) return;
+      if(window._canFixDoch===true||window._canLockDoch===true){ show(window._canFixDoch?(window._fixQueueN||0):0); }
       api("GET","/api/v1/erp/app/attendance/fix/allowed","").then(function(j){
         window._canFixDoch=!!(j&&j.ok&&j.can_fix);
-        if(!window._canFixDoch){ _fixSec.style.display="none"; return; }
-        show(window._fixQueueN||0);
-        api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(q){
-          if(q&&q.ok){ window._fixQueueN=((q.anomalie||[]).length+(q.rozpory||[]).length); show(window._fixQueueN); }
-        }).catch(function(){});
+        window._canLockDoch=!!(j&&j.ok&&j.can_lock);
+        if(!window._canFixDoch&&!window._canLockDoch){ _fixSec.style.display="none"; return; }
+        show(window._canFixDoch?(window._fixQueueN||0):0);
+        if(window._canFixDoch){
+          api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(q){
+            if(q&&q.ok){ window._fixQueueN=((q.anomalie||[]).length+(q.rozpory||[]).length); show(window._fixQueueN); }
+          }).catch(function(){});
+        }
       }).catch(function(){});
     })();
     // Marti 14.6.: pořadí obrazovky — nadpis → sekce Zakázky a činnosti (dochAction)
@@ -1830,10 +1836,54 @@
       });
       tabs.appendChild(b); return b;
     }
-    var tq=tabBtn("📥 K vyřešení",function(){ _fixQueueLoad(box); });
-    tabBtn("🔍 Najít člověka",function(){ _fixPeopleLoad(box); });
-    tabBtn("📜 Historie oprav",function(){ _fixAuditLoad(box); });
-    tq.click();
+    // Jirka 21.7.: taby dle práv (parita s ERP). Editor (can_fix) → fronta/lidé/
+    // historie; držitel zámku (can_lock) → záložka Zámek. Lock-only (Šárka, rodič
+    // bez editorství) vidí JEN Zámek. Práva z gate (window._canFixDoch/_canLockDoch).
+    var _cf=(window._canFixDoch===true), _cl=(window._canLockDoch===true);
+    var _first=null;
+    if(_cf){
+      var tq=tabBtn("📥 K vyřešení",function(){ _fixQueueLoad(box); });
+      tabBtn("🔍 Najít člověka",function(){ _fixPeopleLoad(box); });
+      tabBtn("📜 Historie oprav",function(){ _fixAuditLoad(box); });
+      _first=tq;
+    }
+    if(_cl){
+      var tl=tabBtn("🔒 Zámek období",function(){ _fixLockLoad(box); });
+      if(!_first) _first=tl;
+    }
+    if(_first) _first.click();
+    else box.innerHTML='<div class="hint">Nemáš oprávnění k opravám docházky.</div>';
+  }
+  function _fixLockLoad(box){
+    box.innerHTML='<div class="hint">Načítám zámky…</div>';
+    api("GET","/api/v1/erp/app/attendance/period-lock","").then(function(j){
+      box.innerHTML="";
+      if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"chyba")+'</div>'; return; }
+      box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Uzamčený měsíc nelze opravovat (mzdy zpracovány) — ani držitelem zámku. Nejdřív odemknout, opravit a zase zamknout. Zamyká/odemyká Peťa, Šárka, Jirka a rodiče.</div>'));
+      if(j.can_lock){
+        var w=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:10px;"></div>');
+        var r1=el('<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"></div>');
+        var mi=el('<input type="number" min="1" max="12" placeholder="měsíc" style="width:90px;">');
+        var yi=el('<input type="number" min="2024" max="2100" value="'+(new Date().getFullYear())+'" style="width:100px;">');
+        var bl=el('<button class="green sm">🔒 Zamknout</button>');
+        var bu=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">🔓 Odemknout</button>');
+        r1.appendChild(mi);r1.appendChild(yi);r1.appendChild(bl);r1.appendChild(bu);w.appendChild(r1);
+        var st=el('<div class="hint" style="margin-top:6px;"></div>');w.appendChild(st);
+        function doLock(lock){
+          var m=parseInt(mi.value||'0'),y=parseInt(yi.value||'0');
+          if(!(m>=1&&m<=12&&y>=2024)){st.textContent='Zadej měsíc a rok.';return;}
+          api("POST","/api/v1/erp/app/attendance/period-lock",{rok:y,mesic:m,lock:lock}).then(function(x){
+            if(x&&x.ok)_fixLockLoad(box);else st.textContent='✗ '+((x&&x.error)||"chyba");
+          });
+        }
+        bl.addEventListener("click",function(){doLock(true);});
+        bu.addEventListener("click",function(){doLock(false);});
+        box.appendChild(w);
+      }
+      (j.items||[]).forEach(function(r){
+        box.appendChild(el('<div style="border-bottom:1px solid var(--bord);padding:8px 2px;font-size:13px;">🔒 <b>'+r.mesic+'/'+r.rok+'</b> <span class="hint">('+esc(r.kdo||"?")+', '+esc(r.od||"")+(r.note?(" — "+esc(r.note)):"")+')</span></div>'));
+      });
+    });
   }
   function _fixOpenDay(uid2,name,day){ window._fixCtx={uid:uid2,name:name||"",day:day}; go("doch_opravy_den"); }
   function _fixMarkDone(c){try{c.style.borderColor='var(--green)';c.style.background='rgba(16,185,129,.08)';var hd=c.firstChild;if(hd)hd.innerHTML+=' <span style="background:#123c26;color:#8fe0a0;font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700;">✓ opraveno</span>';}catch(e){}}

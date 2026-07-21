@@ -5282,15 +5282,21 @@ setTimeout(function(){
     (function _fixGate(){
       function show(n){ _fixSec.style.display="block"; var old=_fixCell.querySelector('.appbadge'); if(old)old.remove();
         if(n>0)_fixCell.appendChild(el('<span class="appbadge" style="background:#f59e0b;">'+(n>99?"99+":n)+'</span>')); }
-      if(window._canFixDoch===false) return;
-      if(window._canFixDoch===true){ show(window._fixQueueN||0); }
+      // Jirka 21.7.: dlaždici vidí editor (can_fix) I držitel zámku bez editorství
+      // (can_lock — Šárka, rodiče). Lock-only nemá frontu → badge 0. Parita s ERP,
+      // kde je gate can_fix||can_lock. Bez tohoto se Šárka/rodič na mobilu k zámku nedostal.
+      if(window._canFixDoch===false&&window._canLockDoch===false) return;
+      if(window._canFixDoch===true||window._canLockDoch===true){ show(window._canFixDoch?(window._fixQueueN||0):0); }
       api("GET","/api/v1/erp/app/attendance/fix/allowed","").then(function(j){
         window._canFixDoch=!!(j&&j.ok&&j.can_fix);
-        if(!window._canFixDoch){ _fixSec.style.display="none"; return; }
-        show(window._fixQueueN||0);
-        api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(q){
-          if(q&&q.ok){ window._fixQueueN=((q.anomalie||[]).length+(q.rozpory||[]).length); show(window._fixQueueN); }
-        }).catch(function(){});
+        window._canLockDoch=!!(j&&j.ok&&j.can_lock);
+        if(!window._canFixDoch&&!window._canLockDoch){ _fixSec.style.display="none"; return; }
+        show(window._canFixDoch?(window._fixQueueN||0):0);
+        if(window._canFixDoch){
+          api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(q){
+            if(q&&q.ok){ window._fixQueueN=((q.anomalie||[]).length+(q.rozpory||[]).length); show(window._fixQueueN); }
+          }).catch(function(){});
+        }
       }).catch(function(){});
     })();
     // Marti 14.6.: pořadí obrazovky — nadpis → sekce Zakázky a činnosti (dochAction)
@@ -6823,10 +6829,54 @@ setTimeout(function(){
       });
       tabs.appendChild(b); return b;
     }
-    var tq=tabBtn("📥 K vyřešení",function(){ _fixQueueLoad(box); });
-    tabBtn("🔍 Najít člověka",function(){ _fixPeopleLoad(box); });
-    tabBtn("📜 Historie oprav",function(){ _fixAuditLoad(box); });
-    tq.click();
+    // Jirka 21.7.: taby dle práv (parita s ERP). Editor (can_fix) → fronta/lidé/
+    // historie; držitel zámku (can_lock) → záložka Zámek. Lock-only (Šárka, rodič
+    // bez editorství) vidí JEN Zámek. Práva z gate (window._canFixDoch/_canLockDoch).
+    var _cf=(window._canFixDoch===true), _cl=(window._canLockDoch===true);
+    var _first=null;
+    if(_cf){
+      var tq=tabBtn("📥 K vyřešení",function(){ _fixQueueLoad(box); });
+      tabBtn("🔍 Najít člověka",function(){ _fixPeopleLoad(box); });
+      tabBtn("📜 Historie oprav",function(){ _fixAuditLoad(box); });
+      _first=tq;
+    }
+    if(_cl){
+      var tl=tabBtn("🔒 Zámek období",function(){ _fixLockLoad(box); });
+      if(!_first) _first=tl;
+    }
+    if(_first) _first.click();
+    else box.innerHTML='<div class="hint">Nemáš oprávnění k opravám docházky.</div>';
+  }
+  function _fixLockLoad(box){
+    box.innerHTML='<div class="hint">Načítám zámky…</div>';
+    api("GET","/api/v1/erp/app/attendance/period-lock","").then(function(j){
+      box.innerHTML="";
+      if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"chyba")+'</div>'; return; }
+      box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Uzamčený měsíc nelze opravovat (mzdy zpracovány) — ani držitelem zámku. Nejdřív odemknout, opravit a zase zamknout. Zamyká/odemyká Peťa, Šárka, Jirka a rodiče.</div>'));
+      if(j.can_lock){
+        var w=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:10px;"></div>');
+        var r1=el('<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"></div>');
+        var mi=el('<input type="number" min="1" max="12" placeholder="měsíc" style="width:90px;">');
+        var yi=el('<input type="number" min="2024" max="2100" value="'+(new Date().getFullYear())+'" style="width:100px;">');
+        var bl=el('<button class="green sm">🔒 Zamknout</button>');
+        var bu=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">🔓 Odemknout</button>');
+        r1.appendChild(mi);r1.appendChild(yi);r1.appendChild(bl);r1.appendChild(bu);w.appendChild(r1);
+        var st=el('<div class="hint" style="margin-top:6px;"></div>');w.appendChild(st);
+        function doLock(lock){
+          var m=parseInt(mi.value||'0'),y=parseInt(yi.value||'0');
+          if(!(m>=1&&m<=12&&y>=2024)){st.textContent='Zadej měsíc a rok.';return;}
+          api("POST","/api/v1/erp/app/attendance/period-lock",{rok:y,mesic:m,lock:lock}).then(function(x){
+            if(x&&x.ok)_fixLockLoad(box);else st.textContent='✗ '+((x&&x.error)||"chyba");
+          });
+        }
+        bl.addEventListener("click",function(){doLock(true);});
+        bu.addEventListener("click",function(){doLock(false);});
+        box.appendChild(w);
+      }
+      (j.items||[]).forEach(function(r){
+        box.appendChild(el('<div style="border-bottom:1px solid var(--bord);padding:8px 2px;font-size:13px;">🔒 <b>'+r.mesic+'/'+r.rok+'</b> <span class="hint">('+esc(r.kdo||"?")+', '+esc(r.od||"")+(r.note?(" — "+esc(r.note)):"")+')</span></div>'));
+      });
+    });
   }
   function _fixOpenDay(uid2,name,day){ window._fixCtx={uid:uid2,name:name||"",day:day}; go("doch_opravy_den"); }
   function _fixMarkDone(c){try{c.style.borderColor='var(--green)';c.style.background='rgba(16,185,129,.08)';var hd=c.firstChild;if(hd)hd.innerHTML+=' <span style="background:#123c26;color:#8fe0a0;font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700;">✓ opraveno</span>';}catch(e){}}
@@ -8882,7 +8932,7 @@ setTimeout(function(){
   function prefakturace(){
     app.innerHTML=topbar("🧾 Přefakturace ES → Control", true);
     window._pref=window._pref||{};
-    app.appendChild(el('<div class="muted" style="margin:8px 6px;line-height:1.5">Rozpad služeb EUROSOFT‑System → Control za měsíc, a po schválení (Marti/Braňo) vystavení faktury. Výpočet i faktura = ověřené procedury Centrály. Marže dle pole níže (výchozí 6 %), nájem bez marže. Zdroj mezd: Praha.</div>'));
+    app.appendChild(el('<div class="muted" style="margin:8px 6px;line-height:1.5">Rozpad služeb EUROSOFT‑System → Control za měsíc, a po schválení (Marti/Braňo) vystavení faktury. Výpočet i faktura = ověřené procedury Centrály. Marže 5 %, nájem dle dokladu.</div>'));
     var ctl=el('<div style="margin:8px 6px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;"></div>');
     ctl.appendChild(el('<label style="font-size:12px;color:#9fb0c2">Měsíc<br><input id="prefM" type="number" min="1" max="12" style="width:72px;margin:3px 0 0"></label>'));
     ctl.appendChild(el('<label style="font-size:12px;color:#9fb0c2">Rok<br><input id="prefR" type="number" min="2020" max="2100" style="width:92px;margin:3px 0 0"></label>'));
@@ -8891,14 +8941,11 @@ setTimeout(function(){
     var bRoz=el('<button class="green full" style="margin:10px 6px 0;width:calc(100% - 12px)">📋 Zobrazit rozpad</button>');
     bRoz.addEventListener("click",prefRozpad);
     app.appendChild(bRoz);
-    var bXls=el('<button class="full" style="margin:8px 6px 0;width:calc(100% - 12px);background:#1f6f43;color:#eafff3;border:0;border-radius:11px;padding:12px;font-weight:600">\uD83D\uDCCA St\u00e1hnout rozpad (Excel)</button>');
-    bXls.addEventListener("click",prefStahniExcel);
-    app.appendChild(bXls);
     app.appendChild(el('<div id="prefPosl" class="hint" style="margin:8px 6px"></div>'));
     app.appendChild(el('<div id="prefOut" style="margin:4px 6px"></div>'));
     api("GET","/api/v1/erp/app/prefakturace/info","").then(function(j){
       var now=new Date();
-      var dm=(j&&j.ok)?j.mesic:(now.getMonth()||12), dr=(j&&j.ok)?j.rok:now.getFullYear(), dz=(j&&j.ok)?j.marze:6;
+      var dm=(j&&j.ok)?j.mesic:(now.getMonth()||12), dr=(j&&j.ok)?j.rok:now.getFullYear(), dz=(j&&j.ok)?j.marze:5;
       var mEl=document.getElementById("prefM"); if(mEl)mEl.value=dm;
       var rEl=document.getElementById("prefR"); if(rEl)rEl.value=dr;
       var zEl=document.getElementById("prefMarze"); if(zEl)zEl.value=(dz==null?5:dz);
@@ -8929,30 +8976,6 @@ setTimeout(function(){
       h+='<div id="prefIssueMsg" class="hint" style="margin-top:8px;min-height:16px"></div>';
       out.innerHTML=h;
       document.getElementById("prefIssue").addEventListener("click",function(){ prefVystavit(!!j.jiz_existuje); });
-    }).catch(function(){ out.innerHTML='<div class="hint" style="color:#ff8a8a;padding:10px">Chyba spojení.</div>'; });
-  }
-  function prefStahniExcel(){
-    var out=document.getElementById("prefOut"); if(!out)return;
-    var m=parseInt(prefV("prefM"),10), r=parseInt(prefV("prefR"),10), z=parseFloat(prefV("prefMarze"));
-    if(!m||!r){ out.innerHTML='<div class="hint" style="color:#ff8a8a;padding:8px">Doplň měsíc a rok.</div>'; return; }
-    out.innerHTML='<div class="hint" style="padding:14px">Generuji Excel rozpad… chvíli to trvá.</div>';
-    var q="/api/v1/erp/app/prefakturace/detail-xlsx?mesic="+m+"&rok="+r+(isNaN(z)?"":("&marze="+z));
-    api("GET",q,"").then(function(j){
-      if(!j||!j.ok){ out.innerHTML='<div class="hint" style="color:#ff8a8a;padding:10px">'+esc((j&&(j.error||j.detail))||"Excel se nepodařilo vytvořit.")+'</div>'; return; }
-      var fn=j.filename||("Rozpad_prefakturace_"+m+"-"+r+".xlsx");
-      var mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      var url, blobOk=false;
-      try{
-        var bin=atob(j.b64), n=bin.length, arr=new Uint8Array(n);
-        for(var i=0;i<n;i++)arr[i]=bin.charCodeAt(i);
-        url=URL.createObjectURL(new Blob([arr],{type:mime})); blobOk=true;
-      }catch(e){ url="data:"+mime+";base64,"+j.b64; }
-      var a=document.createElement("a"); a.href=url; a.download=fn; a.style.display="none";
-      document.body.appendChild(a);
-      try{ a.click(); }catch(e){}
-      setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} if(blobOk){ setTimeout(function(){try{URL.revokeObjectURL(url);}catch(e){}},60000); } },600);
-      var kc=(j.celkem_s_dph!=null)?(" · celkem s DPH "+prefKc(j.celkem_s_dph)):"";
-      out.innerHTML='<div class="hint" style="padding:10px;line-height:1.6">✅ Excel <b>'+esc(fn)+'</b> vygenerován'+kc+'.<br><a href="'+url+'" download="'+esc(fn)+'" style="display:inline-block;margin-top:8px;background:#1f6f43;color:#eafff3;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:600">⬇️ Stáhnout '+esc(fn)+'</a><div class="muted" style="margin-top:6px;font-size:12px">Pokud se stažení nespustí samo, klepni na tlačítko výše.</div></div>';
     }).catch(function(){ out.innerHTML='<div class="hint" style="color:#ff8a8a;padding:10px">Chyba spojení.</div>'; });
   }
   function prefVystavit(force){

@@ -41226,6 +41226,29 @@ async def diag_sql(req: Request) -> JSONResponse:
                 ])
             except Exception as _de_dsk:
                 _rows_dsk.append([_drv_dsk, "chyba", str(_de_dsk)[:60], "", ""])
+        # 30.11 (EUROSOFT2) pres MCP disk_status (defenzivne — @@DISK nikdy nespadne)
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client as _gmc_dsk
+            import json as _j_dsk
+            _mcp_dsk = _gmc_dsk()
+            _raw_dsk = _mcp_dsk.call_tool_sync("eurosoft_eurosoft_disk_status", {}, conversation_id=None)
+            _rr_dsk = _j_dsk.loads(_raw_dsk) if isinstance(_raw_dsk, str) else _raw_dsk
+            _host_dsk = (_rr_dsk.get("host") if isinstance(_rr_dsk, dict) else None) or "EUROSOFT2 (30.11)"
+            for _d_dsk in ((_rr_dsk.get("disks") or []) if isinstance(_rr_dsk, dict) else []):
+                try:
+                    _fr_dsk = float(_d_dsk.get("free_gb") or 0)
+                    _fl_dsk = " !!!" if _fr_dsk < 6 else (" !" if _fr_dsk < 12 else "")
+                    _rows_dsk.append([
+                        "%s %s%s" % (_host_dsk, _d_dsk.get("disk"), _fl_dsk),
+                        "%.1f GB" % float(_d_dsk.get("total_gb") or 0),
+                        "%.1f GB" % float(_d_dsk.get("used_gb") or 0),
+                        "%.1f GB" % _fr_dsk,
+                        "%.1f %%" % float(_d_dsk.get("free_pct") or 0),
+                    ])
+                except Exception:
+                    continue
+        except Exception as _me_dsk:
+            _rows_dsk.append(["EUROSOFT2 (30.11) - nedostupny pres MCP", str(_me_dsk)[:50], "", "", ""])
         return JSONResponse({"ok": True,
                              "columns": ["disk", "celkem", "obsazeno", "volno", "volno %"],
                              "rows": _rows_dsk, "count": len(_rows_dsk)})

@@ -212,7 +212,41 @@ async def eurosoft_schtask(name: str = "", op: str = "query", **_extra: Any) -> 
 
 
 # ── SPECS + HANDLERS (registrace v server.py) ───────────────────────────
+async def eurosoft_disk_status(**_extra) -> dict[str, Any]:
+    """Read-only: volne/obsazene/celkove misto na vsech fixnich discich serveru
+    (C, D, ...). Bez approval (zelena akce). Pro hlidac disku (prevence preplneni).
+    Claude C23 21.7.2026."""
+    import shutil as _sh
+    import string as _st
+    import os as _o
+    _gb = 1024.0 ** 3
+    _disks = []
+    try:
+        _cands = ["%s:\\" % _L for _L in _st.ascii_uppercase] if _o.name == "nt" else ["/"]
+        for _p in _cands:
+            try:
+                if not _o.path.exists(_p):
+                    continue
+                _u = _sh.disk_usage(_p)
+                _disks.append({
+                    "disk": _p.rstrip("\\") or _p,
+                    "total_gb": round(_u.total / _gb, 1),
+                    "used_gb": round(_u.used / _gb, 1),
+                    "free_gb": round(_u.free / _gb, 1),
+                    "free_pct": round(100.0 * _u.free / _u.total, 1) if _u.total else 0.0,
+                })
+            except Exception:
+                continue
+    except Exception as _e:
+        return {"ok": False, "error": str(_e)[:200], "disks": []}
+    return {"ok": True, "host": "EC-SERVER2 (30.11)", "disks": _disks}
+
+
 OPS_TOOL_SPECS = [
+    {"name": "eurosoft_disk_status",
+     "description": "Read-only: volne/obsazene/celkove misto na vsech fixnich discich serveru (C, D, ...). Zelena (bez banneru). Pro hlidac disku.",
+     "inputSchema": {"type": "object", "properties": {}}},
+
     {"name": "eurosoft_ops_run",
      "description": "Řízená OPS akce (allowlist+audit). action: pg_dump/pg_status (zelená), pg_restore/run_script (žlutá=banner). args dle akce (out/src/script). Za MCP_OPS_ENABLED.",
      "inputSchema": {"type": "object", "properties": {
@@ -228,6 +262,7 @@ OPS_TOOL_SPECS = [
 ]
 
 OPS_TOOL_HANDLERS = {
+    "eurosoft_disk_status": eurosoft_disk_status,
     "eurosoft_ops_run": eurosoft_ops_run,
     "eurosoft_service_ctl": eurosoft_service_ctl,
     "eurosoft_schtask": eurosoft_schtask,

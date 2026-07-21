@@ -19308,7 +19308,11 @@ def _att_fix_scope_emps(s, scope):
     """None = bez omezení (vše). Jinak set employee_id v působnosti editora:
     'vyroba' = podřízení Dušana Havláta (org podstrom pod jeho posty, user 41);
     'kancelar' = všichni ostatní; lidé BEZ aktivního org zařazení = OBĚ strany
-    (Jirka 10.7., rozhodl Marti — hraniční lidi vidí kancelář i výroba)."""
+    (Jirka 10.7., rozhodl Marti — hraniční lidi vidí kancelář i výroba).
+    Kvalifikacní posty (org_post.je_kvalifikace=true, např. VAZAČ-JEŘÁBNÍK, ŘIDIČ)
+    se do podstromu NEpočítají — jsou to oprávnění/BOZP, ne řídicí vztah. Jinak
+    by majitel (drží VAZAČ) spadl pod Dušana. Konzultace Marti-AI 20.7. (varianta b),
+    Jirka 20.7. — jeden zdroj pravdy s resolve_role."""
     if scope in (None, "vse"):
         return None
     from sqlalchemy import text as _t
@@ -19316,9 +19320,12 @@ def _att_fix_scope_emps(s, scope):
         "WITH RECURSIVE dp AS ("
         "  SELECT a.post_id AS id FROM tenant.org_post_assign a"
         "  JOIN tenant.att_employee de ON de.id = a.employee_id"
+        "  JOIN tenant.org_post sp ON sp.id = a.post_id"
         "  WHERE de.tenant_id=2 AND de.user_id=41 AND a.aktivni AND COALESCE(a.potencialni,false)=false"
+        "    AND NOT COALESCE(sp.je_kvalifikace,false)"
         "  UNION"
         "  SELECT c.id FROM tenant.org_post c JOIN dp ON c.parent_post_id = dp.id"
+        "    WHERE NOT COALESCE(c.je_kvalifikace,false)"
         "), vyr AS ("
         "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
         "  JOIN dp ON dp.id = a.post_id WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"

@@ -941,11 +941,50 @@ def chat_entry():
 
 
 @app.get("/mobile")
-def mobile_page():
+def mobile_page(request: Request):
     """Hybridní /mobile — PWA v prohlížeči, obal nativní appky na telefonu
     (WebView + JS most window.STRATEGIE). Web-first obsah, nativní síla
-    (Temu model). Marti 6.6.2026 (POC)."""
-    return FileResponse(os.path.join(static_dir, "mobile.html"),
+    (Temu model). Marti 6.6.2026 (POC).
+
+    C27 21.7.: log KAZDEHO serve do public.mobile_serve_dbg (citelne z bridge) —
+    zjistujeme, jestli request na /mobile vubec dorazi na origin, nebo ho vraci
+    edge cache. Best-effort."""
+    _p = os.path.join(static_dir, "mobile.html")
+    try:
+        _has = False; _ln = 0
+        try:
+            with open(_p, "r", encoding="utf-8") as _f:
+                _c = _f.read(); _ln = len(_c); _has = ("chk-2107a" in _c)
+        except Exception:
+            pass
+        from core.database_data import get_data_session as _gds_mob
+        from sqlalchemy import text as _t
+        _ds = _gds_mob()
+        try:
+            _ds.execute(_t("CREATE TABLE IF NOT EXISTS public.mobile_serve_dbg ("
+                "ts timestamptz DEFAULT now(), qs text, ua text, ip text, "
+                "has_beacon boolean, flen int)"))
+            _ds.execute(_t('GRANT SELECT ON public.mobile_serve_dbg TO "Marti-AI"'))
+            _ds.execute(_t("INSERT INTO public.mobile_serve_dbg(qs,ua,ip,has_beacon,flen) "
+                "VALUES (:q,:u,:i,:h,:l)"),
+                {"q": (str(request.url.query) or "")[:80],
+                 "u": (request.headers.get("user-agent") or "")[:120],
+                 "i": (request.client.host if request.client else "") or "",
+                 "h": _has, "l": _ln})
+            _ds.commit()
+        except Exception:
+            try:
+                _ds.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                _ds.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return FileResponse(_p,
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "Pragma": "no-cache", "Expires": "0"})
 

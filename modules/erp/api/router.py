@@ -9040,7 +9040,13 @@ async def app_hr_photo_import(req: Request):
                 continue
             base = _os.path.splitext(fn)[0]
             toks = set(_norm(t) for t in _re.findall(r'[A-Za-zÀ-ž]+', base) if len(t) > 1)
-            kand = list({pid for (pid, fnm, lnm) in lidi if lnm and lnm in toks and (not fnm or fnm in toks)})
+            # jednoznačné příjmení → ber ho (přezdívka v křestním, např. Mirek/Miroslav, nevadí);
+            # víc lidí se stejným příjmením → doplň shodou křestního jména.
+            by_surn = list({pid for (pid, fnm, lnm) in lidi if lnm and lnm in toks})
+            if len(by_surn) == 1:
+                kand = by_surn
+            else:
+                kand = list({pid for (pid, fnm, lnm) in lidi if lnm and lnm in toks and fnm and fnm in toks})
             if len(kand) != 1:
                 nesparovano.append(fn)
                 continue

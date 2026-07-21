@@ -52,6 +52,7 @@
   table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
   table.dokl .frow input::placeholder{color:#6a7078}
   table.dokl tbody tr{cursor:pointer}
+  table.dokl tbody td{padding-top:2px;padding-bottom:2px;font-size:12px}
   table.dokl tbody tr:hover{background:#131d2b}
 </style>
 </head>
@@ -170,8 +171,9 @@ function dcell(d,c){
 function dmatch(d){
   return DCOLS.every(function(c){
     var f=DFIL[c.k]; if(f==null||f==='')return true;
-    var v=(d[c.k]==null?'':(''+d[c.k])).toLowerCase();
-    return v.indexOf((''+f).toLowerCase())>=0;
+    var _rw=d[c.k];
+    var v=(_rw==null?'':(typeof _rw==='number'?_rw.toFixed(2):(''+_rw))).toLowerCase().replace(/,/g,'.');
+    return v.indexOf((''+f).toLowerCase().replace(/,/g,'.'))>=0;
   });
 }
 function dAnyFilter(){return Object.keys(DFIL).some(function(k){return DFIL[k]!=null&&DFIL[k]!=='';});}

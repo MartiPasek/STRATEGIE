@@ -52,7 +52,6 @@
   table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
   table.dokl .frow input::placeholder{color:#6a7078}
   table.dokl tbody tr{cursor:pointer}
-  table.dokl tbody td{padding-top:2px;padding-bottom:2px;font-size:12px}
   table.dokl tbody tr:hover{background:#131d2b}
 </style>
 </head>
@@ -150,7 +149,7 @@ let DFIL={}, DACTIVE=null, DOKLADY=[];
 let _doklSel={}, _doklLastIdx=null;
 function clearDoklFilters(){DFIL={};DACTIVE=null;renderDoklady();}
 function dcw(k){return DOKLW[k]||DCOLW_DEF[k]||80;}
-function dTotW(){var t=24;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
+function dTotW(){var t=18;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
 function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKLW));}catch(_){}}
 function bvNums(p){if(!p)return [];var m=(''+p).match(/BV\s?\d+/gi)||[];var out=[],seen={};m.forEach(function(x){var n=x.replace(/BV\s?/i,'');if(!seen[n]){seen[n]=1;out.push(n);}});return out;}
 function dcell(d,c){
@@ -181,16 +180,16 @@ function renderDoklady(){
   const box=document.getElementById('doklBox'); if(!box) return;
   if(!DOKLADY.length){box.innerHTML='<div class="muted">Za rok '+ROK+' zatím žádné doklady. Klikni nahoře „Aktualizovat z Heliosu".</div>';return;}
   var rows=DOKLADY.filter(dmatch), anyF=dAnyFilter();
-  var h='<div class="doklwrap"><table class="dokl" style="width:'+dTotW()+'px"><colgroup><col data-dcol="_mark" style="width:24px">';
+  var h='<div class="doklwrap"><table class="dokl" style="width:'+dTotW()+'px"><colgroup><col data-dcol="_mark" style="width:18px">';
   DCOLS.forEach(function(c){h+='<col data-dcol="'+c.k+'" style="width:'+dcw(c.k)+'px">';});
-  h+='</colgroup><thead><tr><th data-dcol="_mark"></th>';
+  h+='</colgroup><thead><tr><th data-dcol="_mark" style="padding:0"></th>';
   DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'"'+(c.tt?' title="'+esc(c.tt)+'"':'')+'>'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
-  h+='</tr><tr class="frow"><td style="text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearDoklFilters()">✕</td>';
+  h+='</tr><tr class="frow"><td style="text-align:center;padding:2px 0;cursor:pointer;color:#8aa0bd;font-weight:700" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearDoklFilters()">✕</td>';
   DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
   h+='</tr></thead><tbody>';
   rows.forEach(function(d,idx){var _k=(d.poradove_cislo==null?('_'+idx):(''+d.poradove_cislo));
     h+='<tr class="drow" data-k="'+esc(_k)+'" data-idx="'+idx+'"'+(_doklSel[_k]?' style="background:rgba(88,166,255,.10)"':'')+'>';
-    h+='<td style="text-align:center;color:#5aa0ff;font-weight:700">'+(idx===_doklLastIdx?'▶':(_doklSel[_k]?'•':''))+'</td>';
+    h+='<td style="text-align:center;padding:2px 0;color:#5aa0ff;font-weight:700">'+(idx===_doklLastIdx?'▶':(_doklSel[_k]?'•':''))+'</td>';
     DCOLS.forEach(function(c){
       var ti=(c.k==='poznamka'||c.k==='popis')?' title="'+esc(d[c.k]||'')+'"':'';
       h+='<td'+(c.r?' class="r"':'')+ti+'>'+dcell(d,c)+'</td>';

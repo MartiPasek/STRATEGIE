@@ -405,9 +405,22 @@ function openDay(uid,name,day){
       function tdc(html,cls,style){var c=document.createElement('td');if(cls)c.className=cls;if(style)c.style.cssText=style;c.innerHTML=html;return c;}
       function hmMin(x){var p=String(x||'').split(':');return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0);}
       var prevKon=null;  // konec předchozího (dřívějšího) viditelného záznamu — mezery vzestupně
+      var deList=[];     // „🫡 Odchod" — viz komentář níže
       es.forEach(function(e2){
         var gone=(e2.status==='superseded');
         var isDE=(e2.code==='day_end');  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
+        /* Peťa 21.7.2026: „🫡 Odchod" NENÍ pracovní záznam — je to stav „dnes už se
+           mnou nepočítej" (v mobilu „Mám volno 🏝️"), běží do půlnoci a nemá hodiny.
+           Nic neblokuje: kdo se chce zase píchnout, píchne se a stav tím skončí —
+           stejně jako u pauzy. V tabulce dne proto jen zabíral řádek a mátl.
+           Nově ho z tabulky vyndáváme pod ni jako jednu drobnou řádku; stornovat
+           se dá dál (pro případ, že si někdo den uzavřel omylem). */
+        if(isDE){
+          if(!gone&&e2.note&&e2.note.indexOf('✋ ROZPOR')<0)
+            poznBelow.push('<b>'+esc(e2.zac||'?')+' 🫡 Odchod:</b> '+esc(e2.note));
+          deList.push(e2);
+          return;
+        }
         if(!gone&&!isDE&&e2.hours!=null){
           var _h=Number(e2.hours)||0;
           var _iv=null;
@@ -551,6 +564,32 @@ function openDay(uid,name,day){
         }
       })();
       wrap.appendChild(tbl);box.appendChild(wrap);
+      // Peťa 21.7.2026: „🫡 Odchod" pod tabulkou jako jedna drobná řádka (viz komentář výše)
+      deList.forEach(function(de){
+        var goneDE=(de.status==='superseded');
+        var dw=el('<div class="hint" style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"></div>');
+        dw.appendChild(el('<span'+(goneDE?' style="opacity:.5;text-decoration:line-through;"':'')
+          +'>🫡 Den uzavřen v '+esc(de.zac||'?')+' — „dnes už se mnou nepočítej"</span>'));
+        if(goneDE)dw.appendChild(el('<span class="tag">storno</span>'));
+        else if(de.editable&&!j.locked){
+          var db=el('<button class="ib a" style="padding:2px 9px;font-size:11.5px;">🗑 Storno</button>');
+          var dfx=el('<div style="flex-basis:100%;"></div>');
+          db.addEventListener('click',function(){
+            if(dfx.innerHTML){dfx.innerHTML='';return;}
+            var rb=reasonBox();dfx.appendChild(rb);
+            var ok=el('<button class="b a" style="margin-top:6px;">Stornovat uzavření dne</button>');
+            var st=el('<div class="hint"></div>');
+            dfx.appendChild(ok);dfx.appendChild(st);
+            ok.addEventListener('click',function(){
+              if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}
+              api('POST','/api/v1/erp/app/attendance/fix/void',{id:de.id,reason:rb._input.value.trim()})
+                .then(function(r){ if(r.ok){render();loadQueue();} else st.textContent='✗ '+(r.error||'chyba'); });
+            });
+          });
+          dw.appendChild(db);dw.appendChild(dfx);
+        }
+        box.appendChild(dw);
+      });
       // Peťa 21.7.2026: SOUČET DNE pod tabulkou. Ukazuje, jak se den skládá, ať jde
       // zkontrolovat, jestli doplnění do fondu sedí (odhalilo chybu s pauzami 21.7.).
       if(ivPrace.length||sumPauzyH||ostPor.length){

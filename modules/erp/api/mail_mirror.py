@@ -63,7 +63,7 @@ def _recips_str(recips):
         return None
 
 
-def _save_attachments(m, uid: int, tenant_id: int):
+def _save_attachments(m, uid: int, tenant_id: int, process: bool = True):
     from modules.rag.application.service import upload_document
     ids = []
     try:
@@ -74,7 +74,8 @@ def _save_attachments(m, uid: int, tenant_id: int):
                     continue
                 name = getattr(a, "name", None) or "priloha"
                 did = upload_document(file_bytes=content, filename=name,
-                                      tenant_id=tenant_id, user_id=uid)
+                                      tenant_id=tenant_id, user_id=uid,
+                                      skip_processing=not process)
                 ids.append(did)
             except Exception as e:
                 logger.warning("[mail] priloha selhala: %s", str(e)[:120])
@@ -269,7 +270,25 @@ def backfill_att(uid, tenant_id=2, max_items=3000):
     Fetch po jedne podle ews_item_id -> _save_attachments -> UPDATE. Nezatezuje se
     nacitanim tel vsech zprav (na rozdil od sync_folder newest-first). Resumovatelne
     -- bere jen stale chybejici, takze re-run pokracuje. Resi bod 1 (historicke prilohy)."""
+    import time as _t
     acct = _account_for_user(uid)
+    try:
+        from exchangelib import FaultTolerance
+        _ft = FaultTolerance(max_wait=120)
+        try:
+            acct.protocol.config.retry_policy = _ft
+        except Exception:
+            pass
+        try:
+            acct.protocol.retry_policy = _ft
+        except Exception:
+            pass
+    except Exception:
+        pass
+    try:
+        acct.protocol.TIMEOUT = 60
+    except Exception:
+        pass
     s0 = get_data_session()
     try:
         rows = s0.execute(text(
@@ -296,7 +315,7 @@ def backfill_att(uid, tenant_id=2, max_items=3000):
                     fld = _folder(acct, slozka)
                     _fld_cache[slozka] = fld
                 m = fld.get(id=str(iid))
-                doc = _save_attachments(m, uid, tenant_id)
+                doc = _save_attachments(m, uid, tenant_id, process=False)
                 if doc:
                     s.execute(text(
                         "UPDATE tenant.mail_message SET prilohy_doc_ids=CAST(:pd AS jsonb), "
@@ -311,6 +330,10 @@ def backfill_att(uid, tenant_id=2, max_items=3000):
                 logger.warning("[mail-att] zprava id=%s selhala: %s", mid, str(e)[:150])
             if i % 25 == 0:
                 logger.info("[mail-att] uid=%s postup %s/%s ok=%s fail=%s", uid, i, total, ok, fail)
+            try:
+                _t.sleep(0.2)
+            except Exception:
+                pass
         s.commit()
     finally:
         s.close()

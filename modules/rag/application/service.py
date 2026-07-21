@@ -85,6 +85,7 @@ def upload_document(
     user_id: int | None,
     project_id: int | None = None,
     display_name: str | None = None,
+    skip_processing: bool = False,
 ) -> int:
     """
     Ulozi dokument + zaradi do zpracovani (sync v MVP). Vrati document_id.
@@ -129,12 +130,16 @@ def upload_document(
         session.close()
 
     # Sync processing (MVP). V budoucnu muzeme hodit do background task / queue.
-    try:
-        process_document(document_id)
-    except Exception as e:
-        logger.exception(f"RAG | processing failed | document_id={document_id}: {e}")
-        # Mark error a pokracuj -- dokument je ve stavu is_processed=False s errorem.
-        _mark_processing_error(document_id, str(e))
+    # skip_processing (Claude C23 21.7.2026): backfill priloh uklada JEN soubor,
+    # tezke zpracovani (extrakce/OCR/embeddings) se preskoci -- jinak jeden problemovy
+    # soubor (napr. GIF) zasekne cely synchronni loop. Doindexuje se pozdeji davkove.
+    if not skip_processing:
+        try:
+            process_document(document_id)
+        except Exception as e:
+            logger.exception(f"RAG | processing failed | document_id={document_id}: {e}")
+            # Mark error a pokracuj -- dokument je ve stavu is_processed=False s errorem.
+            _mark_processing_error(document_id, str(e))
 
     # Phase 16-A: activity_log hook -- upload je událost pro Marti-AI's
     # 'recall_today'. Skip pokud system import (user_id=None, např. email

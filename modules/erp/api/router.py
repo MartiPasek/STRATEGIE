@@ -12191,6 +12191,24 @@ def _abs_notify(s, target_uid, title, msg, quiet=False):
               {"uid": int(target_uid), "ct": ctype, "ti": title[:120], "msg": (msg or "")[:600]})
 
 
+def _abs_resolve(s, emp, requester_uid):
+    """Seznam uid schvalovatelů absence (Jirka 21.7.2026 — nahrazuje resolve_role→Marti).
+    Volá tenant.resolve_approvers (skupina → vedoucí VŽDY + zástup když je vedoucí
+    nepřítomen; viz znalost G2007 doc-dochazka-schvalovani-dovolene). Prázdné → Šárka
+    Novotná (13, personální); když žádá sama Šárka → Marti (1) jako poslední záchrana.
+    NIKDY nespadne na Martiho místo skupinového vedoucího. Vrací neprázdný list int."""
+    from sqlalchemy import text as _t
+    try:
+        rows = s.execute(_t("SELECT tenant.resolve_approvers(2, :e, CURRENT_DATE)"),
+                         {"e": emp}).fetchall()
+        appr = [int(r[0]) for r in rows if r[0] is not None and int(r[0]) != int(requester_uid)]
+    except Exception:
+        appr = []
+    if not appr:
+        appr = [13] if int(requester_uid) != 13 else [1]
+    return appr
+
+
 @api_router.post("/app/attendance/absence/request")
 async def att_absence_request(req: Request) -> JSONResponse:
     """Zaměstnanec žádá o absenci (dovolená/HO/lékař/OČR…). Routuje se na vedoucího
@@ -12224,12 +12242,10 @@ async def att_absence_request(req: Request) -> JSONResponse:
         emp = _att_employee(s, uid)
         if not emp:
             return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
-        mgr = None
-        try:
-            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": emp}).scalar()
-        except Exception:
-            mgr = None
+        # Jirka 21.7.2026: schvalovatelé přes resolve_approvers (skupina → vedoucí +
+        # zástup v nepřítomnosti), NE resolve_role → Marti. manager_user_id = primární.
+        _abs_apprs = _abs_resolve(s, emp, uid)
+        mgr = _abs_apprs[0] if _abs_apprs else None
         rid = s.execute(_t(
             "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
             "hours_per_day,note,stav,manager_user_id) "
@@ -12243,9 +12259,10 @@ async def att_absence_request(req: Request) -> JSONResponse:
         rng2 = str(d_do.day) + "." + str(d_do.month) + "."
         msg = (who + " žádá o „" + _ABS_TYP[typ] + "“ " + (rng if d_od == d_do else (rng + "–" + rng2))
                + ((" — " + note) if note else "") + ". Rozhodni v Docházce → Žádosti o absenci.")
-        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🗓️ Nová žádost o absenci", msg)
+        for _au in _abs_apprs:
+            _abs_notify(s, _au, "🗓️ Nová žádost o absenci", msg)
         s.commit()
-        return JSONResponse({"ok": True, "id": rid, "manager": mgr})
+        return JSONResponse({"ok": True, "id": rid, "manager": mgr, "approvers": _abs_apprs})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

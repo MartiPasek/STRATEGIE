@@ -27873,6 +27873,54 @@ async def app_notify(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/app/disk/report")
+async def disk_report(req: Request) -> JSONResponse:
+    """DiskWatch agent (X-Deploy-Token) -> stav disku serveru do fw.disk_monitor.
+    Body: {server, disks:[{drive,total_gb,used_gb,free_gb,free_pct,low}]}. Denni
+    hlidac to cte + alertuje. Claude C23 21.7.2026."""
+    import os as _os_dr
+    from core.database_data import get_data_session as _gdr
+    from sqlalchemy import text as _tdr
+    token = req.headers.get("X-Deploy-Token")
+    env = _os_dr.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env and token == env):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    server = (str(body.get("server") or "")).strip()[:64]
+    disks = body.get("disks") or []
+    if not server or not isinstance(disks, list):
+        return JSONResponse({"ok": False, "error": "server+disks required"}, status_code=400)
+    ds = _gdr()
+    n = 0
+    try:
+        for d in disks:
+            if not isinstance(d, dict):
+                continue
+            drive = (str(d.get("drive") or "")).strip()[:8]
+            if not drive:
+                continue
+            ds.execute(_tdr(
+                "INSERT INTO fw.disk_monitor (server_name, drive, total_gb, used_gb, free_gb, free_pct, low, checked_at) "
+                "VALUES (:s,:dr,:tot,:us,:fr,:pct,:low, now()) "
+                "ON CONFLICT (server_name, drive) DO UPDATE SET "
+                "total_gb=EXCLUDED.total_gb, used_gb=EXCLUDED.used_gb, free_gb=EXCLUDED.free_gb, "
+                "free_pct=EXCLUDED.free_pct, low=EXCLUDED.low, checked_at=now()"),
+                {"s": server, "dr": drive, "tot": d.get("total_gb"), "us": d.get("used_gb"),
+                 "fr": d.get("free_gb"), "pct": d.get("free_pct"), "low": bool(d.get("low"))})
+            n += 1
+        ds.commit()
+        return JSONResponse({"ok": True, "server": server, "upserted": n})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[disk_report] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.post("/app/netscan/ingest")
 async def netscan_ingest(req: Request) -> JSONResponse:
     """Mikrotik/netscan agent (X-Deploy-Token) → seznam zařízení na firemní síti.

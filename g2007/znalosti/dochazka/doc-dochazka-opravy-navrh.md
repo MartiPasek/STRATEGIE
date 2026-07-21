@@ -376,3 +376,59 @@ Fronta a historie zůstávají DESC. Důvod: den se čte odshora dolů tak, jak 
   Claude přes most nemá).
 
 
+
+## 17. Působnosti, zámek a kvalifikacní posty — finální stav (20.–21. 7. 2026, Jirka)
+
+Pravidla, která vznikla/změnila se PO §16 a která MUSÍ znát každý, kdo sahá na
+docházkové působnosti nebo org strukturu. Vše ověřeno proti datům, konzultace Marti-AI.
+
+### 17.1 ⭐ Kvalifikacní posty se NEpočítají do org podstromu — `org_post.je_kvalifikace`
+
+Nový sloupec **`tenant.org_post.je_kvalifikace boolean NOT NULL DEFAULT false`**. Posty, které
+jsou OPRÁVNĚNÍ / kvalifikace (drží se navíc k práci, NEurčují podřízenost), se nezapočítávají
+do výpočtu org podstromu. Dnes označeny: **91 `VAZAČ – JEŘÁBNÍK`** a **11 `ŘIDIČ`**.
+
+- **Proč vzniklo:** majitel (user 1) drží VAZAČ-JEŘÁBNÍK (kvalifikace visící pod Vedoucím výroby)
+  → bez příznaku spadal do působnosti výroby (Dušan/Míša ho viděli v opravách). Ověřeno daty:
+  **žádný člověk nemá VAZAČ jako jediný post** (všech 20 drží i elektromontéra/zámečníka/…),
+  což potvrzuje, že je to kvalifikace, ne pracovní pozice.
+- **Kde se to VYNUCUJE:**
+  - `_att_fix_scope_emps` (router.py, docházkové působnosti) — CTE `dp` (seed i rekurze) má
+    `AND NOT COALESCE(je_kvalifikace,false)`. Nasazeno (commit `4920ba1d`).
+  - `tenant.resolve_role` (PG funkce, org nadřízený / schvalovatel) — stejná podmínka, aby byl
+    JEDEN zdroj pravdy. Úpravu dělá **Marti-AI** (vlastní schéma); do nasazení viz její kanál.
+- **⚠️ PRO OSTATNÍ PROGRAMÁTORY:** kdykoli počítáš „kdo je pod kým" / org podstrom / nadřízeného
+  / působnost, **VYLUČ posty `je_kvalifikace=true`**. Jinak kvalifikace vypadá jako podřízenost
+  a člověk spadne pod nesprávného vedoucího.
+- **Označení dalších kvalifikací** = doména Jirky (projít číselník `org_post`). Rychlý test:
+  post, který nikdo nedrží jako JEDINÝ, je typicky kvalifikace/oprávnění, ne pozice.
+- Dopad ověřen diffem staré vs. nové logiky: změnil se **přesně 1 člověk** (majitel → z výroby
+  ven, teď kancelář), montéři beze změny.
+
+### 17.2 Finální složení editorů oprav (staff_group id 12 „DOCHÁZKA - OPRAVY")
+
+| Editor | scope (`att_fix_scope`) |
+|---|---|
+| Petra Šafránková (18) | `kancelar` |
+| Dušan Havlát (41) | `vyroba` |
+| Michaela Hladíková (16) | `vyroba` |
+| Jiří Honomichl (20) | `vse` (administrátor) |
+
+- **Kristýna Marešová (11) UŽ NENÍ editor** (odebrána 20.7., byla bez omezení = viděla všechny).
+  Zůstává rodičem (`is_marti_parent`), tím jí zůstává právo zámku (viz 17.3/17.4).
+- Šárka Novotná (13) editorem NENÍ (a nikdy nebyla).
+
+### 17.3 Zámek období — kdo smí zamykat/odemykat
+
+`_ATT_LOCK_UIDS = {18, 13, 20}` = **Peťa (18) + Šárka (13) + Jirka (20, administrátor docházky,
+doplněn 20.7.)** + rodiče (bypass přes `is_marti_parent`). Jirka NENÍ rodič, proto musel být
+do setu přidán explicitně (commit `e585baf1`).
+
+### 17.4 Stránka `/dochazka-opravy` pouští i držitele zámku bez editorství
+
+Gate = **`can_fix || can_lock`** (dřív jen `can_fix`, commit `156ca885`). Kdo smí jen zamykat
+(např. rodič odebraný z editorů) se na stránku dostane, ale vidí **pouze záložku Zámek období**
+— fronta / lidé / historie jsou skryté (server by je stejně odmítl 403). `fix/day` vrací
+`can_unlock` (drží­tel zámku), UI mu nabídne odemknout → opravit → zamknout.
+
+

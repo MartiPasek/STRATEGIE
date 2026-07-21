@@ -5005,7 +5005,7 @@ setTimeout(function(){
     // Tahák
     var tah=el('<div style="margin:12px 0;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:12px;padding:10px 12px;"></div>');
     tah.appendChild(el('<div style="font-weight:700;margin-bottom:4px;">📋 Tahák — co když…?</div>'));
-    [["Přijít do práce","vyber 🧾 Zakázku + 🔧 Činnost → ▶️ Makat (nebo 💬 → 🏢 Jsem v práci)"],["Z domova","💬 → 🏠 Nejsem v práci (home office)"],["Jsem na cestě","💬 → 🚗 Jedu do práce"],["Změnit zakázku/činnost","nahoře 🟢 MAKÁŠ — klikni a změň"],["Oběd / pauza","💬 → 🙈 → 🍃 Najíst / ☕ Pauza"],["Zpět z pauzy","✅ Jsem zpět — pokračuju"],["Jednání / pochůzka","💬 → 🙈 → 📅 jednání / 🚗 pochůzka"],["Konec dne","💬 → 🙈 → 🫡 Dnes už se mnou nepočítej"],["Dovolená / nemoc / lékař","🧭 Tady budu jinde → 🏠 Osobní důvody"],["Potvrdit den","jantarová karta → ✓ Potvrzuji (/ ✋ Rozpor)"],["Oprava záznamu","ťukni záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku"],["Už jsem den potvrdil a nesedí","✋ <b>Požádat o opravu</b> (sekce Moje docházka)"],["Dotaz / pomoc","💬 → 🙋 Mám dotaz na nadřízeného"]].forEach(function(r){ tah.appendChild(el('<div style="display:flex;gap:8px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13.5px;"><div style="flex:0 0 42%;">'+r[0]+'</div><div style="flex:1;color:var(--mut);">'+r[1]+'</div></div>')); });
+    [["Přijít do práce","vyber 🧾 Zakázku + 🔧 Činnost → ▶️ Makat (nebo 💬 → 🏢 Jsem v práci)"],["Z domova","💬 → 🏠 Nejsem v práci (home office)"],["Jsem na cestě","💬 → 🚗 Jedu do práce"],["Změnit zakázku/činnost","nahoře 🟢 MAKÁŠ — klikni a změň"],["Oběd / pauza","💬 → 🙈 → 🍃 Najíst / ☕ Pauza"],["Zpět z pauzy","✅ Jsem zpět — pokračuju"],["Jednání / pochůzka","💬 → 🙈 → 📅 jednání / 🚗 pochůzka"],["Konec dne","💬 → 🙈 → 🫡 Dnes už se mnou nepočítej"],["Dovolená / nemoc / lékař","🧭 Tady budu jinde → 🏠 Osobní důvody"],["Potvrdit den","jantarová karta → ✓ Potvrzuji (/ ✋ Rozpor)"],["Oprava záznamu","ťukni záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku"],["Už jsem den potvrdil a nesedí","✋ <b>Požádat o opravu</b> (Moje docházka) — jen tento měsíc"],["Dotaz / pomoc","💬 → 🙋 Mám dotaz na nadřízeného"]].forEach(function(r){ tah.appendChild(el('<div style="display:flex;gap:8px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13.5px;"><div style="flex:0 0 42%;">'+r[0]+'</div><div style="flex:1;color:var(--mut);">'+r[1]+'</div></div>')); });
     sc.appendChild(tah);
     // Rozbalovací sekce (věrně dle uživatelského návodu)
     var items=[
@@ -5022,15 +5022,15 @@ setTimeout(function(){
      ["potvrzeni","✅ Potvrzení docházky",
        "Po dni uvidíš <b>jantarovou (žlutou) kartu</b>: <i>„🖊 Včera · 7:26–16:26 · 7:52“</i>.<br>1. Zkontroluj údaje (detail v sekci „Tak to bylo dneska“).<br>2. Ťukni <b>✓ Potvrzuji svou docházku</b>.<br><br>⚠️ Dokud den nepotvrdíš, ráno se nepíchneš! Na potvrzení máš <b>14 dní</b>.<br>💡 Nesedí? Ťukni <b>✋ Rozpor</b> a napiš, co je špatně — dostane to nadřízený a pustí tě pracovat dál.<br><br>🆕 <b>Potvrdil jsi omylem a teprve pak zjistil, že to nesedí?</b> Nevadí — v sekci <b>Moje docházka</b> ťukni dlaždici <b>✋ Požádat o opravu</b>, vyber den (i starší) a napiš, co je špatně. Dostane to kontrola docházky a ozve se ti. Funguje i pro už potvrzený den."],
      ["oprava_zpetne","✋ Požádat o opravu (i po potvrzení dne)",
-       "Když ti na už uzavřeném dni něco nesedí — <b>omylem jsi ho potvrdil</b>, chybí příchod nebo odchod, je špatný čas nebo zakázka:<br><br><b>Kudy na to (dvě cesty, obě stejné):</b><br><b>A)</b> Sekce <b>Moje docházka</b> → dlaždice <b>✋ Požádat o opravu</b> → vyber den (posledních 14 dní, starší přes pole s datem) → ťukni konkrétní záznam, nebo <b>✋ Nesedí mi celý den</b>.<br><b>B)</b> V <b>🕓 Historii</b> (nebo 📅 Dnešek) ťukni na záznam → v řadě ikonek vyber <b>✋</b>.<br><br>Pak jen napiš, co je špatně — můžeš si ťuknout hotový důvod (<i>omylem jsem potvrdil(a) den</i>, <i>chybí odchod</i>, …) a doplnit vlastní text.<br><br>✓ Žádost dostane <b>kontrola docházky</b> (Peťa, u výroby Dušan s Míšou), den se jim označí jako <b>✋ rozpor</b> a ozvou se ti. Nemusíš už za nimi chodit osobně.<br>💡 Sám si zpětně den nepřepisuješ — opravu udělá pověřená osoba, aby byla dohledatelná."],
+       "Když ti na už uzavřeném dni něco nesedí — <b>omylem jsi ho potvrdil</b>, chybí příchod nebo odchod, je špatný čas nebo zakázka:<br><br><b>Kudy na to (dvě cesty, obě stejné):</b><br><b>A)</b> Sekce <b>Moje docházka</b> → dlaždice <b>✋ Požádat o opravu</b> → vyber den <b>z aktuálního měsíce</b> → ťukni konkrétní záznam, nebo <b>✋ Nesedí mi celý den</b>.<br><b>B)</b> V <b>🕓 Historii</b> (nebo 📅 Dnešek) ťukni na záznam → v řadě ikonek vyber <b>✋</b>.<br><br>Pak jen napiš, co je špatně — můžeš si ťuknout hotový důvod (<i>omylem jsem potvrdil(a) den</i>, <i>chybí odchod</i>, …) a doplnit vlastní text.<br><br>✓ Žádost dostane <b>kontrola docházky</b> (Peťa, u výroby Dušan s Míšou), den se jim označí jako <b>✋ rozpor</b> a ozvou se ti. Nemusíš už za nimi chodit osobně.<br>💡 Sám si zpětně den nepřepisuješ — opravu udělá pověřená osoba, aby byla dohledatelná.<br><br>⏳ <b>Jen za aktuální měsíc!</b> Starší období už prošlo mzdami a nejde opravovat. Proto si docházku kontroluj průběžně — a když něco nesedí, řekni si hned. Za starší den se ozvi kontrole docházky osobně."],
      ["jinde","🧭 Tady budu jinde — dovolená, nemoc, lékař…",
        "Plánované nepřítomnosti hlásíš dlaždicí <b>🧭 Tady budu jinde</b> (sekce <b>Moje docházka</b>):<br><br><b>🏠 Osobní důvody:</b><br>🌴 <b>Že by dovolená?</b> (od–do)<br>👨‍👧 <b>Zase řeším rodinu</b> — OČR (od–do)<br>🤒 <b>Je mi fakt blbě</b> — sick day (dnes)<br>🤧 <b>Mám neschopenku do…</b> — nemoc<br>🩺 <b>Jedu k lékaři</b> (pak dorazím / dnes ne / hlásím dopředu)<br>🏡 <b>Potřebuju makat z domova</b> — home office<br>🕐 <b>Něco si zařizuji</b> — dorazím za…<br><br><b>💼 Služební důvody:</b><br>🚙 Jedu rovnou k zákazníkovi · 🎓 Jsem na školení · 📦 Služební pochůzka, pak dorazím · 📝 Ostatní (napíšeš důvod)<br><br>💡 Žádosti jdou ke schválení nadřízenému, přijde ti notifikace."],
      ["komunikace","🙋 Pomoc, zprávy a opravy",
-       "<b>🙋 Mám dotaz na nadřízeného…</b> (v menu 💬) — napiš zprávu, dostane ji rovnou do mobilu.<br><b>💬 Píši přímo tobě, Marti…</b> — napíšeš asistentce Marti-AI.<br>Pro výrobu: <b>🛠 Zpráva vedoucímu výroby…</b> · <b>🏁 Budu brzy hotov…</b><br><br><b>✏️ Oprava záznamu:</b> v sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> nebo <b>🧾 Změnit zakázku</b>.<br><b>✋ Starší nebo už potvrzený den:</b> sekce <b>Moje docházka</b> → <b>✋ Požádat o opravu</b> (nebo v 🕓 Historii ťukni záznam → <b>✋</b>) — opraví to kontrola docházky."],
+       "<b>🙋 Mám dotaz na nadřízeného…</b> (v menu 💬) — napiš zprávu, dostane ji rovnou do mobilu.<br><b>💬 Píši přímo tobě, Marti…</b> — napíšeš asistentce Marti-AI.<br>Pro výrobu: <b>🛠 Zpráva vedoucímu výroby…</b> · <b>🏁 Budu brzy hotov…</b><br><br><b>✏️ Oprava záznamu:</b> v sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> nebo <b>🧾 Změnit zakázku</b>.<br><b>✋ Už potvrzený den (v tomto měsíci):</b> sekce <b>Moje docházka</b> → <b>✋ Požádat o opravu</b> (nebo v 🕓 Historii ťukni záznam → <b>✋</b>) — opraví to kontrola docházky."],
      ["prehledy","📊 Přehledy a moje údaje",
        "Sekce <b>Moje docházka</b>: 📅 <b>Dnešek</b> · 📅 <b>Týden</b> · 🔭 <b>Výhled</b> · 🕓 <b>Historie</b> · 📋 <b>Moje žádosti</b>.<br>Sekce <b>Podmínky &amp; finance</b>: 📋 Moje podmínky · 📐 <b>Můj úvazek</b> · 👤 Můj plán · 💰 <b>Moje finance</b> · 🗓️ Nepřítomnosti.<br><br>💰 <b>Moje odmakané prašule</b> (výplatní páska) je dole na obrazovce, <b>zamčená PINem</b>."],
      ["faq","❓ Časté otázky",
-       "<b>Musím při příchodu vybírat zakázku?</b><br>Nemusíš — dej <b>🧰 Režie</b> (bez zakázky), nebo prostě <b>💬 → 🏢 Jsem v práci</b>. Zakázku i činnost změníš i během dne (🟢 MAKÁŠ).<br><br><b>Zapomněl jsem se ráno píchnout.</b><br>Píchni se, jak si vzpomeneš (zapíše se od aktuálního času). O opravu času pak požádej: <b>Moje docházka → ✋ Požádat o opravu</b>.<br><br><b>Omylem jsem potvrdil den — a teď vidím, že nesedí!</b><br>Klid, jde to napravit. <b>Moje docházka → ✋ Požádat o opravu</b> → vyber ten den → napiš, co je špatně (máš tam i hotový důvod „omylem jsem potvrdil(a) den“). Dostane to kontrola docházky a opraví to. Funguje i zpětně.<br><br><b>Zapomněl jsem se odhlásit.</b><br>O půlnoci tě systém odhlásí sám — bude to ale víc hodin než realita. Raději se odhlas sám.<br><br><b>Nepustí mě píchnout!</b><br>Máš nepotvrzený den. Najdi jantarovou kartu → <b>✓ Potvrzuji</b> nebo <b>✋ Rozpor</b>.<br><br><b>Směna běží vs. pauza?</b><br>Běží = zelená hlavička, hodiny počítají. Pauza = oranžová, hodiny stojí. Jednání/pochůzka = hodiny běží dál.<br><br><b>Mám dotaz.</b><br>V menu 💬 ťukni <b>🙋 Mám dotaz na nadřízeného…</b>"]
+       "<b>Musím při příchodu vybírat zakázku?</b><br>Nemusíš — dej <b>🧰 Režie</b> (bez zakázky), nebo prostě <b>💬 → 🏢 Jsem v práci</b>. Zakázku i činnost změníš i během dne (🟢 MAKÁŠ).<br><br><b>Zapomněl jsem se ráno píchnout.</b><br>Píchni se, jak si vzpomeneš (zapíše se od aktuálního času). O opravu času pak požádej: <b>Moje docházka → ✋ Požádat o opravu</b>.<br><br><b>Omylem jsem potvrdil den — a teď vidím, že nesedí!</b><br>Klid, jde to napravit. <b>Moje docházka → ✋ Požádat o opravu</b> → vyber ten den → napiš, co je špatně (máš tam i hotový důvod „omylem jsem potvrdil(a) den“). Dostane to kontrola docházky a opraví to. Funguje i na už potvrzený den — ale <b>jen v rámci aktuálního měsíce</b> (starší už prošlo mzdami; tam se ozvi osobně).<br><br><b>Zapomněl jsem se odhlásit.</b><br>O půlnoci tě systém odhlásí sám — bude to ale víc hodin než realita. Raději se odhlas sám.<br><br><b>Nepustí mě píchnout!</b><br>Máš nepotvrzený den. Najdi jantarovou kartu → <b>✓ Potvrzuji</b> nebo <b>✋ Rozpor</b>.<br><br><b>Směna běží vs. pauza?</b><br>Běží = zelená hlavička, hodiny počítají. Pauza = oranžová, hodiny stojí. Jednání/pochůzka = hodiny běží dál.<br><br><b>Mám dotaz.</b><br>V menu 💬 ťukni <b>🙋 Mám dotaz na nadřízeného…</b>"]
     ];
     var openWrap=null;
     items.forEach(function(it){
@@ -6301,6 +6301,10 @@ setTimeout(function(){
   // _att_fix_editors_for_emp) — chyběla JEN cesta v appce. Bez časového omezení
   // (rozhodl Jirka 21.7.) — dozadu nic nezakazujeme, editor si den případně
   // odemkne. Trim/zakázku tu VĚDOMĚ nedrátujeme (R1 samoúpravy leží u Marti-AI).
+  // Peťa 21.7.: o opravu lze žádat JEN za aktuální kalendářní měsíc (starší už
+  // prošlo mzdou). Vynuceno i na serveru (/attendance/fix-request → 409).
+  function _opravaMesicOd(){ var d=new Date(); return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-01"; }
+  function _opravaDenPovolen(iso){ return String(iso||"") >= _opravaMesicOd(); }
   // Pozor: czDayLabel() je vnořená uvnitř dochLoad() — modulové funkce na ni nedosáhnou.
   function _czDayLabel(iso){ try{ var d=new Date(iso+"T12:00:00"); return d.toLocaleDateString("cs",{weekday:"long",day:"numeric",month:"numeric"}); }catch(e){ return iso; } }
   var _OPRAVA_DUVODY=["omylem jsem potvrdil(a) den","chybí příchod","chybí odchod",
@@ -6352,9 +6356,11 @@ setTimeout(function(){
       var n=(ta.value||"").trim();
       if(!n){ st.textContent="Napiš prosím, co nesedí."; return; }
       ok.disabled=true; st.textContent="⏳ Odesílám…";
-      var ep=entryId?"entry-dispute":"dispute-day";
-      var pl=entryId?{id:entryId,note:n}:{day:day,note:n};
-      api("POST","/api/v1/erp/app/attendance/"+ep,pl).then(function(r){
+      // Peťa 21.7.: jen aktuální kalendářní měsíc → vlastní endpoint fix-request
+      // (dispute-day/entry-dispute zůstávají bez omezení pro potvrzovací kartu,
+      // ta sahá 14 dní zpět a na přelomu měsíce by se člověk zasekl před píchnutím).
+      var pl={day:day,note:n}; if(entryId) pl.id=entryId;
+      api("POST","/api/v1/erp/app/attendance/fix-request",pl).then(function(r){
         if(r&&r.ok){
           host.innerHTML='<div style="background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;margin-top:6px;font-size:14px;">'
             +'✅ Odesláno. Kontrola docházky se ti ozve — den má teď <b>✋ rozpor</b> a je jim ve frontě.</div>';
@@ -6381,6 +6387,9 @@ setTimeout(function(){
       var bf=el('<div class="cact" style="'+(sz?('width:'+sz+'px;height:'+sz+'px;border-radius:16px;'):'')+'background:#e0a44a;color:#241a02;font-size:'+(18+d)+'px;">✋</div>');
       bf.addEventListener("click",function(ev){
         ev.stopPropagation();
+        if(!_opravaDenPovolen(e.d)){   // starší měsíc = uzavřeno mzdami (Peťa 21.7.)
+          if(hint) hint.textContent="⏳ Za tenhle den už o opravu požádat nejde — jen za aktuální měsíc. Ozvi se prosím kontrole docházky osobně.";
+          return; }
         if(hint) hint.textContent="";
         _dochOpravaSheet(e.d, e.id||0, _opravaLbl(e));
       });
@@ -6616,15 +6625,22 @@ setTimeout(function(){
     app.innerHTML=topbar("✋ Požádat o opravu docházky", true); _dochTopPad();
     var p=el('<div class="panel"></div>'); app.appendChild(p);
     p.appendChild(el('<div class="hint" style="margin:2px 0 8px;">Vyber den, u kterého ti něco nesedí — třeba když jsi ho omylem potvrdil(a). '
-      +'Žádost dostane kontrola docházky a ozve se ti. Potvrzený den to nevadí.</div>'));
+      +'Žádost dostane kontrola docházky a ozve se ti. Potvrzený den to nevadí.<br>'
+      +'⏳ <b>Jen za aktuální měsíc</b> — starší období je uzavřené mzdami. Když ti nesedí něco staršího, ozvi se kontrole docházky osobně.</div>'));
     var host=el('<div></div>');
-    // starší den ručně
+    // volba dne — jen aktuální kalendářní měsíc (Peťa 21.7.)
+    var _od=_opravaMesicOd(), _vcera=_locDate(-1);
     var dr=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"></div>');
-    var di=el('<input type="date" max="'+_locDate(0)+'" value="'+_locDate(-1)+'" style="flex:1;min-width:0;">');
+    var di=el('<input type="date" min="'+_od+'" max="'+_locDate(0)+'" value="'+(_opravaDenPovolen(_vcera)?_vcera:_locDate(0))+'" style="flex:1;min-width:0;">');
     var db=el('<button class="ghost sm">Otevřít</button>');
-    db.addEventListener("click",function(){ if(di.value) _opravaDen(host, di.value); });
+    db.addEventListener("click",function(){
+      if(!di.value) return;
+      if(!_opravaDenPovolen(di.value)){
+        host.innerHTML='<div class="hint" style="margin-top:10px;color:var(--amber);">⏳ Za tenhle den už žádat nejde — opravovat lze jen aktuální měsíc. Ozvi se prosím kontrole docházky osobně.</div>';
+        return; }
+      _opravaDen(host, di.value); });
     dr.appendChild(di); dr.appendChild(db); p.appendChild(dr);
-    p.appendChild(el('<div class="hint" style="margin:2px 0 6px;font-weight:600;">Poslední dny</div>'));
+    p.appendChild(el('<div class="hint" style="margin:2px 0 6px;font-weight:600;">Dny tohoto měsíce</div>'));
     var lst=el('<div></div>'); lst.innerHTML='<div class="hint">Načítám…</div>';
     p.appendChild(lst); p.appendChild(host);
     api("GET","/api/v1/erp/app/attendance/list?days=14","").then(function(j){
@@ -6632,13 +6648,14 @@ setTimeout(function(){
       var rows=(j&&j.entries)||[], dny={};
       rows.forEach(function(e2){
         if(!e2||!e2.d||e2.code==='day_end') return;
+        if(!_opravaDenPovolen(e2.d)) return;   // starší měsíc = mimo (Peťa 21.7.)
         var g=dny[e2.d]||(dny[e2.d]={d:e2.d,od:null,do_:null,n:0});
         if(e2.zac&&(!g.od||e2.zac<g.od)) g.od=e2.zac;
         if(e2.kon&&(!g.do_||e2.kon>g.do_)) g.do_=e2.kon;
         g.n++;
       });
       var ks=Object.keys(dny).sort().reverse();
-      if(!ks.length){ lst.appendChild(el('<div class="hint">Za posledních 14 dní tu nic není — vyber datum výše.</div>')); return; }
+      if(!ks.length){ lst.appendChild(el('<div class="hint">V tomto měsíci tu zatím nic není — vyber datum výše.</div>')); return; }
       ks.forEach(function(k){
         var g=dny[k];
         // Hodiny tu VĚDOMĚ nesčítáme: „Nenároková práce (nad fond)" běží souběžně

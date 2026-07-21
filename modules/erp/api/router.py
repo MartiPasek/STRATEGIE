@@ -19489,6 +19489,114 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# ✋ ŽÁDOST O OPRAVU Z APPKY (Jirka 21.7.2026, podnět Peťa Šafránková).
+#
+# Peťa 21.7.: „60 dní zpět je nesmysl, nemůže se opravovat docházka v minulém
+# měsíci, který již prošel mzdou. Tedy je to jen možnost v daném kalendářním
+# měsíci, jinak nedovolovat." → rozhodl Jirka: DOSLOVA aktuální kalendářní měsíc.
+#
+# ⚠️ PROČ SAMOSTATNÝ ENDPOINT a ne gate v dispute-day / entry-dispute:
+# potvrzovací karta („🖊 Potvrď si docházku") nabízí dny **14 dní zpět**
+# (_att_unconfirmed_days), takže na přelomu měsíce PŘELÉZÁ do minulého měsíce.
+# Rozpor z té karty je mechanismus, kterým člověk splní zodpovědnost za den
+# a ODBLOKUJE si ranní píchnutí. Kdyby na něj dopadlo měsíční omezení, člověk
+# 2. 8. s nepotvrzeným 30. 7. by nemohl ani potvrdit (nesedí to), ani rozporovat
+# → nepíchl by se a nemohl pracovat. Proto zůstávají dispute-day/entry-dispute
+# BEZE ZMĚNY a měsíční pravidlo platí jen pro tuhle novou cestu.
+# ---------------------------------------------------------------------------
+
+
+@api_router.post("/app/attendance/fix-request")
+async def att_fix_request(req: Request) -> JSONResponse:
+    """Žádost o opravu z obrazovky „✋ Požádat o opravu" — jen aktuální měsíc.
+
+    Body: {day: 'YYYY-MM-DD', id?: <att_entry.id>, note: '...'}
+    Chování je jinak shodné s dispute-day / entry-dispute: den se označí
+    disputed, editorům dle působnosti odejde notifikace a den padne do fronty.
+    """
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
+    note = str((body or {}).get("note") or "").strip()[:500]
+    if not note:
+        return JSONResponse({"ok": False, "error": "Napiš prosím, co nesedí."})
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    dnes = _dt.now().date()
+    if day > dnes:
+        return JSONResponse({"ok": False, "error": "Budoucí den řešit nejde."}, status_code=400)
+    # Peťa 21.7.: jen aktuální kalendářní měsíc — starší už prošlo mzdou.
+    if (day.year, day.month) != (dnes.year, dnes.month):
+        return JSONResponse({
+            "ok": False,
+            "error": ("Za " + str(day.day) + ". " + str(day.month) + ". už o opravu požádat nejde — "
+                      "opravovat lze jen aktuální měsíc, starší období je uzavřené mzdami. "
+                      "Ozvi se prosím osobně kontrole docházky."),
+        }, status_code=409)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        # Konkrétní záznam (volitelně) — musí patřit žadateli a sedět na den.
+        if eid:
+            row = s.execute(_t(
+                "SELECT e.id FROM tenant.att_entry e "
+                "JOIN tenant.att_employee em ON em.id = e.employee_id "
+                "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u AND e.entry_date = :d"),
+                {"i": eid, "t": _ATT_TENANT, "u": uid, "d": day.isoformat()}).first()
+            if not row:
+                s.commit()
+                return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+            s.execute(_t(
+                "UPDATE tenant.att_entry SET note = CASE WHEN COALESCE(note,'') = '' THEN :nn "
+                "ELSE note || ' / ' || :nn END, updated_at = now() WHERE id = :i"),
+                {"nn": "✋ ROZPOR: " + note, "i": eid})
+        s.execute(_t(
+            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id, disputed, note) "
+            "VALUES (:t, :e, :d, :u, true, :n) "
+            "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true, note = EXCLUDED.note"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid, "n": note[:300]})
+        # Rozporovaný den je vyřešený → zhasni vlastní připomínku i anomálii.
+        s.execute(_t(
+            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
+            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
+            "  AND e.id = a.entry_id AND e.entry_date = :d"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()})
+        s.execute(_t(
+            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
+            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
+            {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
+        who = _user_jmeno(s, uid)
+        targets = _att_fix_editors_for_emp(s, emp) or {20}  # fallback = Jirka (admin), NE rodič
+        msg = (who + " žádá o opravu docházky za " + str(day.day) + ". " + str(day.month) + "."
+               + " — „" + note + "“ Mrkni na záznamy a doladěte to spolu.")
+        for uid2 in sorted(targets):
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                {"uid": uid2, "ti": "✋ Žádost o opravu docházky", "msg": msg[:600]})
+        s.commit()
+        return JSONResponse({"ok": True, "day": day.isoformat()})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ---------------------------------------------------------------------------
 # OPRAVY DOCHÁZKY POVĚŘENÝMI OSOBAMI (Jirka 9.7.2026, zadal Marti Pašek).
 # Skupina staff_group 'DOCHÁZKA - OPRAVY' (bez parent/admin bypassu — „zpětně
 # opravují jen jmenovaní"). Oprava = supersede původního řádku + nový řádek

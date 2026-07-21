@@ -557,10 +557,10 @@ totéž): staženo `https://strategie-ai.com/mobile` s device cookie → `doch_o
 
 ### 19.6 Otevřené / k vědomí
 
-- **Fronta editorů bere rozpory jen 60 dní zpět** (`fix/queue`,
-  `c.day >= current_date - 60`). Při „bez omezení" může přijít žádost o starší
-  den: **notifikace dorazí**, ale ve frontě se neobjeví. Nerozšířeno vědomě —
-  je to zásah do Peťiny obrazovky.
+- ~~Fronta editorů bere rozpory jen 60 dní zpět~~ — **vyřešeno 21. 7. odpoledne
+  zúžením na aktuální měsíc, viz §19.8.** Okno fronty (60 dní) zůstává, ale
+  žádost starší než aktuální měsíc už nevznikne, takže rozpor mimo frontu
+  nemůže nastat.
 - **Zamčené období**: žádost projde vždy, ale opravit půjde až po odemčení
   (tvrdý zámek, §16.1). Uživatel se to dozví až od editora.
 - Odeslaná žádost **není vidět v „📋 Moje žádosti"** (ta ukazuje jen
@@ -580,5 +580,62 @@ totéž): staženo `https://strategie-ai.com/mobile` s device cookie → `doch_o
   ⚠️ **`users.status='pending'` má 62 z 78 lidí, a 23 z nich appku aktivně
   používá** — je to onboarding příznak, **NE** signál neaktivity. Kdo bude
   vybírat publikum pro plošnou zprávu, `users.status` na to nepoužije.
+
+## 19.8 ⭐ Zúženo na AKTUÁLNÍ KALENDÁŘNÍ MĚSÍC (21. 7. 2026 odpoledne, rozhodla Peťa)
+
+Peťa po přečtení oznámení (§19.7) reagovala na výhradu o 60denním okně fronty:
+
+> *„60 dní zpět je nesmysl, nemůže se opravovat docházka v minulém měsíci, který
+> již prošel mzdou. Tedy je to jen možnost v daném kalendářním měsíci, jinak nedovolovat."*
+
+**Rozhodl Jirka: implementovat DOSLOVA** — žádost jde jen za aktuální kalendářní
+měsíc. (Zvažovala se i varianta „řídit se `att_period_lock`", protože Peťa sama
+zamkla červen až **16. 7.**, tedy 16 dní do dalšího měsíce — doslovné pravidlo by
+tehdy zablokovalo legitimní opravy června během 1.–16. 7. Jirka přesto zvolil
+doslovné znění; **důsledek je vědomý**, viz §19.9.)
+
+### ⚠️ PROČ SAMOSTATNÝ ENDPOINT — past, do které nespadni
+
+Měsíční omezení **NESMÍ** přijít do `dispute-day` / `entry-dispute`. Ty pohánějí
+i **potvrzovací kartu**, která nabízí dny **14 dní zpět** (`_att_unconfirmed_days`)
+a na přelomu měsíce tedy přelézá do minulého měsíce. Rozpor z té karty je
+mechanismus, kterým člověk **splní zodpovědnost za den a odblokuje si ranní
+píchnutí**. Kdyby na něj dopadlo měsíční pravidlo, člověk 2. 8. s nepotvrzeným
+30. 7. by nemohl den ani potvrdit (nesedí), ani rozporovat → **nepíchl by se
+a nemohl by pracovat.**
+
+Proto vznikl **`POST /app/attendance/fix-request`** (`{day, id?, note}`):
+- mimo aktuální měsíc → **409** s lidskou hláškou („…ozvi se osobně kontrole docházky"),
+- budoucí den → 400, prázdný důvod → odmítnuto,
+- jinak chování shodné s dispute-day/entry-dispute (den `disputed`, poznámka
+  „✋ ROZPOR: " na záznam, úklid anomálie `nepotvrzeny_den`, notifikace editorům
+  dle působnosti, fallback Jirka 20).
+- `dispute-day` / `entry-dispute` zůstávají **BEZE ZMĚNY**.
+- Tech dluh: zápisová část je duplikát dispute-day (~25 řádků) — vědomě, aby
+  úprava nové cesty nemohla rozbít potvrzovací kartu. Kdo bude slučovat,
+  ať drží obě chování oddělená.
+
+### Mobil
+Datumové pole `min` = 1. den aktuálního měsíce, seznam nabízí jen dny tohoto
+měsíce, starší den (i přes ✋ v Historii) → vysvětlující hláška místo formuláře.
+Nápověda upravena na všech čtyřech místech (oddíl, tahák, FAQ, „Pomoc a opravy")
++ nová věta: *„Proto si docházku kontroluj průběžně."*
+
+### Ověřeno v PRODUKCI (ne jen lokálně)
+`min=2026-07-01`, 0 nabízených dnů z jiného měsíce, červen odmítnut hláškou,
+POST míří na `fix-request` (ne na staré endpointy), bez JS chyb. Proti ostrému
+API: **červen → 409**, srpen → 400, prázdný důvod → odmítnuto; kontrola DB
+potvrdila **0 testovacích zápisů** (odmítnutí proběhne před jakýmkoli zápisem,
+takže se to takhle dá bezpečně testovat i na produkci).
+
+## 19.9 Vědomý důsledek k vyhodnocení
+
+Na přelomu měsíce **není žádné okno**: 1. 8. už nikdo nepožádá o opravu 31. 7.,
+i kdyby mzdy za červenec ještě nebyly zpracované. Letos by stejné pravidlo
+zablokovalo opravy června mezi 1. a 16. 7. (Peťa zamkla červen až 16. 7.).
+Pokud se to v praxi ukáže jako problém, hotové řešení je **navázat pravidlo na
+`att_period_lock`** místo na kalendář (žádost jde, dokud měsíc není zamčený) —
+splní Peťin důvod a přelom měsíce nerozbije. Peťa je na tenhle důsledek
+upozorněna e-mailem.
 
 

@@ -3,7 +3,7 @@
 > Kanonický popis, **jak to teď funguje**, aby se to dalo snadno opravovat a ladit
 > a aby obsah **vždy odpovídal skutečné funkčnosti** docházky.
 > Udržuj tenhle soubor při každé změně nápovědy/průvodce nebo menu docházky.
-> Poslední aktualizace: 8. 7. 2026.
+> Poslední aktualizace: 21. 7. 2026.
 
 ## ⚠️⚠️ BUILD: `mobile.html` je od 5. 7. 2026 GENEROVANÝ — needituj ho přímo!
 
@@ -57,12 +57,21 @@ Obrazovka **🤝 Spolupráce** (Firma → Spolupráce, nebo dlaždice v Aplikac�
 2. **💬 Potřebuji ti něco říct…** (`showOpts`) — menu se liší dle stavu:
    - **MIMO směnu (příchod):** 🚗 Jedu do práce… (5/15/30/45 min/1/1,5/2 h) · 🏢 Jsem v práci… · 🏠 Nejsem v práci… (home office) · 🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve… · 💬 Píši přímo tobě, Marti… · 🙋 Mám dotaz na nadřízeného…
    - **VE směně:** 🙈 Teď to bude jinak… → (☕ Krátká pauza · 🍃 Jdu se provětrat/najíst · 🕔 skončit dříve · 🌅 přijít později · 📅 Mám jednání · 🚗 Mám služební pochůzku · 🫡 Dnes už se mnou nepočítej) · 🛠 Zpráva vedoucímu výroby · 🏁 Budu brzy hotov · 💬 Píši Marti · 🙋 Mám dotaz na nadřízeného · (🏭 Plánovač výroby jen vedoucí). **Jednání/pochůzka = hodiny BĚŽÍ dál.**
-3. **MOJE DOCHÁZKA** (dlaždice): 📅 Dnešek · 📅 Týden · 🔭 Výhled · 🕓 Historie · 📋 Moje žádosti · **🧭 Tady budu jinde**.
+3. **MOJE DOCHÁZKA** (dlaždice): 📅 Dnešek · 📅 Týden · 🔭 Výhled · 🕓 Historie · 📋 Moje žádosti · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde**.
    - **🧭 Tady budu jinde** (`jindeBuild`) → **🏠 Osobní důvody** (🏡 makat z domova/HO · 🕐 Něco si zařizuji · 👨‍👧 Zase řeším rodinu/OČR · 🤒 Je mi fakt blbě/sick day · 🤧 Mám neschopenku do · 🩺 Jedu k lékaři · 🌴 Že by dovolená) + **💼 Služební důvody** (🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka pak dorazím · 📝 Ostatní). **Absence jdou TUDY, NE přes 💬.**
 4. **PODMÍNKY & FINANCE** (dlaždice): 📋 Moje podmínky · 📐 Můj úvazek · 👤 Můj plán · 💰 Moje finance · 🗓️ Nepřítomnosti.
 5. **Potvrzení dne** = jantarová karta → ✓ Potvrzuji svou docházku / 🔍 detaily / ✋ Rozpor. Bez potvrzení se ráno nepíchneš (14 dní).
+   **Po potvrzení karta zmizí** — od 21. 7. vede zpátky **✋ Požádat o opravu** (viz bod 8).
 6. Historie + **💰 Moje odmakané prašule** (páska, PIN).
-7. **Oprava záznamu:** v sekci „Tak to bylo dneska…" ťukni na záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku.
+7. **Oprava záznamu (vlastní, jen dnešek):** v sekci „Tak to bylo dneska…" ťukni na záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku.
+8. **✋ Požádat o opravu (od 21. 7. 2026, podnět Peťa)** — pro **starší i už POTVRZENÝ** den.
+   Dvě rovnocenné cesty: dlaždice **✋ Požádat o opravu** (obrazovka `doch_oprava_zadost`:
+   14 dní + pole s datem pro starší → celý den nebo konkrétní záznam → chipy důvodů
+   + volný text) **nebo** ✋ v 🕓 Historii/📅 Dnešku (rozklikni záznam → celoobrazovkový
+   sheet). Volá `dispute-day` / `entry-dispute` → den = ✋ rozpor, notifikace editorům
+   dle působnosti (kancelář Peťa, výroba Dušan+Míša). **Člověk si sám zpětně nic nepřepisuje.**
+   ⚠️ Ikonky ⏱/🧾/🗑 v rozkliknutém řádku Historie jsou pořád **ATRAPY** (jen hláška
+   „Návrh: …") — ostré je tam **jen ✋**. Detail: G2007 `doc-dochazka-opravy-navrh` §19.
 
 ## Hlasový průvodce — kroky (SL) a jejich obrázky (stav 26.6.2026)
 
@@ -120,3 +129,18 @@ změní reálnou docházku.
 - **Žádné „Krok N" v `v:`** — pozici ukazuje jen čítač „x/N" (jinak nesedí).
 - Po deployi .html: ověř v prohlížeči (Claude in Chrome) — py_compile/JS gate to nehlídá.
 - Ověřuj JS: extrahuj `<script>` bloky a `new Function(...)` / `node --check`.
+- **`czDayLabel()` je vnořená uvnitř `dochLoad()`** — modulové funkce na ni nedosáhnou
+  (`ReferenceError`). Pro nový kód je modulový **`_czDayLabel()`**.
+- **`go()` NENÍ globální** (vše v jednom IIFE) → automatický test musí proklikat UI
+  (🏢 Firma → 🤝 Spolupráce); `page.evaluate(() => go('...'))` spadne.
+- **Formulář nikdy nevkládej do rozkliknutého řádku Historie** — rail má `height:38vh`
+  s vlastním scrollem, obsah se ořízne a tlačítka vyjedou z displeje. Použij
+  celoobrazovkový sheet (`class="appmodal"`, vzor `dochHelp` / `_dochOpravaSheet`).
+- **Hodiny dne NIKDY nesčítej v JS přes záznamy** — typ „Nenároková práce (nad fond)"
+  má `category='presence'` a běží SOUBĚŽNĚ se směnou → dvojité počítání (20. 7. dalo
+  **27:04** za jeden den). Ani filtr na `presence` nepomůže. Ber číslo ze serveru,
+  nebo ukaž jen rozsah a počet záznamů.
+- **Nápovědu drž při každé změně funkčnosti** — 21. 7. přibyl oddíl
+  „✋ Požádat o opravu (i po potvrzení dne)", řádek v taháku a FAQ
+  „Omylem jsem potvrdil den…"; oddíly „✅ Potvrzení docházky" a „🙋 Pomoc, zprávy
+  a opravy" na ni odkazují.

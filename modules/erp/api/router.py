@@ -8339,7 +8339,8 @@ def _sms_inbound_hit(endpoint, authed, from_phone, body, client_ip, note):
     # 'strategie', bridge (Marti-AI) ji nepřečte). Diagnostika vstupu SMS brány.
     # Best-effort, nikdy nesmí ovlivnit hlavní tok.
     try:
-        cm2, s2 = _att_session()
+        from core.database_data import get_data_session as _gds_hit
+        s2 = _gds_hit()
         try:
             s2.execute(_t("CREATE TABLE IF NOT EXISTS public.sms_inbound_dbg ("
                 "ts timestamptz DEFAULT now(), endpoint text, authed boolean, "
@@ -8358,7 +8359,10 @@ def _sms_inbound_hit(endpoint, authed, from_phone, body, client_ip, note):
             except Exception:
                 pass
         finally:
-            cm2.__exit__(None, None, None)
+            try:
+                s2.close()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -18110,7 +18114,8 @@ async def app_phone_checkin(req: Request) -> JSONResponse:
     ip = (req.client.host if req.client else "") or ""
     def _w():
         from sqlalchemy import text as _t
-        cm, s2 = _att_session()
+        from core.database_data import get_data_session as _gds_chk
+        s2 = _gds_chk()
         try:
             s2.execute(_t("CREATE TABLE IF NOT EXISTS public.phone_checkin_dbg ("
                 "ts timestamptz DEFAULT now(), v text, native boolean, gw boolean, "
@@ -18129,7 +18134,10 @@ async def app_phone_checkin(req: Request) -> JSONResponse:
             except Exception:
                 pass
         finally:
-            cm.__exit__(None, None, None)
+            try:
+                s2.close()
+            except Exception:
+                pass
     try:
         await run_in_threadpool(_w)
     except Exception:

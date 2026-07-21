@@ -25593,11 +25593,30 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4,
             "  FROM grp GROUP BY employee_id, entry_date, g), "
             "pres AS (SELECT employee_id, entry_date, sum(EXTRACT(EPOCH FROM (en - s))/3600.0) AS presence_h "
             "  FROM merged GROUP BY employee_id, entry_date), "
-            "brk AS (SELECT e.employee_id, e.entry_date, sum(COALESCE(e.hours,0)) AS break_h "
-            "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "  WHERE e.tenant_id=:t AND et.code='break' "
+            # PAUZY (opraveno Peťa 21.7.2026 — dvě chyby najednou):
+            #  1) sčítaly se i STORNOVANÉ pauzy → odečetlo se víc, než člověk odpočíval;
+            #  2) pauza se odečítala vždy celá, i když leží MIMO pracovní záznam.
+            #     Když je práce rozdělená (09:40–13:09 / pauza / 13:24–16:04), je pauza
+            #     z práce už vynechaná mezerou a druhé odečtení ubere hodiny dvakrát.
+            #  Nově: odečteme jen PRŮNIK pauzy se sloučenou pracovní dobou. Pauza bez
+            #  časů (jen hodiny, typicky import z Centrály) se odečte celá — u ní
+            #  nevíme, kde leží, a předpokládáme, že je uvnitř směny.
+            "brk AS (SELECT q.employee_id, q.entry_date, sum(q.h) AS break_h FROM ("
+            "  SELECT b.employee_id, b.entry_date, "
+            "    GREATEST(EXTRACT(EPOCH FROM (LEAST(b.en,m.en) - GREATEST(b.s,m.s)))/3600.0, 0) AS h "
+            "  FROM (SELECT e.employee_id, e.entry_date, e.started_at AS s, e.ended_at AS en "
+            "        FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "        WHERE e.tenant_id=:t AND et.code='break' AND e.status NOT IN ('superseded') "
+            "          AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL AND e.ended_at > e.started_at "
             + dcond +
-            "  GROUP BY e.employee_id, e.entry_date), "
+            "       ) b JOIN merged m ON m.employee_id=b.employee_id AND m.entry_date=b.entry_date "
+            "  UNION ALL "
+            "  SELECT e.employee_id, e.entry_date, COALESCE(e.hours,0) "
+            "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "  WHERE e.tenant_id=:t AND et.code='break' AND e.status NOT IN ('superseded') "
+            "    AND (e.started_at IS NULL OR e.ended_at IS NULL) "
+            + dcond +
+            ") q GROUP BY q.employee_id, q.entry_date), "
             "fondp AS (SELECT em.id AS employee_id, COALESCE("
             "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
             "     FROM tenant.engagement g JOIN tenant.att_employee em2 ON em2.id=g.employee_id "

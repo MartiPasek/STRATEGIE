@@ -480,4 +480,83 @@ Pro pořádek: zamykat/odemykat období smí **Peťa (18) + Šárka (13) + Jirka
 (`_ATT_LOCK_UIDS = {18,13,20}` + `is_marti_parent`). Text §16.1 „odemyká Peťa/Šárka" je zúžený —
 platí složení z §17.3.
 
+## 19. ✋ Žádost o opravu z mobilu — i po potvrzení dne (21. 7. 2026, podnět Peťa Šafránková)
+
+**Podnět (Peťa → Jirka):** lidé za ní chodí osobně, že *omylem potvrdili docházku
+za předchozí den* a potřebují u konkrétního dne znovu požádat o opravu.
+
+### 19.1 Diagnóza — cesta v appce CHYBĚLA (ověřeno kódem i daty)
+
+- Jediný rozpor v mobilu byl uvnitř jantarové **potvrzovací karty** („🔍 detaily…"
+  → „✋ Nesedí…"). Karta se plní z `_att_unconfirmed_days` (`router.py`), která
+  **vylučuje dny s řádkem v `att_day_confirm`** → potvrzením den z karty zmizí
+  a **s ním i jediná cesta k rozporu**.
+- V 🕓 **Historii** akce nebyly: tlačítka ⏱/🧾/🗑 v `_jobBtns` byly **atrapy**
+  (jen vypsaly hlášku *„Návrh: … nawiruju, až schválíš"*), nic nevolaly.
+- Data (`tenant.att_day_confirm`, 30 dní k 21. 7.): **506 dnů, 506 potvrzených,
+  0 rozporovaných**; potvrzeno-a-potom-rozporováno **0 za celou historii**.
+  Nešlo o málo používanou funkci — cesta neexistovala.
+
+### 19.2 ⭐ Backend byl hotový — chyběla JEN cesta v UI
+
+`POST /app/attendance/entry-dispute` (rozpor na záznamu) i
+`POST /app/attendance/dispute-day` (rozpor celého dne) fungují na **libovolný den
+bez ohledu na potvrzení** — `ON CONFLICT … DO UPDATE SET disputed = true` přepíše
+i existující potvrzení. Oba routují notifikaci přes `_att_fix_editors_for_emp`
+(kancelář → Peťa 18, výroba → Dušan 41 + Míša 16, nezařazený → všem třem) a den
+padne do `fix/queue` jako **✋ rozpor**. **`dispute-day` byl do 21. 7. mrtvý
+endpoint — neměl v UI jediné volání.** Nasazeno tedy **bez zásahu do backendu**.
+
+### 19.3 Co přibylo (commit `fc279b97`, jen `mobile_parts/60_dochazka.js` + `73_pref_poptavka.js`)
+
+Rozhodl Jirka 21. 7.: **obojí cesta**, **bez časového omezení**.
+
+1. **Dlaždice „✋ Požádat o opravu"** v sekci *Moje docházka* → obrazovka
+   `doch_oprava_zadost` (registrace v SCREENS v `73_pref_poptavka.js`):
+   posledních 14 dní + **pole s datem pro starší** → detail dne → volba
+   **konkrétního záznamu** (`entry-dispute`) nebo **„✋ Nesedí mi celý den"**
+   (`dispute-day`) → chipy důvodů (**„omylem jsem potvrdil(a) den"** první)
+   + volný text. Důvod je povinný.
+2. **Tlačítko ✋ v 🕓 Historii / 📅 Dnešku** — `_jobBtns` dostal 5. parametr `e`
+   a **jediné ostré tlačítko** v řadě. Ostatní tři **zůstávají vědomě atrapami**
+   (samoúpravy = R1, leží u Marti-AI/Martiho — viz §16.5).
+3. **Nápověda docházky** (`dochHelp`): nový rozbalovací oddíl
+   „✋ Požádat o opravu (i po potvrzení dne)", řádek v taháku, doplněné oddíly
+   „✅ Potvrzení docházky" a „🙋 Pomoc, zprávy a opravy", nová FAQ
+   *„Omylem jsem potvrdil den — a teď vidím, že nesedí!"*.
+
+### 19.4 🔑 Gotchy (stály čas, ušetří ho příště)
+
+- **`czDayLabel()` je vnořená uvnitř `dochLoad()`** — modulové funkce na ni
+  nedosáhnou (`ReferenceError`). Pro nový kód vznikl modulový `_czDayLabel()`.
+- **`go()` NENÍ globální** (vše je v jednom IIFE) → Playwright test musí
+  proklikat UI (🏢 Firma → 🤝 Spolupráce), `page.evaluate(() => go(...))` spadne.
+- **Formulář uvnitř rozkliknutého řádku Historie se nevejde** — rail má
+  `height:38vh` s vlastním scrollem, hlavička se ořízne a tlačítka vyjedou mimo
+  displej. Řešení: celoobrazovkový sheet `_dochOpravaSheet()` (vzor `dochHelp`).
+- **⚠️ Hodiny dne SE NESMÍ sčítat přes záznamy.** Typ *„Nenároková práce
+  (nad fond)"* má `category='presence'` a běží **souběžně** se směnou → prostý
+  součet dvojitě počítá (20. 7. dávalo **27:04** za jeden den). Ani filtr na
+  `presence` to nespraví. V nabídce dnů proto ukazujeme **rozsah + počet
+  záznamů, žádný součet hodin**. Kdo bude někde zobrazovat „hodiny dne",
+  musí vzít číslo ze serveru, ne si ho sečíst v JS.
+
+### 19.5 Ověření
+
+Playwright (Pixel 7) proti **živému API s podstrčeným lokálním buildem**
+(`page.route` na `/mobile`) — obě cesty proklikány, odeslání zachyceno
+(`dispute-day {day, note}`), **bez jediné JS chyby**; do produkce nešel žádný
+testovací zápis. Screenshoty v scratchpadu session.
+
+### 19.6 Otevřené / k vědomí
+
+- **Fronta editorů bere rozpory jen 60 dní zpět** (`fix/queue`,
+  `c.day >= current_date - 60`). Při „bez omezení" může přijít žádost o starší
+  den: **notifikace dorazí**, ale ve frontě se neobjeví. Nerozšířeno vědomě —
+  je to zásah do Peťiny obrazovky.
+- **Zamčené období**: žádost projde vždy, ale opravit půjde až po odemčení
+  (tvrdý zámek, §16.1). Uživatel se to dozví až od editora.
+- Odeslaná žádost **není vidět v „📋 Moje žádosti"** (ta ukazuje jen
+  `announced-future`) — člověk má jen potvrzení hned po odeslání.
+
 

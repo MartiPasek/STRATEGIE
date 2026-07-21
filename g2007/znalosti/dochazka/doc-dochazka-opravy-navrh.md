@@ -541,12 +541,19 @@ Rozhodl Jirka 21. 7.: **obojí cesta**, **bez časového omezení**.
   záznamů, žádný součet hodin**. Kdo bude někde zobrazovat „hodiny dne",
   musí vzít číslo ze serveru, ne si ho sečíst v JS.
 
-### 19.5 Ověření
+### 19.5 Ověření — PŘED i PO nasazení
 
-Playwright (Pixel 7) proti **živému API s podstrčeným lokálním buildem**
-(`page.route` na `/mobile`) — obě cesty proklikány, odeslání zachyceno
+**Před nasazením:** Playwright (Pixel 7) proti **živému API s podstrčeným lokálním
+buildem** (`page.route` na `/mobile`) — obě cesty proklikány, odeslání zachyceno
 (`dispute-day {day, note}`), **bez jediné JS chyby**; do produkce nešel žádný
-testovací zápis. Screenshoty v scratchpadu session.
+testovací zápis. Tenhle postup doporučuji zopakovat: **testuješ nový kód proti
+reálným datům, aniž bys cokoli nasadil nebo zapsal.**
+
+**Po nasazení** (uzavření smyčky — podstrčený build ≠ důkaz, že produkce servíruje
+totéž): staženo `https://strategie-ai.com/mobile` s device cookie → `doch_oprava_zadost`
+4×, `_dochOpravaSheet` 2×, „Požádat o opravu" 11×, nový oddíl nápovědy i FAQ 1×,
+`_czDayLabel` 4×. Kontrola regrese: `fmtDec` (parita hodin od Claude-24 téhož dne)
+8× přítomno → **nic cizího se nepřepsalo**.
 
 ### 19.6 Otevřené / k vědomí
 
@@ -558,5 +565,20 @@ testovací zápis. Screenshoty v scratchpadu session.
   (tvrdý zámek, §16.1). Uživatel se to dozví až od editora.
 - Odeslaná žádost **není vidět v „📋 Moje žádosti"** (ta ukazuje jen
   `announced-future`) — člověk má jen potvrzení hned po odeslání.
+
+### 19.7 Rozeslání a komunikace (21. 7. 2026)
+
+- **Nápověda v appce** (`dochHelp`) doplněna hned při nasazení — nový oddíl,
+  řádek v taháku, FAQ. Kanonický popis viz `doc-dochazka-napoveda-pruvodce-spec`.
+- **E-mail Peťě** (`petra@eurosoft.com`, CC Míša + Dušan) — co bylo špatně, co je
+  nové, co z toho má ona, a obě otevřené výhrady z §19.6. Odesláno, stav `sent`
+  (`fw.claude_email_log` #69).
+- **Plošná notifikace 78 lidem** (write **#1267**, schválil Marti) — publikum =
+  aktivní docházkové karty agregované na `user_id` (**stejná definice jako
+  `/fix/lide`**, ne `users.status`!). Ověřeno doručení: 78 řádků / 78 unikátních
+  lidí, do 15 minut **4 přečteno**.
+  ⚠️ **`users.status='pending'` má 62 z 78 lidí, a 23 z nich appku aktivně
+  používá** — je to onboarding příznak, **NE** signál neaktivity. Kdo bude
+  vybírat publikum pro plošnou zprávu, `users.status` na to nepoužije.
 
 

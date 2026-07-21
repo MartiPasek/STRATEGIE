@@ -358,7 +358,63 @@ async function dokUdaje(){
         '<td style="padding:6px 16px;color:#7f8ea0">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
         '<td style="padding:6px 16px;white-space:nowrap"><a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> · <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>').join('')+'</table>';
   }
+  h+='<div id="dokAdr" style="border-top:8px solid #0c1116;margin-top:8px"></div>';
   det.innerHTML=h;
+  dokAdresarLoad(uid);
+}
+// Šárka 21.7.2026: Adresář = fyzická složka na serveru (\\...\Zamestnanci\KZ+číslo), stejný
+// mechanismus jako Pavlův CRM Adresář. Reuse /app/dir/list · file · write · zip.
+function dokAdrOpen(unc){
+  if(!unc) return;
+  try{ var ifr=document.createElement('iframe'); ifr.style.display='none'; ifr.src='eurosoftdir://'+encodeURIComponent(unc); document.body.appendChild(ifr); setTimeout(function(){try{ifr.remove();}catch(e){}},1500); }catch(e){}
+  try{ navigator.clipboard.writeText(unc); }catch(e){}
+}
+async function dokAdrUpload(uid){
+  const f=document.getElementById('dokAdrFile'), msg=document.getElementById('dokAdrMsg');
+  if(!f.files||!f.files.length){ msg.style.color='#E0A94A'; msg.textContent='Vyber soubor.'; return; }
+  const file=f.files[0];
+  msg.style.color='#7f8ea0'; msg.textContent='Nahrávám…';
+  let b64='';
+  try{ b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(file); }); }
+  catch(e){ msg.style.color='#ff8a7a'; msg.textContent='Nelze načíst soubor.'; return; }
+  const rr=await fetch(API+'/app/dir/write',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({sys_name:'osoba_hr',id:uid,filename:file.name,content_b64:b64})});
+  const dd=await rr.json().catch(()=>({ok:false,error:'server'}));
+  if(dd.ok){ dokAdresarLoad(uid); } else { msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(dd.error||''); }
+}
+async function dokAdresarLoad(uid){
+  const box=document.getElementById('dokAdr'); if(!box) return;
+  box.innerHTML='<div style="padding:10px 16px;color:#7f8ea0;font-size:12px">Načítám adresář…</div>';
+  const d=await j(API+'/app/dir/list?sys_name=osoba_hr&id='+uid);
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px"><span style="font-weight:800;color:#e8eef5">📂 Adresář (složka na serveru)</span>';
+  if(d.ok){
+    const dp=(d.display_path||'').replace(/'/g,'');
+    h+='<span>'+
+      (dp?'<a href="#" onclick="dokAdrOpen(\''+dp.replace(/\\/g,'\\\\')+'\');return false;" style="color:#aac8ec;text-decoration:none" title="Otevře v Průzkumníku (jen ve firemní síti), cesta se zkopíruje">📂 Otevřít složku</a> · ':'')+
+      '<a href="'+API+'/app/dir/zip?sys_name=osoba_hr&id='+uid+'" style="color:#7fe0a0;text-decoration:none">⬇️ Stáhnout vše (ZIP)</a></span>';
+  }
+  h+='</div>';
+  if(!d.ok){
+    const e=d.error==='config_not_found'?'Adresář zatím není nastaven (čeká na potvrzení cesty).':(d.error==='acl_denied'?'Nemáš oprávnění.':(d.error==='mcp_offline'?'Souborový server je teď nedostupný (mimo firemní síť).':(d.error||'nedostupné')));
+    h+='<div class="empty">'+esc(e)+'</div>'; box.innerHTML=h; return;
+  }
+  const res=d.result||{};
+  let items=res.items||res.result||(Array.isArray(res)?res:[]);
+  if(!Array.isArray(items)) items=[];
+  const isDir=(x)=>x.is_dir||x.dir||x.type==='dir';
+  const files=items.filter(x=>x&&x.name&&!isDir(x));
+  h+='<div style="padding:8px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid #1e2730">'+
+     '<input type="file" id="dokAdrFile" style="color:#cdd6e2;font-size:12px">'+
+     '<button onclick="dokAdrUpload('+uid+')" style="border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">+ Přidat soubor</button>'+
+     '<span id="dokAdrMsg" style="font-size:12px;color:#7f8ea0"></span></div>';
+  if(!files.length){ h+='<div class="empty">Ve složce zatím nic není.</div>'; }
+  else {
+    const sz=(n)=>n==null?'':(n<1024?n+' B':(n<1048576?(n/1024).toFixed(0)+' kB':(n/1048576).toFixed(1)+' MB'));
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+      files.map(x=>'<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:6px 16px;color:#e8eef5">'+esc(x.name)+(x.size!=null?' <span style="color:#5d6b7c">('+sz(x.size)+')</span>':'')+'</td>'+
+        '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/dir/file?sys_name=osoba_hr&id='+uid+'&name='+encodeURIComponent(x.name)+'" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a></td></tr>').join('')+'</table>';
+  }
+  box.innerHTML=h;
 }
 async function dokUpload(uid){
   const f=document.getElementById('dokFile'), msg=document.getElementById('dokMsg');

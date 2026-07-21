@@ -65,7 +65,12 @@ def _acl_allow(s, uid, scope, *, entity_user_id=None, write=False, parent_overri
     if scope == "hr":
         return (_hr_can(s, uid)), ("" if _hr_can(s, uid) else "hr_only")
     if scope == "self":
-        ok = parent or (entity_user_id is not None and int(entity_user_id) == int(uid))
+        try:
+            same = (entity_user_id is not None and str(entity_user_id) != ""
+                    and int(entity_user_id) == int(uid))
+        except Exception:
+            same = False
+        ok = parent or same
         return ok, ("" if ok else "self_only")
     if scope == "parent":
         return parent, ("" if parent else "parent_only")
@@ -330,7 +335,7 @@ async def app_dir_resolve(req: Request) -> JSONResponse:
         if not r["ok"]:
             return JSONResponse(r)
         scope = r["config"]["acl_scope"]
-        ok, reason = _acl_allow(s, uid, scope)
+        ok, reason = _acl_allow(s, uid, scope, entity_user_id=entity_id)
         if not ok:
             _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
                    entity_id=entity_id, path="", action="read", ok=False, err="acl:" + reason)
@@ -354,7 +359,7 @@ async def app_dir_list(req: Request) -> JSONResponse:
         if not r["ok"]:
             return JSONResponse(r)
         scope = r["config"]["acl_scope"]
-        ok, reason = _acl_allow(s, uid, scope)
+        ok, reason = _acl_allow(s, uid, scope, entity_user_id=entity_id)
         if not ok:
             _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
                    entity_id=entity_id, path="", action="list", ok=False, err="acl:" + reason)
@@ -535,7 +540,7 @@ async def app_dir_read(req: Request) -> JSONResponse:
         if not r["ok"]:
             return JSONResponse(r)
         scope = r["config"]["acl_scope"]
-        ok, reason = _acl_allow(s, uid, scope)
+        ok, reason = _acl_allow(s, uid, scope, entity_user_id=entity_id)
         if not ok:
             _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
                    entity_id=entity_id, path=name, action="read", ok=False, err="acl:" + reason)
@@ -634,7 +639,7 @@ async def app_dir_zip(req: Request):
         if not r["ok"]:
             return JSONResponse(r)
         scope = r["config"]["acl_scope"]
-        ok, reason = _acl_allow(s, uid, scope)
+        ok, reason = _acl_allow(s, uid, scope, entity_user_id=entity_id)
         if not ok:
             _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
                    entity_id=entity_id, path="", action="zip", ok=False, err="acl:" + reason)
@@ -692,7 +697,7 @@ async def app_dir_file(req: Request):
         if not r["ok"]:
             return JSONResponse(r)
         scope = r["config"]["acl_scope"]
-        ok, reason = _acl_allow(s, uid, scope)
+        ok, reason = _acl_allow(s, uid, scope, entity_user_id=entity_id)
         if not ok:
             _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
                    entity_id=entity_id, path=name, action="read", ok=False, err="acl:" + reason)

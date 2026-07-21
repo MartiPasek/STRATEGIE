@@ -135,7 +135,7 @@ function micButton(ta,st){
     fr.onload=function(){
       fetch("/api/v1/erp/app/transcribe",{method:"POST",credentials:"include",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"hovor-audio."+_micExt(blob.type)})})
+        body:JSON.stringify({audio_b64:String(fr.result).split(",")[1],mime:blob.type||"",filename:((blob&&blob.name&&blob.name.indexOf(".")>0)?blob.name:("hovor-audio."+_micExt(blob.type)))})})
         .then(function(r){return r.json()}).then(function(r){
           btn.disabled=false;
           if(r&&r.ok&&r.text){ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text;st.textContent="✅ Přepsáno";try{ta.focus();}catch(e){}}

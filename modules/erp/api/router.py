@@ -35942,10 +35942,20 @@ async def prefakturace_vystavit(req: Request):
                     _c = round(float(d.get("castka") or 0), 2)
                 except Exception:
                     _c = 0.0
-                _p = (d.get("popis") or "").replace("'", "''")
+                if not _c:
+                    continue
+                _p = (d.get("popis") or "").strip().replace("'", "''")
+                # Sloučení: mzdy patří na STEJNÝ řádek faktury jako přijaté faktury/
+                # režie se shodným Popisem (Kristý 21.7.2026 — ať faktura nemá zvlášť
+                # řádek z mezd a zvlášť z faktur). Přičti k existujícímu řádku
+                # ##TempFinal; když popis zatím není (čistě mzdová položka), vlož nový.
                 _stmts.append(
-                    "  INSERT INTO ##TempFinal (Castka, ProcentMarze, Popis, Stredisko, Kvartal, Mesic, Rok, Autor, DatPorizeni) "
-                    "VALUES (%s, %s, N'%s', NULL, NULL, %d, %d, SUSER_SNAME(), GETDATE());" % (repr(_c), _mz, _p, m, r))
+                    "  IF EXISTS (SELECT 1 FROM ##TempFinal WHERE LTRIM(RTRIM(Popis)) = N'%s')\n"
+                    "    UPDATE TOP (1) ##TempFinal SET Castka = Castka + %s WHERE LTRIM(RTRIM(Popis)) = N'%s';\n"
+                    "  ELSE\n"
+                    "    INSERT INTO ##TempFinal (Castka, ProcentMarze, Popis, Stredisko, Kvartal, Mesic, Rok, Autor, DatPorizeni) "
+                    "VALUES (%s, %s, N'%s', NULL, NULL, %d, %d, SUSER_SNAME(), GETDATE());"
+                    % (_p, repr(_c), _p, repr(_c), _mz, _p, m, r))
             if _stmts:
                 mzdy_insert = "\n".join(_stmts) + "\n"
     except Exception as _mx:

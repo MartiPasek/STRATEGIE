@@ -8804,7 +8804,16 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "   (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1)) AS jmeno, "
             " (SELECT d.perm_city FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS mesto, "
             " EXISTS(SELECT 1 FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS ma_kartu, "
-            + _POMER + " AS ma_pomer, u.first_name, u.last_name "
+            + _POMER + " AS ma_pomer, u.first_name, u.last_name, "
+            " (SELECT min(e.smlouva_od) FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2) AS nastup, "
+            " (SELECT COALESCE(jp.label, e.pozice_text) FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "    LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true "
+            "     AND COALESCE(jp.label, e.pozice_text) IS NOT NULL "
+            "   ORDER BY e.valid_from DESC NULLS LAST LIMIT 1) AS pozice "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -8843,7 +8852,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
             if q and q not in nm.lower():
                 continue
             out.append({"user_id": r[0], "jmeno": nm, "prijmeni": prijmeni, "mesto": r[2] or "",
-                        "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4])})
+                        "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4]),
+                        "nastup": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
+                        "pozice": (r[8] or "")})
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:

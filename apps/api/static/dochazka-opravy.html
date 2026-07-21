@@ -153,6 +153,10 @@ function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){retu
 function api(m,u,b){var o={method:m,credentials:'include'};if(b){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(b);}return fetch(u,o).then(function(r){return r.json().then(function(j){return j;},function(){return {ok:false,error:(r&&r.status>=500)?('Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli znovu.'):('Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+') — zkus to prosím znovu.')};});},function(){return {ok:false,error:'Nepodařilo se spojit se serverem — zkontroluj připojení a zkus to prosím znovu.'};});}
 function el(h){var d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;}
 function fmtHM(h){var m=Math.round(Number(h||0)*60);return Math.floor(m/60)+':'+((m%60)<10?'0':'')+(m%60);}
+/* Peťa 21.7.2026: hodiny ukazujeme v DESETINNÉ (setinné) soustavě jako ve staré
+   Centrále — časy od/do zůstávají hodinové (9:40), ale hodiny a jejich součet
+   jsou 5,90 místo 5:54, aby se to dalo sečíst na papíře. */
+function fmtDec(h){return Number(h||0).toFixed(2).replace('.',',');}
 function today(){return new Date().toISOString().slice(0,10);}
 function reasonBox(){
   var w=el('<div style="margin-top:8px;"></div>');
@@ -382,15 +386,26 @@ function openDay(uid,name,day){
       var wrap=el('<div class="dtabwrap"></div>');
       var tbl=document.createElement('table');tbl.className='dtab';
       // POZOR: el() parsuje v kontextu <div>, který thead/tr/td zahazuje — tabulku stavíme přes DOM API.
-      tbl.innerHTML='<thead><tr><th>Typ</th><th>Od</th><th>Do</th><th style="text-align:right;">Hodiny</th><th>Zakázka</th><th>Činnost</th><th>Stav</th><th>Akce</th></tr></thead>';
+      tbl.innerHTML='<thead><tr><th>Typ</th><th>Od</th><th>Do</th><th style="text-align:right;" title="Hodiny v desetinné (setinné) soustavě jako ve staré Centrále — 5,90 = 5 h 54 min.">Hodiny</th><th>Zakázka</th><th>Činnost</th><th>Stav</th><th>Akce</th></tr></thead>';
       var tb=document.createElement('tbody');tbl.appendChild(tb);
       var poznBelow=[],maCentralu=false;
+      /* Peťa 21.7.2026: součet dne pod tabulkou — bez něj se nedá zkontrolovat,
+         jestli doplnění do fondu sedí. Sčítáme jen NEstornované řádky. */
+      var sumPrace=0,sumPauzy=0,sumDopl=0,sumNenar=0,sumOst=0;
       function tdc(html,cls,style){var c=document.createElement('td');if(cls)c.className=cls;if(style)c.style.cssText=style;c.innerHTML=html;return c;}
       function hmMin(x){var p=String(x||'').split(':');return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0);}
       var prevKon=null;  // konec předchozího (dřívějšího) viditelného záznamu — mezery vzestupně
       es.forEach(function(e2){
         var gone=(e2.status==='superseded');
         var isDE=(e2.code==='day_end');  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
+        if(!gone&&!isDE&&e2.hours!=null){
+          var _h=Number(e2.hours)||0;
+          if(e2.code==='break')sumPauzy+=_h;
+          else if(e2.code==='fond_doplneni')sumDopl+=_h;
+          else if(e2.code==='nenarokova')sumNenar+=_h;
+          else if(e2.zac&&e2.kon)sumPrace+=_h;   // řádek s časem od–do = přítomnost
+          else sumOst+=_h;                        // absence a spol. (bez časů)
+        }
         if(!gone&&!isDE&&e2.zac&&prevKon&&(hmMin(e2.zac)-hmMin(prevKon))>=5&&!j.locked){
           var gz=prevKon,gk=e2.zac;
           var gr=document.createElement('tr');gr.className='gap';
@@ -413,7 +428,7 @@ function openDay(uid,name,day){
         tr0.appendChild(tdc(isDE?'🫡 Odchod':esc(e2.typ||'')));
         tr0.appendChild(tdc(esc(e2.zac||'—'),'num'));
         tr0.appendChild(tdc(isDE?'':esc(e2.kon||'…'),'num'));
-        tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtHM(e2.hours):'','num','text-align:right;'));
+        tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtDec(e2.hours):'','num','text-align:right;'));
         tr0.appendChild(tdc(e2.project_ref?('🧾 '+esc(e2.project_ref)):''));
         tr0.appendChild(tdc(e2.cin_name?('🔧 '+esc(e2.cin_name)):''));
         tr0.appendChild(tdc(tg));
@@ -498,6 +513,32 @@ function openDay(uid,name,day){
         }
       });
       wrap.appendChild(tbl);box.appendChild(wrap);
+      // Peťa 21.7.2026: SOUČET DNE pod tabulkou. Ukazuje, jak se den skládá, ať jde
+      // zkontrolovat, jestli doplnění do fondu sedí (odhalilo chybu s pauzami 21.7.).
+      if(sumPrace||sumPauzy||sumDopl||sumNenar||sumOst){
+        var cisty=sumPrace-sumPauzy;
+        var sb=el('<div style="margin-top:12px;"></div>');
+        sb.appendChild(el('<div class="sec" style="margin-top:0;">∑ SOUČET DNE</div>'));
+        var stb=document.createElement('table');stb.className='dtab';stb.style.maxWidth='340px';
+        var stbody=document.createElement('tbody');stb.appendChild(stbody);
+        function srow(label,val,bold){
+          var r=document.createElement('tr');
+          var c1=document.createElement('td');c1.innerHTML=bold?('<b>'+label+'</b>'):label;
+          var c2=document.createElement('td');c2.className='num';c2.style.cssText='text-align:right;';
+          c2.innerHTML=bold?('<b>'+val+'</b>'):val;
+          r.appendChild(c1);r.appendChild(c2);stbody.appendChild(r);
+        }
+        srow('Přítomnost (práce)',fmtDec(sumPrace));
+        if(sumPauzy)srow('Přestávky','−'+fmtDec(sumPauzy));
+        srow('Odpracováno',fmtDec(cisty),true);
+        if(sumOst)srow('Absence / ostatní',fmtDec(sumOst));
+        if(sumDopl)srow('Doplnění do fondu (automat)','+'+fmtDec(sumDopl));
+        if(sumNenar)srow('Nad fond → nenárokové',fmtDec(sumNenar));
+        srow('Celkem',fmtDec(cisty+sumOst+sumDopl),true);
+        sb.appendChild(stb);
+        sb.appendChild(el('<div class="hint" style="margin-top:4px;">Hodiny v desetinné soustavě (5,90 = 5 h 54 min). Stornované řádky se nepočítají.</div>'));
+        box.appendChild(sb);
+      }
       // Jirka 12.7.: systémové poznámky (stopy oprav, automaty…) POD tabulkou, ať je nahoře čistá
       if(maCentralu)box.appendChild(el('<div class="hint" style="margin-top:8px;">🏛 Záznamy z tabletu staré Centrály se opravují v Centrále (Dušan) — sem se přezrcadlí.</div>'));
       if(poznBelow.length){

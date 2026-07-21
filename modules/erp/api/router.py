@@ -8335,6 +8335,32 @@ def _sms_inbound_hit(endpoint, authed, from_phone, body, client_ip, note):
             pass
     finally:
         cm.__exit__(None, None, None)
+    # C27 21.7. — čitelná kopie do public (fw.sms_inbound_hit vlastní role
+    # 'strategie', bridge (Marti-AI) ji nepřečte). Diagnostika vstupu SMS brány.
+    # Best-effort, nikdy nesmí ovlivnit hlavní tok.
+    try:
+        cm2, s2 = _att_session()
+        try:
+            s2.execute(_t("CREATE TABLE IF NOT EXISTS public.sms_inbound_dbg ("
+                "ts timestamptz DEFAULT now(), endpoint text, authed boolean, "
+                "from_phone text, body_preview text, client_ip text, note text)"))
+            s2.execute(_t('GRANT SELECT ON public.sms_inbound_dbg TO "Marti-AI"'))
+            s2.execute(_t("INSERT INTO public.sms_inbound_dbg "
+                "(endpoint,authed,from_phone,body_preview,client_ip,note) "
+                "VALUES (:e,:a,:f,:b,:ip,:n)"),
+                {"e": (endpoint or "")[:40], "a": bool(authed),
+                 "f": (from_phone or "")[:40], "b": (body or "")[:120],
+                 "ip": (client_ip or "")[:60], "n": (note or "")[:200]})
+            s2.commit()
+        except Exception:
+            try:
+                s2.rollback()
+            except Exception:
+                pass
+        finally:
+            cm2.__exit__(None, None, None)
+    except Exception:
+        pass
 
 
 def _vault_match_inbound(from_phone: str, body: str) -> str:

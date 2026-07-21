@@ -153,7 +153,15 @@ function mkCombo(items,opts){
   if(opts.initial!=null&&opts.initial!=='')setVal(opts.initial,false);
   return root;
 }
-function mkTyp(cur){return mkCombo(TYPES.map(function(t){return {v:t[0],t:t[1]};}),{ph:'🔍 typ…',initial:(cur||TYPES[0][0])});}
+function mkTyp(cur){
+  /* Peťa 21.7.2026: „Režie" NENÍ typ záznamu — je to ZAKÁZKA. Práce na režii je
+     běžná Práce se zakázkou Rezie (stejné rozhodnutí jako 20.7. u píchání v appce).
+     Z nabídky ji proto vyndáváme. U starých záznamů, které typ 'overhead' ještě
+     mají, ji v roletce necháváme — jinak by se při opravě potichu přepnuly na Práci. */
+  var list=TYPES.filter(function(t){return t[0]!=='overhead'||cur==='overhead';});
+  return mkCombo(list.map(function(t){return {v:t[0],t:t[1]};}),
+                 {ph:'🔍 typ…',initial:(cur||list[0][0])});
+}
 function mkCin(cur){var w=el('<div style="margin-top:6px;"></div>');w.appendChild(el('<div class="hint" style="margin-bottom:2px;">🔧 Činnost (jen Práce/Režie, nepovinné):</div>'));var c=mkCombo([],{ph:'🔍 činnost…',empty:true,emptyText:'— nevybráno —',style:'margin-top:0;'});loadCinn(function(list){c._setItems(list.map(function(x){return {v:x.id,t:(x.icon?x.icon+' ':'')+x.name};}));if(cur)c.value=cur;});w.appendChild(c);w._sel=c;return w;}
 function cinShow(w,typ){w.style.display=(typ==='work'||typ==='overhead')?'':'none';}
 var ZAK=null;

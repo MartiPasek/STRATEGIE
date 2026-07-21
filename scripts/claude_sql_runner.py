@@ -17,6 +17,10 @@ Protokol SQL (slozka scripts/claude_sql/, gitignored):
   CLAUDE_GO.txt    - trigger (Claude zapise JAKO POSLEDNI). Volitelne 1. radek:
                        db=pg (default) nebo db=mssql
   CLAUDE_OUT.txt   - watcher zapise vysledek (markdown tabulka + status).
+  MULTI-LANE (Marti 21.7.2026): kdyz na jednom stroji bezi VIC Cowork session,
+  kazda dalsi ma vlastni kanal, at se nepreskakuji. Lane 2 = CLAUDE2_SQL.sql /
+  CLAUDE2_GO.txt / CLAUDE2_OUT.txt / CLAUDE2_OUT_FULL.txt (default). Dalsi pres
+  env CLAUDE_EXTRA_LANES="2,3". Lane "" (bez indexu) je puvodni kanal beze zmeny.
 
 Protokol AUTO-DEPLOY (Marti 2.6.2026) — Claude nasadi bez rucniho git:
   CLAUDE_DEPLOY.txt     - 1. radek = commit message; dalsi radky = cesty souboru
@@ -86,6 +90,31 @@ LOG_MAX_BYTES = 1_500_000                            # rotace watcher.log > ~1.5
 # viděnou cestu → nikdy stale. Dev session (Claude Code) čte přímo z FS = beze změny.
 _current_nonce: str | None = None
 NONCE_KEEP = 8                                        # kolik nonce kopií na base držet (úklid starších)
+
+# ── Multi-lane vstup (Marti 21.7.2026) ────────────────────────────────────
+# Víc Cowork session na JEDNOM stroji psalo do jednoho kanálu (CLAUDE_SQL.sql/
+# CLAUDE_GO.txt) → přepisovaly si dotazy (kolize). Fix: každá další session má
+# vlastní „lane" s indexem. Lane "" = default (CLAUDE_SQL/CLAUDE_GO/CLAUDE_OUT/
+# CLAUDE_OUT_FULL — BEZE ZMĚNY, plná zpětná kompatibilita). Lane "2" = CLAUDE2_SQL.sql
+# / CLAUDE2_GO.txt / CLAUDE2_OUT.txt / CLAUDE2_OUT_FULL.txt. Prefix CLAUDE<N>_ (NE __N)
+# schválně — kdyby lane out byl CLAUDE_OUT__2.txt, sežral by ho nonce úklid lane1
+# (glob CLAUDE_OUT__*.txt). CLAUDE2_* má jiný prefix → žádná kolize s nonce kopiemi.
+# Rozšíření: env CLAUDE_EXTRA_LANES="2,3". Watcher obsluhuje lanes serializovaně
+# (žádný file-clobber; souběžný BĚH dotazů se neřeší — write drží smyčku jako dnes).
+_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2").split(",") if s.strip()]
+LANES = [""] + _EXTRA_LANES
+
+
+def _laneset(prefix: str) -> dict:
+    """Fileset pro danou lane. prefix '' = base (CLAUDE_*, shodné s SQL_FILE/GO_FILE/
+    OUT_FILE/OUT_FULL_FILE), '2' = CLAUDE2_*. Používá se global-swap v _run_lane()."""
+    p = f"CLAUDE{prefix}_"
+    return {
+        "sql":  BRIDGE_DIR / f"{p}SQL.sql",
+        "go":   BRIDGE_DIR / f"{p}GO.txt",
+        "out":  BRIDGE_DIR / f"{p}OUT.txt",
+        "full": BRIDGE_DIR / f"{p}OUT_FULL.txt",
+    }
 
 # Auto-deploy (Marti 2.6.2026): Claude zapíše commit message + seznam souborů,
 # watcher na NB udělá git add/commit/push + zavolá cloud /deploy/now.
@@ -625,6 +654,20 @@ def _consume() -> None:
             GO_FILE.unlink()
     except OSError as exc:
         _log(f"consume GO unlink failed: {exc}")
+
+
+def _run_lane(fs: dict) -> None:
+    """Zpracuj jednu lane: dočasně přesměruj globály SQL/GO/OUT/OUT_FULL na její
+    soubory, zavolej _process() (+ jeho _write_out/_write_full/_consume, které tyhle
+    globály čtou), pak vrať zpět. Jednovláknová smyčka → žádná reentrance, bezpečné.
+    Lane "" ukazuje na stejné base objekty → no-op swap (chování 1:1 jako dřív)."""
+    global SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE
+    _save = (SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE)
+    SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE = fs["sql"], fs["go"], fs["out"], fs["full"]
+    try:
+        _process()
+    finally:
+        SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE = _save
 
 
 # ── Auto-deploy (git add/commit/push na NB → cloud /deploy/now) ──────────
@@ -1629,8 +1672,10 @@ def main() -> None:
                     _process_notify(); _did_work = True
                 if DOCPUSH_GO_FILE.exists():
                     _process_docpush(); _did_work = True
-                if GO_FILE.exists():
-                    _process(); _did_work = True
+                for _pfx in LANES:
+                    _fs = _laneset(_pfx)
+                    if _fs["go"].exists():
+                        _run_lane(_fs); _did_work = True
                 if _did_work:
                     _last_activity = time.time()
                 # Freshness (Marti 3.6.): git fetch + behind check á ~90 s →

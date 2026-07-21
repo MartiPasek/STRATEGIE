@@ -114,6 +114,20 @@ function micButton(ta,st){
   var btn=document.createElement("button"); btn.className="mic"; btn.title="Podrž a mluv"; btn.textContent="🎙";
   var state="idle",mr=null,chunks=[],pid=null;
   function reset(){state="idle";btn.textContent="🎙";btn.style.background="";}
+  // Fallback: kdyz zivy mikrofon (getUserMedia) selze nebo neni podporovan
+  // (Android WebView casto NotReadableError), otevreme nativni zaznamnik
+  // telefonu pres <input file audio capture> a posleme do Whisperu. Vzor z Docházky.
+  function fileFallback(){
+    reset();
+    var fi=document.createElement("input"); fi.type="file"; fi.accept="audio/*"; fi.setAttribute("capture",""); fi.style.display="none";
+    fi.addEventListener("change",function(){
+      var f=fi.files&&fi.files[0]; try{document.body.removeChild(fi);}catch(e){}
+      if(!f){st.textContent="";return;}
+      if(f.size>8*1024*1024){st.textContent="✗ Nahrávka moc velká (max ~8 MB).";return;}
+      doTr(f);
+    });
+    document.body.appendChild(fi); st.textContent="🎙 Otevírám záznamník telefonu…"; fi.click();
+  }
   function doTr(blob){
     if(blob.size<300){st.textContent="✗ Moc krátké — podrž 🎙 a mluv.";return;}
     st.textContent="💭 Přepisuji…"; btn.disabled=true;
@@ -134,7 +148,7 @@ function micButton(ta,st){
     try{if(mr.state==="recording")mr.requestData();}catch(e){}try{mr.stop();}catch(e){_micRelease();}}
   function startRec(){
     if(state!=="idle")return;
-    if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder)){st.textContent="🎙 Mikrofon tu není dostupný.";return;}
+    if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder)){fileFallback();return;}
     state="starting";_micRelease();btn.textContent="⏺";btn.style.background="rgba(91,141,239,.18)";st.textContent="🎙 …";
     navigator.mediaDevices.getUserMedia({audio:true}).then(function(sm){
       window.__micStream=sm;
@@ -145,7 +159,7 @@ function micButton(ta,st){
       mr.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};
       mr.onstop=function(){var raw=(mr&&mr.mimeType)||mime||"audio/webm";var m=raw.split(";")[0].trim()||"audio/webm";var blob=new Blob(chunks,{type:m});_micRelease();mr=null;doTr(blob);};
       mr.start();state="recording";btn.textContent="⏺";st.textContent="🔴 Mluv… (pusť pro přepis)";
-    }).catch(function(err){_micRelease();reset();st.textContent="🎙 Mikrofon ["+((err&&(err.name||err.message))||"?")+"] — podrž znovu.";});
+    }).catch(function(err){_micRelease();reset();fileFallback();});
   }
   btn.addEventListener("pointerdown",function(ev){ev.preventDefault();pid=ev.pointerId;try{btn.setPointerCapture(pid);}catch(e){}startRec();});
   btn.addEventListener("pointerup",function(ev){ev.preventDefault();try{btn.releasePointerCapture(pid);}catch(e){}stopRec();});

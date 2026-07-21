@@ -2229,7 +2229,7 @@ def mobile_service_worker():
     (Zkusit znovu / Vyčistit a načíst) — místo bílé obrazovky."""
     from fastapi import Response
     sw = r"""
-var CACHE='stg-mobile-v5';
+var CACHE='stg-mobile-v6';
 var SHELL='/mobile';
 var RECOVERY='<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">'
  +'<body style="margin:0;background:#0e1622;color:#e6edf5;font:16px/1.5 system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center">'

@@ -263,6 +263,67 @@ def sync_user_bg(uid: int, limit: int = 300, with_attachments: bool = True, tena
                      daemon=True).start()
 
 
+def backfill_att(uid, tenant_id=2, max_items=3000):
+    """Cilena dobirka priloh (Claude C23 21.7.2026): vytahne z EWS JEN zpravy,
+    ktere maji prilohu, ale nemaji stazene dokumenty (prilohy_doc_ids prazdne).
+    Fetch po jedne podle ews_item_id -> _save_attachments -> UPDATE. Nezatezuje se
+    nacitanim tel vsech zprav (na rozdil od sync_folder newest-first). Resumovatelne
+    -- bere jen stale chybejici, takze re-run pokracuje. Resi bod 1 (historicke prilohy)."""
+    acct = _account_for_user(uid)
+    s0 = get_data_session()
+    try:
+        rows = s0.execute(text(
+            "SELECT id, ews_item_id, slozka FROM tenant.mail_message "
+            "WHERE tenant_id=:t AND user_id=:u AND ma_prilohy=true "
+            "AND (prilohy_doc_ids IS NULL OR btrim(prilohy_doc_ids::text) IN ('','[]','null')) "
+            "AND ews_item_id IS NOT NULL "
+            "ORDER BY datum DESC LIMIT :lim"),
+            {"t": tenant_id, "u": uid, "lim": max_items}).fetchall()
+    finally:
+        s0.close()
+    total = len(rows)
+    logger.info("[mail-att] uid=%s dobirka startuje, chybi=%s", uid, total)
+    ok = 0
+    fail = 0
+    _fld_cache = {}
+    s = get_data_session()
+    try:
+        for i, r in enumerate(rows, 1):
+            mid, iid, slozka = r[0], r[1], r[2]
+            try:
+                fld = _fld_cache.get(slozka)
+                if fld is None:
+                    fld = _folder(acct, slozka)
+                    _fld_cache[slozka] = fld
+                m = fld.get(id=str(iid))
+                doc = _save_attachments(m, uid, tenant_id)
+                if doc:
+                    s.execute(text(
+                        "UPDATE tenant.mail_message SET prilohy_doc_ids=CAST(:pd AS jsonb), "
+                        "synced_at=now() WHERE id=:i"),
+                        {"pd": json.dumps(doc), "i": mid})
+                    s.commit()
+                    ok += 1
+                else:
+                    fail += 1
+            except Exception as e:
+                fail += 1
+                logger.warning("[mail-att] zprava id=%s selhala: %s", mid, str(e)[:150])
+            if i % 25 == 0:
+                logger.info("[mail-att] uid=%s postup %s/%s ok=%s fail=%s", uid, i, total, ok, fail)
+        s.commit()
+    finally:
+        s.close()
+    logger.info("[mail-att] uid=%s HOTOVO ok=%s fail=%s z %s", uid, ok, fail, total)
+    return {"uid": uid, "chybelo": total, "doplneno": ok, "selhalo": fail}
+
+
+def backfill_att_bg(uid, tenant_id=2, max_items=3000):
+    """Spusti dobirku priloh na pozadi (kvuli 30s timeoutu mostu)."""
+    threading.Thread(target=lambda: backfill_att(uid, tenant_id=tenant_id, max_items=max_items),
+                     daemon=True).start()
+
+
 # ─── FW strom: soudeček Email + 4 přehledy nad zrcadlem (klon z existujícího přehledu) ───
 
 TEMPLATE_CORE_ID = 139   # 📥 Poptávky (VP) = vzor pro klon fw řetězce

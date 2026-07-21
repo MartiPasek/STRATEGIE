@@ -41184,6 +41184,26 @@ async def diag_sql(req: Request) -> JSONResponse:
 
     #   @@MAILSYNC <uid> [limit] [noatt]  → zrcadlí schránku uživatele (EWS → tenant.mail_message)
     #   na pozadí (kvůli 30s timeoutu). Default limit=300/složka, s přílohami.
+    #   @@MAILATTFIX <uid> [max]  -> cilena dobirka CHYBEJICICH priloh (jen zpravy
+    #   s prilohou bez stazenych dokumentu). Na pozadi. Claude C23 21.7.2026.
+    if sql.upper().startswith("@@MAILATTFIX"):
+        import traceback as _tbaf
+        try:
+            _af = sql[len("@@MAILATTFIX"):].split()
+            if not _af or not _af[0].isdigit():
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILATTFIX <uid> [max]"]], "count": 1})
+            _afuid = int(_af[0])
+            _afmax = int(_af[1]) if len(_af) > 1 and _af[1].isdigit() else 3000
+            from modules.erp.api.mail_mirror import backfill_att_bg as _afbg
+            _afbg(_afuid, max_items=_afmax)
+            return JSONResponse({"ok": True, "columns": ["stav"],
+                                 "rows": [["dobirka priloh spustena na pozadi: uid=%s max=%s" % (_afuid, _afmax)]],
+                                 "count": 1})
+        except Exception as _afe:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                                 "rows": [["%s: %s" % (type(_afe).__name__, str(_afe)[:200]), _tbaf.format_exc()[-400:]]],
+                                 "count": 1})
+
     if sql.upper().startswith("@@MAILSYNC"):
         import traceback as _tbms
         try:

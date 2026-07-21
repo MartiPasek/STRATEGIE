@@ -9182,6 +9182,65 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/person-groups")
+async def app_hr_person_groups(req: Request):
+    """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(g.label),''), g.name) "
+            "FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+            "WHERE g.tenant_id=2 AND NOT COALESCE(g.archived,false) AND m.user_id=:u "
+            "ORDER BY 1"), {"u": tuid}).fetchall()
+        return JSONResponse({"ok": True, "skupiny": [r[0] for r in rows if r[0]]})
+    except Exception as exc:
+        logger.exception("[hr_person_groups] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/person-absence")
+async def app_hr_person_absence(req: Request):
+    """Absence člověka (tenant.att_absence_request) — pro HR, posledních 50."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT typ, datum_od, datum_do, stav FROM tenant.att_absence_request "
+            "WHERE tenant_id=2 AND user_id=:u ORDER BY datum_od DESC NULLS LAST LIMIT 50"),
+            {"u": tuid}).fetchall()
+
+        def _d(x):
+            return x.strftime("%d.%m.%Y") if x else ""
+        zaznamy = [{"typ": (r[0] or ""), "od": _d(r[1]), "do": _d(r[2]), "stav": (r[3] or "")} for r in rows]
+        return JSONResponse({"ok": True, "zaznamy": zaznamy})
+    except Exception as exc:
+        logger.exception("[hr_person_absence] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.

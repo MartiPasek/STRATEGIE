@@ -390,8 +390,12 @@ function openDay(uid,name,day){
       var tb=document.createElement('tbody');tbl.appendChild(tb);
       var poznBelow=[],maCentralu=false;
       /* Peťa 21.7.2026: součet dne pod tabulkou — bez něj se nedá zkontrolovat,
-         jestli doplnění do fondu sedí. Sčítáme jen NEstornované řádky. */
-      var sumPrace=0,sumPauzy=0,sumDopl=0,sumNenar=0,sumOst=0;
+         jestli doplnění do fondu sedí. Sčítáme jen NEstornované řádky.
+         POZOR na přestávky (Peťa 21.7.): pauza se odečítá JEN tehdy, když leží
+         UVNITŘ pracovního záznamu. Když je práce rozdělená na dva kusy a pauza
+         je v mezeře mezi nimi (09:40–13:09 / pauza / 13:24–16:04), je z práce
+         už vynechaná a druhé odečtení by ubralo hodiny dvakrát. */
+      var ivPrace=[],ivPauzy=[],sumPauzyBezCasu=0,sumDopl=0,sumNenar=0,sumOst=0;
       function tdc(html,cls,style){var c=document.createElement('td');if(cls)c.className=cls;if(style)c.style.cssText=style;c.innerHTML=html;return c;}
       function hmMin(x){var p=String(x||'').split(':');return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0);}
       var prevKon=null;  // konec předchozího (dřívějšího) viditelného záznamu — mezery vzestupně
@@ -400,10 +404,16 @@ function openDay(uid,name,day){
         var isDE=(e2.code==='day_end');  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
         if(!gone&&!isDE&&e2.hours!=null){
           var _h=Number(e2.hours)||0;
-          if(e2.code==='break')sumPauzy+=_h;
+          var _iv=null;
+          if(e2.zac&&e2.kon){
+            var _s=hmMin(e2.zac),_e=hmMin(e2.kon);
+            if(_e<_s)_e+=1440;                    // přes půlnoc
+            if(_e>_s)_iv={s:_s,e:_e};
+          }
+          if(e2.code==='break'){ if(_iv)ivPauzy.push(_iv); else sumPauzyBezCasu+=_h; }
           else if(e2.code==='fond_doplneni')sumDopl+=_h;
           else if(e2.code==='nenarokova')sumNenar+=_h;
-          else if(e2.zac&&e2.kon)sumPrace+=_h;   // řádek s časem od–do = přítomnost
+          else if(_iv)ivPrace.push(_iv);          // řádek s časem od–do = přítomnost
           else sumOst+=_h;                        // absence a spol. (bez časů)
         }
         if(!gone&&!isDE&&e2.zac&&prevKon&&(hmMin(e2.zac)-hmMin(prevKon))>=5&&!j.locked){
@@ -515,8 +525,23 @@ function openDay(uid,name,day){
       wrap.appendChild(tbl);box.appendChild(wrap);
       // Peťa 21.7.2026: SOUČET DNE pod tabulkou. Ukazuje, jak se den skládá, ať jde
       // zkontrolovat, jestli doplnění do fondu sedí (odhalilo chybu s pauzami 21.7.).
-      if(sumPrace||sumPauzy||sumDopl||sumNenar||sumOst){
-        var cisty=sumPrace-sumPauzy;
+      if(ivPrace.length||ivPauzy.length||sumPauzyBezCasu||sumDopl||sumNenar||sumOst){
+        // sloučíme překrývající se pracovní úseky (tablet + mobil umí zapsat oba)
+        var _mg=ivPrace.slice().sort(function(a,b){return a.s-b.s;}),_m=[];
+        _mg.forEach(function(v){
+          var last=_m[_m.length-1];
+          if(last&&v.s<=last.e){ if(v.e>last.e)last.e=v.e; } else _m.push({s:v.s,e:v.e});
+        });
+        var minPrace=0;_m.forEach(function(v){minPrace+=v.e-v.s;});
+        // z pauzy odečteme JEN tu část, která leží uvnitř pracovní doby
+        var minPauzVev=0,minPauzMimo=0;
+        ivPauzy.forEach(function(p){
+          var uvnitr=0;
+          _m.forEach(function(v){var o=Math.min(p.e,v.e)-Math.max(p.s,v.s);if(o>0)uvnitr+=o;});
+          minPauzVev+=uvnitr;minPauzMimo+=(p.e-p.s)-uvnitr;
+        });
+        var sumPrace=minPrace/60, pauzOdecist=minPauzVev/60+sumPauzyBezCasu, pauzMimo=minPauzMimo/60;
+        var cisty=sumPrace-pauzOdecist;
         var sb=el('<div style="margin-top:12px;"></div>');
         sb.appendChild(el('<div class="sec" style="margin-top:0;">∑ SOUČET DNE</div>'));
         var stb=document.createElement('table');stb.className='dtab';stb.style.maxWidth='340px';
@@ -529,14 +554,17 @@ function openDay(uid,name,day){
           r.appendChild(c1);r.appendChild(c2);stbody.appendChild(r);
         }
         srow('Přítomnost (práce)',fmtDec(sumPrace));
-        if(sumPauzy)srow('Přestávky','−'+fmtDec(sumPauzy));
+        if(pauzOdecist)srow('Přestávky uvnitř práce','−'+fmtDec(pauzOdecist));
         srow('Odpracováno',fmtDec(cisty),true);
+        if(pauzMimo)srow('<span style="color:#8fa3bd;">Přestávky mimo práci (neodečítají se)</span>',
+                         '<span style="color:#8fa3bd;">'+fmtDec(pauzMimo)+'</span>');
         if(sumOst)srow('Absence / ostatní',fmtDec(sumOst));
         if(sumDopl)srow('Doplnění do fondu (automat)','+'+fmtDec(sumDopl));
         if(sumNenar)srow('Nad fond → nenárokové',fmtDec(sumNenar));
         srow('Celkem',fmtDec(cisty+sumOst+sumDopl),true);
         sb.appendChild(stb);
-        sb.appendChild(el('<div class="hint" style="margin-top:4px;">Hodiny v desetinné soustavě (5,90 = 5 h 54 min). Stornované řádky se nepočítají.</div>'));
+        sb.appendChild(el('<div class="hint" style="margin-top:4px;">Hodiny v desetinné soustavě (5,90 = 5 h 54 min). Stornované řádky se nepočítají. '
+          +'Přestávka se odečítá jen tehdy, když leží uvnitř pracovního záznamu — když je práce rozdělená a pauza je v mezeře, je z ní už vynechaná.</div>'));
         box.appendChild(sb);
       }
       // Jirka 12.7.: systémové poznámky (stopy oprav, automaty…) POD tabulkou, ať je nahoře čistá

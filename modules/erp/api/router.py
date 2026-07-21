@@ -19702,14 +19702,16 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                         {"t": _ATT_TENANT, "c": new_code}).scalar()
         if not tid:
             return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
-        pref = row[7] if new_code in ("work",) else None
-        if pref_sent and new_code == "work":
-            if pref_new:
+        # Peťa + Marti 20.7.2026: u režie (overhead) drž v kolonce zakázka 'Rezie',
+        # ať je vidět v přehledech; dřív se u jiného typu než 'work' mazala na NULL.
+        pref = row[7] if new_code == "work" else (_REZIE_REF if new_code == "overhead" else None)
+        if pref_sent and new_code in ("work", "overhead"):
+            if pref_new and _norm_zakazka(pref_new) != _REZIE_REF:
                 zk = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
                                {"t": _ATT_TENANT, "c": pref_new}).first()
                 if not zk:
                     return JSONResponse({"ok": False, "error": "Zakázka " + pref_new + " není píchatelná / neexistuje."})
-            pref = pref_new
+            pref = _norm_zakazka(pref_new) or (_REZIE_REF if new_code == "overhead" else None)
         brk = int(row[8])
         hrs = round(max((new_end - new_start).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
         actor = _user_jmeno(s, uid)
@@ -19880,7 +19882,11 @@ async def att_fix_add(req: Request) -> JSONResponse:
         ovl = _att_fix_overlap(s, emp, new_start, new_end, None)
         if ovl:
             return JSONResponse({"ok": False, "error": "Časy se překrývají se záznamem " + str(ovl) + "."})
-        if pref and tcode == "work":
+        # Peťa + Marti 20.7.2026: režie se do kolonky zakázka zapisuje jako 'Rezie'
+        # (dřív se mazala na NULL a v přehledech nebyla vidět).
+        if tcode == "overhead" or (pref and _norm_zakazka(pref) == _REZIE_REF):
+            pref = _REZIE_REF if tcode in ("work", "overhead") else None
+        elif pref and tcode == "work":
             zk = s.execute(_t("SELECT typ FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
                            {"t": _ATT_TENANT, "c": pref}).first()
             if not zk:
@@ -23585,10 +23591,24 @@ def _att_is_working(s, emp: int) -> bool:
     return bool(r) and (r[0] in ("work", "overhead", ""))
 
 
+_REZIE_REF = "Rezie"
+
+
+def _norm_zakazka(ref):
+    """Jednotný tvar čísla zakázky pro režii = 'Rezie' BEZ diakritiky (Peťa 20.7.2026,
+    odsouhlaseno s Marti). Tak to má Helios i Centrála, takže sedí i zpětný přenos
+    a filtry v přehledech chytají všechno. Dřív vznikaly oba tvary: import z Centrály
+    psal 'Režie' s háčky, výběr zakázky v mobilu 'Rezie' z číselníku."""
+    r = (ref or "").strip()
+    return _REZIE_REF if r.lower() in ("rezie", "režie") else r
+
+
 def _att_apply_work_selection(s, emp: int, project_ref, is_rezie) -> None:
     """Marti 15.6.: promítne výběr zakázka/režie do BĚŽÍCÍHO pracovního att_entry,
     aby přehledy klasifikovaly správně. Režie => typ 'overhead' (= maká, ne 'čekám').
-    Mění typ a project_ref IN-PLACE (žádné dělení záznamu). Nesahá na pauzu/cestu/konec dne."""
+    Mění typ a project_ref IN-PLACE (žádné dělení záznamu). Nesahá na pauzu/cestu/konec dne.
+    Peťa + Marti 20.7.2026: režie se do kolonky zakázka ZAPISUJE ('Rezie') — dřív se
+    maskovala na NULL a v přehledech pak nebyla vidět."""
     from sqlalchemy import text as _t
     cur = s.execute(_t(
         "SELECT a.id, COALESCE(et.code,'') FROM tenant.att_entry a "
@@ -23601,14 +23621,14 @@ def _att_apply_work_selection(s, emp: int, project_ref, is_rezie) -> None:
         ot = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='overhead'"),
                        {"t": _ATT_TENANT}).scalar()
         if ot:
-            s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=:ty, project_ref=NULL, updated_at=now() WHERE id=:id"),
-                      {"ty": ot, "id": cur[0]})
+            s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=:ty, project_ref=:pr, updated_at=now() WHERE id=:id"),
+                      {"ty": ot, "pr": _REZIE_REF, "id": cur[0]})
     else:
         wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='work'"),
                        {"t": _ATT_TENANT}).scalar()
         s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=COALESCE(:ty,entry_type_id), "
                      "project_ref=:pr, updated_at=now() WHERE id=:id"),
-                  {"ty": wt, "pr": project_ref, "id": cur[0]})
+                  {"ty": wt, "pr": _norm_zakazka(project_ref) or None, "id": cur[0]})
 
 
 def _wp_get(s, uid: int):
@@ -23838,10 +23858,14 @@ async def att_checkin(req: Request) -> JSONResponse:
         body = {}
     kind = str((body or {}).get("kind") or "work").strip().lower()
     project_ref = str((body or {}).get("project_ref") or "").strip()[:40] or None
-    # Marti 12.6.: režie = bez píchnuté zakázky. Číslo „Rezie/Režie" do jobu necpat —
-    # skupina Režie se pozná podle overhead typu / chybějícího project_ref.
+    # Marti 12.6.: režie = bez píchnuté zakázky → project_ref se mazal na NULL.
+    # OTOČENO (Peťa + Marti 20.7.2026): režie se do kolonky zakázka ZAPISUJE jako
+    # 'Rezie' (tvar z Heliosu i Centrály), aby byla vidět v přehledech docházky.
+    # Skupina Režie se dál pozná podle overhead typu, takže grupování v appce drží.
     if kind == "overhead" or (project_ref and project_ref.strip().lower() in ("rezie", "režie")):
-        project_ref = None
+        project_ref = _REZIE_REF
+    elif project_ref:
+        project_ref = _norm_zakazka(project_ref)
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -25002,7 +25026,8 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
             p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
                  "et": type_oh if rezie else type_work, "h": r.get("hod"),
                  "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
-                 "proj": ("Režie" if rezie else (zak or None)), "st": st, "src": src, "sid": rid,
+                 # Peťa 20.7.2026: jednotně 'Rezie' bez háčků (dřív se tu psalo 'Režie').
+                 "proj": (_REZIE_REF if rezie else (_norm_zakazka(zak) or None)), "st": st, "src": src, "sid": rid,
                  "akt": (int(r.get("akt") or 0) == 1 and str(r.get("d") or "") == _today_iso)}
             res = sess.execute(_t(
                 "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
@@ -26582,7 +26607,10 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
                 p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
                      "et": type_oh if rezie else type_work, "h": r.get("hod"),
                      "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
-                     "proj": None if rezie else (zak or None), "st": st, "src": src, "sid": rid}
+                     # Peťa 20.7.2026: režie se ukládá jako 'Rezie' (dřív tu byla NULL,
+                     # zatímco druhý importér psal 'Režie' — odtud dva tvary v datech).
+                     "proj": (_REZIE_REF if rezie else (_norm_zakazka(zak) or None)),
+                     "st": st, "src": src, "sid": rid}
                 res = sess.execute(_t(
                     "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
                     "started_at=:z,ended_at=:k,break_minutes=:br,project_ref=:proj,status=:st,source=:src,"

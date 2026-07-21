@@ -27983,6 +27983,37 @@ async def disk_status_view(req: Request) -> JSONResponse:
                          "any_stale": any_stale, "count": len(disks)})
 
 
+@api_router.get("/app/dr/status")
+async def dr_status_view(req: Request) -> JSONResponse:
+    """Stav DR obnovy (denik obnov) pro cockpit (rodic/HR). Posledni samokontrola
+    + kratka historie. Claude C23 21.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _gds3
+    from sqlalchemy import text as _t3
+    ds = _gds3()
+    try:
+        last = ds.execute(_t3(
+            "SELECT source, verdict, reason, data_age_h, cnt_conversations, cnt_vectors, cnt_tables, "
+            "to_char(checked_at,'YYYY-MM-DD HH24:MI') AS checked_at, "
+            "round(extract(epoch from (now()-checked_at))/3600,1) AS pred_h "
+            "FROM fw.dr_selfcheck ORDER BY checked_at DESC LIMIT 1")).fetchone()
+        hist = ds.execute(_t3(
+            "SELECT to_char(checked_at,'MM-DD') AS den, verdict "
+            "FROM fw.dr_selfcheck ORDER BY checked_at DESC LIMIT 14")).fetchall()
+    finally:
+        ds.close()
+    if not last:
+        return JSONResponse({"ok": True, "has_data": False})
+    return JSONResponse({"ok": True, "has_data": True,
+        "source": last[0], "verdict": last[1], "reason": last[2],
+        "data_age_h": float(last[3]) if last[3] is not None else None,
+        "cnt_conversations": last[4], "cnt_vectors": last[5], "cnt_tables": last[6],
+        "checked_at": last[7], "pred_h": float(last[8]) if last[8] is not None else None,
+        "history": [{"den": h[0], "verdict": h[1]} for h in hist]})
+
+
 @api_router.post("/app/netscan/ingest")
 async def netscan_ingest(req: Request) -> JSONResponse:
     """Mikrotik/netscan agent (X-Deploy-Token) → seznam zařízení na firemní síti.

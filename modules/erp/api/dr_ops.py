@@ -124,3 +124,81 @@ async def dr_download(req: Request):
     m = _read_meta()
     return FileResponse(_DUMP, media_type="application/octet-stream",
                         filename=m.get("name") or os.path.basename(_DUMP))
+
+
+@drops_router.post("/dr/selfcheck")
+async def dr_selfcheck(req: Request):
+    """Plzen DR agent (X-DR-Token) -> denni samokontrola obnovy (denik obnov).
+    Cloud spocita verdikt (OK/NENI_OK) + duvod, zapise do fw.dr_selfcheck a pri
+    NENI_OK posle push Martimu. Claude C23 21.7.2026."""
+    g = _guard(req)
+    if g is not None:
+        return g
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+
+    def _num(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    def _int(x):
+        try:
+            return int(x)
+        except (TypeError, ValueError):
+            return None
+
+    source = (str(body.get("source") or "PLZEN"))[:64]
+    db_online = bool(body.get("db_online"))
+    data_age_h = _num(body.get("data_age_h"))
+    cnt_conv = _int(body.get("cnt_conversations"))
+    cnt_vec = _int(body.get("cnt_vectors"))
+    cnt_tab = _int(body.get("cnt_tables"))
+    pgvector = bool(body.get("pgvector"))
+    reasons = []
+    if not db_online:
+        reasons.append("DB neodpovida")
+    if data_age_h is None or data_age_h > 30:
+        reasons.append("data stara %s h (>30) - restore mozna neprobehl" % (("%.1f" % data_age_h) if data_age_h is not None else "?"))
+    if not cnt_tab or cnt_tab < 400:
+        reasons.append("malo tabulek (%s <400)" % cnt_tab)
+    if not cnt_conv or cnt_conv < 1:
+        reasons.append("0 konverzaci")
+    if not cnt_vec or cnt_vec < 1:
+        reasons.append("0 vektoru")
+    if not pgvector:
+        reasons.append("chybi pgvector")
+    if body.get("error"):
+        reasons.append("agent: %s" % str(body.get("error"))[:120])
+    verdict = "OK" if not reasons else "NENI_OK"
+    reason = "; ".join(reasons)[:500] if reasons else "obnova OK, data cerstva, pocty sedi"
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        ds = _gds()
+        try:
+            ds.execute(_t(
+                "INSERT INTO fw.dr_selfcheck (source, db_online, data_age_h, cnt_conversations, "
+                "cnt_vectors, cnt_tables, pgvector, verdict, reason, raw) "
+                "VALUES (:s,:onl,:age,:cc,:cv,:ct,:pv,:vd,:rs, CAST(:raw AS jsonb))"),
+                {"s": source, "onl": db_online, "age": data_age_h, "cc": cnt_conv,
+                 "cv": cnt_vec, "ct": cnt_tab, "pv": pgvector, "vd": verdict, "rs": reason,
+                 "raw": json.dumps(body)[:8000]})
+            if verdict != "OK":
+                try:
+                    ds.execute(_t(
+                        "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                        "VALUES ('mobile', 1, 'claude_msg', :title, :msg, NULL)"),
+                        {"title": "DR obnova: NENI OK",
+                         "msg": ("Denni samokontrola zalohy (" + source + ") selhala: " + reason)[:600]})
+                except Exception:
+                    pass
+            ds.commit()
+        finally:
+            ds.close()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    return JSONResponse({"ok": True, "verdict": verdict, "reason": reason})

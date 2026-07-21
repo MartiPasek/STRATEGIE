@@ -62,6 +62,9 @@
 <div class="lbl" id="disky-lbl">💽 Disky serverů</div>
 <div class="cards" id="disky"><div class="c"><div class="ds">Načítám…</div></div></div>
 
+<div class="lbl" id="dr-lbl">🛟 Obnova (DR záloha Plzeň)</div>
+<div class="cards" id="dr"><div class="c"><div class="ds">Načítám…</div></div></div>
+
 <div class="lbl">🏦 Účetnictví, finance & migrace do cloudu</div>
 <div class="mods">
   <a class="mod" href="/zrcadla"><span class="i">🪞</span><span class="t">Zrcadla</span><span class="d">kancelář → cloud + monitor</span></a>
@@ -219,8 +222,33 @@ function loadDisky(){
   }).catch(function(){});
 }
 loadDisky();
+function loadDr(){
+  return fetch(API+'/api/v1/erp/app/dr/status',{credentials:'include'}).then(x=>x.json()).then(function(d){
+    var el=document.getElementById('dr'), lbl=document.getElementById('dr-lbl');
+    if(!el)return;
+    if(!d||d.ok===false){ if(lbl)lbl.style.display='none'; el.style.display='none'; return; }
+    if(!d.has_data){ el.innerHTML='<div class="c"><div class="ds">Samokontrolni agent v Plzni zatim neposlal zadny denik obnov.</div></div>'; return; }
+    var ok = d.verdict==='OK';
+    var stale = (d.pred_h!=null && d.pred_h>30);
+    var badge = (ok && !stale) ? '<span class="b live">✅ Obnova OK</span>'
+      : (stale ? '<span class="b" style="background:rgba(240,179,90,.18);color:#f0b35a">⏳ Bez kontroly '+Math.round(d.pred_h)+' h</span>'
+      : '<span class="b" style="background:rgba(248,113,113,.18);color:#f87171">⚠️ NENI OK</span>');
+    var hist=(d.history||[]).slice().reverse().map(function(h){
+      return '<span style="color:'+(h.verdict==='OK'?'#7fe9b6':'#f87171')+';font-size:15px" title="'+zEsc(h.den)+'">'+(h.verdict==='OK'?'▪':'▫')+'</span>';
+    }).join(' ');
+    var age = d.data_age_h!=null ? (Math.round(d.data_age_h)+' h') : '?';
+    el.innerHTML='<div class="c"><div class="top"><span class="nm">\U0001f6df Denni obnova zalohy ('+zEsc(d.source||'Plzen')+')</span>'+badge+'</div>'
+      +'<div class="ds" style="margin-top:6px">Posledni kontrola: <b>'+zEsc(d.checked_at||'?')+'</b>'+(d.pred_h!=null?(' (pred '+Math.round(d.pred_h)+' h)'):'')+'<br>'
+      +'Stari dat: <b>'+age+'</b> · tabulek '+(d.cnt_tables||'?')+' · konverzaci '+(d.cnt_conversations||'?')+' · vektoru '+(d.cnt_vectors||'?')
+      +((d.verdict!=='OK'&&d.reason)?('<br><span style="color:#f87171">'+zEsc(d.reason)+'</span>'):'')+'</div>'
+      +'<div style="margin-top:8px">'+hist+'</div>'
+      +'<div style="margin-top:6px;font-size:11px;color:#56688a">Denik obnov: kazde rano po nocnim restore Praha→Plzen. ▪ OK · ▫ chyba. Pri chybe push.</div></div>';
+  }).catch(function(){});
+}
+loadDr();
 setInterval(loadStats,60000);
 setInterval(loadDisky,60000);
+setInterval(loadDr,60000);
 setInterval(function(){if(!zpoll)loadZaloha();},60000);
 </script>
 </body>

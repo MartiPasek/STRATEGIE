@@ -25644,8 +25644,32 @@ def _att_automat_level_day(tenant: int = 2, days_back: int = 4,
             "WHERE nf.net > 0.1 AND abs(nf.fond - nf.net) >= 0.1 "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type a2 ON a2.id=a.entry_type_id "
             "     WHERE a.tenant_id=:t AND a.employee_id=nf.employee_id AND a.entry_date=nf.entry_date "
-            "       AND a2.category='absence' AND a.status IN ('pending','approved'))"), p)
+            "       AND a2.category='absence' AND a.status IN ('pending','approved')) "
+            # O VÍKENDU A O SVÁTKU SE NEDOPLŇUJE (Peťa 21.7.2026). Dřív automat kalendář
+            # vůbec nečetl a počítal i v sobotu/neděli/o svátku s denním fondem 8 h —
+            # kdo si v neděli odpíchl 2 h, dostal dopsáno 6 h „do fondu". Pracovní den
+            # říká tenant.att_calendar_day (plní Kristý). Odpis nad fond (nenárokové)
+            # necháváme běžet i o víkendu — ten hodiny nikomu nepřidává.
+            "  AND (nf.net >= nf.fond OR EXISTS ("
+            "     SELECT 1 FROM tenant.att_calendar_day cd "
+            "     WHERE cd.tenant_id=:t AND cd.day=nf.entry_date "
+            "       AND cd.is_workday=true AND COALESCE(cd.is_holiday,false)=false))"), p)
         cnt = r.rowcount
+        # Pojistka (Peťa 21.7.2026): doplnění do fondu teď stojí na kalendáři
+        # tenant.att_calendar_day. Kdyby ho někdo nezaložil na další rok, automat by
+        # od ledna potichu přestal doplňovat. Ať to je aspoň vidět v logu.
+        try:
+            chybi = s.execute(_t(
+                "SELECT count(*) FROM (SELECT DISTINCT nf.entry_date FROM tenant.att_entry nf "
+                "  WHERE nf.tenant_id=:t " + dcond.replace("e.", "nf.") + ") d "
+                "WHERE NOT EXISTS (SELECT 1 FROM tenant.att_calendar_day cd "
+                "  WHERE cd.tenant_id=:t AND cd.day=d.entry_date)"), p).scalar()
+            if chybi:
+                logger.warning("[automat] POZOR: %s dnů nemá záznam v kalendáři "
+                               "(tenant.att_calendar_day) — pro ty dny se NEDOPLŇUJE do fondu. "
+                               "Je potřeba kalendář založit (Kristý).", chybi)
+        except Exception:
+            pass
         s.commit()
         return {"ok": True, "leveled": cnt}
     except Exception as exc:

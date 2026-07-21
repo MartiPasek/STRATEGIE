@@ -1,68 +1,54 @@
-# 💰 Modul „Příplatky a srážky" (Mzdy) — analýza + DB základ (1:1 z Centrály)
+# 💰 Modul „Příplatky a srážky" (Mzdy) — STAV k 21. 7. 2026 (odpoledne)
 
 > oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-# 💰 Modul „Příplatky a srážky" (Mzdy) — analýza + DB základ (1:1 z Centrály)
+# 💰 Modul „Příplatky a srážky" (Mzdy) — STAV k 21. 7. 2026 (odpoledne)
 
-**Připravil:** Claude, 21. 7. 2026 · **Stav:** analýza hotová, DB základ nasazen, UI zbývá.
-**Cíl (Marti):** funkční **1:1 modul do mezd** — jako u „Vyhodnocení zakázek". EUROSOFT‑specifické → PG schéma `ec`.
+**Připravil:** Claude, 21. 7. 2026 · **Cíl (Marti):** funkční **1:1 modul do mezd** (jako „Vyhodnocení zakázek"). Schéma `ec`.
+**Stav:** analýza hotová · DB základ + katalog typů nasazen · **datový sync připraven, čeká na schválení** · UI zatím nepostaveno (pauza).
 
 ---
 
 ## 1. Co modul dělá
-Evidence **příplatků a srážek ke mzdě** per pracovník. Jeden řádek = jeden příplatek/srážka:
-*druh odměny (Typ)* · komu (dostane) · kdo navrhl · měsíc/rok proplacení · částka / sazba / hodiny ·
-zakázka · **Schváleno** · **Vyplaceno**. Napojení na mzdy přes **mzdovou složku** typu (651, 700, 953…)
-a flag **ReakceMzdy** (jde reálně do výplaty). Je to sourozenec vyhodnocení — rodina `EC_Fin*`
-(jako `EC_ZakazkyFinanceZam`), most mezi vyhodnocením/odměnami a mzdovým listem.
+Evidence **příplatků a srážek ke mzdě** per pracovník. Řádek = *druh odměny (Typ)* · komu (dostane) · kdo navrhl ·
+měsíc/rok proplacení · částka/sazba/hodiny · zakázka · Schváleno · Vyplaceno. Napojení na mzdy přes **mzdovou složku**
+typu (651, 700, 953…) + flag **ReakceMzdy**. Rodina `EC_Fin*` (jako `EC_ZakazkyFinanceZam` z vyhodnocení).
 
 ## 2. Zdroj v Centrále (DB_EC)
-- **Jádro `645:0 „Příplatky‑Srážky‑Definice"`** — editační formulář (viz printscreen): druh odměny,
-  č. odměnu navrhl, č. odměnu dostane, Měsíc/Rok proplacení, Skutečně vyplaceno dne, Hodiny, Sazba,
-  Částka, Číslo zakázky, Poznámka; checkboxy Měsíčně / Fix / Schváleno / Propsat poznámku do VOBJ.
-- **Přehled „Mzdy/Příplatky/Srážky"** + pohledy: *…pojištění · ‑ tarif · …‑ kvalita · ‑ vše*
-  (grid nad definicí + join na typy a osoby; ~11 800 řádků).
-- **Tabulky:** `EC_FinPriplatkySrazkyDefinice` (31 sl.), `EC_FinPriplatkySrazkyDefiniceTypy` (12 sl., 49 typů).
-- **Procedury:** `EC_Mzdy_VyplatitPriplSrazky(@ID,@Command)` (toggle vyplaceno: 1=nastav DatVyplaceni+Vyplatil, 2=zruš),
-  `EC_GenMesicnichSrazek` (generuje měsíční „Měsíčně" řádky), `EC_GenDobropisBonus`.
-  (Stovky `hp_Mz*` = celý Helios mzdový engine — daňový bonus, exekuční srážky — **mimo tento modul**.)
+- Jádro **`645:0 „Příplatky‑Srážky‑Definice"`** (edit formulář).
+- Přehled **„Mzdy/Příplatky/Srážky"** + pohledy *pojištění · tarif · kvalita · vše*.
+- Tabulky: `EC_FinPriplatkySrazkyDefinice` (31 sl.), `EC_FinPriplatkySrazkyDefiniceTypy` (12 sl., 49 typů).
+- Proc: `EC_Mzdy_VyplatitPriplSrazky(@ID,@Command)` (1=vyplatit/2=zrušit), `EC_GenMesicnichSrazek`, `EC_GenDobropisBonus`.
+  (Stovky `hp_Mz*` = celý Helios mzdový engine — MIMO tento modul.)
 
-## 3. DB port do PG — HOTOVO (schéma `ec`)
-| DB_EC | → PG `ec.` | pozn. |
+## 3. HOTOVO — DB v PG (schéma `ec`)
+| DB_EC | → PG `ec.` | stav |
 |---|---|---|
-| `EC_FinPriplatkySrazkyDefiniceTypy` | **`ec.pripl_srazky_typy`** | katalog „druh odměny", 49 typů **naseedováno** |
-| `EC_FinPriplatkySrazkyDefinice` | **`ec.pripl_srazky`** | 31 sloupců 1:1 (id GENERATED, typ FK → typy) |
+| `EC_FinPriplatkySrazkyDefiniceTypy` | **`ec.pripl_srazky_typy`** | ✅ 49 typů naseedováno (45 aktivních), granty pro `strategie` |
+| `EC_FinPriplatkySrazkyDefinice` | **`ec.pripl_srazky`** | ✅ tabulka (31 sl. 1:1, id GENERATED, typ FK → typy) |
 
-Mapování sloupců (definice): `ID→id, IDZdroj→id_zdroj, Typ→typ (FK), Schvaleno→schvaleno, CisloZamNavrhl→cislo_zam_navrhl,
-CisloZam→cislo_zam, Přeneseno→preneseno, IdMzdoveSlozky→id_mzdove_slozky, Mesicne→mesicne, Fix→fix, Mesic→mesic,
-Rok→rok, PlatnostOd/Do→platnost_od/do, Hodiny→hodiny, Sazba→sazba, Castka→castka, CisloZakazky→cislo_zakazky,
-DatVyplaceni→dat_vyplaceni, Vyplaceno→vyplaceno, Vyplatil→vyplatil, Poznamka→poznamka, Zdroj→zdroj,
-Autor/DatPorizeni/Zmenil/DatZmeny, IDPolVobj→id_pol_vobj, IDPolPF→id_pol_pf,
-PropsatPoznamkuDoVOBJ→propsat_poznamku_do_vobj, CastkaVypocetHodSazby→castka_vypocet_hod_sazby`.
-Typy: int→integer, bit→boolean, nvarchar→text, numeric→numeric, datetime→timestamptz.
-Granty pro roli `strategie` nastaveny.
+Mapa sloupců beze změny (viz předchozí verze): int→integer, bit→boolean, nvarchar→text, numeric→numeric, datetime→timestamptz.
 
-## 4. Katalog typů (druh odměny) — 49, vazba na mzdovou složku
-Např.: 4 = Telefonní tarif do MZDY (953, ReakceMzdy=ne), 7 = Jednorázové odměny od vedoucího (651),
-23 = Odměna garant (651), 44 = Odměna garant ‑ čtvrtletní (651), 20–25/31/45/46/48 = Fakturace:* (bez mzdové složky,
-ReakceMzdy=ne — jen evidence/fakturace), 1–3 = DPP (700), 17 = Odměna Jednatel (693), 18 = Roční zúčtování daně (97),
-32 = Odstupné (697), 47 = Cesťák (791), 37/38 = Landmark náhrady (794/795). Flag **ZobrazujVeVyplatnici** řídí zobrazení na pásce.
+## 4. PŘIPRAVENO — datový sync (čeká na schválení #1258)
+Vygenerováno z DB_EC, připraveno jako **jeden** write‑request:
+- **`ec.cis_zam`** — plný číselník **430 zaměstnanců** (TabCisZam); `prijmenijmeno` se v PG přepočítává z prijmeni+jmeno (čisté).
+- **`ec.pripl_srazky`** — **131 řádků** za 6–7/2026 (přesně data z printscreenu: id 19955 Zeman −57, 19940 Havlát 6921/15,64 h, 19938 Fakturace 407 269 …).
 
-## 5. Zbývá dodělat (pokračování modulu)
-1. **Procedury** → `ec.pripl_srazky_vyplatit(p_id, p_cmd)` (1:1 toggle) + `ec.pripl_srazky_gen_mesicni(rok,mesic)` (generátor „Měsíčně").
-2. **Přehled „Mzdy/Příplatky/Srážky"** v Mzdy stromu + 4 pohledy (pojištění/tarif/kvalita/vše) — filtry přes `typ` / mzdovou složku
-   (grid_modern nad `ec.pripl_srazky` JOIN `pripl_srazky_typy` + jména z `cis_zam`).
-3. **Jádro 645** (fw form 302) nad `ec.pripl_srazky` — pole dle formuláře, lookup „druh odměny" na `pripl_srazky_typy`,
-   lookupy osob na `cis_zam`; klíč = `id`.
-4. **Akční tlačítka**: Vyplatit / Zrušit vyplacení (`pripl_srazky_vyplatit`), příp. Schválit. Endpoint `/action/run` rozšířit o `pripl_*` whitelist.
+⚠️ **Pozor (multi‑instance):** #1258 je stále `pending` — v banneru se schvalovaly requesty jiných Claude instancí (Kristy/Šárka/Péťa/Jirka). Než se modul dostaví, **schválit #1258** (nebo znovu vygenerovat sync). Do té doby `cis_zam` obsahuje jen 3 testovací (z vyhodnocení) a `pripl_srazky` je prázdné.
+
+## 5. ZBÝVÁ (po schválení dat) — postup jako vyhodnocení
+1. **Procedura** `ec.pripl_srazky_vyplatit(p_id, p_cmd)` — toggle vyplaceno (1:1 z `EC_Mzdy_VyplatitPriplSrazky`).
+2. **Přehled „Mzdy/Příplatky/Srážky"** — fw core + grid_modern nad `ec.pripl_srazky` JOIN `pripl_srazky_typy` (druh odměny) + `cis_zam` (dostane/navrhl). Pohledy pojištění/tarif/kvalita/vše = varianty/filtry přes `typ`/mzdovou složku. Uzel v Mzdy stromu (založit „💰 Mzdy" — dnes není).
+3. **Jádro 645** — fw form (302) nad `ec.pripl_srazky`, klíč `id`. Pole: druh odměny (lookup na typy), navrhl/dostane (lookup cis_zam), měsíc/rok proplacení, hodiny/sazba/částka, zakázka, checkboxy Měsíčně/Fix/Schváleno, poznámka. **edit‑op MUSÍ mít `core_id`** (jinak prázdný záznam).
+4. **Akční tlačítka** Vyplatit / Zrušit vyplacení / Schválit → endpoint `/action/run` (rozšířit whitelist o `pripl_*`).
 
 ## 6. Framework gotchas (viz zápis „Vyhodnocení zakázek", oblast Výroba)
-Identity id (RETURNING), `:master_id` přes `chr(58)`, JSON layout přes `jsonb_build_object`, constraint root/parent (child root NULL),
-**edit‑op potřebuje `core_id`**, vnořený grid potřebuje `layout.kind='select-detail'+filter_field='master_id'`, grant schématu `ec` roli `strategie`.
-Stejné vzory platí i tady — postup 1:1 zopakovat.
+Identity id (RETURNING) · `:master_id` přes `chr(58)` · JSON layout přes `jsonb_build_object` · constraint root/parent (child root NULL) ·
+**edit‑op potřebuje `core_id`** · vnořený grid potřebuje `layout.kind='select-detail'+filter_field='master_id'` · grant `ec` roli `strategie` ·
+**NOT NULL `created_by_text`/`updated_by_text`** na core/comp_def/menu_node (vždy vyplnit) · TRUNCATE s FK → použít DELETE/ON CONFLICT.
 
-## 7. Poznámka k datům
-Katalog typů je naseedován k 20. 7. 2026 (snapshot). Ostrá data řádků (`ec.pripl_srazky`) zatím prázdná —
-pro produkci napojit sync z DB_EC (nebo import). Typy udržovat sync‑em, protože se v Centrále mění.
+## 7. Data / poznámka
+Katalog typů (49) + číselník (430) jsou snapshot k 21. 7. 2026. Řádky `ec.pripl_srazky` = vzorek 6–7/2026 (131) pro demo;
+pro produkci napojit průběžný sync z DB_EC. Typy i číselník udržovat sync‑em (v Centrále se mění).
 
 

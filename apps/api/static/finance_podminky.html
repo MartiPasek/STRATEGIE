@@ -219,7 +219,11 @@ async function savePozice(eg,pid){
 }
 loadTypy();
 loadPozice();
-load();
+// Šárka 21.7.2026: když přijde ?uid= (z karty zaměstnance), rovnou otevři tu osobu.
+load().then(function(){
+  var u=new URLSearchParams(location.search).get('uid');
+  if(u && !isNaN(parseInt(u))) openP(parseInt(u));
+});
 </script>
 </body>
 </html>

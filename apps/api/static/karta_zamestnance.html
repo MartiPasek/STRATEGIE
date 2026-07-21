@@ -178,7 +178,7 @@ function openP(uid,row){
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
     const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje'};
-    const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'\',\'_blank\')"'):'');
+    const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
       '<div class="st">'+esc(s.t)+' '+tag+'</div><div class="sd">'+esc(s.d)+'</div></div></div>';

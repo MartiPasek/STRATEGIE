@@ -19276,6 +19276,10 @@ _ATT_FIX_GROUP = "DOCHÁZKA - OPRAVY"
 # modul absencí, ne ručně v opravách.
 _ATT_FIX_TYPES = ("work", "overhead", "homeoffice", "commute", "break",
                   "vacation", "medical", "sickday", "unpaid")
+# Typ nepřítomnosti → činnost ve výkazu (tenant.vyroba_cinnost, kind='nepritomnost').
+# Nepřítomnost se eviduje na zakázce Režie s vlastní činností — jako v Centrále.
+_ATT_ABS_CINNOST = {"vacation": "dovolena", "medical": "lekar",
+                    "sickday": "sickday", "unpaid": "neplacene_volno"}
 _ATT_LOCK_UIDS = frozenset({18, 13, 20})  # Peťa (mzdy/finance) + Šárka (HR) + Jirka
 # (administrátor docházky a oprav docházky, doplněn 20.7.2026 na vlastní pokyn —
 # není rodič, takže mu bypass přes is_marti_parent práva nedal). Rodiče zůstávají.
@@ -19763,20 +19767,29 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                 tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
                 if tu and new_code not in ("work", "overhead"):
                     # Peťa 21.7.2026: převod práce na NEPŘÍTOMNOST (dovolená, lékař…).
-                    # Dovolená NENÍ výkon, ale počítá se do FPD a v Centrále visí na
-                    # zakázce Režie — držíme to stejně. Úsek ve výkazu proto NErušíme,
-                    # jen ho přehodíme na Režii a zahodíme činnost (ta patří k výkonu).
+                    # Nepřítomnost NENÍ výkon, ale náleží za ni mzda, počítá se do FPD
+                    # a musí být evidovaná — v Centrále visí na zakázce Režie a má
+                    # vlastní činnost (Dovolená, Lékař…). Držíme to stejně: úsek ve
+                    # výkazu zůstává, přehodí se na Režii a dostane odpovídající
+                    # činnost z číselníku (kind='nepritomnost', v mobilu se nenabízí).
+                    _cin_abs = s.execute(_t(
+                        "SELECT id, name, COALESCE(icon,'') FROM tenant.vyroba_cinnost "
+                        "WHERE tenant_id=:t AND kind='nepritomnost' AND code=:c AND active"),
+                        {"t": _ATT_TENANT, "c": _ATT_ABS_CINNOST.get(new_code, "")}).first()
                     s.execute(_t(
                         "UPDATE tenant.work_alloc SET project_ref = :rz, "
                         "project_nazev = (SELECT z.nazev FROM tenant.zakazka z "
                         "                  WHERE z.tenant_id = :t AND z.cislo = :rz), "
-                        "is_rezie = true, cinnost_id = NULL, cinnost_name = NULL, cinnost_icon = NULL, "
+                        "is_rezie = true, cinnost_id = :ci, cinnost_name = :cn, cinnost_icon = :cic, "
                         "ended_at = GREATEST(CAST(:ns AS timestamptz), LEAST(ended_at, CAST(:ne AS timestamptz))), "
                         "started_at = LEAST(CAST(:ne AS timestamptz), GREATEST(started_at, CAST(:ns AS timestamptz))), "
                         "updated_at = now() "
                         "WHERE user_id=:u AND started_at >= CAST(:os AS timestamptz) - interval '1 minute' "
                         "  AND started_at < CAST(:oe AS timestamptz)"),
                         {"u": tu, "t": _ATT_TENANT, "rz": _REZIE_REF,
+                         "ci": (_cin_abs[0] if _cin_abs else None),
+                         "cn": (_cin_abs[1] if _cin_abs else None),
+                         "cic": (_cin_abs[2] if _cin_abs else None),
                          "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
                          "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
                 elif tu:

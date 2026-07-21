@@ -102,7 +102,11 @@
 <script>
 var CAN_LOCK=false, LIDE=[], CTX=null;
 var REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","zapomenutý oběd/pauza","mezera v docházce","chybný typ záznamu","omylem založený záznam"];
-var TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
+var TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"],
+  /* Peťa 21.7.2026: nepřítomnosti — omylem píchnutá práce se musí dát přepsat na
+     dovolenou/lékaře. Nemoc (PN) a OČR tu schválně nejsou, ty se zakládají
+     z dokladu přes modul absencí. */
+  ["vacation","🏖 Dovolená"],["medical","🩺 Lékař"],["sickday","🤒 Sickday"],["unpaid","🚫 Neplacené volno"]];
 /* Peťa 21.7.2026: typy, které znamenají PŘÍTOMNOST v práci (mají čas od–do a sčítají
    se do „Odpracováno"). Všechno ostatní (dovolená, lékař, SD, doplnění do fondu…)
    se v součtu dne vypisuje na vlastní řádek podle názvu typu. */

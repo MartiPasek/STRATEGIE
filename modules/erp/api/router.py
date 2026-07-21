@@ -19270,7 +19270,12 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 _ATT_FIX_GROUP = "DOCHÁZKA - OPRAVY"
-_ATT_FIX_TYPES = ("work", "overhead", "homeoffice", "commute", "break")
+# Peťa 21.7.2026: k typům přítomnosti přibyly NEPŘÍTOMNOSTI — editor potřebuje umět
+# přepsat omylem píchnutou práci na dovolenou/lékaře (paní Bernardová 13.7.).
+# Nemoc (PN) a OČR schválně NEJSOU — ty se zakládají z dokladu (neschopenka) přes
+# modul absencí, ne ručně v opravách.
+_ATT_FIX_TYPES = ("work", "overhead", "homeoffice", "commute", "break",
+                  "vacation", "medical", "sickday", "unpaid")
 _ATT_LOCK_UIDS = frozenset({18, 13, 20})  # Peťa (mzdy/finance) + Šárka (HR) + Jirka
 # (administrátor docházky a oprav docházky, doplněn 20.7.2026 na vlastní pokyn —
 # není rodič, takže mu bypass přes is_marti_parent práva nedal). Rodiče zůstávají.
@@ -19756,7 +19761,16 @@ async def att_fix_entry(req: Request) -> JSONResponse:
         if row[6] in ("work", "overhead") and row[4] is not None:
             try:
                 tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-                if tu:
+                if tu and new_code not in ("work", "overhead"):
+                    # Peťa 21.7.2026: převod práce na NEPŘÍTOMNOST (dovolená, lékař…) —
+                    # úseky zakázek z výkazu vynulovat. Jinak by hodiny dál visely na
+                    # zakázce, i když člověk ten čas vůbec nepracoval.
+                    s.execute(_t(
+                        "UPDATE tenant.work_alloc SET ended_at=started_at, updated_at=now() "
+                        "WHERE user_id=:u AND started_at >= CAST(:os AS timestamptz) - interval '1 minute' "
+                        "  AND started_at < CAST(:oe AS timestamptz)"),
+                        {"u": tu, "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
+                elif tu:
                     s.execute(_t(
                         "UPDATE tenant.work_alloc SET "
                         "ended_at = GREATEST(CAST(:ns AS timestamptz), LEAST(ended_at, CAST(:ne AS timestamptz))), "

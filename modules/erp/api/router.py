@@ -41186,6 +41186,50 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   na pozadí (kvůli 30s timeoutu). Default limit=300/složka, s přílohami.
     #   @@MAILATTFIX <uid> [max]  -> cilena dobirka CHYBEJICICH priloh (jen zpravy
     #   s prilohou bez stazenych dokumentu). Na pozadi. Claude C23 21.7.2026.
+    #   @@DISK  -> volne/obsazene misto na disku(cich), kde bezi STRATEGIE a kde
+    #   se ukladaji dokumenty. Prevence kolapsu z preplneni disku. Claude C23 21.7.2026.
+    if sql.upper().startswith("@@DISK"):
+        import shutil as _shu_dsk
+        _rows_dsk = []
+        _gb = 1024.0 ** 3
+        _cands = []
+        try:
+            from modules.rag.application.storage import storage_root as _sr_dsk
+            try:
+                _cands.append(("dokumenty", str(_sr_dsk())))
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            _cands.append(("system / proces", _os_ds.getcwd()))
+        except Exception:
+            pass
+        _seen_dsk = set()
+        for _lbl_dsk, _p_dsk in _cands:
+            try:
+                _drv = _os_ds.path.splitdrive(_os_ds.path.abspath(_p_dsk))[0].upper() or _p_dsk
+            except Exception:
+                _drv = _p_dsk
+            if _drv in _seen_dsk:
+                continue
+            _seen_dsk.add(_drv)
+            try:
+                _u_dsk = _shu_dsk.disk_usage(_p_dsk)
+                _pct = (100.0 * _u_dsk.free / _u_dsk.total) if _u_dsk.total else 0.0
+                _rows_dsk.append([
+                    "%s (%s)" % (_lbl_dsk, _drv),
+                    "%.1f GB" % (_u_dsk.total / _gb),
+                    "%.1f GB" % (_u_dsk.used / _gb),
+                    "%.1f GB" % (_u_dsk.free / _gb),
+                    "%.1f %%" % _pct,
+                ])
+            except Exception as _de_dsk:
+                _rows_dsk.append(["%s (%s)" % (_lbl_dsk, _p_dsk), "chyba", str(_de_dsk)[:80], "", ""])
+        return JSONResponse({"ok": True,
+                             "columns": ["misto", "celkem", "obsazeno", "volno", "volno %"],
+                             "rows": _rows_dsk, "count": len(_rows_dsk)})
+
     if sql.upper().startswith("@@MAILATTFIX"):
         import traceback as _tbaf
         try:

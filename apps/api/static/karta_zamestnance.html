@@ -155,8 +155,14 @@ function zemeZMesta(mesto){ const m=(mesto||'').trim().toLowerCase(); if(!m) ret
   if(_UA_MESTA.includes(m)) return 'Ukrajina';
   return 'Česká republika'; }
 // Šárka 22.7.2026: rodinný stav rodově (žena/muž). zena: true/false/null (nejisté).
+// Neutrální/dřív uložené tvary → rodově správný podle pohlaví (i v náhledu).
+function maritalDisplay(val, zena){
+  const map={'svobodný/á':['svobodná','svobodný'],'ženatý/vdaná':['vdaná','ženatý'],'rozvedený/á':['rozvedená','rozvedený'],'vdovec/vdova':['vdova','vdovec']};
+  if(zena===true||zena===false){ const m=map[val]; if(m) return zena?m[0]:m[1]; }
+  return val;
+}
 function maritalSelect(cur, zena){
-  cur=cur||'';
+  cur=maritalDisplay(cur||'', zena);
   let opts = zena===true ? ['svobodná','vdaná','rozvedená','vdova','v registrovaném partnerství']
            : zena===false ? ['svobodný','ženatý','rozvedený','vdovec','v registrovaném partnerství']
            : ['svobodný/á','ženatý/vdaná','rozvedený/á','vdovec/vdova','v registrovaném partnerství'];
@@ -251,7 +257,12 @@ function renderZU(edit){
           const t = it.type==='date'?'date':'text';
           val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit">';
         }
-      } else { const dv=(it.type==='date'&&it.value)?czDate(it.value):it.value; val=dv?esc(dv):'<span style="color:#5d6b7c">—</span>'; }
+      } else {
+        let dv=it.value;
+        if(it.key==='marital_status') dv=maritalDisplay(it.value, d.zena);
+        else if(it.type==='date'&&it.value) dv=czDate(it.value);
+        val=dv?esc(dv):'<span style="color:#5d6b7c">—</span>';
+      }
       const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
       return '<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lbl+'</td><td style="padding:5px 16px;color:#e8eef5">'+val+'</td></tr>';
     }).join('');

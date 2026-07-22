@@ -114,7 +114,8 @@ function hlavicka(){
   // Přisadit filtrovací řádek přesně pod hlavičku (jinak mezi nimi prosvítá mezera)
   var hrow=th.getElementsByTagName('tr')[0];
   var hh=(hrow&&hrow.offsetHeight)?hrow.offsetHeight:25;
-  [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=hh+'px';});
+  // -1px = filtr se o pixel překrývá s hlavičkou → při rolování neprosvítá mezera
+  [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=(hh-1)+'px';});
   th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
   th.addEventListener('mousedown',function(e){

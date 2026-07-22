@@ -89,28 +89,41 @@ var COLS=[
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
 var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
 
+function cols(){return $('tab').getElementsByTagName('col');}  // [0]=mkcol, [i+1]=COLS[i]
+function totW(){var s=0,cs=cols();for(var i=0;i<cs.length;i++)s+=parseInt(cs[i].style.width,10)||0;return s;}
+function applyW(){$('tab').style.width=totW()+'px';}
+
 function hlavicka(){
+  // Šířky přes <colgroup>/<col> (jako pokladny) — u table-layout:fixed to drží spolehlivě
+  var cg='<colgroup><col style="width:20px">';
   var h='<tr><th class="mkcol"></th>';
   var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
-    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" style="width:'+c.w+'px" title="'+esc(c.h)+'">'+esc(c.h)
+    cg+='<col style="width:'+c.w+'px">';
+    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     f+='<td><input data-k="'+c.k+'"></td>';
   }
-  var th=$('tab').getElementsByTagName('thead')[0];
+  cg+='</colgroup>';
+  var tab=$('tab');
+  var oldcg=tab.getElementsByTagName('colgroup')[0];if(oldcg)oldcg.parentNode.removeChild(oldcg);
+  tab.insertAdjacentHTML('afterbegin',cg);
+  var th=tab.getElementsByTagName('thead')[0];
   th.innerHTML=h+'</tr>'+f+'</tr>';
+  applyW();
   th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
   th.addEventListener('mousedown',function(e){
     if(!e.target.classList.contains('dgrip'))return;
-    var cell=e.target.parentNode,x0=e.clientX,w0=cell.offsetWidth;e.preventDefault();
+    var i=parseInt(e.target.getAttribute('data-i'),10),col=cols()[i+1];
+    var x0=e.clientX,w0=parseInt(col.style.width,10)||COLS[i].w;e.preventDefault();
     document.body.style.cursor='ew-resize';
-    function mv(ev){cell.style.width=Math.max(24,w0+(ev.clientX-x0))+'px';}
+    function mv(ev){col.style.width=Math.max(24,w0+(ev.clientX-x0))+'px';applyW();}
     function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);document.body.style.cursor='';}
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
   th.addEventListener('dblclick',function(e){
     if(!e.target.classList.contains('dgrip'))return;
-    var i=parseInt(e.target.getAttribute('data-i'),10);e.target.parentNode.style.width=COLS[i].w+'px';});
+    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();});
 }
 
 function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}

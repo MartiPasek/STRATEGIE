@@ -59,8 +59,17 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
         if not sql:
             return JSONResponse({"ok": False, "error": "dataset_missing"}, status_code=500)
         rows = s.execute(_t(sql)).mappings().all()
-        return JSONResponse({"ok": True, "obdobi": obdobi, "pocet": len(rows),
-                             "rows": [dict(r) for r in rows]})
+        from decimal import Decimal as _D
+        import datetime as _dt
+
+        def _conv(v):
+            if isinstance(v, _D):
+                return float(v)
+            if isinstance(v, (_dt.date, _dt.datetime)):
+                return v.isoformat()
+            return v
+        out = [{k: _conv(v) for k, v in dict(r).items()} for r in rows]
+        return JSONResponse({"ok": True, "obdobi": obdobi, "pocet": len(out), "rows": out})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
     finally:

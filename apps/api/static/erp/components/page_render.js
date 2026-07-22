@@ -67,17 +67,9 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
-      // Docházka po zakázkách (Peťa 22.7.2026): jádra dochazka.centrala (do dneška)
-      // a dochazka.zakazky_budoucnost (plán) = iframe vlastní stránky
-      // /dochazka-po-zakazkach ve stylu standardu přehledů (table.dokl: rámeček,
-      // filtr pod názvy + ✕ na zrušení filtrů, pevné šířky, hlavička běžným písmem).
-      // Data z data_setů přes /app/dochazka-zak-tab/data. Nahradilo framework grid.
-      if (String(coreCode) === 'dochazka.centrala' || String(coreCode) === 'dochazka.zakazky_budoucnost') {
-        var _dzObd = (String(coreCode) === 'dochazka.zakazky_budoucnost') ? 'budoucnost' : 'vse';
-        mainContent.innerHTML = '<iframe src="/dochazka-po-zakazkach?obdobi=' + _dzObd + '" title="Docházka po zakázkách" '
-          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
-        return;
-      }
+      // Pozn.: „Docházka po zakázkách" (dochazka.centrala / dochazka.zakazky_budoucnost)
+      // se řeší iframe hookem na začátku dispatchPageRender (jádro má data_source grid,
+      // sem do drafted-placeholder cesty by se nedostalo).
       // Karta zaměstnance (Šárka 8.7.2026): jádro hr.karta = iframe stránky
       // /karta-zamestnance (seznam lidí HR-gated + sekce Pinya×Centrála). Tmavý ERP.
       if (String(coreCode) === 'hr.karta') {
@@ -984,6 +976,15 @@
     function dispatchPageRender(coreId, coreCode, tab, mainContent) {
       if (!coreId || !mainContent) {
         console.error("[page_render] dispatchPageRender: missing coreId/mainContent");
+        return;
+      }
+      // Docházka po zakázkách (Peťa 22.7.2026): iframe vlastní stránky ve stylu
+      // standardu (table.dokl). MUSÍ být PŘED page-spec fetch — jádro má data_source
+      // grid, jinak by se vykreslila framework tabulka a stránka by se neukázala.
+      if (String(coreCode) === 'dochazka.centrala' || String(coreCode) === 'dochazka.zakazky_budoucnost') {
+        var _dzObd = (String(coreCode) === 'dochazka.zakazky_budoucnost') ? 'budoucnost' : 'vse';
+        mainContent.innerHTML = '<iframe src="/dochazka-po-zakazkach?obdobi=' + _dzObd + '" title="Docházka po zakázkách" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
       // Fix J Vrstva 5 (20.5. vecer): set window context PRED page-spec fetch.

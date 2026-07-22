@@ -20501,10 +20501,28 @@ async def att_fix_day(req: Request) -> JSONResponse:
             "  AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
             "ORDER BY a.id"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
+        # Peťa 22.7.2026: denní fond člověka (jen pro kancelářské kategorie s dopichávat_fond),
+        # ať součet dne umí ukázat „z toho nad fond X h" hned, i než automat řádek dopíše.
+        # Stejný výpočet jako docházkový automat: úvazek/dny, fallback fond kategorie.
+        fond_den = s.execute(_t(
+            "SELECT CASE WHEN EXISTS(SELECT 1 FROM tenant.att_user_kategorie uk "
+            "     JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "     WHERE uk.user_id=:u AND k.dopichavat_fond=true AND k.aktivni=true) "
+            "  THEN COALESCE("
+            "     (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
+            "      FROM tenant.engagement g JOIN tenant.att_employee em2 ON em2.id=g.employee_id "
+            "      LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
+            "      WHERE em2.user_id=:u AND em2.tenant_id=:t AND g.is_current=true AND g.uvazek_tyden_h IS NOT NULL "
+            "      ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
+            "     (SELECT max(k.fond_h_den) FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "      WHERE uk.user_id=:u AND k.dopichavat_fond=true)) "
+            "  ELSE NULL END"),
+            {"t": _ATT_TENANT, "u": tuid}).scalar()
         s.commit()
         return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": False, "can_unlock": bool(locked and _can_unlock),
             "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
             "anomalie": [a[0] for a in anom if a[0]],
+            "fond_den": (float(fond_den) if fond_den is not None else None),
             "entries": [
             {"id": r[0], "zac": r[1], "kon": r[2],
              "hours": (float(r[3]) if r[3] is not None else None),

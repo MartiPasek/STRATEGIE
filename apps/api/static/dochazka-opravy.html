@@ -385,8 +385,20 @@ function openDay(uid,name,day){
       if(hlasi.length)box.appendChild(el('<div style="background:rgba(245,158,11,.10);border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;"><div style="font-weight:700;margin-bottom:4px;">✋ Co člověk hlásí</div>'+hlasi.join('<br>')+'</div>'));
       // Peťa 22.7.2026: co systému nesedělo (nevyřešené anomálie dne) — stejný panel
       // jako zpráva od člověka, ať editor v detailu vidí důvod, proč den řeší.
-      if((j.anomalie||[]).length)
-        box.appendChild(el('<div style="background:rgba(224,120,138,.10);border:1px solid #e0788a;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;"><div style="font-weight:700;margin-bottom:4px;">⚠ Co systému nesedělo</div>'+j.anomalie.map(esc).join('<br>')+'</div>'));
+      // + k tomu rovnou POZNÁMKY ze záznamů (auto-odhlášení, zkráceno uživatelem…),
+      //   ať je hned jasné, že už je den upravený, a hláška nevyděsí (Peťa 22.7.).
+      if((j.anomalie||[]).length){
+        var abody='<div style="font-weight:700;margin-bottom:4px;">⚠ Co systému nesedělo</div>'
+                  +j.anomalie.map(esc).join('<br>');
+        var apozn=[];
+        (j.entries||[]).forEach(function(e0){
+          if(e0.status!=='superseded'&&(e0.note||'').trim()&&(e0.note||'').indexOf('✋ ROZPOR')<0)
+            apozn.push('<b>'+esc((e0.zac||'?')+(e0.code==='day_end'?'':('–'+(e0.kon||'…'))))+':</b> '+esc(e0.note));
+        });
+        if(apozn.length)
+          abody+='<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(224,120,138,.35);color:#cbd6e6;font-size:12px;">📝 '+apozn.join('<br>📝 ')+'</div>';
+        box.appendChild(el('<div style="background:rgba(224,120,138,.10);border:1px solid #e0788a;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;">'+abody+'</div>'));
+      }
       var afx=null;
       // Doplnění záznamu — z tlačítka i z řádku „mezera" (předvyplněné časy). Dušan 12.7.
       function openAdd(prefZ,prefK,prefTyp){
@@ -636,9 +648,15 @@ function openDay(uid,name,day){
         }
         // Odpracováno = čistý čas v práci, už BEZ přestávek
         srow('Odpracováno (bez přestávek)',fmtDec(cisty),true);
-        // nenároková práce je ČÁST toho čísla nad ním — jen se ukáže, nepřičítá se
-        if(sumNenar)srow('<span style="color:#8fa3bd;">… z toho nenároková (nad fond)</span>',
-                         '<span style="color:#8fa3bd;">'+fmtDec(sumNenar)+'</span>');
+        // Nad fond (nenárokové) je ČÁST odpracovaných hodin, jen se ukáže, nepřičítá se.
+        // Peťa 22.7.2026: počítáme přímo z odpracováno vs denní fond, ať je vidět hned
+        // (i než automat řádek dopíše). Když automat řádek už má, sedí to na sebe.
+        var nad = sumNenar;
+        if(j.fond_den!=null && (cisty - j.fond_den) > 0.005) nad = cisty - j.fond_den;
+        if(nad > 0.005)
+          srow('<span style="color:#8fa3bd;">… z toho nad fond (nenárokové)'
+               +(j.fond_den!=null?(' · fond '+fmtDec(j.fond_den)):'')+'</span>',
+               '<span style="color:#8fa3bd;">'+fmtDec(nad)+'</span>');
         // každá další činnost, co patří do docházky, na vlastním řádku
         var celkem=cisty;
         ostPor.forEach(function(lab){celkem+=ostMap[lab];srow(esc(lab),fmtDec(ostMap[lab]));});

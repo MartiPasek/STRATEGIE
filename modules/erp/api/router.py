@@ -25846,8 +25846,12 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
                  "d": r.get("d"), "z": r.get("z"), "k": r.get("k"),
                  "h": r.get("hod"), "sid": rid}
             res = sess.execute(_t(
+                # Peťa 22.7.2026: činnost páruj přes ec_cislo (centrálské číslo), NE přes
+                # naše id — Centrála a náš číselník nejsou zarovnané (jen 1-5), takže id=:cin
+                # trefovalo špatnou činnost. ec_cislo je most na 1046/1047. Orphan (např. 27
+                # Odměny fin.zakázek) → NULL, ať radši prázdno než špatná činnost.
                 "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
-                "cinnost_id=(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1), "
+                "cinnost_id=(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin), "
                 "datum=:d, od=:z, konec=:k, hodiny=:h, cislo_zam=:cz, "
                 "user_id=(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1), "
                 "updated_at=now() "
@@ -25857,7 +25861,7 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
                     "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
                     "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
                     "VALUES (:t,(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1),"
-                    ":cz,:d,:z,:k,:zak,(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1),:h,'centrala1',:sid,now(),now())"), p)
+                    ":cz,:d,:z,:k,:zak,(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin),:h,'centrala1',:sid,now(),now())"), p)
                 ins += 1
             else:
                 upd += 1

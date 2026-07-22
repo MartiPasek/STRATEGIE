@@ -39641,6 +39641,18 @@ async def diag_sql(req: Request) -> JSONResponse:
         from modules.erp.api.hlas_bootstrap import hlas_init as _hlas_init
         return JSONResponse(_hlas_init())
 
+    # Hlas engine ops (Marti/Cowork 22.7.2026): genericky JSON dispatch pro zapis
+    # (kanal_upsert...). Integrita mekkych odkazu se hlida na app vrstve (volba B).
+    if sql.upper().startswith("@@HLAS ") or sql.strip().upper() == "@@HLAS":
+        import json as _jhl
+        _rest_hl = sql[len("@@HLAS"):].strip()
+        try:
+            _payload_hl = _jhl.loads(_rest_hl) if _rest_hl else {}
+        except Exception as _je_hl:
+            return JSONResponse({"ok": False, "error": "@@HLAS <json>: " + str(_je_hl)[:120]})
+        from modules.erp.api.hlas_ops import dispatch as _hlas_dispatch
+        return JSONResponse(_hlas_dispatch(_payload_hl))
+
     # Souborový most (Marti 20.6.2026): čtení reálných faktur pro EDI/auto-pořizování.
     #   @@FILES LIST <abs_cesta>            → výpis adresáře (soubor + velikost)
     #   @@FILES READ <abs_cesta_k_souboru>  → obsah souboru (text/base64)

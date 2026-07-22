@@ -248,6 +248,8 @@ function renderZU(edit){
     '<span style="font-weight:800;color:#e8eef5">🧾 Základní údaje</span>'+
     '<span style="display:flex;gap:14px">'+back+btn+'</span></div>';
   for(const sec of (d.sections||[])){
+    // Šárka 22.7.2026: sekci Podnikání (OSVČ) ukázat jen u OSVČ; u HPP/DPP skrýt.
+    if(sec.key==='podnikani' && !((p.typ||'').includes('OSVČ'))) continue;
     const rows=(sec.items||[]).map(it=>{
       let val;
       if(edit){

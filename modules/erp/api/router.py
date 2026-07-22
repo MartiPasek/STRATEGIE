@@ -17485,7 +17485,8 @@ async def app_hr_person(req: Request) -> JSONResponse:
                  "ico": (wr[1] if wr and wr[1] else ""),
                  "note": (wr[2] if wr and wr[2] else "")}
         return JSONResponse({"ok": True, "jmeno": nm, "sections": secs, "deti": deti,
-                             "vztah": vztah, "vztah_typy": _WORK_RELATIONS})
+                             "vztah": vztah, "vztah_typy": _WORK_RELATIONS,
+                             "zena": _je_zena(vals)})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

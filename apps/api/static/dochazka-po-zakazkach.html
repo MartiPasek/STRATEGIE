@@ -328,9 +328,14 @@ function init(){
   $('chips').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     [].forEach.call($('chips').children,function(x){x.classList.remove('on');});b.classList.add('on');
     OBD=b.getAttribute('data-o');load();});
+  // Vlastní detekce dvojkliku: render() při 1. kliku překreslí tbody, takže nativní
+  // dblclick by dopadl na nový element a nezafungoval. Hlídáme dva rychlé kliky sami.
+  var _lastClick={i:-1,t:0};
   $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
-    var i=parseInt(tr.getAttribute('data-i'),10);
+    var i=parseInt(tr.getAttribute('data-i'),10), now=Date.now();
+    if(_lastClick.i===i && (now-_lastClick.t)<450){_lastClick={i:-1,t:0};openEdit(i);return;}  // dvojklik = otevřít formulář
+    _lastClick={i:i,t:now};
     if(e.shiftKey && CUR!=null){  // Shift+klik = označit úsek CUR..i
       var a=Math.min(CUR,i),b=Math.max(CUR,i);
       for(var x=a;x<=b;x++)SELSET[x]=true;
@@ -338,7 +343,7 @@ function init(){
       if(SELSET[i]){delete SELSET[i];}else{SELSET[i]=true;}
     }
     CUR=i;render();});
-  // Dvojklik na řádek = otevřít editační formulář
+  // Záloha: nativní dvojklik (kdyby překreslení nevadilo) — na jistotu
   $('tab').getElementsByTagName('tbody')[0].addEventListener('dblclick',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     openEdit(parseInt(tr.getAttribute('data-i'),10));});

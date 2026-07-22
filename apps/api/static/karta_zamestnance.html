@@ -171,6 +171,15 @@ function maritalSelect(cur, zena){
   return '<select data-k="marital_status" style="'+st+'"><option value="">—</option>'+
     opts.map(o=>'<option value="'+esc(o)+'"'+(o===cur?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
 }
+// Šárka 22.7.2026: dosažené vzdělání jako výběr (standardní stupně).
+const _EDU=['Základní','Vyučen/a (SOU)','Vyučen/a s maturitou','Střední s maturitou','Vyšší odborné (DiS.)','Vysokoškolské – bakalářské','Vysokoškolské – magisterské','Vysokoškolské – doktorské'];
+function eduSelect(cur){
+  cur=cur||''; let opts=_EDU.slice();
+  if(cur && opts.indexOf(cur)<0) opts=[cur].concat(opts);
+  const st='width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit';
+  return '<select data-k="education" style="'+st+'"><option value="">—</option>'+
+    opts.map(o=>'<option value="'+esc(o)+'"'+(o===cur?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+}
 // Šárka 21.7.2026: profilová hlavička (foto, pozice·bydliště, nástup·firma, stav, výročí, věk, narozeniny)
 function pheadHTML(p){
   const _ini=esc(ini(p.jmeno));
@@ -258,6 +267,10 @@ function renderZU(edit){
       if(edit){
         if(it.key==='marital_status'){
           val=maritalSelect(it.value, d.zena);
+        } else if(it.key==='education'){
+          val=eduSelect(it.value);
+        } else if(it.type==='textarea'){
+          val='<textarea data-k="'+esc(it.key)+'" rows="3" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit;resize:vertical">'+esc(it.value||'')+'</textarea>';
         } else {
           const t = it.type==='date'?'date':'text';
           val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit">';
@@ -266,7 +279,8 @@ function renderZU(edit){
         let dv=it.value;
         if(it.key==='marital_status') dv=maritalDisplay(it.value, d.zena);
         else if(it.type==='date'&&it.value) dv=czDate(it.value);
-        val=dv?esc(dv):'<span style="color:#5d6b7c">—</span>';
+        if(it.type==='textarea' && dv) val='<span style="white-space:pre-wrap">'+esc(dv)+'</span>';
+        else val=dv?esc(dv):'<span style="color:#5d6b7c">—</span>';
       }
       const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
       return '<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lbl+'</td><td style="padding:5px 16px;color:#e8eef5">'+val+'</td></tr>';
@@ -282,7 +296,7 @@ function renderZU(edit){
 }
 async function zakUdajeSave(){
   const values={};
-  document.querySelectorAll('#det input[data-k], #det select[data-k]').forEach(i=>{ values[i.getAttribute('data-k')]=i.value; });
+  document.querySelectorAll('#det input[data-k], #det select[data-k], #det textarea[data-k]').forEach(i=>{ values[i.getAttribute('data-k')]=i.value; });
   const r=await fetch(API+'/app/hr/person/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:ZU_UID,values})});
   let d={}; try{ d=await r.json(); }catch(e){}
   if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }

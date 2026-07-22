@@ -261,7 +261,7 @@ function renderZU(edit){
     if(sec.key==='podnikani' && !((p.typ||'').includes('OSVČ'))) continue;
     // Šárka 22.7.2026: doručovací adresu v náhledu jen když je vyplněná (jiná než trvalá);
     // v úpravách vždy, ať jde doplnit.
-    if(sec.key==='adresa_kontaktni' && !edit && !((sec.items||[]).some(it=>(it.value||'').trim()!==''))) continue;
+    if((sec.key==='adresa_kontaktni'||sec.key==='kontakt_prac') && !edit && !((sec.items||[]).some(it=>(it.value||'').trim()!==''))) continue;
     const rows=(sec.items||[]).map(it=>{
       let val;
       if(edit){

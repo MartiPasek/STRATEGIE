@@ -41132,7 +41132,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                         pass
                 _thc.Thread(target=_run_imp, daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _vyr,
-                                     "pozn": "import bezi na pozadi (velke soubory) — sleduj tenant.cenik_import"})
+                                     "pozn": "import bezi na pozadi (velke soubory) — sleduj proj.cenik_import"})
             if _cop == "DEDUP":
                 from modules.erp.api.cenik_engine import dedup_imports as _dd
                 return JSONResponse(_dd(tenant_id=2))
@@ -41150,7 +41150,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                 from modules.erp.api.cenik_engine import migrate_all as _mall
                 _thm.Thread(target=lambda: _mall(tenant_id=2, uid=1), daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True,
-                                     "pozn": "migrace+import planovanych dodavatelu bezi na pozadi — sleduj tenant.cenik_import"})
+                                     "pozn": "migrace+import planovanych dodavatelu bezi na pozadi — sleduj proj.cenik_import"})
             if _cop == "SETMAP":
                 # @@CENIK SETMAP <vyrobce> P01=1,P02=2,...  → override mapovani + reimport
                 _sp = _carg.split(None, 1)

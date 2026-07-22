@@ -720,9 +720,9 @@ def _cenik_prices(reg_list) -> dict:
     sd = get_data_session()
     try:
         rows = sd.execute(_t(
-            "WITH latest AS (SELECT vyrobce, max(id) AS id FROM tenant.cenik_import WHERE tenant_id=2 GROUP BY vyrobce) "
+            "WITH latest AS (SELECT vyrobce, max(id) AS id FROM proj.cenik_import WHERE tenant_id=2 GROUP BY vyrobce) "
             "SELECT p.kat_kod_norm, p.net_price, p.list_price, p.mj, p.mena, i.vyrobce "
-            "FROM tenant.cenik_polozka p JOIN latest l ON l.id=p.import_id JOIN tenant.cenik_import i ON i.id=p.import_id "
+            "FROM proj.cenik_polozka p JOIN latest l ON l.id=p.import_id JOIN proj.cenik_import i ON i.id=p.import_id "
             "WHERE p.tenant_id=2 AND p.kat_kod_norm = ANY(:ns)"), {"ns": list(norm_map.keys())}).fetchall()
     finally:
         sd.close()

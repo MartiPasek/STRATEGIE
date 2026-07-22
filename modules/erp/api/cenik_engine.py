@@ -429,7 +429,7 @@ def peek_xls(path: str, n: int = 12, sheet_idx: int = 0) -> dict:
             "sloupcu": maxc, "radky": rows}
 
 
-# výstupní pole vzorců (DB-Ceniky názvy) → sloupce tenant.cenik_polozka
+# výstupní pole vzorců (DB-Ceniky názvy) → sloupce proj.cenik_polozka
 _OUT_MAP = {
     "RegCisHeo": "kat_kod", "EC_PC": "list_price", "EC_NC": "net_price",
     "Popis": "popis", "EAN": "ean", "HmotnostKg": "hmotnost_kg",
@@ -481,16 +481,16 @@ def migrate_supplier(dbc_id, vyrobce, nazev, pattern, mena="EUR", data_start=1, 
 
     s = get_data_session()
     try:
-        s.execute(_t("INSERT INTO tenant.cenik_vyrobce(tenant_id,vyrobce,nazev,col_map,data_start,mena,soubor_pattern) "
+        s.execute(_t("INSERT INTO proj.cenik_vyrobce(tenant_id,vyrobce,nazev,col_map,data_start,mena,soubor_pattern) "
                      "VALUES(:t,:v,:n,CAST(:cm AS jsonb),:ds,:m,:p) "
                      "ON CONFLICT (tenant_id,vyrobce) DO UPDATE SET col_map=EXCLUDED.col_map, nazev=EXCLUDED.nazev, "
                      "soubor_pattern=EXCLUDED.soubor_pattern, data_start=EXCLUDED.data_start, mena=EXCLUDED.mena"),
                   {"t": tenant_id, "v": vyrobce, "n": nazev, "cm": _j.dumps(col_map),
                    "ds": data_start, "m": mena, "p": pattern})
-        s.execute(_t("DELETE FROM tenant.cenik_vzorec WHERE tenant_id=:t AND vyrobce=:v"),
+        s.execute(_t("DELETE FROM proj.cenik_vzorec WHERE tenant_id=:t AND vyrobce=:v"),
                   {"t": tenant_id, "v": vyrobce})
         for r in vz:
-            s.execute(_t("INSERT INTO tenant.cenik_vzorec(tenant_id,vyrobce,poradi,cil_pole,vyraz,je_default,aktivni) "
+            s.execute(_t("INSERT INTO proj.cenik_vzorec(tenant_id,vyrobce,poradi,cil_pole,vyraz,je_default,aktivni) "
                          "VALUES(:t,:v,:po,:cf,:vy,true,true)"),
                       {"t": tenant_id, "v": vyrobce, "po": r.get("Poradi"),
                        "cf": r.get("NazevCilSloupce"), "vy": r.get("Vzorec")})
@@ -521,14 +521,14 @@ def set_colmap_reimport(vyrobce, col_map, tenant_id=2, uid=1):
     from core.database_data import get_data_session
     s = get_data_session()
     try:
-        ids = [r[0] for r in s.execute(_t("SELECT id FROM tenant.cenik_import WHERE tenant_id=:t AND vyrobce=:v"),
+        ids = [r[0] for r in s.execute(_t("SELECT id FROM proj.cenik_import WHERE tenant_id=:t AND vyrobce=:v"),
                                        {"t": tenant_id, "v": vyrobce})]
         if ids:
-            s.execute(_t("DELETE FROM tenant.cenik_polozka WHERE tenant_id=:t AND import_id = ANY(:i)"),
+            s.execute(_t("DELETE FROM proj.cenik_polozka WHERE tenant_id=:t AND import_id = ANY(:i)"),
                       {"t": tenant_id, "i": ids})
-            s.execute(_t("DELETE FROM tenant.cenik_import WHERE tenant_id=:t AND id = ANY(:i)"),
+            s.execute(_t("DELETE FROM proj.cenik_import WHERE tenant_id=:t AND id = ANY(:i)"),
                       {"t": tenant_id, "i": ids})
-        s.execute(_t("UPDATE tenant.cenik_vyrobce SET col_map=CAST(:cm AS jsonb) WHERE tenant_id=:t AND vyrobce=:v"),
+        s.execute(_t("UPDATE proj.cenik_vyrobce SET col_map=CAST(:cm AS jsonb) WHERE tenant_id=:t AND vyrobce=:v"),
                   {"cm": _j.dumps(col_map), "t": tenant_id, "v": vyrobce})
         s.commit()
     finally:
@@ -555,7 +555,7 @@ def migrate_all(tenant_id=2, uid=1, plan=None):
 
 
 _INS_SQL = (
-    "INSERT INTO tenant.cenik_polozka"
+    "INSERT INTO proj.cenik_polozka"
     "(tenant_id,import_id,radek_excel,raw,kat_kod,kat_kod_norm,popis,"
     " list_price,net_price,rabat,mj,ean,hmotnost_kg,mena) VALUES"
     "(:tenant_id,:import_id,:radek_excel,CAST(:raw AS jsonb),:kat_kod,:kat_kod_norm,"
@@ -592,7 +592,7 @@ def _flush(s, batch):
 def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
                  ceny_czk=False, platnost_od=None, tenant_id=2, uid=None, limit=None,
                  seed_params=None):
-    """Import XLS ceníku: staging raw (JSONB) + aplikace vzorců (z tenant.cenik_vzorec
+    """Import XLS ceníku: staging raw (JSONB) + aplikace vzorců (z proj.cenik_vzorec
     dle vyrobce) → normalizovaná pole. col_map = {'P01': index_sloupce (1-based), ...}."""
     import io as _io
     import json as _j
@@ -604,7 +604,7 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
     s = get_data_session()
     try:
         vz = [dict(r) for r in s.execute(_t(
-            "SELECT poradi, cil_pole, vyraz FROM tenant.cenik_vzorec "
+            "SELECT poradi, cil_pole, vyraz FROM proj.cenik_vzorec "
             "WHERE tenant_id=:t AND vyrobce=:v AND aktivni ORDER BY poradi, id"),
             {"t": tenant_id, "v": vyrobce}).mappings()]
         if not vz:
@@ -617,7 +617,7 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
         wb.close()
 
         imp = s.execute(_t(
-            "INSERT INTO tenant.cenik_import(tenant_id,vyrobce,mena,ceny_czk,platnost_od,"
+            "INSERT INTO proj.cenik_import(tenant_id,vyrobce,mena,ceny_czk,platnost_od,"
             "zdroj_soubor,mapovani,created_by) VALUES(:t,:v,:m,:c,:po,:zs,CAST(:mp AS jsonb),:by) "
             "RETURNING id"),
             {"t": tenant_id, "v": vyrobce, "m": mena, "c": ceny_czk, "po": platnost_od,
@@ -683,7 +683,7 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
         _pozn = None
         if db_chyb:
             _pozn = ("db_chyb=%s | %s" % (db_chyb, first_err or ""))[:500]
-        s.execute(_t("UPDATE tenant.cenik_import SET pocet_polozek=:n, zpracovano=true, "
+        s.execute(_t("UPDATE proj.cenik_import SET pocet_polozek=:n, zpracovano=true, "
                      "poznamka=:pz, updated_at=now() WHERE id=:i"),
                   {"n": vlozeno, "pz": _pozn, "i": imp})
         s.commit()
@@ -719,17 +719,17 @@ def list_cenik_dir():
 
 # ── cena mědi (LAPP a další kabelové ceníky závisí na aktuálním kurzu mědi) ────
 # Obdoba DB_EC.dbo.EC_CenaMedi: vzorec @P13 = TOP 1 CenaMed_EUR_100Kg ORDER BY ID DESC.
-# Ve STRATEGII zrcadlíme do tenant.cenik_cena_medi a při importu seedujeme @P13.
+# Ve STRATEGII zrcadlíme do proj.cenik_cena_medi a při importu seedujeme @P13.
 
 def current_copper_price(tenant_id=2):
-    """Aktuální cena mědi (EUR/100kg) = nejnovější řádek tenant.cenik_cena_medi.
+    """Aktuální cena mědi (EUR/100kg) = nejnovější řádek proj.cenik_cena_medi.
     Vrací Decimal nebo None."""
     from sqlalchemy import text as _t
     from core.database_data import get_data_session
     s = get_data_session()
     try:
         r = s.execute(_t(
-            "SELECT cena_eur_100kg FROM tenant.cenik_cena_medi "
+            "SELECT cena_eur_100kg FROM proj.cenik_cena_medi "
             "WHERE tenant_id=:t ORDER BY datum DESC NULLS LAST, id DESC LIMIT 1"),
             {"t": tenant_id}).scalar()
         return r
@@ -738,7 +738,7 @@ def current_copper_price(tenant_id=2):
 
 
 def sync_copper_from_ec(tenant_id=2):
-    """Zrcadlí DB_EC.dbo.EC_CenaMedi → tenant.cenik_cena_medi (podle ec_id, idempotentní)."""
+    """Zrcadlí DB_EC.dbo.EC_CenaMedi → proj.cenik_cena_medi (podle ec_id, idempotentní)."""
     from sqlalchemy import text as _t
     from core.database_data import get_data_session
     rows = _dbc_query("SELECT ID, Datum, CenaMed_EUR_100Kg, Autor, DatPorizeni "
@@ -755,7 +755,7 @@ def sync_copper_from_ec(tenant_id=2):
             if cena is None:
                 continue
             s.execute(_t(
-                "INSERT INTO tenant.cenik_cena_medi(tenant_id,ec_id,datum,cena_eur_100kg,autor,dat_porizeni,zdroj) "
+                "INSERT INTO proj.cenik_cena_medi(tenant_id,ec_id,datum,cena_eur_100kg,autor,dat_porizeni,zdroj) "
                 "VALUES(:t,:e,CAST(:d AS date),CAST(:c AS numeric),:a,CAST(:dp AS timestamp),'DB_EC') "
                 "ON CONFLICT (tenant_id,ec_id) DO UPDATE SET datum=EXCLUDED.datum, "
                 "cena_eur_100kg=EXCLUDED.cena_eur_100kg, autor=EXCLUDED.autor"),
@@ -776,7 +776,7 @@ def add_copper_price(cena, datum=None, autor="ruční", tenant_id=2):
     s = get_data_session()
     try:
         rid = s.execute(_t(
-            "INSERT INTO tenant.cenik_cena_medi(tenant_id,ec_id,datum,cena_eur_100kg,autor,zdroj) "
+            "INSERT INTO proj.cenik_cena_medi(tenant_id,ec_id,datum,cena_eur_100kg,autor,zdroj) "
             "VALUES(:t,NULL,COALESCE(CAST(:d AS date),CURRENT_DATE),CAST(:c AS numeric),:a,'STRATEGIE') "
             "RETURNING id"),
             {"t": tenant_id, "d": datum, "c": str(cena), "a": str(autor)[:128]}).scalar()
@@ -793,7 +793,7 @@ def list_copper(tenant_id=2, limit=15):
     s = get_data_session()
     try:
         rows = [dict(r) for r in s.execute(_t(
-            "SELECT id, ec_id, datum, cena_eur_100kg, autor, zdroj FROM tenant.cenik_cena_medi "
+            "SELECT id, ec_id, datum, cena_eur_100kg, autor, zdroj FROM proj.cenik_cena_medi "
             "WHERE tenant_id=:t ORDER BY datum DESC NULLS LAST, id DESC LIMIT :n"),
             {"t": tenant_id, "n": limit}).mappings()]
         return {"ok": True, "aktualni": str(current_copper_price(tenant_id)), "radky": rows}
@@ -808,7 +808,7 @@ def _copper_seed_for(vyrobce, tenant_id=2):
     s = get_data_session()
     try:
         dep = s.execute(_t(
-            "SELECT 1 FROM tenant.cenik_vzorec WHERE tenant_id=:t AND vyrobce=:v "
+            "SELECT 1 FROM proj.cenik_vzorec WHERE tenant_id=:t AND vyrobce=:v "
             "AND aktivni AND vyraz ILIKE '%%CenaMedi%%' LIMIT 1"),
             {"t": tenant_id, "v": vyrobce}).scalar()
     finally:
@@ -833,7 +833,7 @@ def import_by_config(vyrobce, path=None, limit=None, tenant_id=2, uid=1):
     try:
         cfg = s.execute(_t(
             "SELECT col_map, data_start, mena, ceny_czk, soubor_pattern, nazev "
-            "FROM tenant.cenik_vyrobce WHERE tenant_id=:t AND vyrobce=:v AND aktivni"),
+            "FROM proj.cenik_vyrobce WHERE tenant_id=:t AND vyrobce=:v AND aktivni"),
             {"t": tenant_id, "v": vyrobce}).mappings().first()
     finally:
         s.close()
@@ -869,16 +869,16 @@ def prehled(tenant_id=2):
     try:
         rows = s.execute(_t("""
             SELECT c.vyrobce, c.nazev, c.mena, c.aktivni,
-                   (SELECT count(*) FROM tenant.cenik_vzorec v WHERE v.tenant_id=c.tenant_id AND v.vyrobce=c.vyrobce AND v.aktivni) AS vzorcu,
+                   (SELECT count(*) FROM proj.cenik_vzorec v WHERE v.tenant_id=c.tenant_id AND v.vyrobce=c.vyrobce AND v.aktivni) AS vzorcu,
                    li.id AS last_import, li.pocet_polozek,
                    to_char(li.created_at,'DD.MM.YYYY HH24:MI') AS importovano
-            FROM tenant.cenik_vyrobce c
-            LEFT JOIN LATERAL (SELECT id, pocet_polozek, created_at FROM tenant.cenik_import i
+            FROM proj.cenik_vyrobce c
+            LEFT JOIN LATERAL (SELECT id, pocet_polozek, created_at FROM proj.cenik_import i
                                WHERE i.tenant_id=c.tenant_id AND i.vyrobce=c.vyrobce
                                ORDER BY i.id DESC LIMIT 1) li ON true
             WHERE c.tenant_id=:t ORDER BY c.nazev
         """), {"t": tenant_id}).mappings().all()
-        celkem = s.execute(_t("SELECT count(*) FROM tenant.cenik_polozka WHERE tenant_id=:t"),
+        celkem = s.execute(_t("SELECT count(*) FROM proj.cenik_polozka WHERE tenant_id=:t"),
                            {"t": tenant_id}).scalar()
         return {"ok": True, "dodavatele": [dict(r) for r in rows], "polozek_celkem": celkem}
     finally:
@@ -894,7 +894,7 @@ def polozky(tenant_id=2, vyrobce=None, q=None, limit=100):
         where = ["p.tenant_id=:t"]
         params = {"t": tenant_id, "lim": limit}
         if vyrobce:
-            where.append("i.vyrobce=:v AND i.id=(SELECT max(id) FROM tenant.cenik_import WHERE tenant_id=:t AND vyrobce=:v)")
+            where.append("i.vyrobce=:v AND i.id=(SELECT max(id) FROM proj.cenik_import WHERE tenant_id=:t AND vyrobce=:v)")
             params["v"] = vyrobce
         if q:
             where.append("(p.kat_kod_norm LIKE :q OR upper(p.popis) LIKE :q)")
@@ -902,7 +902,7 @@ def polozky(tenant_id=2, vyrobce=None, q=None, limit=100):
             params["q"] = "%" + q.upper().replace(" ", "") + "%"
         rows = s.execute(_t(
             "SELECT p.kat_kod, p.popis, p.list_price, p.net_price, p.rabat, p.ean, p.mena, i.vyrobce "
-            "FROM tenant.cenik_polozka p JOIN tenant.cenik_import i ON i.id=p.import_id "
+            "FROM proj.cenik_polozka p JOIN proj.cenik_import i ON i.id=p.import_id "
             "WHERE " + " AND ".join(where) + " ORDER BY p.kat_kod LIMIT :lim"), params).mappings().all()
         return {"ok": True, "polozky": [dict(r) for r in rows]}
     finally:
@@ -920,9 +920,9 @@ def find_price(kat_kod, tenant_id=2):
         rows = s.execute(_t("""
             SELECT p.kat_kod, p.popis, p.net_price, p.list_price, p.rabat, p.mena, i.vyrobce,
                    i.id AS import_id, to_char(i.created_at,'DD.MM.YYYY') AS import_dne
-            FROM tenant.cenik_polozka p JOIN tenant.cenik_import i ON i.id=p.import_id
+            FROM proj.cenik_polozka p JOIN proj.cenik_import i ON i.id=p.import_id
             WHERE p.tenant_id=:t AND p.kat_kod_norm=:kn
-              AND i.id=(SELECT max(id) FROM tenant.cenik_import WHERE tenant_id=:t AND vyrobce=i.vyrobce)
+              AND i.id=(SELECT max(id) FROM proj.cenik_import WHERE tenant_id=:t AND vyrobce=i.vyrobce)
             ORDER BY i.id DESC LIMIT 5
         """), {"t": tenant_id, "kn": kn}).mappings().all()
         if not rows:
@@ -940,17 +940,17 @@ def dedup_imports(tenant_id=2):
     s = get_data_session()
     try:
         keep = [r[0] for r in s.execute(_t(
-            "SELECT max(id) FROM tenant.cenik_import WHERE tenant_id=:t GROUP BY vyrobce"),
+            "SELECT max(id) FROM proj.cenik_import WHERE tenant_id=:t GROUP BY vyrobce"),
             {"t": tenant_id})]
         if not keep:
             return {"ok": True, "smazano_importu": 0}
         old = [r[0] for r in s.execute(_t(
-            "SELECT id FROM tenant.cenik_import WHERE tenant_id=:t AND id <> ALL(:keep)"),
+            "SELECT id FROM proj.cenik_import WHERE tenant_id=:t AND id <> ALL(:keep)"),
             {"t": tenant_id, "keep": keep})]
         if old:
-            s.execute(_t("DELETE FROM tenant.cenik_polozka WHERE tenant_id=:t AND import_id = ANY(:o)"),
+            s.execute(_t("DELETE FROM proj.cenik_polozka WHERE tenant_id=:t AND import_id = ANY(:o)"),
                       {"t": tenant_id, "o": old})
-            s.execute(_t("DELETE FROM tenant.cenik_import WHERE tenant_id=:t AND id = ANY(:o)"),
+            s.execute(_t("DELETE FROM proj.cenik_import WHERE tenant_id=:t AND id = ANY(:o)"),
                       {"t": tenant_id, "o": old})
             s.commit()
         return {"ok": True, "ponechano": keep, "smazano_importu": len(old)}

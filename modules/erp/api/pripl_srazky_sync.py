@@ -195,11 +195,27 @@ def sync_from_ec(back_years: int = 1, full: bool = False) -> dict:
             else:
                 upd += 1
 
-        # Úklid: řádek, který v Centrále v daných letech už není, smaž i u nás.
-        # (Levné — jen seznam ID, ~1600 čísel.)
+        # Srovnání stavů podle seznamu ID (levné — ~1600 čísel). Řeší dvě věci naráz:
+        #   a) DOPLNĚNÍ CHYBĚJÍCÍCH — watermark sám o sobě dotáhne jen to, co se
+        #      od posledního běhu změnilo. Řádky starší než watermark (typicky při
+        #      prvním naplnění nebo po ruční editaci) by jinak nikdy nepřišly.
+        #      Proto: co je v Centrále a chybí u nás, dotáhneme adresně podle ID.
+        #   b) ÚKLID — co v Centrále v daných letech už není, smažeme i u nás.
         ec_ids = [int(x["id"]) for x in _mcp_query(
             "SELECT ID AS id FROM EC_FinPriplatkySrazkyDefinice WHERE Rok IN (" + yin + ")")]
         if ec_ids:
+            our_ids = {int(r[0]) for r in s.execute(_t(
+                "SELECT id FROM ec.pripl_srazky WHERE rok IN (" + yin + ")")).fetchall()}
+            missing = [i for i in ec_ids if i not in our_ids]
+            for chunk in (missing[i:i + 500] for i in range(0, len(missing), 500)):
+                rows_m = _mcp_query(
+                    "SELECT " + _SELECT_COLS + " FROM EC_FinPriplatkySrazkyDefinice "
+                    "WHERE ID IN (" + ", ".join(str(i) for i in chunk) + ")")
+                for r in rows_m:
+                    p = _norm(r)
+                    s.execute(_t("INSERT INTO ec.pripl_srazky (" + col_sql + ") "
+                                 "OVERRIDING SYSTEM VALUE VALUES (" + val_sql + ")"), p)
+                    ins += 1
             res = s.execute(_t(
                 "DELETE FROM ec.pripl_srazky WHERE rok IN (" + yin + ") "
                 "AND NOT (id = ANY(:ids))"), {"ids": ec_ids})

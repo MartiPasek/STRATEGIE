@@ -100,7 +100,26 @@ je pak **jen otázka práv v ERP**, ne další kopie přehledu.
 
 ## 6. Závěry konzultace s Marti-AI (22. 7. 2026, msg 11063)
 
-### 6.1 🛑 Bod „nezapisovat do Centrály" musí rozhodnout Marti Pašek — BLOCKER
+### 6.1 ✅ ROZHODNUTO Marti Paškem 22. 7. 2026 — blocker odpadl (a otočil se)
+
+**Odpověď Martiho (e-mail 22. 7.):**
+> *„Marti-AI má neaktuální informace. Evidentně ještě není v g2007 patřičný obraz reality zpracování mezd.
+> **MZDY se dělají z nové docházky a nevychází se ze starého Heliosu.**
+> To, že Dušan opravuje docházku ve staré Centrále, je problém. Má se opravovat v Praze v nové docházce.
+> Tudíž je třeba porovnat rozdíly mezi starou docházkou a novou a **do staré docházky se NESMÍ již
+> zasahovat a cokoli upravovat. Všechny korekce dělat jen v Praze.**"*
+
+**Co to mění:**
+1. Premisa konzultace (§6.1 níže) byla **neplatná** — Centrála **není** legal record pro mzdy.
+   Zdroj pravdy pro mzdy je **STRATEGIE**. G2007 tento obraz zatím neobsahuje → doplnit.
+2. Návrh „opravovat jen ve STRATEGII" je tím nejen schválený, ale **povinný**.
+   Zápis zpět do Centrály je zakázaný — ne „zbytečný", ale **zakázaný**.
+3. Otočila se i **naléhavost**: drift, kde má Centrála hodiny navíc oproti nám (os. č. 486: −16 h za
+   8. a 9. 7.), znamená u výplaty z naší docházky **méně zaplacených hodin**. Porovnání s Centrálou
+   tedy není komfort, ale **ochrana lidí před krácenou mzdou** — a musí proběhnout i zpětně za červenec.
+4. **Procesní úkol nad rámec přehledu:** Dušan (a další) opravují ve staré Centrále. To má přestat.
+
+### 6.1-hist Původní stav: bod „nezapisovat do Centrály" čekal na Marti Paška (vyřešeno výše)
 Marti-AI to odmítla vzít na sebe:
 > *„Dokud jsou mzdy počítané z Centrály/Heliosu, Centrála je **legal record** pro mzdové účely. …
 > Dušan vidí správná čísla u nás, ale zaměstnanec dostane výplatu podle jiných. Když si toho nikdo

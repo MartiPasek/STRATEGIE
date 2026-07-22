@@ -147,7 +147,13 @@ document.getElementById('ftyp').addEventListener('change',render);
 function czDate(v){ if(!v) return v; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v)); return m?(m[3]+'.'+m[2]+'.'+m[1]):v; }
 // Šárka 22.7.2026: země narození dle města. Default ČR, slovenská města → Slovensko.
 const _SK_MESTA=['bratislava','košice','kosice','žilina','zilina','nitra','prešov','presov','trnava','trenčín','trencin','martin','poprad','banská bystrica','banska bystrica','zvolen','michalovce','komárno','komarno','levice','prievidza','humenné','humenne','bardejov','liptovský mikuláš','liptovsky mikulas','ružomberok','ruzomberok','dubnica nad váhom','nové zámky','nove zamky','spišská nová ves','spisska nova ves','považská bystrica','povazska bystrica'];
-function zemeZMesta(mesto){ const m=(mesto||'').trim().toLowerCase(); if(!m) return ''; return _SK_MESTA.includes(m)?'Slovensko':'Česká republika'; }
+const _DE_MESTA=['berlin','berlín','mnichov','münchen','munchen','hamburg','frankfurt','frankfurt nad mohanem','kolín nad rýnem','köln','koln','drážďany','dresden','stuttgart','düsseldorf','dusseldorf','lipsko','leipzig','norimberk','nürnberg','nurnberg','brémy','bremen','hannover','hanover','dortmund','essen','výmar','weimar','řezno','regensburg','pasov','passau','cáchy','aachen','wiesbaden','bonn','mannheim'];
+const _UA_MESTA=['kyjev','kyiv','kiev','lvov','lviv','lvív','charkov','kharkiv','oděsa','odesa','odessa','dnipro','dněpr','doněck','donetsk','záporoží','zaporizhzhia','mukačevo','mukachevo','užhorod','uzhhorod','ivano-frankivsk','ivano frankivsk','vinnycja','vinnytsia','poltava','černovice','chernivtsi','ternopil','rivne','rovno','luck','lutsk','mariupol','cherson','kherson','mykolajiv','mykolaiv','kropyvnyckyj','žytomyr','zhytomyr'];
+function zemeZMesta(mesto){ const m=(mesto||'').trim().toLowerCase(); if(!m) return '';
+  if(_SK_MESTA.includes(m)) return 'Slovensko';
+  if(_DE_MESTA.includes(m)) return 'Německo';
+  if(_UA_MESTA.includes(m)) return 'Ukrajina';
+  return 'Česká republika'; }
 // Šárka 21.7.2026: profilová hlavička (foto, pozice·bydliště, nástup·firma, stav, výročí, věk, narozeniny)
 function pheadHTML(p){
   const _ini=esc(ini(p.jmeno));

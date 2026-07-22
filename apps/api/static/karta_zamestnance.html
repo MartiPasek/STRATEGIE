@@ -150,21 +150,26 @@ function pheadHTML(p){
   const _rs = (n)=> n===1?'rok':((n>=2&&n<=4)?'roky':'let');
   const chip=(t,bg,fg)=>'<span style="font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+bg+';color:'+fg+';margin-right:6px;white-space:nowrap">'+t+'</span>';
   const idline = [p.pozice, p.stredisko, p.mesto].filter(Boolean).map(esc).join(' · ');
+  // Šárka 22.7.2026: pravá část hlavičky = přehledná mřížka (nástup·firma, věk·narozeniny, e-mail, telefon).
+  const cell=(ic,val,href)=> !val?'':('<div style="display:flex;align-items:center;gap:7px;min-width:0">'+
+    '<span style="width:16px;text-align:center;opacity:.85">'+ic+'</span>'+
+    (href?('<a href="'+href+'" style="color:#cdd6e2;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(val)+'">'+esc(val)+'</a>')
+          :('<span style="color:#cdd6e2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(val)+'</span>'))+'</div>');
+  const nastupVal=[p.nastup?('Nástup '+p.nastup):'', p.firma].filter(Boolean).join(' · ');
+  const narozVal=(p.vek!=null?(p.vek+' '+_rs(p.vek)):'')+(p.narozeniny?((p.vek!=null?' · ':'')+'nar. '+p.narozeniny):'');
+  const telHref = p.telefon?('tel:'+String(p.telefon).replace(/\s+/g,'')):'';
+  const cells=[cell('📅',nastupVal), cell('🎂',narozVal), cell('✉️',p.email,p.email?('mailto:'+p.email):''), cell('📞',p.telefon,telHref)].filter(Boolean).join('');
   return '<div class="phead" style="align-items:flex-start"><div class="avatar">'+
     '<img src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
     'style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" '+
     'onerror="this.remove();this.parentNode.textContent=\''+_ini+'\'"></div>'+
-    '<div style="flex:1"><div class="nm">'+esc(p.jmeno||'')+'</div>'+
-    (idline?'<div class="mt" style="color:#aac8ec">'+idline+'</div>':'')+
-    ((p.nastup||p.firma)?'<div class="mt">'+
-      [p.nastup?('Nástup '+esc(p.nastup)):'', p.firma?esc(p.firma):''].filter(Boolean).join(' · ')+'</div>':'')+
-    '<div style="margin-top:7px">'+
+    '<div style="flex:1;min-width:0"><div class="nm">'+esc(p.jmeno||'')+'</div>'+
+    (idline?'<div class="mt" style="color:#aac8ec;margin-bottom:2px">'+idline+'</div>':'')+
+    (cells?'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:3px 22px;margin-top:8px;font-size:12.5px">'+cells+'</div>':'')+
+    '<div style="margin-top:9px">'+
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
     '</div>'+
-    ((p.vek!=null||p.narozeniny)?'<div class="mt" style="margin-top:6px">'+
-      (p.vek!=null?('👤 '+esc(p.vek)+' '+_rs(p.vek)):'')+
-      (p.narozeniny?((p.vek!=null?' · ':'')+'🎂 narozeniny '+esc(p.narozeniny)):'')+'</div>':'')+
     '</div></div>';
 }
 function openP(uid,row){
@@ -216,7 +221,8 @@ function renderZU(edit){
         const t = it.type==='date'?'date':'text';
         val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit">';
       } else { val=it.value?esc(it.value):'<span style="color:#5d6b7c">—</span>'; }
-      return '<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+esc(it.label)+'</td><td style="padding:5px 16px;color:#e8eef5">'+val+'</td></tr>';
+      const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
+      return '<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lbl+'</td><td style="padding:5px 16px;color:#e8eef5">'+val+'</td></tr>';
     }).join('');
     h+='<div style="margin:10px 0"><div style="font-weight:800;color:#e8eef5;padding:6px 16px;border-bottom:1px solid #233040">'+esc(sec.label)+'</div><table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table></div>';
   }

@@ -7872,6 +7872,8 @@ _SELF_SECTIONS = [
      "Kam ti posílat poštu, pokud je jiná než trvalá. Nepovinné."),
     ("kontakt", "📞 Kontaktní údaje",
      "Abychom tě zastihli — osobní e-mail a telefon."),
+    ("kontakt_prac", "📇 Pracovní kontakt",
+     "Firemní e-mail a telefon (pokud má). Vyplňuje HR."),
     ("nouzovy", "🆘 Nouzový kontakt",
      "Koho oslovit, kdyby se ti něco stalo v práci. Dobrovolné, ale doporučené."),
     ("vyplaty", "💳 Pro výplatu",
@@ -7885,6 +7887,7 @@ _SELF_SECTIONS = [
 _SELF_FIELDS = [
     ("first_name",     "Jméno",             "identita", "text",  False, False),
     ("last_name",      "Příjmení",          "identita", "text",  False, False),
+    ("birth_surname",  "Rodné příjmení",    "identita", "text",  False, False),
     ("title_before",   "Titul před jménem", "identita", "text",  False, False),
     ("title_after",    "Titul za jménem",   "identita", "text",  False, False),
     ("birth_date",     "Datum narození",    "identita", "date",  False, False),
@@ -7905,6 +7908,8 @@ _SELF_FIELDS = [
     ("contact_country","Země",              "adresa_kontaktni", "text", False, False),
     ("personal_email", "Osobní e-mail",     "kontakt", "email", False, False),
     ("personal_phone", "Telefon",           "kontakt", "tel",   False, False),
+    ("company_email",  "Firemní e-mail",    "kontakt_prac", "email", False, False),
+    ("company_phone",  "Firemní telefon",   "kontakt_prac", "tel",   False, False),
     ("emergency_name", "Jméno blízké osoby","nouzovy", "text",  False, False),
     ("emergency_phone","Telefon na ni",     "nouzovy", "tel",   False, False),
     ("emergency_relation","Vztah (např. manželka)","nouzovy","text", False, False),
@@ -8856,7 +8861,11 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS typ, "
             " (SELECT max(hp.birth_date) FROM tenant.hr_person hp "
-            "   WHERE hp.user_id=u.id AND hp.tenant_id=2 AND hp.is_current) AS narozeni "
+            "   WHERE hp.user_id=u.id AND hp.tenant_id=2 AND hp.is_current) AS narozeni, "
+            " (SELECT COALESCE(NULLIF(d.company_email,''), NULLIF(d.personal_email,'')) "
+            "    FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS email, "
+            " (SELECT COALESCE(NULLIF(d.company_phone,''), NULLIF(d.personal_phone,'')) "
+            "    FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS telefon "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -8902,7 +8911,8 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "nastup_rok": (r[7].year if r[7] else None),
                         "pozice": (r[8] or ""), "firma": (r[9] or ""), "typ": (r[10] or ""),
                         "vek": ((_dnes.year - r[11].year - ((_dnes.month, _dnes.day) < (r[11].month, r[11].day))) if r[11] else None),
-                        "narozeniny": (r[11].strftime("%d.%m.") if r[11] else "")})
+                        "narozeniny": (r[11].strftime("%d.%m.") if r[11] else ""),
+                        "email": (r[12] or ""), "telefon": (r[13] or "")})
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:
@@ -17409,8 +17419,9 @@ async def app_hr_person(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        # Marti 11.6.: citlivé (🔒) údaje zatím do HR přehledu NETAHAT (ISO později)
-        cols = [f[0] for f in _SELF_FIELDS if f[2] != "pamet" and not f[4]]
+        # Šárka 22.7.: HR karta ukazuje i citlivá (🔒) pole (rodné číslo, OP, pas) —
+        # karta je jen pro HR (_hr_can_manage) + vše se loguje. Pamět zůstává mimo.
+        cols = [f[0] for f in _SELF_FIELDS if f[2] != "pamet"]
         row = s.execute(_t("SELECT " + ", ".join(cols) + " FROM tenant.user_self_data "
                            "WHERE tenant_id=2 AND user_id=:u"), {"u": tuid}).first()
         vals = {}
@@ -17423,11 +17434,11 @@ async def app_hr_person(req: Request) -> JSONResponse:
                 vals[c] = ("" if v is None else str(v))
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
-            if skey in ("pamet", "citlive"):
+            if skey == "pamet":
                 continue
             items = [{"key": f[0], "label": f[1], "type": f[3], "sensitive": f[4],
                       "value": vals.get(f[0], "")} for f in _SELF_FIELDS
-                     if f[2] == skey and not f[4]]
+                     if f[2] == skey]
             if items:
                 secs.append({"key": skey, "label": slabel, "items": items})
         # děti: bez rodných čísel (citlivé)
@@ -17520,7 +17531,7 @@ async def app_hr_person_save(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     tuid = int((b or {}).get("uid") or 0)
     vals_in = (b or {}).get("values") or {}
-    valid = {f[0]: f for f in _SELF_FIELDS if f[2] != "pamet" and not f[4]}
+    valid = {f[0]: f for f in _SELF_FIELDS if f[2] != "pamet"}
     cm, s = _att_session()
     try:
         if not _hr_can_manage(s, uid):

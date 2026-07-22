@@ -143,6 +143,8 @@ document.getElementById('srch').addEventListener('input',render);
 document.getElementById('fpoz').addEventListener('change',render);
 document.getElementById('ftyp').addEventListener('change',render);
 
+// Šárka 22.7.2026: ISO (RRRR-MM-DD) → české DD.MM.RRRR (nejsme v Americe:)
+function czDate(v){ if(!v) return v; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v)); return m?(m[3]+'.'+m[2]+'.'+m[1]):v; }
 // Šárka 21.7.2026: profilová hlavička (foto, pozice·bydliště, nástup·firma, stav, výročí, věk, narozeniny)
 function pheadHTML(p){
   const _ini=esc(ini(p.jmeno));
@@ -220,7 +222,7 @@ function renderZU(edit){
       if(edit){
         const t = it.type==='date'?'date':'text';
         val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit">';
-      } else { val=it.value?esc(it.value):'<span style="color:#5d6b7c">—</span>'; }
+      } else { const dv=(it.type==='date'&&it.value)?czDate(it.value):it.value; val=dv?esc(dv):'<span style="color:#5d6b7c">—</span>'; }
       const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
       return '<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lbl+'</td><td style="padding:5px 16px;color:#e8eef5">'+val+'</td></tr>';
     }).join('');

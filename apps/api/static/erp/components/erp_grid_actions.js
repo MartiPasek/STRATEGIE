@@ -191,6 +191,9 @@
     // /app/crm/akce-typy cte zivy cisselnik st.CRM_Kontakt_AkceCis).
     // ════════════════════════════════════════════════════════════════
     var CRM_AKCE_GRID_CODE = "grid_crm_akce";
+    // Kristy 22.7.2026: prehled Aktivity obchodnika (core 124) sdili edit
+    // routing dle typu akce (dvojklik/Oprava -> jadro dle IDAkce).
+    var CRM_AKCE_REPORT_GRID_CODE = "grid_crm_aktivity_obchodnik";
     // Grid Kontaktni udaje (osoby) na karte 72 (Kristy 26.6.2026): Novy vytvori
     // kontakt = akce typu 17 (Ziskani kontaktu na osobu z firmy) pres jadro 81.
     // Jediny typ -> bez pickeru, IDAkce napevno 17 + IDHlav firmy.
@@ -905,7 +908,9 @@
             return Promise.reject(new Error("no_row_selected"));
           }
           // CRM Akce: routuj edit na jadro podle IDAkce zaznamu.
-          if (ctx.gridCode === CRM_AKCE_GRID_CODE) {
+          // (Kristy 22.7.2026: i z prehledu Aktivity obchodnika, core 124.)
+          if (ctx.gridCode === CRM_AKCE_GRID_CODE ||
+              ctx.gridCode === CRM_AKCE_REPORT_GRID_CODE) {
             return _crmAkceEdit(ctx, rowId);
           }
           return _openFwEditForm(

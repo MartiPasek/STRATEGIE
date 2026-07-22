@@ -573,6 +573,12 @@
               masterDetailDefaultExpanded: false,
               rowData: rows,
               autoColumns: true,
+              // CRM Aktivity obchodnika (core 124, Kristy 22.7.2026): skryj
+              // technicke sloupce ID + IDakce (routing rowId/typ) z gridu,
+              // ale nech je v rowData pro dvojklik/Opravu.
+              columns: (String(coreId) === "124" && Array.isArray(rows) && rows.length)
+                ? Object.keys(rows[0]).filter(function (k) { return k !== "ID" && k !== "IDakce"; })
+                : undefined,
               // Krok 5.X (23.5.2026): multi-row selection pro batch operations
               // (Mód 1 Centrála 1 — cyklicky per-row). Shift+klik = range, Ctrl+klik
               // = toggle. _erpBatchRowAction helper drží sequential loop.
@@ -711,6 +717,26 @@
               // Excel/Windows standard. Reuse stejny flow jako toolbar Oprava
               // button — DesignFwForm modal s editCoreId + rowId.
               onRowDoubleClick: function(rowData, ev) {
+                // CRM Aktivity obchodnika (core 124, Kristy 22.7.2026): edit
+                // routuje dle typu akce (IDakce) pres ErpGridActions.dispatch —
+                // stejna jadra jako na karte (82/129-135). Fallback nize.
+                if (String(coreId) === "124" && window.ErpGridActions &&
+                    typeof window.ErpGridActions.dispatch === "function") {
+                  window.ErpGridActions.dispatch("edit", {
+                    gridCode: (rootCd && rootCd.name) || ("core_" + coreId),
+                    coreId: coreId,
+                    rowData: rowData,
+                    refreshFn: function () {
+                      try {
+                        var _inst = gridHost.__erpGridInst;
+                        if (_inst && typeof _inst.refreshFromSource === "function") _inst.refreshFromSource();
+                      } catch (_e) {}
+                    },
+                  }).catch(function (err) {
+                    console.warn("[page_render crm124] edit dispatch failed:", err);
+                  });
+                  return;
+                }
                 const ga = rootCd && rootCd.grid_actions;
                 if (!ga || !ga.edit_core_id) {
                   console.info("[page_render dblclick] no edit_core_id — no-op");
@@ -757,6 +783,26 @@
               },
               // Enter na radku = same as dvojklik (keyboard parity)
               onRowEnter: function(rowData, ev) {
+                // CRM Aktivity obchodnika (core 124, Kristy 22.7.2026): edit
+                // routuje dle typu akce (IDakce) pres ErpGridActions.dispatch —
+                // stejna jadra jako na karte (82/129-135). Fallback nize.
+                if (String(coreId) === "124" && window.ErpGridActions &&
+                    typeof window.ErpGridActions.dispatch === "function") {
+                  window.ErpGridActions.dispatch("edit", {
+                    gridCode: (rootCd && rootCd.name) || ("core_" + coreId),
+                    coreId: coreId,
+                    rowData: rowData,
+                    refreshFn: function () {
+                      try {
+                        var _inst = gridHost.__erpGridInst;
+                        if (_inst && typeof _inst.refreshFromSource === "function") _inst.refreshFromSource();
+                      } catch (_e) {}
+                    },
+                  }).catch(function (err) {
+                    console.warn("[page_render crm124] edit dispatch failed:", err);
+                  });
+                  return;
+                }
                 const ga = rootCd && rootCd.grid_actions;
                 if (!ga || !ga.edit_core_id) return;
                 var _rid = rowData ? (rowData.id != null ? rowData.id : rowData.ID) : null;

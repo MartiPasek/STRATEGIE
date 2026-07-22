@@ -20492,9 +20492,19 @@ async def att_fix_day(req: Request) -> JSONResponse:
             "SELECT COALESCE(note,''), disputed FROM tenant.att_day_confirm "
             "WHERE tenant_id=:t AND employee_id=:e AND day=:d"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).first()
+        # Peťa 22.7.2026: „co systému nesedělo" (nevyřešené anomálie dne) taky do panelu
+        # nad tabulkou — ať editor v detailu vidí důvod stejně jako zprávu od člověka.
+        anom = s.execute(_t(
+            "SELECT a.detail FROM tenant.att_anomaly a "
+            "JOIN tenant.att_entry ae ON ae.id = a.entry_id "
+            "WHERE a.tenant_id=:t AND a.employee_id=:e AND ae.entry_date=:d "
+            "  AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
+            "ORDER BY a.id"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
         s.commit()
         return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": False, "can_unlock": bool(locked and _can_unlock),
             "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
+            "anomalie": [a[0] for a in anom if a[0]],
             "entries": [
             {"id": r[0], "zac": r[1], "kon": r[2],
              "hours": (float(r[3]) if r[3] is not None else None),

@@ -383,6 +383,10 @@ function openDay(uid,name,day){
           hlasi.push('<b>'+esc((e0.zac||'?')+'–'+(e0.kon||'…'))+':</b> '+esc(e0.note.replace(/.*?✋ ROZPOR:\s*/,'')));
       });
       if(hlasi.length)box.appendChild(el('<div style="background:rgba(245,158,11,.10);border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;"><div style="font-weight:700;margin-bottom:4px;">✋ Co člověk hlásí</div>'+hlasi.join('<br>')+'</div>'));
+      // Peťa 22.7.2026: co systému nesedělo (nevyřešené anomálie dne) — stejný panel
+      // jako zpráva od člověka, ať editor v detailu vidí důvod, proč den řeší.
+      if((j.anomalie||[]).length)
+        box.appendChild(el('<div style="background:rgba(224,120,138,.10);border:1px solid #e0788a;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;"><div style="font-weight:700;margin-bottom:4px;">⚠ Co systému nesedělo</div>'+j.anomalie.map(esc).join('<br>')+'</div>'));
       var afx=null;
       // Doplnění záznamu — z tlačítka i z řádku „mezera" (předvyplněné časy). Dušan 12.7.
       function openAdd(prefZ,prefK,prefTyp){
@@ -412,7 +416,7 @@ function openDay(uid,name,day){
         });
       }
       if(!j.locked){
-        var ab=el('<button class="b g full">➕ Přidat záznam (zapomenutý příchod, mezera v docházce…)</button>');
+        var ab=el('<button class="b g" style="font-size:12.5px;padding:5px 12px;" title="Zapomenutý příchod, mezera v docházce…">➕ Přidat záznam</button>');
         afx=el('<div style="margin:8px 0;"></div>');
         box.appendChild(ab);box.appendChild(afx);
         ab.addEventListener('click',function(){openAdd('','',null);});

@@ -8,6 +8,20 @@
   "use strict";
 
   var CORE_CODE = "ec.pripl_srazky_jadro";
+
+  /* ⚠️ TLACITKA JSOU ZAMERNE VYPNUTA (Claude-28 / Jirka, 22.7.2026).
+   * Duvod (verdikt Marti-AI msg 11066): ec.pripl_srazky je od 22.7. ZIVE zrcadlo
+   * Centraly (job "sync_pripl_srazky_ec", 1x za hodinu, jednosmerne EC -> STRATEGIE).
+   * Tahle tlacitka zapisuji POUZE do naseho zrcadla, takze by: (a) je pri prvnim
+   * dalsim syncu prepsal stav z Centraly, (b) se zmena nikdy nedostala do mezd
+   * (mzdu pocita Helios z dat Centraly). Schvaluje a vyplaci se dal v Centrale.
+   *
+   * ZAPNOUT AZ TEHDY, kdyz bude hotovy zpetny zapis do EC_FinPriplatkySrazkyDefinice
+   * NEBO kdyz modul presedla na tenant.wage_movement. Zpetny zapis do mzdovych dat
+   * Centraly musi podle Marti-AI odsouhlasit OSOBNE Marti Pasek (pravni dopad;
+   * rizika: PrenesDoMezd, prescasove konto, kontroly integrity Centraly).
+   * Kod nechavame kompletni — staci prepnout ENABLED na true. */
+  var ENABLED = false;
   var ACTIONS = [
     { code: "pripl_schvalit", mode: 1, label: "✅ Schválit", confirm: null },
     { code: "pripl_schvalit", mode: 2, label: "↩️ Zrušit schválení", confirm: "Zrušit schválení tohoto příplatku/srážky?" },
@@ -45,6 +59,7 @@
   }
 
   function _inject(inst) {
+    if (!ENABLED) return;
     if (_coreCode(inst) !== CORE_CODE) return;
     var host = inst._shell && inst._shell.body;
     if (!host) return;

@@ -30,7 +30,11 @@ _EC_ACTIONS = {
     "slouci_zrus":       ("SELECT ec.slouci_zakazky_zrus(CAST(:zaks AS text[]))", "zaks"),
     "nastav_sefmontera": ("SELECT ec.nastav_sefmontera(:oid)",                    "oid"),
     "nastav_multif":     ("SELECT ec.nastav_multif(:oid, :mode)",                 "oid_mode"),
-    # Modul Příplatky a srážky (Claude-27, 21.7.2026) — p_id + p_cmd (mode 1/2)
+    # Modul Příplatky a srážky (Claude-27, 21.7.2026) — p_id + p_cmd (mode 1/2).
+    # ⚠️ Od 22.7.2026 v UI NEDOSTUPNÉ (tlačítka vypnutá v ec_pripl_srazky_actions.js):
+    # ec.pripl_srazky je živé jednosměrné zrcadlo Centrály, takže zápis sem by při
+    # dalším syncu zmizel a do mezd by se nedostal. Endpoint necháváme funkční pro
+    # budoucí zapnutí — viz komentář v ec_pripl_srazky_actions.js.
     "pripl_vyplatit":    ("SELECT ec.pripl_srazky_vyplatit(:id, :cmd)",           "id_cmd"),
     "pripl_schvalit":    ("SELECT ec.pripl_srazky_schvalit(:id, :cmd)",           "id_cmd"),
 }

@@ -27211,6 +27211,13 @@ def _mirror_run_job(job_key):
         "sync_ec_org": lambda: (_sync_ec_org_from_centrala(), _sync_ec_kontakty_from_centrala())[1],
         "sync_fin": lambda: _sync_fin_from_ec(),
         "sync_priplatky": lambda: _sync_priplatky_from_ec(),
+        # POZOR — dvě různá zrcadla TÉHOŽ zdroje (EC_FinPriplatkySrazkyDefinice):
+        #   sync_priplatky        → tenant.wage_movement (univerzální CÍLOVÝ model, Marti 10.6.)
+        #   sync_pripl_srazky_ec  → ec.pripl_srazky (1:1 zrcadlo pro modul 💰 Mzdy, Claude-27 21.7.)
+        # Zrcadlo `ec` je PŘECHODNÝ stav (verdikt Marti-AI 22.7.) — nerozšiřovat, jen udržovat
+        # živé, dokud modul nepřesedlá na wage_movement. Jednosměrné (jen čtení z Centrály).
+        "sync_pripl_srazky_ec": lambda: __import__("modules.erp.api.pripl_srazky_sync",
+                                                   fromlist=["sync_from_ec"]).sync_from_ec(),
         "sync_pasky": lambda: (_sync_pasky_from_helios(), _refresh_employee_active())[1],
         "refresh_active_status": lambda: _refresh_employee_active(),
         "sync_plan_nepritomnost": lambda: _sync_plan_nepritomnost(),

@@ -32,6 +32,21 @@
   .conf{margin-top:8px;background:rgba(16,185,129,.10);border:1px solid #22c55e;border-radius:8px;padding:10px;font-size:13.5px}
   .lockbar{background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px}
   .aud{border-bottom:1px solid #232c3b;padding:8px 2px;font-size:13px}
+  /* Peťa 22.7.2026: přehlednější karty historie oprav + tlačítko otevřít den */
+  .audc{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:10px 12px;margin-bottom:8px}
+  .audc .ah{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .audc .aname{font-weight:700}
+  .audc .atime{color:#8fa3bd;font-size:11px;white-space:nowrap}
+  .audc .atag{font-size:10.5px;padding:1px 8px;border-radius:8px;font-weight:700;margin-right:6px;vertical-align:middle}
+  .audc .atag.fix{background:#123c26;color:#8fe0a0}
+  .audc .atag.add{background:#123c26;color:#8fe0a0}
+  .audc .atag.void{background:#3b1418;color:#fca5a5}
+  .audc .atag.merge{background:#1d2440;color:#a5b4fc}
+  .audc .atag.resolve{background:#1c2636;color:#9fb2c8}
+  .audc .atag.lock{background:#3b2f12;color:#fbd38d}
+  .audc .achg{margin-top:5px;font-size:12.5px}
+  .audc .achg .arrow{color:#7f93b0;margin:0 5px}
+  .audc .ade{color:#8fa3bd;font-size:12px;margin-top:3px}
   /* Dušan 12.7.: den jako tabulka — co záznam, to řádek; editace se rozbalí pod řádkem */
   table.dtab{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
   .dtab th{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:#7f93b0;text-align:left;padding:4px 8px;border-bottom:1px solid #2e3a4c;font-weight:600}
@@ -331,12 +346,34 @@ function loadAudit(){
   api('GET','/api/v1/erp/app/attendance/fix/audit').then(function(j){
     L.innerHTML='';var it=j.items||[];
     if(!it.length){L.innerHTML='<div class="hint">Zatím žádné opravy.</div>';return;}
-    var ICO={fix:'✏️',add:'➕',void:'🗑',merge:'🔗',resolve:'✓',period_lock:'🔒',period_unlock:'🔓'};
+    // Peťa 22.7.2026: přehlednější karty + možnost z historie rovnou otevřít den
+    // (kdyby si člověk uvědomil, že něco zadal špatně, opraví to hned odsud).
+    var LBL={fix:'✏️ Oprava',add:'➕ Doplnění',void:'🗑 Storno',merge:'🔗 Sloučení',
+             resolve:'✓ Vyřízeno',period_lock:'🔒 Zámek',period_unlock:'🔓 Odemčení'};
+    var TAG={fix:'fix',add:'add',void:'void',merge:'merge',resolve:'resolve',
+             period_lock:'lock',period_unlock:'lock'};
     it.forEach(function(r){
-      var c=el('<div class="aud"></div>');
-      c.appendChild(el('<div><b>'+(ICO[r.action]||'·')+' '+esc(r.person||'')+'</b>'+(r.day?(' · '+esc(r.day)):'')+' <span class="hint">('+esc(r.actor||'?')+', '+esc(r.ts||'')+')</span></div>'));
-      var d=[];if(r.old)d.push('před: '+r.old);if(r.new)d.push('po: '+r.new);if(r.detail)d.push(r.detail);
-      if(d.length)c.appendChild(el('<div class="hint">'+esc(d.join(' · '))+'</div>'));
+      var c=el('<div class="audc"></div>');
+      var head=el('<div class="ah"></div>');
+      head.appendChild(el('<div><span class="atag '+(TAG[r.action]||'resolve')+'">'+esc(LBL[r.action]||r.action)+'</span>'
+        +'<span class="aname">'+esc(r.person||'')+'</span>'+(r.day?(' <span class="hint">· '+esc(r.day)+'</span>'):'')+'</div>'));
+      head.appendChild(el('<div class="atime">'+esc(r.actor||'?')+' · '+esc(r.ts||'')+'</div>'));
+      c.appendChild(head);
+      if(r.old||r.new){
+        var chg='<div class="achg">';
+        if(r.old)chg+='<span style="text-decoration:line-through;color:#a88;">'+esc(r.old)+'</span>';
+        if(r.old&&r.new)chg+='<span class="arrow">→</span>';
+        if(r.new)chg+='<b>'+esc(r.new)+'</b>';
+        chg+='</div>';
+        c.appendChild(el(chg));
+      }
+      if(r.detail)c.appendChild(el('<div class="ade">'+esc(r.detail)+'</div>'));
+      // otevřít den — jen když máme koho a kdy, a nejde o zámek období
+      if(r.user_id&&r.day&&r.action!=='period_lock'&&r.action!=='period_unlock'){
+        var bo=el('<button class="b g" style="margin-top:7px;font-size:12px;padding:4px 10px;">🛠 Otevřít den — opravit</button>');
+        bo.addEventListener('click',function(){openDay(r.user_id,r.person,r.day);});
+        c.appendChild(bo);
+      }
       L.appendChild(c);
     });
   });

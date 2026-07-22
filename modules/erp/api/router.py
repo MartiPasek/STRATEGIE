@@ -21291,7 +21291,7 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
             "SELECT a.id, a.action, a.entry_id, a.old_entry_date::text, a.old_note, a.new_note, "
             "       a.detail, a.actor_text, to_char(a.created_at,'DD.MM. HH24:MI'), "
             "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       a.employee_id "
+            "       a.employee_id, em.user_id "  # + user_id (Peťa 22.7.: aby šlo z historie otevřít den)
             "FROM tenant.att_audit a "
             "LEFT JOIN tenant.att_employee em ON em.id = a.employee_id "
             "LEFT JOIN public.users u ON u.id = em.user_id "
@@ -21303,7 +21303,8 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
             rows = [r for r in rows if r[10] is None or int(r[10]) in _emps]
         return JSONResponse({"ok": True, "items": [
             {"id": r[0], "action": r[1], "entry_id": r[2], "day": r[3], "old": r[4],
-             "new": r[5], "detail": r[6], "actor": r[7], "ts": r[8], "person": r[9]} for r in rows]})
+             "new": r[5], "detail": r[6], "actor": r[7], "ts": r[8], "person": r[9],
+             "user_id": r[11]} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 

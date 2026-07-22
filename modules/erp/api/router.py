@@ -21288,7 +21288,13 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         _emps = _att_fix_scope_emps(s, _sc)
         rows = s.execute(_t(
-            "SELECT a.id, a.action, a.entry_id, a.old_entry_date::text, a.old_note, a.new_note, "
+            "SELECT a.id, a.action, a.entry_id, "
+            # den: u oprav je v old_entry_date; u „Vyřízeno" (resolve) tam není,
+            # tak ho dopočítáme ze záznamu, kterého se týká — aby i u něj šlo
+            # otevřít den (Peťa 22.7.2026).
+            "       COALESCE(a.old_entry_date, "
+            "                (SELECT e2.entry_date FROM tenant.att_entry e2 WHERE e2.id=a.entry_id))::text, "
+            "       a.old_note, a.new_note, "
             "       a.detail, a.actor_text, to_char(a.created_at,'DD.MM. HH24:MI'), "
             "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
             "       a.employee_id, em.user_id "  # + user_id (Peťa 22.7.: aby šlo z historie otevřít den)

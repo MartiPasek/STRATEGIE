@@ -54,6 +54,7 @@
     <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
+  <button class="chip" id="savebtn" title="Uloží aktuální šířky sloupců jako výchozí pro všechny" style="display:none;margin-left:auto">💾 Uložit šířky jako výchozí</button>
 </div>
 <div id="msg"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
@@ -88,9 +89,14 @@ var COLS=[
 ];
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
 var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
-// Šířky sloupců se PAMATUJÍ v prohlížeči (jako pokladny) — natáhneš tažením a drží.
-var CW=(function(){try{return JSON.parse(localStorage.getItem('doch_zak_colw')||'{}')||{};}catch(_e){return {};}})();
-function saveCW(){try{localStorage.setItem('doch_zak_colw',JSON.stringify(CW));}catch(_e){}}
+// Šířky: SRVW = SDÍLENÉ základní ze serveru (pro všechny). Osobní tažení je JEDNORÁZOVÉ
+// — nikam se neukládá, po obnovení zpět na základní. Trvale (pro všechny) uloží jen
+// rodiče/Peťa (CANSAVE) na server.
+var SRVW={}, CANSAVE=false;
+function currentWidths(){var o={},cs=cols();for(var i=0;i<COLS.length;i++){o[COLS[i].k]=parseInt(cs[i+1].style.width,10)||COLS[i].w;}return o;}
+function saveServer(){if(!CANSAVE)return;try{fetch('/api/v1/erp/app/dochazka-zak-tab/widths',
+  {method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({widths:currentWidths()})});}catch(_e){}}
 
 function cols(){return $('tab').getElementsByTagName('col');}  // [0]=mkcol, [i+1]=COLS[i]
 function totW(){var s=0,cs=cols();for(var i=0;i<cs.length;i++)s+=parseInt(cs[i].style.width,10)||0;return s;}
@@ -102,7 +108,7 @@ function hlavicka(){
   var h='<tr><th class="mkcol"></th>';
   var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
-    cg+='<col style="width:'+(CW[c.k]||c.w)+'px">';
+    cg+='<col style="width:'+(SRVW[c.k]||c.w)+'px">';
     h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     f+='<td><input data-k="'+c.k+'"></td>';
@@ -135,13 +141,11 @@ function hlavicka(){
     function mv(ev){lastX=ev.clientX;guide.style.left=ev.clientX+'px';}
     function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);
       document.body.style.cursor='';if(guide.parentNode)guide.parentNode.removeChild(guide);
-      var nw=Math.max(24,w0+(lastX-x0));col.style.width=nw+'px';applyW();
-      CW[COLS[i].k]=nw;saveCW();}  // zapamatuj šířku v prohlížeči
+      var nw=Math.max(24,w0+(lastX-x0));col.style.width=nw+'px';applyW();}  // JEN jednorázově (po obnovení pryč)
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
   th.addEventListener('dblclick',function(e){
     if(!e.target.classList.contains('dgrip'))return;
-    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();
-    delete CW[COLS[i].k];saveCW();});  // dvojklik = zpět na výchozí + zapomeň uloženou
+    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();});  // dvojklik = zpět na výchozí (jen vizuálně)
 }
 
 function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
@@ -186,8 +190,14 @@ function load(){
   });
 }
 
-(function(){
+function init(){
   hlavicka();
+  // Tlačítko „Uložit jako výchozí" jen pro rodiče/Peťu — základní pro všechny se změní
+  // JEN tímto vědomým kliknutím, jinak je tažení vždy jednorázové.
+  if(CANSAVE){var sb=$('savebtn');sb.style.display='';
+    sb.addEventListener('click',function(){saveServer();
+      SRVW=currentWidths();sb.textContent='✓ Uloženo jako výchozí';
+      setTimeout(function(){sb.textContent='💾 Uložit šířky jako výchozí';},2500);});}
   // období z URL (?obdobi=vse|budoucnost) — uzel „Naplánovaná budoucnost" otevře rovnou budoucnost
   try{var _p=new URLSearchParams(location.search).get('obdobi');
     if(_p==='budoucnost'||_p==='vse'){OBD=_p;
@@ -207,6 +217,13 @@ function load(){
     }
     CUR=i;render();});
   load();
+}
+// Nejdřív načti sdílené základní šířky ze serveru, pak postav tabulku
+(function(){
+  fetch('/api/v1/erp/app/dochazka-zak-tab/widths',{credentials:'include'})
+    .then(function(r){return r.json();}).then(function(j){
+      if(j&&j.ok){SRVW=j.widths||{};CANSAVE=!!j.muze_ulozit;}
+    }).catch(function(){}).then(init,init);
 })();
 </script>
 </body>

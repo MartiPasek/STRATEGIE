@@ -145,6 +145,9 @@ document.getElementById('ftyp').addEventListener('change',render);
 
 // Šárka 22.7.2026: ISO (RRRR-MM-DD) → české DD.MM.RRRR (nejsme v Americe:)
 function czDate(v){ if(!v) return v; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v)); return m?(m[3]+'.'+m[2]+'.'+m[1]):v; }
+// Šárka 22.7.2026: země narození dle města. Default ČR, slovenská města → Slovensko.
+const _SK_MESTA=['bratislava','košice','kosice','žilina','zilina','nitra','prešov','presov','trnava','trenčín','trencin','martin','poprad','banská bystrica','banska bystrica','zvolen','michalovce','komárno','komarno','levice','prievidza','humenné','humenne','bardejov','liptovský mikuláš','liptovsky mikulas','ružomberok','ruzomberok','dubnica nad váhom','nové zámky','nove zamky','spišská nová ves','spisska nova ves','považská bystrica','povazska bystrica'];
+function zemeZMesta(mesto){ const m=(mesto||'').trim().toLowerCase(); if(!m) return ''; return _SK_MESTA.includes(m)?'Slovensko':'Česká republika'; }
 // Šárka 21.7.2026: profilová hlavička (foto, pozice·bydliště, nástup·firma, stav, výročí, věk, narozeniny)
 function pheadHTML(p){
   const _ini=esc(ini(p.jmeno));
@@ -235,6 +238,10 @@ function renderZU(edit){
   }
   if(!(d.sections||[]).length) h+='<div class="empty">Zaměstnanec zatím nemá vyplněné žádné základní údaje.</div>';
   det.innerHTML=h;
+  if(edit){
+    const mp=det.querySelector('input[data-k="birth_place"]'), zc=det.querySelector('input[data-k="birth_country"]');
+    if(mp&&zc) mp.addEventListener('change',function(){ if(!zc.value.trim()){ const z=zemeZMesta(mp.value); if(z) zc.value=z; } });
+  }
 }
 async function zakUdajeSave(){
   const values={};

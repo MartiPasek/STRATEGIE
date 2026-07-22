@@ -54,7 +54,6 @@
     <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
-  <button class="chip" id="wbtn" title="Zkopíruje aktuální šířky sloupců — pošli je Claudovi k uložení" style="margin-left:auto">📐 Šířky → schránka</button>
 </div>
 <div id="msg"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
@@ -89,6 +88,9 @@ var COLS=[
 ];
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
 var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
+// Šířky sloupců se PAMATUJÍ v prohlížeči (jako pokladny) — natáhneš tažením a drží.
+var CW=(function(){try{return JSON.parse(localStorage.getItem('doch_zak_colw')||'{}')||{};}catch(_e){return {};}})();
+function saveCW(){try{localStorage.setItem('doch_zak_colw',JSON.stringify(CW));}catch(_e){}}
 
 function cols(){return $('tab').getElementsByTagName('col');}  // [0]=mkcol, [i+1]=COLS[i]
 function totW(){var s=0,cs=cols();for(var i=0;i<cs.length;i++)s+=parseInt(cs[i].style.width,10)||0;return s;}
@@ -100,7 +102,7 @@ function hlavicka(){
   var h='<tr><th class="mkcol"></th>';
   var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
-    cg+='<col style="width:'+c.w+'px">';
+    cg+='<col style="width:'+(CW[c.k]||c.w)+'px">';
     h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     f+='<td><input data-k="'+c.k+'"></td>';
@@ -133,11 +135,13 @@ function hlavicka(){
     function mv(ev){lastX=ev.clientX;guide.style.left=ev.clientX+'px';}
     function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);
       document.body.style.cursor='';if(guide.parentNode)guide.parentNode.removeChild(guide);
-      col.style.width=Math.max(24,w0+(lastX-x0))+'px';applyW();}
+      var nw=Math.max(24,w0+(lastX-x0));col.style.width=nw+'px';applyW();
+      CW[COLS[i].k]=nw;saveCW();}  // zapamatuj šířku v prohlížeči
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
   th.addEventListener('dblclick',function(e){
     if(!e.target.classList.contains('dgrip'))return;
-    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();});
+    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();
+    delete CW[COLS[i].k];saveCW();});  // dvojklik = zpět na výchozí + zapomeň uloženou
 }
 
 function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
@@ -192,12 +196,6 @@ function load(){
   $('chips').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     [].forEach.call($('chips').children,function(x){x.classList.remove('on');});b.classList.add('on');
     OBD=b.getAttribute('data-o');load();});
-  // Tlačítko: zkopíruj aktuální šířky sloupců do schránky + ukaž je (na pošli Claudovi)
-  $('wbtn').addEventListener('click',function(){
-    var w=[].slice.call(cols()).slice(1).map(function(c){return parseInt(c.style.width,10)||0;}).join(',');
-    try{if(navigator.clipboard)navigator.clipboard.writeText(w);}catch(_e){}
-    window.prompt('Šířky sloupců — zkopíruj (Ctrl+C) a pošli Claudovi:', w);
-  });
   $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     var i=parseInt(tr.getAttribute('data-i'),10);

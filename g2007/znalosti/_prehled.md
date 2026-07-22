@@ -9,7 +9,7 @@
 | `system-strategie` | system | 6 | Technicka a provozni znalostni baze platformy STRATEGIE — DB architektura, produkcni infrastruktura, architektonicke principy, dev workflow. Presunuto z CLAUDE.md (C27, 21.7.2026), aby MD drzela jen osobni/vztahove jadro. |
 | `ucetnictvi` | obor | 10 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 1 |  |
-| `mzdy` | obor | 9 | Oborova znalost pro personu mzdovou. |
+| `mzdy` | obor | 10 | Oborova znalost pro personu mzdovou. |
 | `dochazka` | obor | 14 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 0 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 2 | Oborova znalost pro personu tvorici nabidky. |

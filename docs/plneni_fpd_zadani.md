@@ -143,6 +143,26 @@ a jako to dělá originál v Centrále:
 
 Podmínku `NeplacenyPrescas > 0` z centrálového OSVČ přehledu **nezachovávat** — Dušan chce vidět všechny.
 
+### 6.4 ✅ Výpočet fondu ověřen 1:1 proti Centrále (22. 7. 2026)
+
+Obě strany spočítány za červenec 2026 (1.–21. 7.) pro 28 lidí z Dušanova týmu:
+
+- **Centrála** — logika přehledu 1088 s dosazenými literály (`EC_FinZamPodminky.RealUvazekT/5`,
+  pracovní dny z `EC_Svatky` bez víkendů/svátků, `den < 22`, ořez `_DatumNastupu` / `_DatumOdchodu`)
+- **STRATEGIE** — `engagement.uvazek_tyden_h / work_mode.dny_v_tydnu × počet dnů
+  z tenant.att_calendar_day (is_workday AND NOT is_holiday)`, ořez `smlouva_od` / `smlouva_do`
+
+**Výsledek: naprostá shoda** — 14 pracovních dnů, 8 h/den, 112 h u všech na plný úvazek;
+Brudnová (35 h/týden) 7 h/den → 98 h na obou stranách. Shoduje se i **klasifikace HPP × OSVČ**
+(`EC_FinZamPodminky.DruhSmlouvy` 2/3 vs. naše `engagement.engagement_type` hpp/osvc) u všech 28 lidí.
+
+⚠️ **Jediná odchylka — lidé bez úvazku.** Os. č. 208 („Brigádník Saxana") nemá u nás engagement;
+Centrála v takovém případě tiše dosadí `isnull(HodDenne, 8)` → 112 h. **Návrh: nedosazovat.**
+V přehledu ukázat „chybí úvazek" místo vymyšleného čísla, ať se opraví data.
+
+**Závěr: fond není blokace.** Blokací zůstává jen §6.1 (rozhodnutí Marti Paška) a na něj navázaný
+`sync_lock` — tedy strana **odpracováno**, ne strana **fond**.
+
 ---
 
 *Nic z tohoto zadání není implementováno. Blokuje rozhodnutí Marti Paška podle §6.1.*

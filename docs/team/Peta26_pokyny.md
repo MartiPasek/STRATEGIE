@@ -96,15 +96,18 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
   Na okraji je jen **jednoduchá dvojšipka `cursor:ew-resize`** (↔), **žádný modrý proužek** na hover
   (NE `col-resize` – ta má čárku uprostřed) – jako u Martiho (21.7.2026). Platí i pro kurzor těla
   během tažení (`document.body.style.cursor='ew-resize'`).
-- **DŮLEŽITÉ chování šířek (Peťa 22.7.2026, závazné pro všechny přehledy):**
-  - **Tažení sloupce = VŽDY jednorázové** — po odchodu a příchodu (obnovení) zpět na
-    **základní nastavení**. Platí pro KAŽDÉHO, i pro Peťu a rodiče. **NEUKLÁDAT** osobní
-    šířky (žádný localStorage per-uživatel).
-  - **Základní (výchozí) šířky pro všechny se změní JEN když to někdo výslovně řekne** —
-    nastaví je **Claude**, ne tlačítko v UI. **Žádné tlačítko „uložit šířky" na stránce.**
-  - Kam se základní šířky ukládají: buď do kódu (`_faktColDef` / `DCOLW_DEF` / pole `COLS`),
-    nebo (u docházky po zakázkách) do **`tenant.att_ui_pref`** (kod `dochazka_col_widths`) —
-    to jde změnit přes SQL most **bez deploye** (stránka je čte přes `/app/dochazka-zak-tab/widths`).
+- **ŠÍŘKY SLOUPCŮ — jak se nastavují (Peťa 22.7.2026, ověřený finální postup):**
+  - ⚠️ **PŘIPOMEŇ PEŤE: nastavení šířek dělá v CHROMU** (v běžném okně ERP, ne v
+    samostatné appce). Natáhne sloupce tažením za pravý okraj hlavičky.
+  - **Osobní tažení se UKLÁDÁ do databáze** (`tenant.att_ui_pref`, kod `dochazka_col_widths_u<uid>`),
+    takže každému zůstane jeho nastavení (jako dřív framework grid). Načítání: osobní má
+    přednost, jinak sdílené výchozí, jinak default v kódu.
+  - **„Výchozí pro všechny" nastavuje CLAUDE, ne uživatel.** Postup: Peťa si natáhne sloupce
+    v Chromu → řekne „nastaveno" → Claude si přečte její osobní záznam v DB (kod
+    `dochazka_col_widths_u18`) a **povýší ho na sdílené výchozí** (kod `dochazka_col_widths`)
+    přes SQL most (INSERT … ON CONFLICT). Projeví se všem po refreshi, **bez deploye**.
+    **Žádné tlačítko „uložit šířky" na stránce** — Peťa ho výslovně nechce.
+  - U starších přehledů (faktury/pokladny) jsou výchozí šířky v kódu (`_faktColDef`/`DCOLW_DEF`).
 - **Krajní úzký sloupec značek (18px) úplně vlevo, PŘED prvním sloupcem** (21.7.2026): v řádku filtru
   je v něm **✕**, které zruší jen filtry sloupců (na data/šířku sloupce nemá vliv). V datových řádcích
   značky výběru — **tečka •** u vybraných řádků, **šipka ▶** u řádku, na kterém uživatel naposledy

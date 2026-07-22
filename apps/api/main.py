@@ -50,6 +50,7 @@ from modules.erp.api.g2007_vectors import g2007_vec_router  # G2007 vektorizace 
 from modules.erp.api.automat import automat_router  # G2007 automaty — exekutor + Haiku eskalace + monitoring (18.7.2026)
 from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
+from modules.erp.api.landmark_report import landmark_router  # Landmark měsíční podklad mezd → mail (22.7.2026, Peta)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
 from modules.erp.api.hr_spis import hr_spis_router  # Osobní spis zaměstnance — HR pohled + self-service (1.7.2026)
 from modules.erp.api.mzdy_jmhz import jmhz_router  # JMHZ — Jednotné měsíční hlášení zaměstnavatele (ČSSZ) ke mzdám (12.7.2026)
@@ -314,6 +315,13 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logging.getLogger(__name__).warning(f"[lifespan] automat_sched start failed: {exc}")
 
+        # Peta 22.7.2026: scheduler Landmark podkladu (odesílá 15. v měsíci, jen primár).
+        try:
+            from modules.erp.api.landmark_report import landmark_sched_start
+            landmark_sched_start()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"[lifespan] landmark_sched start failed: {exc}")
+
     # Marti 20.6.2026: vault klic samobootstrap uz pri startu (nesmi cekat na klik).
     try:
         from modules.erp.api.router import _vault_fernet as _vf_boot
@@ -356,6 +364,11 @@ async def lifespan(app: FastAPI):
     try:
         from modules.erp.api.router import _mirror_sched_stop_now as _mir_stop
         _mir_stop()
+    except Exception:
+        pass
+    try:
+        from modules.erp.api.landmark_report import landmark_sched_stop_now as _lm_stop
+        _lm_stop()
     except Exception:
         pass
 
@@ -891,6 +904,7 @@ app.include_router(md_pyramid_router)  # Phase 24-F UI Pyramida Browser
 # Phase A — STRATEGIE ERP (5.5.2026): /erp/* HTML + /api/v1/erp/* JSON
 app.include_router(erp_router)
 app.include_router(erp_api_router)
+app.include_router(landmark_router)  # Landmark měsíční podklad mezd (22.7.2026, Peta)
 app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)

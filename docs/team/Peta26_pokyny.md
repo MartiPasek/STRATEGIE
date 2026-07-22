@@ -96,9 +96,15 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
   Na okraji je jen **jednoduchá dvojšipka `cursor:ew-resize`** (↔), **žádný modrý proužek** na hover
   (NE `col-resize` – ta má čárku uprostřed) – jako u Martiho (21.7.2026). Platí i pro kurzor těla
   během tažení (`document.body.style.cursor='ew-resize'`).
-- **DŮLEŽITÉ chování šířek:** je **pevné VÝCHOZÍ nastavení pro všechny**. Tažení je jen **DOČASNÉ** —
-  po obnovení stránky se vše vrátí na výchozí. **NEUKLÁDAT** šířky do prohlížeče (localStorage).
-  (Výchozí šířky měň v kódu v `_faktColDef` / `DCOLW_DEF`.)
+- **DŮLEŽITÉ chování šířek (Peťa 22.7.2026, závazné pro všechny přehledy):**
+  - **Tažení sloupce = VŽDY jednorázové** — po odchodu a příchodu (obnovení) zpět na
+    **základní nastavení**. Platí pro KAŽDÉHO, i pro Peťu a rodiče. **NEUKLÁDAT** osobní
+    šířky (žádný localStorage per-uživatel).
+  - **Základní (výchozí) šířky pro všechny se změní JEN když to někdo výslovně řekne** —
+    nastaví je **Claude**, ne tlačítko v UI. **Žádné tlačítko „uložit šířky" na stránce.**
+  - Kam se základní šířky ukládají: buď do kódu (`_faktColDef` / `DCOLW_DEF` / pole `COLS`),
+    nebo (u docházky po zakázkách) do **`tenant.att_ui_pref`** (kod `dochazka_col_widths`) —
+    to jde změnit přes SQL most **bez deploye** (stránka je čte přes `/app/dochazka-zak-tab/widths`).
 - **Krajní úzký sloupec značek (18px) úplně vlevo, PŘED prvním sloupcem** (21.7.2026): v řádku filtru
   je v něm **✕**, které zruší jen filtry sloupců (na data/šířku sloupce nemá vliv). V datových řádcích
   značky výběru — **tečka •** u vybraných řádků, **šipka ▶** u řádku, na kterém uživatel naposledy

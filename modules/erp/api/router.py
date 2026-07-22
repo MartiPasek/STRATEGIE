@@ -39635,6 +39635,12 @@ async def diag_sql(req: Request) -> JSONResponse:
         _out2 = _g2007_znalost_upsert_inline(_obl2, _slug2, _nadpis2 or _slug2, _obsah2)
         return JSONResponse(_out2)
 
+    # Hlas engine bootstrap (Marti/Cowork 22.7.2026): jednorazove zalozeni
+    # schematu hlas (kanal/relace/vyslovnost) + granty. Idempotentni, transakcni.
+    if sql.upper().startswith("@@HLASINIT"):
+        from modules.erp.api.hlas_bootstrap import hlas_init as _hlas_init
+        return JSONResponse(_hlas_init())
+
     # Souborový most (Marti 20.6.2026): čtení reálných faktur pro EDI/auto-pořizování.
     #   @@FILES LIST <abs_cesta>            → výpis adresáře (soubor + velikost)
     #   @@FILES READ <abs_cesta_k_souboru>  → obsah souboru (text/base64)

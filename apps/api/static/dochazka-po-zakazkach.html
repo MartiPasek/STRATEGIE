@@ -316,6 +316,17 @@ function saveEdit(){
     }).catch(function(){ok.disabled=false;m.className='dmsg';m.textContent='Nepodařilo se spojit se serverem.';});
 }
 
+// Obarvení JEDNOHO řádku bez překreslení celé tabulky (14k řádků) — kvůli rychlosti
+// i spolehlivému dvojkliku (plný render byl tak pomalý, že přesáhl okno dvojkliku).
+function paintRow(idx){
+  var tr=document.querySelector('#tab tbody tr[data-i="'+idx+'"]');
+  if(!tr)return;
+  var selc=(SELSET[idx]||CUR===idx);
+  tr.classList.toggle('sel',selc);
+  var mkc=tr.getElementsByClassName('mk')[0];
+  if(mkc)mkc.textContent=(CUR===idx)?'▶':(SELSET[idx]?'•':'');
+}
+
 function init(){
   hlavicka();
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
@@ -328,21 +339,23 @@ function init(){
   $('chips').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     [].forEach.call($('chips').children,function(x){x.classList.remove('on');});b.classList.add('on');
     OBD=b.getAttribute('data-o');load();});
-  // Vlastní detekce dvojkliku: render() při 1. kliku překreslí tbody, takže nativní
-  // dblclick by dopadl na nový element a nezafungoval. Hlídáme dva rychlé kliky sami.
+  // Dvojklik = otevřít formulář. Detekce dvou rychlých kliků; obarvení řádku je
+  // teď inkrementální (paintRow), takže klik neblokuje a dvojklik se stihne.
   var _lastClick={i:-1,t:0};
   $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     var i=parseInt(tr.getAttribute('data-i'),10), now=Date.now();
-    if(_lastClick.i===i && (now-_lastClick.t)<450){_lastClick={i:-1,t:0};openEdit(i);return;}  // dvojklik = otevřít formulář
+    if(_lastClick.i===i && (now-_lastClick.t)<600){_lastClick={i:-1,t:0};openEdit(i);return;}  // dvojklik = otevřít formulář
     _lastClick={i:i,t:now};
+    var touched={}, oldCUR=CUR;
     if(e.shiftKey && CUR!=null){  // Shift+klik = označit úsek CUR..i
       var a=Math.min(CUR,i),b=Math.max(CUR,i);
-      for(var x=a;x<=b;x++)SELSET[x]=true;
+      for(var x=a;x<=b;x++){SELSET[x]=true;touched[x]=1;}
     }else{  // klik = přepnout výběr řádku
       if(SELSET[i]){delete SELSET[i];}else{SELSET[i]=true;}
     }
-    CUR=i;render();});
+    CUR=i; touched[i]=1; if(oldCUR!=null)touched[oldCUR]=1;
+    for(var k in touched)paintRow(parseInt(k,10));});
   // Záloha: nativní dvojklik (kdyby překreslení nevadilo) — na jistotu
   $('tab').getElementsByTagName('tbody')[0].addEventListener('dblclick',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;

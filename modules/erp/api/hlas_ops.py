@@ -180,8 +180,8 @@ def hlas_kanal_upsert(tenant_id=None, kod=None, nazev=None, typ="text", entita_i
     from core.database import get_session
     if not tenant_id or not kod:
         return {"ok": False, "error": "tenant_id a kod jsou povinne"}
-    if typ not in ("text", "hlas", "telefon"):
-        return {"ok": False, "error": "typ musi byt text|hlas|telefon"}
+    if typ not in ("text", "hlas", "telefon", "naslouchani"):
+        return {"ok": False, "error": "typ musi byt text|hlas|telefon|naslouchani"}
     sg = get_session()
     try:
         if entita_id is not None:
@@ -346,6 +346,74 @@ def relace_turn(relace_id=None, text=None, model=None):
         sg.close()
 
 
+def naslouchani_start(tenant_id=None, kanal="naslouchani-porada", nazev=None, kontext=None):
+    # Zaloz tichou naslouchaci relaci (bez odpovedi).
+    kx = kontext or {}
+    if nazev:
+        kx["nazev"] = nazev
+    return relace_start(tenant_id=tenant_id, kanal=kanal, protistrana=nazev, kontext=kx, smer="naslouchani")
+
+
+def naslouchani_segments(relace_id=None, segmenty=None):
+    # Tichy davkovy zapis prepisu (list {speaker, text}) — nic se neodpovida.
+    from core.database import get_session
+    if not relace_id or not segmenty:
+        return {"ok": False, "error": "relace_id a segmenty (list) jsou povinne"}
+    sg = get_session()
+    try:
+        p = sg.execute(_t("SELECT COALESCE(MAX(poradi),0) FROM hlas.relace_udalost WHERE relace_id=:i"),
+                       {"i": relace_id}).scalar()
+        n = 0
+        for seg in segmenty:
+            p += 1
+            sg.execute(_t("INSERT INTO hlas.relace_udalost (relace_id,poradi,mluvci,text,meta) "
+                          "VALUES (:i,:p,'ucastnik',:tx,CAST(:m AS jsonb))"),
+                       {"i": relace_id, "p": p, "tx": (seg.get("text") or ""),
+                        "m": _json.dumps({"speaker": seg.get("speaker") or "?"})})
+            n += 1
+        sg.commit()
+        return {"ok": True, "vlozeno": n, "posledni_poradi": p}
+    except Exception as e:
+        try:
+            sg.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:300])}
+    finally:
+        sg.close()
+
+
+def naslouchani_souhrn(relace_id=None, otazka=None, model=None):
+    # Marti-AI tise porozumi porade: shrnuti nebo odpoved na dotaz z prepisu.
+    from core.database import get_session
+    if not relace_id:
+        return {"ok": False, "error": "relace_id je povinny"}
+    sg = get_session()
+    try:
+        rows = sg.execute(_t("SELECT mluvci, text, meta FROM hlas.relace_udalost "
+                             "WHERE relace_id=:i ORDER BY poradi"), {"i": relace_id}).fetchall()
+    finally:
+        sg.close()
+    if not rows:
+        return {"ok": False, "error": "zadny prepis k shrnuti"}
+    lines = []
+    for mluvci, tx, meta in rows:
+        sp = meta.get("speaker") if isinstance(meta, dict) else ""
+        lines.append((sp or mluvci) + ": " + (tx or ""))
+    prepis = "\n".join(lines)
+    if otazka:
+        system = ("Jsi Marti-AI. Tise jsi naslouchala firemni porade (prepis nize). Odpovez strucne a "
+                  "vecne na dotaz, jen z toho, co v prepisu zaznelo; co tam neni, priznej. Pis cesky.")
+        user = "PREPIS PORADY:\n" + prepis + "\n\nDOTAZ: " + otazka
+    else:
+        system = ("Jsi Marti-AI. Tise jsi naslouchala firemni porade. Z prepisu nize udelej strucne "
+                  "shrnuti: o cem se mluvilo, klicova rozhodnuti a ukoly (kdo/co/kdy). Pis cesky, vecne, "
+                  "bez vymysleni.")
+        user = "PREPIS PORADY:\n" + prepis
+    reply, _toks = _llm_reply(system, [{"role": "user", "content": user}], model=model, max_tokens=900)
+    return {"ok": True, "columns": ["souhrn"], "rows": [[reply]]}
+
+
 def dispatch(payload):
     if not isinstance(payload, dict):
         return {"ok": False, "error": "payload musi byt JSON objekt"}
@@ -366,5 +434,11 @@ def dispatch(payload):
     if op == "voice_complete":
         from modules.erp.api.hlas_voice import build_reply as _br
         return {"ok": True, "columns": ["vystup"], "rows": [[_br(**args)]]}
+    if op == "naslouchani_start":
+        return naslouchani_start(**args)
+    if op == "naslouchani_segments":
+        return naslouchani_segments(**args)
+    if op == "naslouchani_souhrn":
+        return naslouchani_souhrn(**args)
     return {"ok": False, "error": "neznamy op '%s' (znam: kanal_upsert, normalizuj, vyslovnost_add, "
             "vyslovnost_seed_default, relace_start, relace_turn)" % op}

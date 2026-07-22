@@ -96,3 +96,19 @@ stávající poštu S (outbox / SMTP; endpointy `/app/connect-mailbox`, `/app/sh
 Vyžaduje doprogramování + nasazení přes schvalovací/deploy postup (Marti/Kristý).
 Odlehčená varianta = naplánovaná úloha v Coworku (běží, když je appka otevřená; e-mail přes
 připojenou schránku Microsoft 365).
+
+### STAV: NASAZENO A OVĚŘENO (22. 7. 2026, Peta + Claude ID26)
+
+Modul **`modules/erp/api/landmark_report.py`** (registrace v `apps/api/main.py`):
+
+- **Automat**: scheduler `landmark_sched_start()` (jen primár, spouští se v lifespanu) kontroluje
+  1×/hod datum; **15. v měsíci** sestaví podklad za **předchozí měsíc** a pošle ho na
+  **nakup@eurosoft.com**. Guard proti dvojímu odeslání = marker soubor v temp
+  (`landmark_sent_<rok>_<mm>.flag`).
+- **Ruční / test**: `GET https://strategie-ai.com/api/v1/erp/app/mzdy/landmark-send?rok=&mesic=[&to=]`
+  (gate `_is_cockpit` = rodiče + finance/HR, projde i Peta id18). Default období = předchozí měsíc,
+  default příjemce = nakup@eurosoft.com. Otevřít v prohlížeči přihlášeném do STRATEGIE.
+- Odesílá z default persony (Marti-AI) přes EWS, předmět „Podklad Landmark – <měsíc> mzdy <rok>".
+- Ověřeno 22.7.: ruční běh za 6/2026 → mail s přílohou `Podklad_Landmark_2026_06.xlsx` dorazil
+  do Nákupu, EC 4 779,33 / ES 13 140,53 bez DPH (sedí na výpočet 9,06 %).
+- **Sazba 9,06 % je v modulu konstanta `RATE`** — kdyby Landmark změnil smlouvu, upravit tam.

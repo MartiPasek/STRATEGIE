@@ -1,6 +1,8 @@
 """Hlas engine — FAZE 1 bootstrap (schema hlas + tabulky + granty).
 Marti / Cowork 22.7.2026. Idempotentni (IF NOT EXISTS). Vola se pres @@HLASINIT
-z /diag-sql mostu. PG DDL je transakcni -> vse nebo nic (rollback pri chybe)."""
+z /diag-sql mostu. PG DDL je transakcni -> vse nebo nic (rollback pri chybe).
+Odkazy na g2007.entita / g2007.graf jsou MEKKE (bigint bez FK) — engine je
+domenove odpojeny a nevyzaduje REFERENCES na cizi schema (viz i domain_key)."""
 from sqlalchemy import text as _t
 
 _DDL = [
@@ -12,9 +14,9 @@ _DDL = [
     kod varchar(64) NOT NULL,
     nazev text,
     typ varchar(16) NOT NULL DEFAULT 'text',
-    entita_id bigint REFERENCES g2007.entita(id),
+    entita_id bigint,
     domain_key varchar(64),
-    graf_id bigint REFERENCES g2007.graf(id),
+    graf_id bigint,
     config jsonb NOT NULL DEFAULT '{}'::jsonb,
     stav varchar(16) NOT NULL DEFAULT 'navrh',
     poradi integer NOT NULL DEFAULT 0,

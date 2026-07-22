@@ -12,7 +12,7 @@
 | `mzdy` | obor | 10 | Oborova znalost pro personu mzdovou. |
 | `dochazka` | obor | 14 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 0 | Oborova znalost pro personu vedouci projekty. |
-| `nabidky` | obor | 2 | Oborova znalost pro personu tvorici nabidky. |
+| `nabidky` | obor | 3 | Oborova znalost pro personu tvorici nabidky. |
 | `kalkulace-rozvadecu` | obor | 8 | Oborova znalost pro personu kalkulujici rozvadece. |
 | `bozp-po` | obor | 0 | Oborova znalost pro personu BOZP a pozarni ochrany. |
 | `tisax` | obor | 1 | Oborova znalost pro personu odpovednou za TISAX. |

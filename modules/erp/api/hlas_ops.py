@@ -363,5 +363,8 @@ def dispatch(payload):
         return relace_start(**args)
     if op == "relace_turn":
         return relace_turn(**args)
+    if op == "voice_complete":
+        from modules.erp.api.hlas_voice import build_reply as _br
+        return {"ok": True, "columns": ["vystup"], "rows": [[_br(**args)]]}
     return {"ok": False, "error": "neznamy op '%s' (znam: kanal_upsert, normalizuj, vyslovnost_add, "
             "vyslovnost_seed_default, relace_start, relace_turn)" % op}

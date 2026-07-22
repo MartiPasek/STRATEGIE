@@ -39485,6 +39485,30 @@ async def centrala_form_specs_list(req: Request) -> JSONResponse:
             pass
 
 
+@api_router.post("/hlas/v1/chat/completions")
+async def hlas_voice_completions(req: Request) -> Any:
+    """Telefonni interface: OpenAI-compatible chat/completions pro ElevenLabs Agents
+    custom LLM (SSE). ElevenLabs resi telefon+STT+TTS+hlas; tady je mozek Marti-AI.
+    Auth: Bearer HLAS_VOICE_TOKEN (env). Marti/Cowork 22.7.2026."""
+    import os as _oshv
+    from fastapi.responses import StreamingResponse
+    tok = _oshv.environ.get("HLAS_VOICE_TOKEN")
+    if not tok:
+        return JSONResponse({"error": "HLAS_VOICE_TOKEN neni nastaven na serveru"}, status_code=503)
+    if req.headers.get("authorization", "") != ("Bearer " + tok):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    messages = body.get("messages") or []
+    from modules.erp.api.hlas_voice import build_reply, sse_chunks, json_completion
+    reply = build_reply(messages)
+    if body.get("stream") is False:
+        return JSONResponse(json_completion(reply))
+    return StreamingResponse(sse_chunks(reply), media_type="text/event-stream")
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

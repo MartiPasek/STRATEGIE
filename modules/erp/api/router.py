@@ -28210,7 +28210,8 @@ async def dr_status_view(req: Request) -> JSONResponse:
         last = ds.execute(_t3(
             "SELECT source, verdict, reason, data_age_h, cnt_conversations, cnt_vectors, cnt_tables, "
             "to_char(checked_at,'YYYY-MM-DD HH24:MI') AS checked_at, "
-            "round(extract(epoch from (now()-checked_at))/3600,1) AS pred_h "
+            "round(extract(epoch from (now()-checked_at))/3600,1) AS pred_h, "
+            "chain_count, chain_oldest, chain_newest "
             "FROM fw.dr_selfcheck ORDER BY checked_at DESC LIMIT 1")).fetchone()
         hist = ds.execute(_t3(
             "SELECT to_char(checked_at,'MM-DD') AS den, verdict "
@@ -28224,6 +28225,7 @@ async def dr_status_view(req: Request) -> JSONResponse:
         "data_age_h": float(last[3]) if last[3] is not None else None,
         "cnt_conversations": last[4], "cnt_vectors": last[5], "cnt_tables": last[6],
         "checked_at": last[7], "pred_h": float(last[8]) if last[8] is not None else None,
+        "chain_count": last[9], "chain_oldest": last[10], "chain_newest": last[11],
         "history": [{"den": h[0], "verdict": h[1]} for h in hist]})
 
 

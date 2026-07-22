@@ -240,6 +240,7 @@ function loadDr(){
     el.innerHTML='<div class="c"><div class="top"><span class="nm">\U0001f6df Denni obnova zalohy ('+zEsc(d.source||'Plzen')+')</span>'+badge+'</div>'
       +'<div class="ds" style="margin-top:6px">Posledni kontrola: <b>'+zEsc(d.checked_at||'?')+'</b>'+(d.pred_h!=null?(' (pred '+Math.round(d.pred_h)+' h)'):'')+'<br>'
       +'Stari dat: <b>'+age+'</b> · tabulek '+(d.cnt_tables||'?')+' · konverzaci '+(d.cnt_conversations||'?')+' · vektoru '+(d.cnt_vectors||'?')
+      +(d.chain_count!=null?('<br>Retez zaloh: <b>'+d.chain_count+'/30</b>'+(d.chain_newest?(' · nejnovejsi '+zEsc(d.chain_newest)):'')+(d.chain_oldest?(' · nejstarsi '+zEsc(d.chain_oldest)):'')):'')
       +((d.verdict!=='OK'&&d.reason)?('<br><span style="color:#f87171">'+zEsc(d.reason)+'</span>'):'')+'</div>'
       +'<div style="margin-top:8px">'+hist+'</div>'
       +'<div style="margin-top:6px;font-size:11px;color:#56688a">Denik obnov: kazde rano po nocnim restore Praha→Plzen. ▪ OK · ▫ chyba. Pri chybe push.</div></div>';

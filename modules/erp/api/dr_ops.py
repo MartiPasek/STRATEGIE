@@ -158,6 +158,9 @@ async def dr_selfcheck(req: Request):
     cnt_vec = _int(body.get("cnt_vectors"))
     cnt_tab = _int(body.get("cnt_tables"))
     pgvector = bool(body.get("pgvector"))
+    chain_count = _int(body.get("chain_count"))
+    chain_oldest = (str(body.get("chain_oldest") or ""))[:20] or None
+    chain_newest = (str(body.get("chain_newest") or ""))[:20] or None
     reasons = []
     if not db_online:
         reasons.append("DB neodpovida")
@@ -182,10 +185,12 @@ async def dr_selfcheck(req: Request):
         try:
             ds.execute(_t(
                 "INSERT INTO fw.dr_selfcheck (source, db_online, data_age_h, cnt_conversations, "
-                "cnt_vectors, cnt_tables, pgvector, verdict, reason, raw) "
-                "VALUES (:s,:onl,:age,:cc,:cv,:ct,:pv,:vd,:rs, CAST(:raw AS jsonb))"),
+                "cnt_vectors, cnt_tables, pgvector, chain_count, chain_oldest, chain_newest, verdict, reason, raw) "
+                "VALUES (:s,:onl,:age,:cc,:cv,:ct,:pv,:chc,:cho,:chn,:vd,:rs, CAST(:raw AS jsonb))"),
                 {"s": source, "onl": db_online, "age": data_age_h, "cc": cnt_conv,
-                 "cv": cnt_vec, "ct": cnt_tab, "pv": pgvector, "vd": verdict, "rs": reason,
+                 "cv": cnt_vec, "ct": cnt_tab, "pv": pgvector,
+                 "chc": chain_count, "cho": chain_oldest, "chn": chain_newest,
+                 "vd": verdict, "rs": reason,
                  "raw": json.dumps(body)[:8000]})
             if verdict != "OK":
                 try:

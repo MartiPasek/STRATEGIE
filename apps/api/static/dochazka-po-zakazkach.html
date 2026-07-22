@@ -36,7 +36,8 @@
   table.dokl tbody tr:hover{background:#131d2b}
   table.dokl tbody tr.sel td{background:rgba(37,99,235,.16)}
   td.zak{color:#a5c8ff}
-  td.mk{padding:2px 0;text-align:center;color:#8aa0bd;font-weight:700;cursor:default}
+  table.dokl th.mkcol,table.dokl td.mk{width:20px;padding:2px 0;text-align:center}
+  td.mk{color:#8aa0bd;font-weight:700;cursor:default}
   .fx{text-align:center;padding:2px 0;cursor:pointer;color:#8aa0bd;font-weight:700}
   .src{font-size:10.5px;padding:1px 6px;border-radius:7px}
   .src.z_a{background:#123c26;color:#8fe0a0}.src.z_c{background:#3b2f12;color:#fbd38d}
@@ -84,11 +85,11 @@ var COLS=[
  {k:'Mesic',h:'Mesic',w:50,r:1,num:1}
 ];
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
-var ROWS=[], FIL={}, SEL=null, OBD='vse';
+var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
 
 function hlavicka(){
-  var h='<tr><th class="c" style="width:18px;padding:0"></th>';
-  var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců" onclick="clearFil()">✕</td>';
+  var h='<tr><th class="mkcol"></th>';
+  var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
     h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" style="width:'+c.w+'px" title="'+esc(c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
@@ -127,8 +128,9 @@ function projde(r){
 function render(){
   var tb=$('tab').getElementsByTagName('tbody')[0],h=[],n=0;
   for(var i=0;i<ROWS.length;i++){var r=ROWS[i];if(!projde(r))continue;n++;
-    var mk=(SEL===i)?'▶':'';
-    var tr='<tr data-i="'+i+'"'+(SEL===i?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
+    var mk=(CUR===i)?'▶':(SELSET[i]?'•':'');
+    var sel=(SELSET[i]||CUR===i);
+    var tr='<tr data-i="'+i+'"'+(sel?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
     for(var j=0;j<COLS.length;j++){var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
       if(c.s){v='<span class="src '+(SRC[v]||'z_x')+'">'+esc(v)+'</span>';}
       else v=esc(v);
@@ -141,7 +143,7 @@ function render(){
 }
 
 function load(){
-  $('msg').innerHTML='';SEL=null;
+  $('msg').innerHTML='';SELSET={};CUR=null;
   $('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Načítám…</td></tr>';
   $('info').textContent='';
   api('/api/v1/erp/app/dochazka-zak-tab/data?obdobi='+encodeURIComponent(OBD)).then(function(j){
@@ -163,7 +165,14 @@ function load(){
     OBD=b.getAttribute('data-o');load();});
   $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
-    var i=parseInt(tr.getAttribute('data-i'),10);SEL=(SEL===i?null:i);render();});
+    var i=parseInt(tr.getAttribute('data-i'),10);
+    if(e.shiftKey && CUR!=null){  // Shift+klik = označit úsek CUR..i
+      var a=Math.min(CUR,i),b=Math.max(CUR,i);
+      for(var x=a;x<=b;x++)SELSET[x]=true;
+    }else{  // klik = přepnout výběr řádku
+      if(SELSET[i]){delete SELSET[i];}else{SELSET[i]=true;}
+    }
+    CUR=i;render();});
   load();
 })();
 </script>

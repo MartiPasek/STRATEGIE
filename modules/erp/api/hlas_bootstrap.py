@@ -55,6 +55,16 @@ _DDL = [
     updated_at timestamptz NOT NULL DEFAULT now()
 )""",
     "CREATE INDEX IF NOT EXISTS ix_hlas_vyslovnost_scope ON hlas.vyslovnost(scope, typ, priorita)",
+    """CREATE TABLE IF NOT EXISTS hlas.relace_udalost (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    relace_id bigint NOT NULL REFERENCES hlas.relace(id),
+    poradi integer NOT NULL,
+    mluvci varchar(16) NOT NULL,
+    text text,
+    meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_hlas_relace_udalost_relace ON hlas.relace_udalost(relace_id, poradi)",
     'GRANT USAGE ON SCHEMA hlas TO strategie, "Marti-AI"',
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA hlas TO strategie, "Marti-AI"',
     'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA hlas TO strategie, "Marti-AI"',

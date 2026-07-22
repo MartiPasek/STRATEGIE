@@ -153,21 +153,26 @@ function pheadHTML(p){
   const chip=(t,bg,fg)=>'<span style="font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+bg+';color:'+fg+';margin-right:6px;white-space:nowrap">'+t+'</span>';
   const idline = [p.pozice, p.stredisko, p.mesto].filter(Boolean).map(esc).join(' · ');
   // Šárka 22.7.2026: pravá část hlavičky = přehledná mřížka (nástup·firma, věk·narozeniny, e-mail, telefon).
-  const cell=(ic,val,href)=> !val?'':('<div style="display:flex;align-items:center;gap:7px;min-width:0">'+
-    '<span style="width:16px;text-align:center;opacity:.85">'+ic+'</span>'+
-    (href?('<a href="'+href+'" style="color:#cdd6e2;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(val)+'">'+esc(val)+'</a>')
-          :('<span style="color:#cdd6e2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(val)+'</span>'))+'</div>');
+  const cell=(ic,val,href)=> !val?'':('<div style="display:flex;align-items:flex-start;gap:7px">'+
+    '<span style="width:16px;text-align:center;opacity:.85;flex:none">'+ic+'</span>'+
+    (href?('<a href="'+href+'" style="color:#cdd6e2;text-decoration:none;word-break:break-word">'+esc(val)+'</a>')
+          :('<span style="color:#cdd6e2;word-break:break-word">'+esc(val)+'</span>'))+'</div>');
   const nastupVal=[p.nastup?('Nástup '+p.nastup):'', p.firma].filter(Boolean).join(' · ');
   const narozVal=(p.vek!=null?(p.vek+' '+_rs(p.vek)):'')+(p.narozeniny?((p.vek!=null?' · ':'')+'nar. '+p.narozeniny):'');
   const telHref = p.telefon?('tel:'+String(p.telefon).replace(/\s+/g,'')):'';
-  const cells=[cell('📅',nastupVal), cell('🎂',narozVal), cell('✉️',p.email,p.email?('mailto:'+p.email):''), cell('📞',p.telefon,telHref)].filter(Boolean).join('');
+  const colFacts=[cell('📅',nastupVal), cell('🎂',narozVal)].filter(Boolean).join('');
+  const colKontakt=[cell('✉️',p.email,p.email?('mailto:'+p.email):''), cell('📞',p.telefon,telHref)].filter(Boolean).join('');
+  const meta=(colFacts||colKontakt)?('<div style="display:flex;flex-wrap:wrap;gap:6px 44px;margin-top:8px;font-size:12.5px">'+
+    (colFacts?'<div style="display:flex;flex-direction:column;gap:3px;min-width:190px">'+colFacts+'</div>':'')+
+    (colKontakt?'<div style="display:flex;flex-direction:column;gap:3px;min-width:190px">'+colKontakt+'</div>':'')+
+    '</div>'):'';
   return '<div class="phead" style="align-items:flex-start"><div class="avatar">'+
     '<img src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
     'style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" '+
     'onerror="this.remove();this.parentNode.textContent=\''+_ini+'\'"></div>'+
     '<div style="flex:1;min-width:0"><div class="nm">'+esc(p.jmeno||'')+'</div>'+
     (idline?'<div class="mt" style="color:#aac8ec;margin-bottom:2px">'+idline+'</div>':'')+
-    (cells?'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:3px 22px;margin-top:8px;font-size:12.5px">'+cells+'</div>':'')+
+    meta+
     '<div style="margin-top:9px">'+
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+

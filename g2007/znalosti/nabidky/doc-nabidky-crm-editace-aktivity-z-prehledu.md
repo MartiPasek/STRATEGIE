@@ -4,34 +4,41 @@
 
 # CRM — editace aktivity přímo z přehledu „Aktivity obchodníka"
 
-> oblast: `nabidky` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `nabidky` · úroveň: obor · typ: dokument · verze: V1.1 · rozsah: globální (všichni tenanti)
 
-> Autor: Claude ID24 (Kristý), 22. 7. 2026. Pro Pavla Zemana. Doplněk k editaci akcí, která už existovala jen na kartě zákazníka (jádro 72). Souvisí s [[doc-nabidky-crm-import-firem-osloveni]].
+> Autor: Claude ID24 (Kristý), 22. 7. 2026. Pro Pavla Zemana. Editace akcí existovala jen na kartě zákazníka (jádro 72) — tohle ji přidává i do přehledu, včetně odlišení formuláře dle typu akce. Souvisí s [[doc-nabidky-crm-import-firem-osloveni]].
 
 ## Zadání
-Umožnit obchodníkovi upravit aktivitu **přímo z přehledu „Aktivity obchodníka"** (dvojklik / ✏️ Oprava), ne jen z karty firmy.
+Umožnit obchodníkovi upravit aktivitu **přímo z přehledu „Aktivity obchodníka"** (dvojklik / ✏️ Oprava), a formulář **odlišit podle typu akce** (jako na kartě).
 
-## Jak to bylo (výchozí stav)
-- Přehled „Aktivity obchodníka" = **core 124**, **data_source 96**, read **data_set 92** (`crm_aktivity_obchodnik`, MSSQL, connection_id 2 = Centrála DB_EC). Byl **read-only** — data_source 96 měl jen operaci `select`.
-- Editace akcí existovala jen na **kartě zákazníka (core 72)** přes sub-grid „Akce" (comp 836, data_source 52): edit ops 82 + 129–135, všechny přes edit data_set **97** (`crm_akce_edit_82` = `SELECT * FROM st.CRM_Kontakt_Akce WHERE ID=:ID`). Vzor = op 85 (edit, core 82, def).
+## Výchozí stav
+- Přehled „Aktivity obchodníka" = **core 124**, root comp_def `grid_crm_aktivity_obchodnik`, **data_source 96**, read **data_set 92** (`crm_aktivity_obchodnik`, MSSQL, connection_id 2 = Centrála DB_EC). Byl **read-only** (jen operace `select`).
+- Editace akcí = jen na **kartě (core 72)**, sub-grid „Akce" (comp 836, data_source 52): edit ops jader 82 + 129–135, sdílený edit data_set **97** (`crm_akce_edit_82` = `SELECT * FROM st.CRM_Kontakt_Akce WHERE ID=:ID`). Vzor = op 85.
 
-## Řešení (22. 7. 2026) — konfiguračně, bez zásahu do render-kódu
-1. **Zapnout edit na reportu:** `INSERT fw.data_source_op (data_source_id=96, operation_kind='edit', variant_code='default', core_id=82, data_set_id=97, is_default=true)`.
-2. **Vystavit rowId v reportu:** do `fw.data_set` 92 přidáno `a.ID AS [ID]` (page_render čte `rowData.id/ID`; bez toho je dvojklik no-op).
+## Řešení (22. 7. 2026)
 
-Jak to zafunguje: backend skládá `grid_actions` **živě z `data_source_op`** (`router.py` ~ř. 3431: `bool_or(edit)`→`has_edit`, `MAX(core_id) FILTER (edit)`→`edit_core_id`). → report 124 dostane `has_edit=true`, `edit_core_id=82`. `page_render.js` `onRowDoubleClick`/`onRowEnter` + toolbar „✏️ Oprava" otevřou pro vybraný řádek `ErpSpecForm`/`DesignFwForm` (jádro 82), po uložení `refreshFromSource()`.
+### Krok 1 — zapnout editaci (config, bez deploye)
+- `INSERT fw.data_source_op (data_source_id=96, operation_kind='edit', variant_code='default', core_id=82, data_set_id=97, is_default=true)` → op #266. Backend skládá `grid_actions` **živě z `data_source_op`** (`router.py` ~ř.3431: `bool_or(edit)`→`has_edit`, `MAX(core_id) FILTER(edit)`→`edit_core_id`) → report dostane `has_edit=true`, `edit_core_id=82`.
+- `fw.data_set` 92: přidáno `a.ID AS [ID]` (rowId pro dvojklik/Opravu; page_render čte `rowData.id/ID`).
+- Výsledek: dvojklik / ✏️ Oprava otevřou univerzální jádro 82. **Bez deploye** (config per-request z DB, stačí Ctrl+F5).
 
-**Žádný deploy** — config se čte per-request z DB, stačí refresh stránky (Ctrl+F5).
+### Krok 2 — odlišení dle typu akce (deploy JS, commit 61db5b96)
+- `fw.data_set` 92: přidáno `a.IDAkce AS [IDakce]` (klíč pro routing).
+- **`erp_grid_actions.js`**: edit-gate rozšířen — `_crmAkceEdit` (routuje na jádro dle `IDakce` přes `/crm/akce-typy`) se pustí i pro `gridCode === "grid_crm_aktivity_obchodnik"`, nejen `grid_crm_akce`. → toolbar „✏️ Oprava" na reportu routuje per-typ.
+- **`page_render.js`**: pro `coreId===124` posílají `onRowDoubleClick`/`onRowEnter` edit přes `window.ErpGridActions.dispatch("edit", {gridCode:'grid_crm_aktivity_obchodnik', rowData, refreshFn})` → per-typ jádro (82/129–135), po uložení `refreshFromSource()`.
+- **Skrytí technických sloupců**: pro core 124 předává page_render `columns` = klíče řádku bez `ID` a `IDakce` (zůstávají v `rowData` pro routing, ale nejsou vidět v gridu) — obchází to, že skrytí jinak jde jen přes uložený layout.
 
-## Editační jádro 82
-Default „osobní jednání": pole **Průběh / Poznámka / Informace / Splněno**. Ukládá do `st.CRM_Kontakt_Akce` (WHERE ID) přes **framework aplikace** (connection_id 2). Interaktivní save jde přes aplikaci — **Claude bridge je do DB_EC read-only**, DML tudy nejde.
+## Jak to teď funguje
+Obchodník v přehledu „Aktivity obchodníka" dvojklikne (nebo ✏️ Oprava) na řádek → otevře se editační formulář **ušitý na typ akce** (telefon u hovorů, e-mail u mailů, průběh/poznámka/splněno u osobního jednání), uloží se do `st.CRM_Kontakt_Akce` přes framework aplikace (connection_id 2) a přehled se obnoví.
 
 ## Gotchy
-- **Skrytí technických sloupců v reportu jde jen přes uložený layout** (`erp_grid_layouts`) — bridge tam nedosáhne. Proto se `ID` v přehledu zobrazí (pinned vlevo); kdo chce, skryje v UI a uloží jako sdílený/výchozí layout.
-- Přidání jen `edit` operace zapne pouze **✏️ Oprava**; „🆕 Nový" / „🗑 Smazat" se neobjeví (chybí insert/delete op) — **záměr**: create z přehledu bez `IDHlav` seedu = osiřelý záznam.
-- `grid_actions` = per-request z DB (žádná cache) → změna je živá hned po refreshi.
+- **Interaktivní save jde přes aplikaci** (framework, connection_id 2), NE přes Claude bridge — ten je do DB_EC read-only.
+- **Skrytí sloupců v reportu** normálně jen přes uložený layout (`erp_grid_layouts`, bridge tam nedosáhne) → tady vyřešeno přes `columns` option v page_render gejtovaně na core 124.
+- Přidán jen `edit` op → objeví se pouze **✏️ Oprava**; „🆕 Nový"/„🗑 Smazat" ne (chybí insert/delete op) — záměr (create z přehledu bez `IDHlav` = osiřelý záznam).
+- **Po deployi (restart API) může bridge chvíli vracet HTTP 401 „Nejsi přihlášen"** (SQL session mostu lapla) — heartbeat přitom OK. Zotaví se sám / po chvíli; nebušit. Zápisy do DB_EC dělá stejně člověk/Marti-AI, tohle je jen o mostu.
+- `grid_actions` i entity config se resolvují per-request z DB (`_resolve_entity_config_from_db`) — žádná cache, změna živá hned po refreshi.
 
-## Follow-up (volitelné) — per-typ formuláře jako na kartě
-Aby dvojklik v reportu otevřel formulář ušitý na typ akce (jádra 129–135, ne univerzální 82): přidat na ds 96 stejnou sadu edit ops jako na ds 52 + vystavit `a.IDAkce` v ds 92 + JS routing dle `IDakce` pro core 124 v `page_render` (zrcadlo embedded-grid routingu, `window.ErpGridActions.crmAkceCoreFor`). Zatím univerzální jádro 82 (edit Průběh/Poznámka/Splněno pro všechny typy).
+## Klíčové soubory / objekty
+`fw.data_source_op` op#266 (edit, core 82, ds 96) · `fw.data_set` 92 (`a.ID`, `a.IDAkce`) · `erp_grid_actions.js` (`CRM_AKCE_REPORT_GRID_CODE`, edit-gate) · `page_render.js` (dispatch edit + skrytí sloupců pro core 124) · edit data_set 97 · jádra 82/129–135 (mapování `/crm/akce-typy` + `_CRM_AKCE_CORE_MAP`).
 
 

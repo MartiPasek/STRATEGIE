@@ -314,10 +314,17 @@ def landmark_sched_stop_now():
 def landmark_send(req: Request):
     """Ruční/testovací odeslání podkladu. Parent-only.
     ?rok=&mesic= (default = předchozí měsíc), volitelně ?to= (default nakup@eurosoft.com)."""
-    from modules.erp.api.router import _uid_from_token_or_cookie, is_marti_parent
+    from modules.erp.api.router import _uid_from_token_or_cookie, _is_cockpit
+    from core.database_data import get_data_session as _g
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    _s = _g()
+    try:
+        if not _is_cockpit(_s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        _s.close()
     today = _dt.date.today()
     dr, dm = _prev_month(today)
     try:

@@ -245,14 +245,23 @@ function loadQueue(){
       ok.addEventListener('click',function(){
         payload.reason=(rb._input.value||'').trim();
         api('POST','/api/v1/erp/app/attendance/fix/resolve',payload).then(function(x){
-          if(x.ok)c.remove();else c._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';
+          if(x.ok)removeCard(c);else c._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';
         });
       });
     }
     function markDone(c){c.classList.add('done');var hd=c.querySelector('.hd');if(hd)hd.innerHTML+=' <span class="donebadge">✓ opraveno</span>';}
     // Peťa 22.7.2026: zvýrazni kartu, jejíž den je otevřený vpravo (jen jednu)
     function setActive(c){document.querySelectorAll('#left .card.active').forEach(function(x){x.classList.remove('active');});c.classList.add('active');}
-    function quickDone(c,payload){payload.reason='opraveno v detailu dne';api('POST','/api/v1/erp/app/attendance/fix/resolve',payload).then(function(x){if(x.ok)c.remove();else c._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';});}
+    // Peťa 22.7.2026: když odbavená/odebraná karta byla zrovna otevřená vpravo,
+    // zavři i detail — nemá smysl nechat otevřený den, který už není ve frontě.
+    function removeCard(c){
+      var wasActive=c.classList.contains('active');
+      c.remove();
+      if(wasActive){
+        document.getElementById('right').innerHTML='<div class="rph"><div class="ic">🛠</div>Vyber vlevo položku fronty nebo člověka —<br>den k opravě se otevře tady.</div>';
+      }
+    }
+    function quickDone(c,payload){payload.reason='opraveno v detailu dne';api('POST','/api/v1/erp/app/attendance/fix/resolve',payload).then(function(x){if(x.ok)removeCard(c);else c._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';});}
     if(rz.length)L.appendChild(el('<div class="sec">✋ ROZPOROVANÉ DNY</div>'));
     rz.forEach(function(r){
       var c=card(r.name,r.day,'„'+(r.note||'')+'“');

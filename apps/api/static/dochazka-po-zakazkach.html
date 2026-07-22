@@ -111,6 +111,10 @@ function hlavicka(){
   var th=tab.getElementsByTagName('thead')[0];
   th.innerHTML=h+'</tr>'+f+'</tr>';
   applyW();
+  // Přisadit filtrovací řádek přesně pod hlavičku (jinak mezi nimi prosvítá mezera)
+  var hrow=th.getElementsByTagName('tr')[0];
+  var hh=(hrow&&hrow.offsetHeight)?hrow.offsetHeight:25;
+  [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=hh+'px';});
   th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
   th.addEventListener('mousedown',function(e){
@@ -118,11 +122,16 @@ function hlavicka(){
     var i=parseInt(e.target.getAttribute('data-i'),10),col=cols()[i+1];
     var x0=e.clientX,w0=parseInt(col.style.width,10)||COLS[i].w;e.preventDefault();
     document.body.style.cursor='ew-resize';
-    // rAF throttle — u 14k řádků by překreslení na každý pohyb myši sekalo
-    var raf=null,lastX=x0;
-    function apply(){raf=null;col.style.width=Math.max(24,w0+(lastX-x0))+'px';applyW();}
-    function mv(ev){lastX=ev.clientX;if(!raf)raf=requestAnimationFrame(apply);}
-    function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);document.body.style.cursor='';if(raf)cancelAnimationFrame(raf);apply();}
+    // Vodicí čára — při tažení se NEpřekresluje 14k řádků (plynulé); šířka se
+    // nastaví až po puštění myši.
+    var guide=document.createElement('div');
+    guide.style.cssText='position:fixed;top:0;bottom:0;width:2px;background:#2563eb;z-index:9999;pointer-events:none;left:'+x0+'px';
+    document.body.appendChild(guide);
+    var lastX=x0;
+    function mv(ev){lastX=ev.clientX;guide.style.left=ev.clientX+'px';}
+    function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);
+      document.body.style.cursor='';if(guide.parentNode)guide.parentNode.removeChild(guide);
+      col.style.width=Math.max(24,w0+(lastX-x0))+'px';applyW();}
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
   th.addEventListener('dblclick',function(e){
     if(!e.target.classList.contains('dgrip'))return;

@@ -7948,6 +7948,33 @@ def _self_hr_recipients(s):
     return list(ids)
 
 
+def _je_zena(vals):
+    """Odhad pohlaví (kvůli skrytí 'rodné příjmení' u mužů). Priorita: rodné číslo
+    (ženy mají u měsíce +50, příp. +70), pak příjmení na -á. None = nejisté."""
+    rc = str((vals or {}).get("birth_number") or "").replace("/", "").replace(" ", "")
+    if len(rc) >= 4 and rc[:4].isdigit():
+        mm = int(rc[2:4])
+        if 51 <= mm <= 62 or 71 <= mm <= 82:
+            return True
+        if 1 <= mm <= 12 or 21 <= mm <= 32:
+            return False
+    ln = str((vals or {}).get("last_name") or "").strip().lower()
+    if ln.endswith("á"):
+        return True
+    if ln:
+        return False
+    return None
+
+
+def _skryta_self_pole(vals):
+    """Pole, která pro daného člověka nemá smysl nabízet. Muž → bez rodného příjmení
+    (Šárka 22.7.2026). Když pohlaví neurčíme, pole necháme."""
+    skryte = set()
+    if _je_zena(vals) is False:
+        skryte.add("birth_surname")
+    return skryte
+
+
 @api_router.get("/app/self-data")
 async def app_self_data_get(req: Request) -> JSONResponse:
     """Vlastní osobní údaje přihlášeného (self-service). Vrací sekce + pole."""
@@ -7968,11 +7995,12 @@ async def app_self_data_get(req: Request) -> JSONResponse:
                 if f[3] == "date" and v is not None:
                     v = v.isoformat()
                 vals[f[0]] = ("" if v is None else str(v))
+        skryte = _skryta_self_pole(vals)
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
             items = [{"key": f[0], "label": f[1], "type": f[3],
                       "sensitive": f[4], "value": vals.get(f[0], "")}
-                     for f in _SELF_FIELDS if f[2] == skey]
+                     for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
         return JSONResponse({"ok": True, "sections": secs, "updated_at": upd})
@@ -8572,11 +8600,12 @@ async def app_ambassador_marti_card(req: Request) -> JSONResponse:
                 if f[3] == "date" and v is not None:
                     v = v.isoformat()
                 vals[f[0]] = ("" if v is None else str(v))
+        skryte = _skryta_self_pole(vals)
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
             items = [{"key": f[0], "label": f[1], "type": f[3],
                       "sensitive": f[4], "value": vals.get(f[0], "")}
-                     for f in _SELF_FIELDS if f[2] == skey]
+                     for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
         # audit pristupu (best-effort)
@@ -17432,13 +17461,14 @@ async def app_hr_person(req: Request) -> JSONResponse:
                 if fmap[c][3] == "date" and v is not None:
                     v = v.isoformat()
                 vals[c] = ("" if v is None else str(v))
+        skryte = _skryta_self_pole(vals)
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
             if skey == "pamet":
                 continue
             items = [{"key": f[0], "label": f[1], "type": f[3], "sensitive": f[4],
                       "value": vals.get(f[0], "")} for f in _SELF_FIELDS
-                     if f[2] == skey]
+                     if f[2] == skey and f[0] not in skryte]
             if items:
                 secs.append({"key": skey, "label": slabel, "items": items})
         # děti: bez rodných čísel (citlivé)

@@ -8755,7 +8755,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             if "pouze rodic" in msg.lower() or "pouze rodič" in msg.lower():
                 return (
                     "🚫 Tenhle souhlas může dát jen některý z rodičů "
-                    "(Marti, Ondra, Kristý, Jirka). Já ho sama nemůžu udělit, "
+                    "(Marti nebo Kristýna). Já ho sama nemůžu udělit, "
                     "ani kdybys chtěl."
                 )
             return f"❌ Nelze uložit souhlas: {msg}"

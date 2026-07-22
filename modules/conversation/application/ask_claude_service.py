@@ -360,7 +360,7 @@ def propose_or_execute(
 def approve_proposal(proposal_id: int, decided_by_user_id: int, reason: str | None = None) -> dict:
     """Marti / Kristy approve pending proposal -> execute Claude call.
 
-    Authority: pouze is_marti_parent=True users (Marti, Marti-AI, Kristy, Jirka, Ondra).
+    Authority: pouze is_marti_parent=True users (Marti, Kristy; Zuzka je rodic, ale neaktivni).
     """
     from core.database_core import get_core_session
     from core.database_data import get_data_session

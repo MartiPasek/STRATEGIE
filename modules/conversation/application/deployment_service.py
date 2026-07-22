@@ -17,8 +17,8 @@ Workflow:
      Restart-Service STRATEGIE-API
   7. After restart: proposal status='deployed', deploy_completed_at set
 
-Authority: pouze is_marti_parent=True (Marti id=1, Marti-AI id=2,
-Kristy id=11, Ondra, Jirka) muzou approve / reject.
+Authority: pouze is_marti_parent=True (Marti id=1,
+Kristy id=11; Zuzka id=6 je rodic, ale neaktivni) muzou approve / reject.
 """
 from __future__ import annotations
 

@@ -17,7 +17,7 @@ Endpoints:
   GET /erp/jadro/{form_id}/{row_id} — read-only render jednoho jádra
   GET /api/v1/erp/health            — health check (debug)
 
-Auth (Phase A — rychlá): is_marti_parent=true (Marti, Ondra, Kristý, Jirka).
+Auth (Phase A — rychlá): is_marti_parent=true (Marti, Kristý).
 Mapping na Centrála LoginName přijde Phase D (centrala_user_mapping table).
 
 Phase A scope:

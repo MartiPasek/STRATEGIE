@@ -60,6 +60,13 @@
   .fld .two{display:flex;gap:6px}
   .fld .two input[type=date]{flex:1;min-width:0}
   .fld .two input[type=time]{width:100px}
+  /* Rozložení přesně jako formulář Centrály */
+  .frow2{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;margin-bottom:10px}
+  .frow3{display:grid;grid-template-columns:1fr 1fr 0.72fr;gap:9px 14px;margin-bottom:10px;align-items:start}
+  .top2{grid-template-columns:150px 110px}
+  .prac{margin-bottom:10px}
+  .fnote{display:grid;grid-template-columns:1fr auto;gap:8px 16px;align-items:end;margin-bottom:10px}
+  .frow3 .fld input[type=time]{margin-top:5px}
   .soon{color:#c99a4a;font-size:10px;font-weight:400}
   .ro{font-size:13px;color:#e8edf6;padding:2px 0 10px;font-weight:600}
   .rob{background:rgba(201,154,74,.12);border:1px solid #7a5a1f;color:#e6c67f;border-radius:6px;padding:8px 10px;font-size:12px;margin:0 0 10px}
@@ -91,17 +98,27 @@
     <h3>🕒 Docházka – úpravy<span class="muted" id="d_id" style="margin-left:auto;font-weight:400"></span></h3>
     <div class="bd">
       <div class="rob" id="d_ro" style="display:none"></div>
-      <div class="ro" id="d_prac"></div>
-      <div class="fg">
+      <!-- horní řádek: ID záznamu + Čas (jako v Centrále, bez „NOVÝ ZÁZNAM") -->
+      <div class="frow2 top2">
+        <div class="fld"><label>ID záznamu</label><input id="d_idnum" readonly></div>
+        <div class="fld"><label>Čas</label><input id="d_hod" readonly></div>
+      </div>
+      <div class="fld prac"><label>Pracovník</label><input id="d_prac" readonly></div>
+      <div class="frow2">
         <div class="fld"><label>Zakázka</label><input id="d_zak" autocomplete="off"></div>
         <div class="fld"><label>Činnost</label><select id="d_cin"></select></div>
-        <div class="fld"><label>Začátek</label><div class="two"><input type="date" id="d_od_d"><input type="time" id="d_od_t"></div></div>
-        <div class="fld"><label>Konec</label><div class="two"><input type="date" id="d_kon_d"><input type="time" id="d_kon_t"></div></div>
-        <div class="fld"><label>Čas (hodiny)</label><input id="d_hod" readonly></div>
-        <div class="fld"><label>Pauza <span class="soon">zatím neukládá — dodělá se</span></label><input id="d_pauza" type="number" step="1" disabled></div>
-        <div class="fld full"><label>Zaměstnanec poznámka</label><textarea id="d_pozn" rows="2"></textarea></div>
-        <div class="fld full"><label>Vedoucí poznámka <span class="soon">zatím neukládá — dodělá se</span></label><textarea id="d_vpozn" rows="2" disabled></textarea></div>
+      </div>
+      <div class="frow3">
+        <div class="fld"><label>Začátek</label><input type="date" id="d_od_d"><input type="time" id="d_od_t"></div>
+        <div class="fld"><label>Konec</label><input type="date" id="d_kon_d"><input type="time" id="d_kon_t"></div>
+        <div class="fld"><label>Pauza <span class="soon">dodělá se</span></label><input id="d_pauza" type="number" step="1" disabled></div>
+      </div>
+      <div class="fnote">
+        <div class="fld"><label>Zaměstnanec poznámka</label><textarea id="d_pozn" rows="2"></textarea></div>
         <label class="chk"><input type="checkbox" id="d_req" disabled> Požadavek úpravy <span class="soon">dodělá se</span></label>
+      </div>
+      <div class="fnote">
+        <div class="fld"><label>Vedoucí poznámka <span class="soon">dodělá se</span></label><textarea id="d_vpozn" rows="2" disabled></textarea></div>
         <label class="chk"><input type="checkbox" id="d_appr" disabled> Vedoucí schváleno <span class="soon">dodělá se</span></label>
       </div>
     </div>
@@ -275,8 +292,9 @@ function recalcH(){
 }
 function openEdit(i){
   var r=ROWS[i]; if(!r)return; EDIT_I=i; var isW=(r._kind==='W');
-  $('d_id').textContent='ID '+(r._id!=null?r._id:'—')+(r._src?(' · '+r._src):'');
-  $('d_prac').textContent='Pracovník:  '+((r._jm||'')+(r._cz?(' '+r._cz):''));
+  $('d_id').textContent=(r._src?('· '+r._src):'');
+  $('d_idnum').value=(r._id!=null?r._id:'');
+  $('d_prac').value=(r._jm||'')+(r._cz?(' '+r._cz):'');
   $('d_zak').value=r._zak||'';
   loadCiny(function(){fillCin(r._cin_id);});
   $('d_od_d').value=r._od_d||''; $('d_od_t').value=r._od_t||'';

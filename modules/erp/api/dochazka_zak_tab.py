@@ -126,6 +126,126 @@ def dochazka_zak_tab_widths_get(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "base": {}, "me": {}})
 
 
+@doch_zak_tab_router.get("/app/dochazka-zak-tab/cinnosti")
+def dochazka_zak_tab_cinnosti(req: Request) -> JSONResponse:
+    """Seznam činností pro roletku ve formuláři úprav (id, ec_cislo, název)."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        from core.database_data import get_data_session as _g
+        s = _g()
+        try:
+            rows = s.execute(_t(
+                "SELECT id, ec_cislo, name FROM tenant.vyroba_cinnost "
+                "WHERE COALESCE(name,'')<>'' ORDER BY name")).mappings().all()
+        finally:
+            s.close()
+        out = [{"id": int(r["id"]), "ec": r["ec_cislo"], "name": r["name"]} for r in rows]
+        return JSONResponse({"ok": True, "cinnosti": out})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
+def _dzt_parse_ts(d: str | None, t: str | None) -> str | None:
+    """'YYYY-MM-DD' + 'HH:MM' → 'YYYY-MM-DD HH:MM' (None když chybí datum)."""
+    d = (d or "").strip()
+    if not d:
+        return None
+    t = (t or "").strip() or "00:00"
+    return d + " " + t
+
+
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/save")
+async def dochazka_zak_tab_save(req: Request) -> JSONResponse:
+    """Uloží opravu řádku práce (tenant.vyroba_work). Edituje se jen kind='W'
+    (práce na zakázce, app i Centrála). Absence (kind='A') se tu neupravují.
+    Ukládají se: zakazka_ref, cinnost_id, od, konec, hodiny, poznamka.
+    Pauza/Vedoucí poznámka/zaškrtávátka zatím nemají v DB místo — dodělá se."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    kind = str((body or {}).get("kind") or "").upper()
+    try:
+        rid = int((body or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí id záznamu"}, status_code=400)
+    if kind != "W":
+        return JSONResponse({"ok": False, "error": "Tady lze upravit jen práci na zakázce. "
+                             "Absence (dovolená/nemoc/lékař) se opravují v modulu Opravy docházky."},
+                            status_code=400)
+    zak = (str((body or {}).get("zakazka") or "").strip()) or None
+    cin_raw = (body or {}).get("cinnost_id")
+    try:
+        cin_id = int(cin_raw) if cin_raw not in (None, "", "null") else None
+    except Exception:
+        cin_id = None
+    od = _dzt_parse_ts((body or {}).get("od_d"), (body or {}).get("od_t"))
+    if not od:
+        return JSONResponse({"ok": False, "error": "Vyplň Začátek (datum a čas)."}, status_code=400)
+    kon = _dzt_parse_ts((body or {}).get("kon_d"), (body or {}).get("kon_t"))
+    pozn = (body or {}).get("poznamka")
+    if pozn is not None:
+        pozn = str(pozn)[:2000]
+    # hodiny: klient posílá spočtený Čas; jinak dopočítáme z (konec-od). Nezáporné.
+    hod = (body or {}).get("hodiny")
+    try:
+        hod = float(hod) if hod not in (None, "") else None
+    except Exception:
+        hod = None
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        # kontrola: řádek existuje a je to práce v našem tenantu
+        cur = s.execute(_t("SELECT source_system, od, konec, hodiny FROM tenant.vyroba_work "
+                           "WHERE id=:id AND tenant_id=2"), {"id": rid}).mappings().first()
+        if not cur:
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."}, status_code=404)
+        # dopočet hodin, když je nezadal klient a máme konec
+        if hod is None and kon is not None:
+            r2 = s.execute(_t("SELECT EXTRACT(EPOCH FROM ((:kon)::timestamptz-(:od)::timestamptz))/3600.0"),
+                           {"od": od, "kon": kon}).scalar()
+            try:
+                hod = round(float(r2), 2)
+            except Exception:
+                hod = None
+        if hod is not None and hod < 0:
+            return JSONResponse({"ok": False, "error": "Konec je před začátkem — zkontroluj časy."},
+                                status_code=400)
+        s.execute(_t(
+            "UPDATE tenant.vyroba_work SET "
+            " zakazka_ref=:zak, cinnost_id=:cin, od=(:od)::timestamptz, "
+            " konec=CASE WHEN :kon IS NULL THEN NULL ELSE (:kon)::timestamptz END, "
+            " hodiny=:hod, poznamka=:pozn, updated_at=now() "
+            "WHERE id=:id AND tenant_id=2"),
+            {"zak": zak, "cin": cin_id, "od": od, "kon": kon, "hod": hod,
+             "pozn": pozn, "id": rid})
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid, "hodiny": hod})
+    except Exception as exc:  # noqa: BLE001
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
 @doch_zak_tab_router.post("/app/dochazka-zak-tab/widths")
 async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
     """Uloží OSOBNÍ šířky uživatele do DB (kdokoliv z povolených 11). Tím je Claude

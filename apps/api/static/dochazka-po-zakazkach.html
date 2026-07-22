@@ -45,6 +45,33 @@
   .src.z_a{background:#123c26;color:#8fe0a0}.src.z_c{background:#3b2f12;color:#fbd38d}
   .src.z_s{background:#1d2440;color:#a5b4fc}.src.z_x{background:#2a3240;color:#9fb0c8}
   .ld{padding:30px;text-align:center;color:#8fa3bd;font-size:13px}
+  /* Editační okno (dvojklik na řádek) — vzhled jako formulář Centrály */
+  .ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;z-index:50}
+  .ov.on{display:flex}
+  .dlg{background:#141b28;border:1px solid #2a3546;border-radius:10px;margin-top:4vh;width:min(700px,95vw);max-height:92vh;display:flex;flex-direction:column;box-shadow:0 14px 44px rgba(0,0,0,.55)}
+  .dlg h3{margin:0;padding:10px 14px;background:#1c2636;border-bottom:1px solid #2a3546;font-size:14px;display:flex;align-items:center;gap:8px}
+  .dlg .bd{padding:14px;overflow:auto}
+  .fg{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+  .fld{display:flex;flex-direction:column;gap:3px}
+  .fld.full{grid-column:1 / -1}
+  .fld label{font-size:11px;color:#9fb2c8}
+  .fld input,.fld select,.fld textarea{background:#0b0d10;border:1px solid #363b43;border-radius:5px;color:#e9eef5;padding:6px 8px;font-size:13px;font-family:inherit}
+  .fld input:disabled,.fld textarea:disabled,.fld select:disabled{opacity:.45;cursor:not-allowed}
+  .fld .two{display:flex;gap:6px}
+  .fld .two input[type=date]{flex:1;min-width:0}
+  .fld .two input[type=time]{width:100px}
+  .soon{color:#c99a4a;font-size:10px;font-weight:400}
+  .ro{font-size:13px;color:#e8edf6;padding:2px 0 10px;font-weight:600}
+  .rob{background:rgba(201,154,74,.12);border:1px solid #7a5a1f;color:#e6c67f;border-radius:6px;padding:8px 10px;font-size:12px;margin:0 0 10px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#9fb2c8}
+  .dmsg{padding:2px 14px;font-size:12px;min-height:0;color:#fca5a5}
+  .dmsg.ok{color:#8fe0a0}
+  .dbtn{display:flex;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid #2a3546;background:#101622}
+  .dbtn .r{display:flex;gap:8px}
+  .dbtn button{border:0;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer}
+  .b-ok{background:#2563eb;color:#fff}
+  .b-cn{background:#2a3446;color:#cdd9ea}
+  .b-rf{background:#22303f;color:#a9c0da}
 </style>
 </head>
 <body>
@@ -57,6 +84,37 @@
 </div>
 <div id="msg"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
+
+<!-- Editační okno (otevře dvojklik na řádek). Vzhled dle formuláře Centrály; bez „NOVÝ ZÁZNAM". -->
+<div class="ov" id="ov">
+  <div class="dlg" role="dialog" aria-modal="true">
+    <h3>🕒 Docházka – úpravy<span class="muted" id="d_id" style="margin-left:auto;font-weight:400"></span></h3>
+    <div class="bd">
+      <div class="rob" id="d_ro" style="display:none"></div>
+      <div class="ro" id="d_prac"></div>
+      <div class="fg">
+        <div class="fld"><label>Zakázka</label><input id="d_zak" autocomplete="off"></div>
+        <div class="fld"><label>Činnost</label><select id="d_cin"></select></div>
+        <div class="fld"><label>Začátek</label><div class="two"><input type="date" id="d_od_d"><input type="time" id="d_od_t"></div></div>
+        <div class="fld"><label>Konec</label><div class="two"><input type="date" id="d_kon_d"><input type="time" id="d_kon_t"></div></div>
+        <div class="fld"><label>Čas (hodiny)</label><input id="d_hod" readonly></div>
+        <div class="fld"><label>Pauza <span class="soon">zatím neukládá — dodělá se</span></label><input id="d_pauza" type="number" step="1" disabled></div>
+        <div class="fld full"><label>Zaměstnanec poznámka</label><textarea id="d_pozn" rows="2"></textarea></div>
+        <div class="fld full"><label>Vedoucí poznámka <span class="soon">zatím neukládá — dodělá se</span></label><textarea id="d_vpozn" rows="2" disabled></textarea></div>
+        <label class="chk"><input type="checkbox" id="d_req" disabled> Požadavek úpravy <span class="soon">dodělá se</span></label>
+        <label class="chk"><input type="checkbox" id="d_appr" disabled> Vedoucí schváleno <span class="soon">dodělá se</span></label>
+      </div>
+    </div>
+    <div class="dmsg" id="d_msg"></div>
+    <div class="dbtn">
+      <button class="b-rf" onclick="reloadForm()">Obnovit</button>
+      <div class="r">
+        <button class="b-cn" onclick="closeEdit()">Storno</button>
+        <button class="b-ok" id="d_ok" onclick="saveEdit()">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -195,6 +253,69 @@ function load(){
   });
 }
 
+/* ── Editační okno (dvojklik na řádek) ───────────────────────────────── */
+var CINY=null, EDIT_I=null;
+function loadCiny(cb){
+  if(CINY){cb();return;}
+  fetch('/api/v1/erp/app/dochazka-zak-tab/cinnosti',{credentials:'include'})
+    .then(function(r){return r.json();}).then(function(j){CINY=(j&&j.ok&&j.cinnosti)||[];cb();})
+    .catch(function(){CINY=[];cb();});
+}
+function fillCin(sel){
+  var s=$('d_cin');
+  s.innerHTML='<option value="">—</option>'+CINY.map(function(c){
+    return '<option value="'+c.id+'">'+esc(c.name)+(c.ec!=null?(' ('+c.ec+')'):'')+'</option>';
+  }).join('');
+  s.value=(sel==null?'':String(sel));
+}
+function recalcH(){
+  var od=$('d_od_d').value, ot=$('d_od_t').value||'00:00', kd=$('d_kon_d').value, kt=$('d_kon_t').value;
+  if(od&&kd&&kt){var a=new Date(od+'T'+ot),b=new Date(kd+'T'+kt);var h=(b-a)/3600000;
+    $('d_hod').value=isNaN(h)?'':(Math.round(h*100)/100).toFixed(2);}
+}
+function openEdit(i){
+  var r=ROWS[i]; if(!r)return; EDIT_I=i; var isW=(r._kind==='W');
+  $('d_id').textContent='ID '+(r._id!=null?r._id:'—')+(r._src?(' · '+r._src):'');
+  $('d_prac').textContent='Pracovník:  '+((r._jm||'')+(r._cz?(' '+r._cz):''));
+  $('d_zak').value=r._zak||'';
+  loadCiny(function(){fillCin(r._cin_id);});
+  $('d_od_d').value=r._od_d||''; $('d_od_t').value=r._od_t||'';
+  $('d_kon_d').value=r._kon_d||''; $('d_kon_t').value=r._kon_t||'';
+  $('d_hod').value=(r._hod!=null&&r._hod!=='')?Number(r._hod).toFixed(2):'';
+  $('d_pozn').value=r._pozn||'';
+  $('d_vpozn').value=''; $('d_pauza').value=''; $('d_req').checked=false; $('d_appr').checked=false;
+  $('d_msg').textContent=''; $('d_msg').className='dmsg';
+  var ro=$('d_ro'), edIds=['d_zak','d_od_d','d_od_t','d_kon_d','d_kon_t','d_pozn'];
+  if(isW){
+    ro.style.display='none';
+    edIds.forEach(function(id){$(id).disabled=false;}); $('d_cin').disabled=false;
+    $('d_ok').style.display='';
+  }else{
+    ro.style.display='';
+    ro.textContent='Tohle je absence (dovolená / nemoc / lékař). Opravuje se v modulu „Opravy docházky" — tady je jen k nahlédnutí.';
+    edIds.forEach(function(id){$(id).disabled=true;}); $('d_cin').disabled=true;
+    $('d_ok').style.display='none';
+  }
+  $('ov').classList.add('on');
+}
+function reloadForm(){if(EDIT_I!=null)openEdit(EDIT_I);}
+function closeEdit(){$('ov').classList.remove('on');EDIT_I=null;}
+function saveEdit(){
+  if(EDIT_I==null)return; var r=ROWS[EDIT_I];
+  var body={kind:r._kind,id:r._id,zakazka:$('d_zak').value,cinnost_id:$('d_cin').value||null,
+    od_d:$('d_od_d').value,od_t:$('d_od_t').value,kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,
+    hodiny:$('d_hod').value,poznamka:$('d_pozn').value};
+  var m=$('d_msg'),ok=$('d_ok'); m.className='dmsg'; m.textContent='Ukládám…'; ok.disabled=true;
+  fetch('/api/v1/erp/app/dochazka-zak-tab/save',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(rp){return rp.json().then(function(j){return {s:rp.status,j:j};},
+      function(){return {s:rp.status,j:{ok:false,error:(rp.status>=500?'Server je dočasně nedostupný — zkus to za chvíli.':'Neočekávaná odpověď serveru.')}};});})
+    .then(function(res){ok.disabled=false;var j=res.j;
+      if(j&&j.ok){m.className='dmsg ok';m.textContent='Uloženo.';setTimeout(function(){closeEdit();load();},450);}
+      else{m.className='dmsg';m.textContent=(j&&j.error)||('Nepodařilo se uložit ('+res.s+').');}
+    }).catch(function(){ok.disabled=false;m.className='dmsg';m.textContent='Nepodařilo se spojit se serverem.';});
+}
+
 function init(){
   hlavicka();
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
@@ -217,6 +338,13 @@ function init(){
       if(SELSET[i]){delete SELSET[i];}else{SELSET[i]=true;}
     }
     CUR=i;render();});
+  // Dvojklik na řádek = otevřít editační formulář
+  $('tab').getElementsByTagName('tbody')[0].addEventListener('dblclick',function(e){
+    if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
+    openEdit(parseInt(tr.getAttribute('data-i'),10));});
+  ['d_od_d','d_od_t','d_kon_d','d_kon_t'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',recalcH);});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ov').classList.contains('on'))closeEdit();});
+  $('ov').addEventListener('mousedown',function(e){if(e.target===$('ov'))closeEdit();});
   load();
 }
 // Nejdřív načti sdílené základní šířky ze serveru, pak postav tabulku

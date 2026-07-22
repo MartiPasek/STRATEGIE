@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Docházka po zakázkách</title>
+<style>
+  /* Standard přehledů (Peta26 pokyny, vzor pokladny.html table.dokl):
+     rámeček, sticky hlavička (BEZ velkých písmen — Peťa 22.7.), filtrovací řádek
+     POD názvy (černá ohraničená okénka), úzký sloupec značek vlevo s ✕ (zruší
+     filtry), roztahovací sloupce ew-resize + dvojklik = výchozí, šířky se NEUKLÁDAJÍ. */
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:10px 12px 26px;background:#0f141a;color:#e8edf6}
+  .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+  .chips{display:flex;gap:6px}
+  .chip{background:#27313f;color:#cdd9ea;border:0;border-radius:14px;padding:6px 13px;font-size:12.5px;cursor:pointer}
+  .chip.on{background:#2563eb;color:#fff}
+  .muted{color:#8fa3bd;font-size:12.5px}
+  .err{background:rgba(239,68,68,.12);border:1px solid #ef4444;color:#fca5a5;border-radius:8px;padding:10px 12px;font-size:13px;margin:8px 0}
+  .tw{overflow:auto;max-height:calc(100vh - 96px);border:1px solid #2a3546;border-radius:8px;background:#0f141a}
+  .tw::-webkit-scrollbar{width:13px;height:13px}
+  .tw::-webkit-scrollbar-track{background:#131b26}
+  .tw::-webkit-scrollbar-thumb{background:#33445c;border-radius:7px;border:2px solid #131b26}
+  .tw::-webkit-scrollbar-thumb:hover{background:#42597a}
+  table.dokl{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
+  table.dokl th,table.dokl td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
+  table.dokl thead tr.frow td{position:sticky;top:26px;z-index:2;padding:3px 4px;background:#08090c;border-right:1px solid #24344f;border-bottom:1px solid #24344f}
+  table.dokl thead th{position:sticky;top:0;z-index:3;background:#1c2636;color:#fff;font-size:11px;font-weight:700;text-align:left;border-bottom:2px solid #34506f;position:relative}
+  table.dokl tbody td{color:#f4f7fc}
+  table.dokl th.r,table.dokl td.r{text-align:right}
+  table.dokl th.c,table.dokl td.c{text-align:center}
+  table.dokl thead th .dgrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5;user-select:none}
+  table.dokl .frow input{width:100%;box-sizing:border-box;padding:2px 6px;font-size:11px;border:1px solid #363b43;border-radius:4px;background:#0b0d10;color:#e9eef5}
+  table.dokl .frow input::placeholder{color:#6a7078}
+  table.dokl tbody tr:hover{background:#131d2b}
+  table.dokl tbody tr.sel td{background:rgba(37,99,235,.16)}
+  td.zak{color:#a5c8ff}
+  td.mk{padding:2px 0;text-align:center;color:#8aa0bd;font-weight:700;cursor:default}
+  .fx{text-align:center;padding:2px 0;cursor:pointer;color:#8aa0bd;font-weight:700}
+  .src{font-size:10.5px;padding:1px 6px;border-radius:7px}
+  .src.z_a{background:#123c26;color:#8fe0a0}.src.z_c{background:#3b2f12;color:#fbd38d}
+  .src.z_s{background:#1d2440;color:#a5b4fc}.src.z_x{background:#2a3240;color:#9fb0c8}
+  .ld{padding:30px;text-align:center;color:#8fa3bd;font-size:13px}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="chips" id="chips">
+    <button class="chip on" data-o="vse">Do dneška</button>
+    <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
+  </div>
+  <span class="muted" id="info"></span>
+</div>
+<div id="msg"></div>
+<div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
+
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function api(u){return fetch(u,{credentials:'include'}).then(function(r){return r.json().then(function(j){return j;},function(){
+  return {ok:false,error:(r&&r.status>=500)?'Server je dočasně nedostupný (nejspíš restart) — zkus to prosím za chvíli.':'Neočekávaná odpověď serveru ('+((r&&r.status)||'?')+').'};});},
+  function(){return {ok:false,error:'Nepodařilo se spojit se serverem.'};});}
+function $(i){return document.getElementById(i);}
+
+/* Sloupce = přesně jak je vrací přehled (aliasy). h = nadpis (necháváme jak je),
+   w = VÝCHOZÍ šířka, r = doprava (čísla), c = na střed, s = odznak zdroje,
+   num = filtr bere čárku i tečku. */
+var COLS=[
+ {k:'PraceAktivni',h:'PraceAktivni',w:34,c:1},
+ {k:'CisloZakazky',h:'CisloZakazky',w:92,cls:'zak'},
+ {k:'JmenoPrijmeni',h:'JmenoPrijmeni',w:150},
+ {k:'CisloZam',h:'CisloZam',w:56,r:1,num:1},
+ {k:'DruhCinnosti',h:'DruhCinnosti',w:62,r:1,num:1},
+ {k:'CinnostText',h:'CinnostText',w:180},
+ {k:'DenVTydnu',h:'DenVTydnu',w:44,c:1},
+ {k:'CasZacatek',h:'CasZacatek',w:128},
+ {k:'CasKonec',h:'CasKonec',w:110},
+ {k:'CasCelkem',h:'CasCelkem',w:74,r:1,num:1},
+ {k:'Odkud',h:'Odkud',w:82,s:1,c:1},
+ {k:'Smlouva',h:'Smlouva',w:70,c:1},
+ {k:'Poznamka',h:'Poznamka',w:220},
+ {k:'DatumPripadu',h:'DatumPripadu',w:92},
+ {k:'Rok',h:'Rok',w:52,r:1,num:1},
+ {k:'Mesic',h:'Mesic',w:50,r:1,num:1}
+];
+var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
+var ROWS=[], FIL={}, SEL=null, OBD='vse';
+
+function hlavicka(){
+  var h='<tr><th class="c" style="width:18px;padding:0"></th>';
+  var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců" onclick="clearFil()">✕</td>';
+  for(var i=0;i<COLS.length;i++){var c=COLS[i];
+    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" style="width:'+c.w+'px" title="'+esc(c.h)+'">'+esc(c.h)
+      +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
+    f+='<td><input data-k="'+c.k+'" placeholder="'+(c.c&&c.k==='PraceAktivni'?'✓':'…')+'"></td>';
+  }
+  var th=$('tab').getElementsByTagName('thead')[0];
+  th.innerHTML=h+'</tr>'+f+'</tr>';
+  th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
+    FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
+  th.addEventListener('mousedown',function(e){
+    if(!e.target.classList.contains('dgrip'))return;
+    var cell=e.target.parentNode,x0=e.clientX,w0=cell.offsetWidth;e.preventDefault();
+    document.body.style.cursor='ew-resize';
+    function mv(ev){cell.style.width=Math.max(24,w0+(ev.clientX-x0))+'px';}
+    function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);document.body.style.cursor='';}
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
+  th.addEventListener('dblclick',function(e){
+    if(!e.target.classList.contains('dgrip'))return;
+    var i=parseInt(e.target.getAttribute('data-i'),10);e.target.parentNode.style.width=COLS[i].w+'px';});
+}
+
+function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
+
+function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
+function projde(r){
+  for(var k in FIL){var q=FIL[k];if(!q)continue;var col=null;
+    for(var i=0;i<COLS.length;i++){if(COLS[i].k===k){col=COLS[i];break;}}
+    var v=r[k];
+    if(col&&col.k==='PraceAktivni'){v=(String(v||'').indexOf('✓')>=0)?'✓ano':'ne';}
+    if(col&&col.num){if(normNum(v).indexOf(normNum(q))<0)return false;continue;}
+    if(String(v==null?'':v).toLowerCase().indexOf(q)<0)return false;
+  }
+  return true;
+}
+
+function render(){
+  var tb=$('tab').getElementsByTagName('tbody')[0],h=[],n=0;
+  for(var i=0;i<ROWS.length;i++){var r=ROWS[i];if(!projde(r))continue;n++;
+    var mk=(SEL===i)?'▶':'';
+    var tr='<tr data-i="'+i+'"'+(SEL===i?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
+    for(var j=0;j<COLS.length;j++){var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
+      if(c.s){v='<span class="src '+(SRC[v]||'z_x')+'">'+esc(v)+'</span>';}
+      else v=esc(v);
+      if(c.cls)cl+=' '+c.cls;
+      tr+='<td'+(cl.trim()?' class="'+cl.trim()+'"':'')+' title="'+esc(String(r[c.k]==null?'':r[c.k]))+'">'+v+'</td>';}
+    h.push(tr+'</tr>');
+  }
+  tb.innerHTML=h.length?h.join(''):'<tr><td class="ld" colspan="'+(COLS.length+1)+'">Nic neodpovídá filtru.</td></tr>';
+  $('info').textContent='Řádků: '+n+(n!==ROWS.length?(' (z '+ROWS.length+')'):'');
+}
+
+function load(){
+  $('msg').innerHTML='';SEL=null;
+  $('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Načítám…</td></tr>';
+  $('info').textContent='';
+  api('/api/v1/erp/app/dochazka-zak-tab/data?obdobi='+encodeURIComponent(OBD)).then(function(j){
+    if(!j||!j.ok){$('msg').innerHTML='<div class="err">'+esc((j&&j.error)||'Nepodařilo se načíst data.')+'</div>';
+      $('tab').getElementsByTagName('tbody')[0].innerHTML='';return;}
+    ROWS=j.rows||[];render();
+  });
+}
+
+(function(){
+  hlavicka();
+  // období z URL (?obdobi=vse|budoucnost) — uzel „Naplánovaná budoucnost" otevře rovnou budoucnost
+  try{var _p=new URLSearchParams(location.search).get('obdobi');
+    if(_p==='budoucnost'||_p==='vse'){OBD=_p;
+      [].forEach.call($('chips').children,function(x){x.classList.toggle('on',x.getAttribute('data-o')===OBD);});}
+  }catch(_e){}
+  $('chips').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
+    [].forEach.call($('chips').children,function(x){x.classList.remove('on');});b.classList.add('on');
+    OBD=b.getAttribute('data-o');load();});
+  $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
+    if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
+    var i=parseInt(tr.getAttribute('data-i'),10);SEL=(SEL===i?null:i);render();});
+  load();
+})();
+</script>
+</body>
+</html>

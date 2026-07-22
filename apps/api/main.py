@@ -49,6 +49,7 @@ from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elek
 from modules.erp.api.g2007_vectors import g2007_vec_router  # G2007 vektorizace — sémantické hledání nad znalostmi (17.7.2026)
 from modules.erp.api.automat import automat_router  # G2007 automaty — exekutor + Haiku eskalace + monitoring (18.7.2026)
 from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
+from modules.erp.api.dochazka_zak_tab import doch_zak_tab_router  # Docházka po zakázkách — data pro vlastní stránku (22.7.2026, Peta)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.landmark_report import landmark_router  # Landmark měsíční podklad mezd → mail (22.7.2026, Peta)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
@@ -911,6 +912,7 @@ app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_c
 app.include_router(drops_router)  # DR: streaming přenos data_db dumpu Praha→Plzeň
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
 app.include_router(bozp_router)  # BOZP a PO cockpit (řízení dokumentů, rizik, termínů, úrazů)
+app.include_router(doch_zak_tab_router)  # Docházka po zakázkách — data pro vlastní stránku (table.dokl styl)
 app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)
 app.include_router(jmhz_router)  # JMHZ (ČSSZ hlášení) — generace z Heliosu + ověření na tlačítku (12.7.2026)
 app.include_router(g2007_vec_router)  # G2007 vektorizace — index + sémantické hledání nad znalostní bází (17.7.2026)
@@ -1603,6 +1605,17 @@ def dochazka_zakazky_page():
     přenosem do staré Centrály. Marti 8.7.2026."""
     return FileResponse(os.path.join(static_dir, "dochazka-zakazky.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/dochazka-po-zakazkach")
+def dochazka_po_zakazkach_page():
+    """Docházka po zakázkách — vlastní stránka ve stylu standardu přehledů
+    (table.dokl). Data z data_setu dochazka.zakazky_vse_list/budoucnost přes
+    /app/dochazka-zak-tab/data. Peťa 22.7.2026. XFO/CSP pro ERP iframe."""
+    return FileResponse(os.path.join(static_dir, "dochazka-po-zakazkach.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
 @app.get("/moje-dochazka")

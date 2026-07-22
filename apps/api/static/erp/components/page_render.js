@@ -67,11 +67,17 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
-      // Pozn. (Peťa 20.7.2026): „Docházka po zakázkách" (jádro dochazka.centrala)
-      // byla nejdřív vlastní stránka /dochazka-centrala čtená živě z Centrály.
-      // Peťa rozhodla, že se má čerpat ze stejných dat jako ostatní přehledy
-      // (tenant.att_*) a vypadat jako běžný přehled — proto je to teď normální
-      // framework grid (data_source dochazka.zakazky_vse_list) a hook tu není.
+      // Docházka po zakázkách (Peťa 22.7.2026): jádra dochazka.centrala (do dneška)
+      // a dochazka.zakazky_budoucnost (plán) = iframe vlastní stránky
+      // /dochazka-po-zakazkach ve stylu standardu přehledů (table.dokl: rámeček,
+      // filtr pod názvy + ✕ na zrušení filtrů, pevné šířky, hlavička běžným písmem).
+      // Data z data_setů přes /app/dochazka-zak-tab/data. Nahradilo framework grid.
+      if (String(coreCode) === 'dochazka.centrala' || String(coreCode) === 'dochazka.zakazky_budoucnost') {
+        var _dzObd = (String(coreCode) === 'dochazka.zakazky_budoucnost') ? 'budoucnost' : 'vse';
+        mainContent.innerHTML = '<iframe src="/dochazka-po-zakazkach?obdobi=' + _dzObd + '" title="Docházka po zakázkách" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Karta zaměstnance (Šárka 8.7.2026): jádro hr.karta = iframe stránky
       // /karta-zamestnance (seznam lidí HR-gated + sekce Pinya×Centrála). Tmavý ERP.
       if (String(coreCode) === 'hr.karta') {

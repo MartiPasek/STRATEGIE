@@ -54,6 +54,7 @@
     <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
+  <button class="chip" id="wbtn" title="Zkopíruje aktuální šířky sloupců — pošli je Claudovi k uložení" style="margin-left:auto">📐 Šířky → schránka</button>
 </div>
 <div id="msg"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
@@ -191,6 +192,12 @@ function load(){
   $('chips').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     [].forEach.call($('chips').children,function(x){x.classList.remove('on');});b.classList.add('on');
     OBD=b.getAttribute('data-o');load();});
+  // Tlačítko: zkopíruj aktuální šířky sloupců do schránky + ukaž je (na pošli Claudovi)
+  $('wbtn').addEventListener('click',function(){
+    var w=[].slice.call(cols()).slice(1).map(function(c){return parseInt(c.style.width,10)||0;}).join(',');
+    try{if(navigator.clipboard)navigator.clipboard.writeText(w);}catch(_e){}
+    window.prompt('Šířky sloupců — zkopíruj (Ctrl+C) a pošli Claudovi:', w);
+  });
   $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     var i=parseInt(tr.getAttribute('data-i'),10);

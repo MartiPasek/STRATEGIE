@@ -54,7 +54,6 @@
     <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
-  <button class="chip" id="savebtn" title="Uloží aktuální šířky sloupců jako výchozí pro všechny" style="display:none;margin-left:auto">💾 Uložit šířky jako výchozí</button>
 </div>
 <div id="msg"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
@@ -92,11 +91,7 @@ var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řád
 // Šířky: SRVW = SDÍLENÉ základní ze serveru (pro všechny). Osobní tažení je JEDNORÁZOVÉ
 // — nikam se neukládá, po obnovení zpět na základní. Trvale (pro všechny) uloží jen
 // rodiče/Peťa (CANSAVE) na server.
-var SRVW={}, CANSAVE=false;
-function currentWidths(){var o={},cs=cols();for(var i=0;i<COLS.length;i++){o[COLS[i].k]=parseInt(cs[i+1].style.width,10)||COLS[i].w;}return o;}
-function saveServer(){if(!CANSAVE)return;try{fetch('/api/v1/erp/app/dochazka-zak-tab/widths',
-  {method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({widths:currentWidths()})});}catch(_e){}}
+var SRVW={};  // sdílené základní šířky ze serveru (nastavuje Claude na vyžádání)
 
 function cols(){return $('tab').getElementsByTagName('col');}  // [0]=mkcol, [i+1]=COLS[i]
 function totW(){var s=0,cs=cols();for(var i=0;i<cs.length;i++)s+=parseInt(cs[i].style.width,10)||0;return s;}
@@ -192,12 +187,8 @@ function load(){
 
 function init(){
   hlavicka();
-  // Tlačítko „Uložit jako výchozí" jen pro rodiče/Peťu — základní pro všechny se změní
-  // JEN tímto vědomým kliknutím, jinak je tažení vždy jednorázové.
-  if(CANSAVE){var sb=$('savebtn');sb.style.display='';
-    sb.addEventListener('click',function(){saveServer();
-      SRVW=currentWidths();sb.textContent='✓ Uloženo jako výchozí';
-      setTimeout(function(){sb.textContent='💾 Uložit šířky jako výchozí';},2500);});}
+  // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
+  // základní šířky (SRVW) nastaví Claude na server na vyžádání ("ulož šířky jako výchozí").
   // období z URL (?obdobi=vse|budoucnost) — uzel „Naplánovaná budoucnost" otevře rovnou budoucnost
   try{var _p=new URLSearchParams(location.search).get('obdobi');
     if(_p==='budoucnost'||_p==='vse'){OBD=_p;
@@ -222,7 +213,7 @@ function init(){
 (function(){
   fetch('/api/v1/erp/app/dochazka-zak-tab/widths',{credentials:'include'})
     .then(function(r){return r.json();}).then(function(j){
-      if(j&&j.ok){SRVW=j.widths||{};CANSAVE=!!j.muze_ulozit;}
+      if(j&&j.ok){SRVW=j.widths||{};}
     }).catch(function(){}).then(init,init);
 })();
 </script>

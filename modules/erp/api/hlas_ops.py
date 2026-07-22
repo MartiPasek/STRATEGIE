@@ -414,6 +414,32 @@ def naslouchani_souhrn(relace_id=None, otazka=None, model=None):
     return {"ok": True, "columns": ["souhrn"], "rows": [[reply]]}
 
 
+def email_koncept(to=None, subject=None, body=None, cc=None, user_id=1, attach_b64=None):
+    # Zaloz e-mail jako KONCEPT do slozky Koncepty schranky uzivatele (neodesila).
+    from modules.erp.api.rfq_draft import create_email_draft
+    if not to or not subject or not body:
+        return {"ok": False, "error": "to, subject, body jsou povinne"}
+    doc_ids = []
+    try:
+        if attach_b64:
+            import base64 as _b64k
+            from modules.rag.application.service import upload_document as _uplk
+            for item in attach_b64:
+                data = _b64k.b64decode(item.get("b64") or "")
+                if not data:
+                    return {"ok": False, "error": "attach_b64 prazdny: %s" % item.get("name")}
+                doc_ids.append(_uplk(file_bytes=data, filename=(item.get("name") or "priloha"),
+                                     tenant_id=2, user_id=1, display_name=(item.get("name") or "priloha")))
+        res = create_email_draft(to=to, subject=subject, body=body, cc=cc, user_id=user_id,
+                                 from_identity="user", tenant_id=2,
+                                 attachment_document_ids=(doc_ids or None))
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:400])}
+    return {"ok": bool(res.get("ok")), "columns": ["draft_id", "slozka", "odesilatel", "komu"],
+            "rows": [[res.get("draft_id"), res.get("folder"), res.get("sender"),
+                      ", ".join(res.get("to") or [to] if isinstance(res.get("to"), list) else [to])]]}
+
+
 def dispatch(payload):
     if not isinstance(payload, dict):
         return {"ok": False, "error": "payload musi byt JSON objekt"}
@@ -440,5 +466,7 @@ def dispatch(payload):
         return naslouchani_segments(**args)
     if op == "naslouchani_souhrn":
         return naslouchani_souhrn(**args)
+    if op == "email_koncept":
+        return email_koncept(**args)
     return {"ok": False, "error": "neznamy op '%s' (znam: kanal_upsert, normalizuj, vyslovnost_add, "
             "vyslovnost_seed_default, relace_start, relace_turn)" % op}

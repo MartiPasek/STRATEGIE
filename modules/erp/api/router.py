@@ -20178,7 +20178,15 @@ def _att_fix_scope_emps(s, scope):
     Kvalifikacní posty (org_post.je_kvalifikace=true, např. VAZAČ-JEŘÁBNÍK, ŘIDIČ)
     se do podstromu NEpočítají — jsou to oprávnění/BOZP, ne řídicí vztah. Jinak
     by majitel (drží VAZAČ) spadl pod Dušana. Konzultace Marti-AI 20.7. (varianta b),
-    Jirka 20.7. — jeden zdroj pravdy s resolve_role."""
+    Jirka 20.7. — jeden zdroj pravdy s resolve_role.
+
+    DVOJÍ ZAŘAZENÍ = SJEDNOCENÍ (Peťa 21.7.2026). Dřív stačil JEDEN post pod Dušanem
+    a člověk byl výhradně „výroba" — kancelář ho pak vůbec neviděla. Reálný případ:
+    Zuzana Duspivová drží 6 postů, z toho 5 kancelářských (Divize 3 finance, správce
+    upomínek, správce e-mailu) a jeden „Asistent Divize 5 – realizace zakázek".
+    Kvůli tomu jednomu zmizela Petě z „Najít člověka". Nově: kdo má post na obou
+    stranách, spadá do působnosti OBOU editorů — stejně jako to už platilo pro lidi
+    bez zařazení. Sedí to i na Martiho rozhodnutí o dual-postech (union, 7.6.2026)."""
     if scope in (None, "vse"):
         return None
     from sqlalchemy import text as _t
@@ -20198,18 +20206,24 @@ def _att_fix_scope_emps(s, scope):
         "), zar AS ("
         "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
         "  WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
+        "), kanc AS ("     # aspoň jeden post MIMO Dušanův podstrom = patří i kanceláři
+        "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
+        "  WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
+        "    AND a.post_id NOT IN (SELECT id FROM dp)"
         ") "
         "SELECT e.id, (e.id IN (SELECT employee_id FROM vyr)), "
-        "       (e.id IN (SELECT employee_id FROM zar)) "
+        "       (e.id IN (SELECT employee_id FROM zar)), "
+        "       (e.id IN (SELECT employee_id FROM kanc)) "
         "FROM tenant.att_employee e WHERE e.tenant_id=2")).fetchall()
     out = set()
     for r in rows:
-        eid, je_vyroba, ma_zarazeni = int(r[0]), bool(r[1]), bool(r[2])
+        eid = int(r[0])
+        je_vyroba, ma_zarazeni, je_kancelar = bool(r[1]), bool(r[2]), bool(r[3])
         if not ma_zarazeni:
             out.add(eid)  # nezařazený → vidí ho obě strany
         elif scope == "vyroba" and je_vyroba:
             out.add(eid)
-        elif scope == "kancelar" and not je_vyroba:
+        elif scope == "kancelar" and je_kancelar:
             out.add(eid)
     return out
 
@@ -20372,9 +20386,34 @@ async def att_fix_queue(req: Request) -> JSONResponse:
             "JOIN tenant.att_entry e ON e.id = a.entry_id "
             "JOIN tenant.att_employee em ON em.id = a.employee_id "
             "LEFT JOIN public.users u ON u.id = em.user_id "
+            # Peťa 22.7.2026: opravená anomálie zůstává ve frontě zeleně (jako rozpor),
+            # dokud ji editor neodklikne „Hotovo — z fronty". Zobraz proto i tu, jejíž
+            # záznam je po opravě/stornu superseded — ale JEN když byl den fakt opraven
+            # (manual_fix / audit) a je z posledních 60 dnů. Starší opravené se schovají
+            # (viz dotaz „stare" níže) a hlásí se jako drobná červená poznámka.
             "WHERE a.tenant_id = :t AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
-            "  AND e.status <> 'superseded' "
-            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 120"),
+            "  AND (e.status <> 'superseded' "
+            "       OR (e.entry_date >= current_date - 60 AND ("
+            "            EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
+            "            OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=a.employee_id AND aa.old_entry_date=e.entry_date)))) "
+            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 200"),
+            {"t": _ATT_TENANT}).fetchall()
+        # Staré OPRAVENÉ anomálie (superseded, >60 dnů), které nikdo neodklikl — schované
+        # z fronty, ale hlásíme jejich počet drobným červeným písmem, ať se pak nikdo
+        # nevymluví, že „se mu to ztratilo" (Peťa 22.7.2026).
+        stare = s.execute(_t(
+            "SELECT a.id, a.employee_id, e.entry_date::text, "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
+            "       a.detail "
+            "FROM tenant.att_anomaly a "
+            "JOIN tenant.att_entry e ON e.id = a.entry_id "
+            "JOIN tenant.att_employee em ON em.id = a.employee_id "
+            "LEFT JOIN public.users u ON u.id = em.user_id "
+            "WHERE a.tenant_id = :t AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
+            "  AND e.status = 'superseded' AND e.entry_date < current_date - 60 "
+            "  AND (EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
+            "       OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=a.employee_id AND aa.old_entry_date=e.entry_date)) "
+            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 200"),
             {"t": _ATT_TENANT}).fetchall()
         disp = s.execute(_t(
             "SELECT c.id, c.employee_id, c.day::text, COALESCE(c.note,''), em.user_id, "
@@ -20391,12 +20430,15 @@ async def att_fix_queue(req: Request) -> JSONResponse:
         if _emps is not None:  # působnost editora (kancelář/výroba)
             anom = [r for r in anom if int(r[4]) in _emps]
             disp = [r for r in disp if int(r[1]) in _emps]
+            stare = [r for r in stare if int(r[1]) in _emps]
         return JSONResponse({"ok": True,
             "anomalie": [{"id": r[0], "rule": r[1], "detail": r[2], "entry_id": r[3],
                           "employee_id": r[4], "day": r[5], "user_id": r[6], "name": r[7],
                           "navrh_konec": r[8], "opraveno": bool(r[9])} for r in anom],
             "rozpory": [{"id": r[0], "employee_id": r[1], "day": r[2], "note": r[3],
-                         "user_id": r[4], "name": r[5], "opraveno": bool(r[6])} for r in disp]})
+                         "user_id": r[4], "name": r[5], "opraveno": bool(r[6])} for r in disp],
+            "stare_skryte": [{"id": r[0], "employee_id": r[1], "day": r[2],
+                              "name": r[3], "detail": r[4]} for r in stare]})
     finally:
         cm.__exit__(None, None, None)
 
@@ -20690,9 +20732,10 @@ async def att_fix_entry(req: Request) -> JSONResponse:
                 logger.error("att fix/entry: zápis činnosti do work_alloc selhal (entry=%s, emp=%s, cinnost=%s)",
                              eid, emp, cin_new, exc_info=True)
                 _wa_fail.append("činnost")
-        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                     "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
-                  {"t": _ATT_TENANT, "i": eid})
+        # Peťa 22.7.2026: anomálii po opravě UŽ NEVYŘEŠOVAT automaticky. Dřív se tím
+        # řádek z fronty rovnou ztratil; Peťa chce, aby zůstal jako u rozporů od lidí —
+        # zeleně „✓ opraveno" s tlačítkem „Hotovo — z fronty", a zmizel až po odkliknutí
+        # (endpoint /fix/resolve). Proto tady žádný resolved_at.
         zm_zak = (" | zakázka " + (row[7] or "—") + " → " + (pref or "—")) if (pref_sent and new_code == "work" and pref != row[7]) else ""
         # Selhání zápisu do work_alloc patří do auditu — den může být rozejitý
         # s výkazem a ten, kdo ho bude řešit, se to musí dozvědět odsud.
@@ -20897,9 +20940,8 @@ async def att_fix_void(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
-        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                     "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
-                  {"t": _ATT_TENANT, "i": eid})
+        # Peťa 22.7.2026: po stornu anomálii NEVYŘEŠOVAT — ať zůstane ve frontě zeleně
+        # „opraveno" s tlačítkem „Hotovo — z fronty" (maže se až odkliknutím). Viz fix/entry.
         _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=desc.strip(),
                        detail=reason, old_date=row[1].isoformat())
         _att_fix_notify(s, emp, uid, actor, "🛠 Storno záznamu docházky",
@@ -21066,9 +21108,8 @@ async def att_fix_merge(req: Request) -> JSONResponse:
                               {"i": wa[1]})
         except Exception:
             pass
-        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                     "WHERE tenant_id=:t AND entry_id IN (:a,:b) AND resolved_at IS NULL"),
-                  {"t": _ATT_TENANT, "a": a_id, "b": b_id})
+        # Peťa 22.7.2026: po sloučení anomálii NEVYŘEŠOVAT — zůstane ve frontě zeleně
+        # „opraveno" a maže se až tlačítkem „Hotovo — z fronty". Viz fix/entry.
         _att_fix_audit(s, "merge", a_id, emp, uid, actor,
                        old_note=(A[11] or "") + " " + a_zac + "–" + a_kon + " + " + B[3].strftime("%H:%M") + "–" + b_kon,
                        new_note=(A[11] or "") + " " + a_zac + "–" + (new_end.strftime("%H:%M") if new_end else "běží"),

@@ -226,8 +226,8 @@ function loadQueue(){
   api('GET','/api/v1/erp/app/attendance/fix/queue').then(function(j){
     L.innerHTML='';
     if(!j.ok){L.innerHTML='<div class="hint">✗ '+esc(j.error||'chyba')+'</div>';return;}
-    var an=j.anomalie||[],rz=j.rozpory||[];
-    if(!an.length&&!rz.length){L.innerHTML='<div class="hint">Všechno vyřešeno. 👍 Nic nečeká.</div>';return;}
+    var an=j.anomalie||[],rz=j.rozpory||[],stare=j.stare_skryte||[];
+    if(!an.length&&!rz.length&&!stare.length){L.innerHTML='<div class="hint">Všechno vyřešeno. 👍 Nic nečeká.</div>';return;}
     function card(name,day,detail,extra){
       var c=el('<div class="card"></div>');
       c.appendChild(el('<div class="hd">'+esc(name||'?')+' · '+esc(day||'')+'</div>'));
@@ -264,6 +264,25 @@ function loadQueue(){
       var bv=el('<button class="b g">✓ V pořádku — vyřídit</button>');bv.addEventListener('click',function(){resolveUI(c,{anomaly_id:a.id});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);
     });
+    // Peťa 22.7.2026: opravené nesrovnalosti starší 60 dnů, které nikdo neodklikl,
+    // se z fronty schovají — ale drobným ČERVENÝM písmem se hlásí, ať se pak nikdo
+    // nevymluví, že „se mu to ztratilo". Klik je rozbalí i s tlačítkem Hotovo.
+    if(stare.length){
+      var sw=el('<div style="margin-top:14px;padding-top:8px;border-top:1px dashed #3a2530;"></div>');
+      var sl=el('<div style="color:#e0788a;font-size:11px;cursor:pointer;">⚠ '+stare.length
+        +' opraven'+(stare.length===1?'á nesrovnalost starší 60 dnů čeká':(stare.length<5?'é nesrovnalosti starší 60 dnů čekají':'ých nesrovnalostí starších 60 dnů čeká'))
+        +' na odkliknutí (skryté) — zobrazit</div>');
+      var sb=el('<div style="display:none;margin-top:6px;"></div>');
+      sl.addEventListener('click',function(){sb.style.display=(sb.style.display==='none'?'':'none');});
+      stare.forEach(function(a){
+        var c=card(a.name,a.day,a.detail);c.classList.add('done');
+        var hd=c.querySelector('.hd');if(hd)hd.innerHTML+=' <span class="donebadge">✓ opraveno</span>';
+        var bh=el('<button class="b g" title="Odebrat z fronty">✓ Hotovo — z fronty</button>');
+        bh.addEventListener('click',function(){quickDone(c,{anomaly_id:a.id});});
+        c._ar.appendChild(bh);sb.appendChild(c);
+      });
+      sw.appendChild(sl);sw.appendChild(sb);L.appendChild(sw);
+    }
   });
 }
 // ── lidé ──

@@ -103,35 +103,38 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
 
 @doch_zak_tab_router.get("/app/dochazka-zak-tab/widths")
 def dochazka_zak_tab_widths_get(req: Request) -> JSONResponse:
-    """SDÍLENÉ výchozí šířky sloupců (pro všechny). Prázdné = použij defaulty v kódu."""
+    """Šířky sloupců: `base` = sdílené výchozí pro všechny; `me` = osobní uložené
+    tažení tohoto uživatele (má přednost). Osobní se ukládají do DB (jako dřív
+    framework grid), aby je Claude viděl a mohl je povýšit na výchozí."""
     from modules.erp.api.router import _uid_from_token_or_cookie
     uid = _uid_from_token_or_cookie(req)
     if not uid or not _dzt_can(uid):
-        return JSONResponse({"ok": True, "widths": {}})
+        return JSONResponse({"ok": True, "base": {}, "me": {}})
     from sqlalchemy import text as _t
     try:
         from core.database_data import get_data_session as _g
         s = _g()
         try:
-            v = s.execute(_t("SELECT hodnota FROM tenant.att_ui_pref WHERE kod=:k"),
-                          {"k": _DZT_WIDTHS_KEY}).scalar()
+            base = s.execute(_t("SELECT hodnota FROM tenant.att_ui_pref WHERE kod=:k"),
+                             {"k": _DZT_WIDTHS_KEY}).scalar()
+            me = s.execute(_t("SELECT hodnota FROM tenant.att_ui_pref WHERE kod=:k"),
+                           {"k": _DZT_WIDTHS_KEY + "_u" + str(int(uid))}).scalar()
         finally:
             s.close()
-        return JSONResponse({"ok": True, "widths": v or {},
-                             "muze_ulozit": _dzt_can_save(uid)})
+        return JSONResponse({"ok": True, "base": base or {}, "me": me or {}})
     except Exception:
-        return JSONResponse({"ok": True, "widths": {}, "muze_ulozit": _dzt_can_save(uid)})
+        return JSONResponse({"ok": True, "base": {}, "me": {}})
 
 
 @doch_zak_tab_router.post("/app/dochazka-zak-tab/widths")
 async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
-    """Uloží SDÍLENÉ výchozí šířky (jen rodiče + Peťa). Ostatní tiše ignorujeme
-    (jejich úpravy si drží prohlížeč v localStorage)."""
+    """Uloží OSOBNÍ šířky uživatele do DB (kdokoliv z povolených 11). Tím je Claude
+    může přečíst a povýšit na sdílené výchozí (kod bez _u<uid>)."""
     from modules.erp.api.router import _uid_from_token_or_cookie
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _dzt_can_save(uid):
+    if not _dzt_can(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         body = await req.json()
@@ -152,6 +155,7 @@ async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
     import json as _j
     from sqlalchemy import text as _t
     from modules.strategie_pg.application import service as _pg
+    key = _DZT_WIDTHS_KEY + "_u" + str(int(uid))
     cm = _pg.get_session()
     s = cm.__enter__()
     try:
@@ -159,7 +163,7 @@ async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
             "INSERT INTO tenant.att_ui_pref (kod, hodnota, updated_by, updated_at) "
             "VALUES (:k, CAST(:v AS jsonb), :u, now()) "
             "ON CONFLICT (kod) DO UPDATE SET hodnota=CAST(:v AS jsonb), updated_by=:u, updated_at=now()"),
-            {"k": _DZT_WIDTHS_KEY, "v": _j.dumps(clean), "u": int(uid)})
+            {"k": key, "v": _j.dumps(clean), "u": int(uid)})
         s.commit()
         return JSONResponse({"ok": True, "ulozeno": len(clean)})
     except Exception as exc:  # noqa: BLE001

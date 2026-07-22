@@ -91,7 +91,16 @@ var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řád
 // Šířky: SRVW = SDÍLENÉ základní ze serveru (pro všechny). Osobní tažení je JEDNORÁZOVÉ
 // — nikam se neukládá, po obnovení zpět na základní. Trvale (pro všechny) uloží jen
 // rodiče/Peťa (CANSAVE) na server.
-var SRVW={};  // sdílené základní šířky ze serveru (nastavuje Claude na vyžádání)
+// Šířky: SRVW = sdílené základní (pro všechny), MEW = osobní uložené tažení (má přednost).
+// Osobní se ukládají do DB (jako dřív framework grid) → drží ti a Claude je vidí a povýší
+// na výchozí pro všechny, když řekneš.
+var SRVW={}, MEW={};
+function currentWidths(){var o={},cs=cols();for(var i=0;i<COLS.length;i++){o[COLS[i].k]=parseInt(cs[i+1].style.width,10)||COLS[i].w;}return o;}
+var _saveT=null;
+function saveMine(){if(_saveT)clearTimeout(_saveT);_saveT=setTimeout(function(){
+  try{fetch('/api/v1/erp/app/dochazka-zak-tab/widths',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({widths:currentWidths()})});}catch(_e){}
+},400);}
 
 function cols(){return $('tab').getElementsByTagName('col');}  // [0]=mkcol, [i+1]=COLS[i]
 function totW(){var s=0,cs=cols();for(var i=0;i<cs.length;i++)s+=parseInt(cs[i].style.width,10)||0;return s;}
@@ -103,7 +112,7 @@ function hlavicka(){
   var h='<tr><th class="mkcol"></th>';
   var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
-    cg+='<col style="width:'+(SRVW[c.k]||c.w)+'px">';
+    cg+='<col style="width:'+(MEW[c.k]||SRVW[c.k]||c.w)+'px">';
     h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     f+='<td><input data-k="'+c.k+'"></td>';
@@ -136,11 +145,12 @@ function hlavicka(){
     function mv(ev){lastX=ev.clientX;guide.style.left=ev.clientX+'px';}
     function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);
       document.body.style.cursor='';if(guide.parentNode)guide.parentNode.removeChild(guide);
-      var nw=Math.max(24,w0+(lastX-x0));col.style.width=nw+'px';applyW();}  // JEN jednorázově (po obnovení pryč)
+      var nw=Math.max(24,w0+(lastX-x0));col.style.width=nw+'px';applyW();MEW[COLS[i].k]=nw;saveMine();}  // ulož osobní (DB)
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
   th.addEventListener('dblclick',function(e){
     if(!e.target.classList.contains('dgrip'))return;
-    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();});  // dvojklik = zpět na výchozí (jen vizuálně)
+    var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();
+    delete MEW[COLS[i].k];saveMine();});  // dvojklik = zpět na výchozí (i v uložených osobních)
 }
 
 function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
@@ -213,7 +223,7 @@ function init(){
 (function(){
   fetch('/api/v1/erp/app/dochazka-zak-tab/widths',{credentials:'include'})
     .then(function(r){return r.json();}).then(function(j){
-      if(j&&j.ok){SRVW=j.widths||{};}
+      if(j&&j.ok){SRVW=j.base||{};MEW=j.me||{};}
     }).catch(function(){}).then(init,init);
 })();
 </script>

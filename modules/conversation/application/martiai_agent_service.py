@@ -128,6 +128,7 @@ def _audit_run(user_id, goal, result: dict):
                     "cost_czk": result.get("cost_czk"), "cost_usd": result.get("cost_usd"),
                     "input_tokens": result.get("input_tokens"), "output_tokens": result.get("output_tokens"),
                     "engine": "claude_code_sdk", "reply_len": len(result.get("reply") or ""),
+                    "error": (result.get("error") or "")[:700], "reason": result.get("reason"),
                 }, ensure_ascii=False)})
             sg.commit()
         finally:

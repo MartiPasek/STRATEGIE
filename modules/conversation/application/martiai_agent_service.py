@@ -63,9 +63,13 @@ def _find_cli() -> Optional[str]:
     p = os.environ.get("MARTIAI_CLAUDE_CLI")
     if p and os.path.exists(p):
         return p
+    known = r"C:\Users\Administrator\.local\bin\claude.exe"
+    if os.path.exists(known):
+        return known
     for c in glob.glob(r"C:\Users\*\.local\bin\claude.exe"):
         return c
-    return None
+    # poslední možnost: vrať známou cestu i když ji os.path.exists nevidí (diag ukáže)
+    return known
 
 
 def _oauth_token() -> Optional[str]:
@@ -157,6 +161,13 @@ async def _run(goal: str, conversation_id: Optional[int]) -> dict:
         os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = tok
 
     cli = _find_cli()
+    if cli:
+        _d = os.path.dirname(cli)
+        if _d and _d not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = _d + os.pathsep + os.environ.get("PATH", "")
+    diag = (f"cli={cli!r} exists={bool(cli and os.path.exists(cli))} "
+            f"token={bool(os.environ.get('CLAUDE_CODE_OAUTH_TOKEN'))} whoami={os.environ.get('USERNAME')} "
+            f"userprofile={os.environ.get('USERPROFILE')!r}")
     sp = _her_system_prompt(conversation_id)
     system = (sp + AGENT_NOTE) if sp else AGENT_NOTE.strip()
 
@@ -167,8 +178,11 @@ async def _run(goal: str, conversation_id: Optional[int]) -> dict:
     options = _build_options(ClaudeAgentOptions, kwargs)
 
     messages = []
-    async for msg in query(prompt=goal, options=options):
-        messages.append(msg)
+    try:
+        async for msg in query(prompt=goal, options=options):
+            messages.append(msg)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}  ·  [DIAG {diag}]", "reason": "sdk_query"}
     reply = _extract_reply_text(messages)
     cost_usd = _extract_cost_usd(messages)   # u subscription bývá 0 → jede na kreditech
     in_tok, out_tok = _extract_tokens(messages)

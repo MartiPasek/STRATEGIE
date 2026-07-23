@@ -41,21 +41,24 @@
       '<div class="hrp-wrap">' +
       // 1) KPI statistiky (sloupce dle nadpisu s čísly)
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
-      // 2) blok s detailními informacemi (za těmi čísly)
+      // 2) detailní sloupce pod dlaždicemi — 4 sloupce dle KPI (Šárka 23.7.2026)
       '  <div class="hrp-blocks">' +
       '    <div class="hrp-panel">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář dnes <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
       '      <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '    <div class="hrp-panel">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span><span class="hrp-jhint">30 dní</span></div>' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span></div>' +
       '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
-      '  </div>' +
-      // 2b) Noví + budoucí nástupy (živě z Centrály, Šárka 23.7.2026)
-      '  <div class="hrp-panel">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">🆕</span> Noví a budoucí nástupy <span class="hrp-cnt" id="hrpNoviCnt"></span><span class="hrp-jhint">12 měsíců</span></div>' +
-      '    <div id="hrpNoviList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🆕</span> Noví + budoucí <span class="hrp-cnt" id="hrpNoviCnt"></span></div>' +
+      '      <div id="hrpNoviList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
+      '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🧲</span> Výběrová řízení <span class="hrp-cnt" id="hrpVrCnt"></span></div>' +
+      '      <div id="hrpVrList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
       '  </div>' +
       // 3) Aktuality
       '  <div class="hrp-panel hrp-feed">' +
@@ -90,10 +93,12 @@
           badge(b.vyberka, "Běžící výběrová řízení");
         var _mb = bEl.querySelector('[data-act="mimo"]');
         if (_mb) { _mb.onclick = openMimo; }
+        renderVyberka(el, d.vyberka || {});
         var akt = d.aktuality || [];
         if (!akt.length) { aEl.innerHTML = '<div class="hrp-empty">Žádné aktuality.</div>'; return; }
         aEl.innerHTML = akt.map(function (a) {
-          return '<div class="hrp-row"><span class="hrp-ic">' + esc(a.ikona || "•") + '</span><span>' + esc(a.text) + '</span></div>';
+          var mil = (a.typ === "milnik" || a.typ === "vyroci_firmy");
+          return '<div class="hrp-row' + (mil ? ' hrp-row-mil' : '') + '"><span class="hrp-ic">' + esc(a.ikona || "•") + '</span><span>' + esc(a.text) + '</span></div>';
         }).join("");
       })
       .catch(function () {
@@ -186,6 +191,28 @@
         }).join("");
       })
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+  }
+
+  // Panel „Výběrová řízení" — běžící z dashboardu; když žádné neběží, poslední doběhlé.
+  function renderVyberka(root, vyb) {
+    var list = root.querySelector("#hrpVrList");
+    var cnt = root.querySelector("#hrpVrCnt");
+    if (!list) return;
+    var bezici = (vyb && vyb.bezici) || [];
+    if (cnt) { cnt.textContent = "(" + bezici.length + ")"; }
+    if (bezici.length) {
+      list.innerHTML = bezici.map(function (v) {
+        return '<div class="hrp-mrow"><span class="hrp-mic">🧲</span><div>' +
+          '<div class="hrp-mnm">' + esc(v.title) + ' <span class="hrp-chip nastup">běží</span></div>' +
+          '<div class="hrp-mdv">od ' + esc(v.od) + (v.do ? ' · do ' + esc(v.do) : '') + '</div></div></div>';
+      }).join("");
+    } else if (vyb && vyb.posledni) {
+      list.innerHTML = '<div class="hrp-mrow"><span class="hrp-mic">✅</span><div>' +
+        '<div class="hrp-mnm">Teď žádné neběží</div>' +
+        '<div class="hrp-mdv">Poslední: ' + esc(vyb.posledni.title) + ' — ukončeno ' + esc(vyb.posledni.do) + '</div></div></div>';
+    } else {
+      list.innerHTML = '<div class="hrp-empty">Žádné výběrové řízení.</div>';
+    }
   }
 
   // Panel „Narozeniny a výročí" = přehled gratulací a ocenění (Krok 2, Šárka 3.7.2026).
@@ -324,9 +351,26 @@
   function style() {
     return '<style>' +
       '.hrp-wrap{max-width:1180px;margin:0 auto;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
-      '.hrp-blocks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;margin-bottom:12px;}' +
-      '.hrp-blocks .hrp-panel{margin:0;}' +
-      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList{max-height:224px;overflow:auto;}' +
+      '.hrp-blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start;margin-bottom:12px;}' +
+      '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;}' +
+      '@media(max-width:900px){.hrp-blocks{grid-template-columns:repeat(2,minmax(0,1fr));}}' +
+      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:300px;overflow:auto;}' +
+      // Kompaktní styl uvnitř 4 sloupců (Šárka 23.7.2026 — vejít se, menší písmo)
+      '.hrp-blocks .hrp-phd{font-size:12.5px;margin-bottom:7px;gap:6px;}' +
+      '.hrp-blocks .hrp-pi{width:22px;height:22px;font-size:12px;}' +
+      '.hrp-blocks .hrp-mrow{gap:9px;padding:8px 4px;}' +
+      '.hrp-blocks .hrp-mic{flex:0 0 26px;height:26px;border-radius:7px;font-size:13px;}' +
+      '.hrp-blocks .hrp-mnm{font-size:12.5px;}' +
+      '.hrp-blocks .hrp-mdv{font-size:11px;}' +
+      '.hrp-blocks .hrp-jrow{gap:8px;padding:8px 8px;}' +
+      '.hrp-blocks .hrp-jic{flex:0 0 28px;height:28px;font-size:15px;}' +
+      '.hrp-blocks .hrp-jnm{font-size:12.5px;gap:5px;}' +
+      '.hrp-blocks .hrp-jsub{font-size:11px;}' +
+      '.hrp-blocks .hrp-jact{gap:4px;}' +
+      '.hrp-blocks .hrp-abtn{font-size:11px;padding:4px 7px;}' +
+      '.hrp-blocks .hrp-j-major .hrp-jnm{font-size:13px;}' +
+      '.hrp-blocks .hrp-cnt{font-size:11.5px;}' +
+      '.hrp-blocks .hrp-jhint{display:none;}' +
       '.hrp-ntyp{display:inline-block;font-size:10.5px;font-weight:700;padding:0 7px;border-radius:20px;background:#1f2a37;color:#aac8ec;margin-right:5px;}' +
       '.hrp-chip.nastup{background:#241d0c;color:#e0a400;}' +
       '.hrp-badges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}' +
@@ -376,6 +420,8 @@
       '.hrp-tag.live{background:#16301f;color:#7fe0a0;}' +
       '.hrp-feed .hrp-row{display:flex;gap:11px;padding:10px 6px;border-top:1px solid #1e2730;font-size:13.5px;align-items:center;}' +
       '.hrp-feed .hrp-row:first-of-type{border-top:0;}' +
+      '.hrp-feed .hrp-row-mil{background:#241d0c;border:1px solid #4a3a16;border-radius:9px;padding:10px 10px;font-weight:600;color:#f0d68a;}' +
+      '.hrp-feed .hrp-row-mil .hrp-ic{background:#4a3a16;}' +
       '.hrp-ic{flex:0 0 30px;height:30px;border-radius:8px;background:#1f2a37;display:flex;align-items:center;justify-content:center;font-size:15px;}' +
       '.hrp-empty{padding:20px;color:#7f8ea0;text-align:center;font-style:italic;}' +
       '.hrp-badge.click{cursor:pointer;}' +

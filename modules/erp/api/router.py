@@ -9734,12 +9734,24 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         for typ, jm, dat, info in akt_rows:
             cnt[typ] = cnt.get(typ, 0) + 1
             jm = jm or "?"
+            # Šárka 23.7.2026: běžné narozeniny/výročí jsou v panelu → do Aktualit NE.
+            # Do Aktualit jen KULATÉ (narozeniny násobek 10, výročí násobek 5) jako 🏆 milník.
+            if typ == "narozeniny":
+                vek = (today.year - dat.year) if dat else 0
+                if vek <= 0 or vek % 10 != 0:
+                    continue
+                akt.append({"typ": "milnik", "ikona": "🏆",
+                            "text": "%s — %d. narozeniny 🎂 (%s)" % (jm, vek, _cz(dat))})
+                continue
+            if typ == "vyroci":
+                roky = (today.year - dat.year) if dat else 0
+                if roky < 5 or roky % 5 != 0:
+                    continue
+                akt.append({"typ": "milnik", "ikona": "🏆",
+                            "text": "%s — %d. výročí nástupu 🎉 (%s)" % (jm, roky, _cz(dat))})
+                continue
             if typ == "novy":
                 txt = "%s nastoupil(a) %s%s" % (jm, _cz(dat), (" jako " + info) if info else "")
-            elif typ == "narozeniny":
-                txt = "%s — narozeniny %s" % (jm, _cz(dat))
-            elif typ == "vyroci":
-                txt = "%s — %d. výročí nástupu (%s)" % (jm, max(1, today.year - dat.year), _cz(dat))
             elif typ == "zkusebka":
                 txt = "%s — končí zkušební doba %s" % (jm, _cz(dat))
             elif typ == "prodlouzeni":
@@ -9782,7 +9794,12 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         else:
             akt.append(_fzaznam)
         badges = {"mimo": int(mimo), "naroz": cnt["narozeniny"] + cnt["vyroci"], "novi": cnt["novy"], "vyberka": len(vyb)}
-        return JSONResponse({"ok": True, "badges": badges, "aktuality": akt})
+        vyberka = {
+            "bezici": [{"title": (v[0] or v[1] or "?"), "od": _cz(v[2]),
+                        "do": (_cz(v[3]) if v[3] else None)} for v in vyb],
+            "posledni": ({"title": (posl_vr[0] or posl_vr[1] or "?"), "do": _cz(posl_vr[2])} if posl_vr else None),
+        }
+        return JSONResponse({"ok": True, "badges": badges, "aktuality": akt, "vyberka": vyberka})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

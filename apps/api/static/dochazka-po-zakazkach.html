@@ -180,13 +180,13 @@ var COLS=[
  {k:'DruhCinnosti',h:'DruhCinnosti',w:62,r:1,num:1},
  {k:'CinnostText',h:'CinnostText',w:180},
  {k:'DenVTydnu',h:'DenVTydnu',w:44,c:1},
- {k:'CasZacatek',h:'CasZacatek',w:128},
- {k:'CasKonec',h:'CasKonec',w:110},
+ {k:'CasZacatek',h:'CasZacatek',w:128,date:1},
+ {k:'CasKonec',h:'CasKonec',w:110,date:1},
  {k:'CasCelkem',h:'CasCelkem',w:74,r:1,num:1},
  {k:'Odkud',h:'Odkud',w:82,s:1,c:1},
  {k:'Smlouva',h:'Smlouva',w:70,c:1},
  {k:'Poznamka',h:'Poznamka',w:220},
- {k:'DatumPripadu',h:'DatumPripadu',w:92},
+ {k:'DatumPripadu',h:'DatumPripadu',w:92,date:1},
  {k:'Rok',h:'Rok',w:52,r:1,num:1},
  {k:'Mesic',h:'Mesic',w:50,r:1,num:1}
 ];
@@ -210,6 +210,35 @@ function cols(){return $('tab').getElementsByTagName('col');}  // [0]=mkcol, [i+
 function totW(){var s=0,cs=cols();for(var i=0;i<cs.length;i++)s+=parseInt(cs[i].style.width,10)||0;return s;}
 function applyW(){$('tab').style.width=totW()+'px';}
 
+/* ── Datumový filtr OD/DO (jako Přijaté faktury / platby.html) ────────── */
+function _dnum(s){var m=(''+s).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);return m?(parseInt(m[3],10)*10000+parseInt(m[2],10)*100+parseInt(m[1],10)):null;}
+function _inum(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(parseInt(m[1],10)*10000+parseInt(m[2],10)*100+parseInt(m[3],10)):null;}
+function _isoCz(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+'.'+m[2]+'.'+m[1]):'';}
+function _dateSummary(key){var od=FIL[key+'_od'],dv=FIL[key+'_do'];
+  if(od&&dv)return od===dv?_isoCz(od):(_isoCz(od)+'–'+_isoCz(dv));
+  if(od)return 'od '+_isoCz(od); if(dv)return 'do '+_isoCz(dv); return '';}
+function openDateFilter(inp,key){
+  var old=$('dpop');if(old)old.remove();
+  var r=inp.getBoundingClientRect();
+  var od=FIL[key+'_od']||'',dv=FIL[key+'_do']||'';
+  var pop=document.createElement('div');pop.id='dpop';
+  pop.style.cssText='position:fixed;z-index:200;background:#141b28;border:1px solid #2a3546;border-radius:10px;padding:12px;box-shadow:0 10px 34px rgba(0,0,0,.55);width:230px;font-size:13px;color:#e8edf6';
+  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-246))+'px';
+  pop.style.top=(r.bottom+4)+'px';
+  pop.innerHTML='<div style="font-weight:700;margin-bottom:8px">Výběr období</div>'+
+    '<label style="display:block;margin-bottom:6px">Jeden den:<br><input type="date" id="dp-one" style="width:100%"></label>'+
+    '<div style="text-align:center;color:#8fa3bd;font-size:11px;margin:4px 0">— nebo rozsah —</div>'+
+    '<label style="display:block;margin-bottom:6px">Datum OD:<br><input type="date" id="dp-od" value="'+esc(od)+'" style="width:100%"></label>'+
+    '<label style="display:block;margin-bottom:10px">Datum DO:<br><input type="date" id="dp-do" value="'+esc(dv)+'" style="width:100%"></label>'+
+    '<div style="display:flex;gap:6px;justify-content:flex-end"><span class="chip" id="dp-clear">vymazat</span><span class="chip" id="dp-cancel">zrušit</span><span class="chip on" id="dp-ok">OK</span></div>';
+  document.body.appendChild(pop);
+  $('dp-one').onchange=function(){$('dp-od').value=this.value;$('dp-do').value=this.value;};
+  $('dp-ok').onclick=function(){FIL[key+'_od']=$('dp-od').value;FIL[key+'_do']=$('dp-do').value;inp.value=_dateSummary(key);pop.remove();render();};
+  $('dp-cancel').onclick=function(){pop.remove();};
+  $('dp-clear').onclick=function(){delete FIL[key+'_od'];delete FIL[key+'_do'];inp.value='';pop.remove();render();};
+  setTimeout(function(){document.addEventListener('click',function _cl(e){if(!pop.contains(e.target)&&e.target!==inp){pop.remove();document.removeEventListener('click',_cl);}});},0);
+}
+
 function hlavicka(){
   // Šířky přes <colgroup>/<col> (jako pokladny) — u table-layout:fixed to drží spolehlivě
   var cg='<colgroup><col style="width:20px">';
@@ -219,7 +248,8 @@ function hlavicka(){
     cg+='<col style="width:'+(MEW[c.k]||SRVW[c.k]||c.w)+'px">';
     h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
-    f+='<td><input data-k="'+c.k+'"></td>';
+    if(c.date) f+='<td><input data-k="'+c.k+'" data-date="1" readonly placeholder="datum…" title="Filtr podle data — rozsah OD–DO nebo jeden den" style="cursor:pointer"></td>';
+    else f+='<td><input data-k="'+c.k+'"></td>';
   }
   cg+='</colgroup>';
   var tab=$('tab');
@@ -234,7 +264,10 @@ function hlavicka(){
   // -1px = filtr se o pixel překrývá s hlavičkou → při rolování neprosvítá mezera
   [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=(hh-1)+'px';});
   th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
+    if(e.target.getAttribute('data-date'))return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
+  th.addEventListener('click',function(e){
+    if(e.target.getAttribute&&e.target.getAttribute('data-date'))openDateFilter(e.target,e.target.getAttribute('data-k'));});
   th.addEventListener('mousedown',function(e){
     if(!e.target.classList.contains('dgrip'))return;
     var i=parseInt(e.target.getAttribute('data-i'),10),col=cols()[i+1];
@@ -261,12 +294,21 @@ function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow inpu
 
 function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
 function projde(r){
-  for(var k in FIL){var q=FIL[k];if(!q)continue;var col=null;
+  for(var k in FIL){var q=FIL[k];if(!q)continue;
+    if(k.slice(-3)==='_od'||k.slice(-3)==='_do')continue;  // datumové řeším níže
+    var col=null;
     for(var i=0;i<COLS.length;i++){if(COLS[i].k===k){col=COLS[i];break;}}
     var v=r[k];
     if(col&&col.k==='PraceAktivni'){v=(String(v||'').indexOf('✓')>=0)?'✓ano':'ne';}
     if(col&&col.num){if(normNum(v).indexOf(normNum(q))<0)return false;continue;}
     if(String(v==null?'':v).toLowerCase().indexOf(q)<0)return false;
+  }
+  // datumové rozsahy (OD/DO) na datumových sloupcích
+  for(var j=0;j<COLS.length;j++){var c=COLS[j];if(!c.date)continue;
+    var od=FIL[c.k+'_od'],dv=FIL[c.k+'_do'];if(!od&&!dv)continue;
+    var dn=_dnum(r[c.k]);if(dn===null)return false;
+    if(od){var o=_inum(od);if(o!==null&&dn<o)return false;}
+    if(dv){var vv=_inum(dv);if(vv!==null&&dn>vv)return false;}
   }
   return true;
 }

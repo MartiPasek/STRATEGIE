@@ -146,8 +146,8 @@
         <label class="chk"><input type="checkbox" id="d_req" disabled> Požadavek úpravy <span class="soon">dodělá se</span></label>
       </div>
       <div class="fnote">
-        <div class="fld"><label>Vedoucí poznámka <span class="soon">dodělá se</span></label><textarea id="d_vpozn" rows="2" disabled></textarea></div>
-        <label class="chk"><input type="checkbox" id="d_appr" disabled> Vedoucí schváleno <span class="soon">dodělá se</span></label>
+        <div class="fld"><label>Vedoucí poznámka</label><textarea id="d_vpozn" rows="2"></textarea></div>
+        <label class="chk"><input type="checkbox" id="d_appr"> Vedoucí schváleno</label>
       </div>
     </div>
     <div class="dmsg" id="d_msg"></div>
@@ -209,6 +209,9 @@ var COLS=[
  {k:'Odkud',h:'Odkud',w:82,s:1,c:1},
  {k:'Smlouva',h:'Smlouva',w:70,c:1},
  {k:'Poznamka',h:'Poznamka',w:220},
+ {k:'VedPoznamka',h:'VedPoznamka',w:150},
+ {k:'VedSchvaleno',h:'VedSchvaleno',w:44,c:1},
+ {k:'Pozadavek',h:'Pozadavek',w:44,c:1},
  {k:'DatumPripadu',h:'DatumPripadu',w:92,date:1},
  {k:'Rok',h:'Rok',w:52,r:1,num:1,exact:1},
  {k:'Mesic',h:'Mesic',w:50,r:1,num:1,exact:1}
@@ -413,6 +416,7 @@ function openNew(i){
   $('d_msg').className='dmsg ok'; $('d_msg').textContent='Nový záznam pro: '+((r._jm||'')+' '+(r._cz||''));
   $('d_ro').style.display='none';
   ['d_zak','d_od_d','d_od_t','d_kon_d','d_kon_t','d_pozn'].forEach(function(id){$(id).disabled=false;}); $('d_cin').disabled=false;
+  $('d_vpozn').disabled=true; $('d_appr').disabled=true; $('d_reason').disabled=true;
   $('d_ok').style.display='';
   $('ov').classList.add('on');
 }
@@ -432,7 +436,7 @@ function openEdit(i){
   $('d_kon_d').value=r._kon_d||''; $('d_kon_t').value=r._kon_t||'';
   $('d_hod').value=(r._hod!=null&&r._hod!=='')?Number(r._hod).toFixed(2):'';
   $('d_pozn').value=r._pozn||'';
-  $('d_vpozn').value=''; $('d_pauza').value=''; $('d_req').checked=false; $('d_appr').checked=false;
+  $('d_vpozn').value=r._vpozn||''; $('d_pauza').value=''; $('d_req').checked=!!r._preq; $('d_appr').checked=!!r._vsch;
   $('d_reason').value='';
   $('d_msg').textContent=''; $('d_msg').className='dmsg';
   var ro=$('d_ro'), rw=$('d_reason_wrap');
@@ -441,58 +445,75 @@ function openEdit(i){
   if(mode==='W'){
     ro.style.display='none'; rw.style.display='none';
     allEd.forEach(en); $('d_cin').disabled=false; $('d_reason').disabled=true;
+    dis('d_vpozn'); dis('d_appr');   // výroba nemá vedoucí poznámku/schváleno
     $('d_ok').style.display='';
   }else if(mode==='FIX'){
     ro.style.display='none'; rw.style.display='';   // docházka z app: přes Opravy docházky, s důvodem
-    // editovatelné: časy (od/do), zakázka, činnost, důvod. Datum drží den (fix/entry). Poznámka read-only.
+    // editovatelné: časy (od/do), zakázka, činnost, důvod, poznámky, Vedoucí schváleno.
+    // Datum drží den (fix/entry).
     en('d_od_t'); en('d_kon_t'); en('d_zak'); $('d_cin').disabled=false; en('d_reason');
-    dis('d_od_d'); dis('d_kon_d'); dis('d_pozn');
+    en('d_pozn'); en('d_vpozn'); en('d_appr');
+    dis('d_od_d'); dis('d_kon_d');
     $('d_ok').style.display='';
-    $('d_msg').className='dmsg'; $('d_msg').textContent='Docházka z aplikace — oprava se uloží přes „Opravy docházky" (promítne se do mezd, výkazů, auditu). Vyplň důvod.';
+    $('d_msg').className='dmsg'; $('d_msg').textContent='Docházka z aplikace — čas se opraví přes „Opravy docházky" (mzdy/výkazy/audit, vyplň důvod). Poznámky a „Vedoucí schváleno" se uloží k záznamu.';
   }else{
     ro.style.display=''; rw.style.display='none';
     ro.textContent=(r._kind==='C')
       ? 'Záznam ze staré Centrály (leden–květen) — historie, jen k nahlédnutí.'
       : 'Absence (dovolená / nemoc / lékař) — opravuje se v „Opravy docházky", tady je jen k nahlédnutí.';
     allEd.forEach(dis); $('d_cin').disabled=true; $('d_reason').disabled=true;
+    dis('d_vpozn'); dis('d_appr');
     $('d_ok').style.display='none';
   }
   $('ov').classList.add('on');
 }
 function reloadForm(){if(EDIT_I==null)return; if(EDIT_NEW)openNew(EDIT_I);else openEdit(EDIT_I);}
 function closeEdit(){$('ov').classList.remove('on');EDIT_I=null;EDIT_NEW=false;}
+function _postJ(url,body){return fetch(url,{method:'POST',credentials:'include',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  .then(function(rp){return rp.json().then(function(j){return {s:rp.status,j:j};},
+    function(){return {s:rp.status,j:{ok:false,error:(rp.status>=500?'Server je dočasně nedostupný — zkus to za chvíli.':'Neočekávaná odpověď serveru.')}};});});}
 function saveEdit(){
   if(EDIT_I==null)return; var r=ROWS[EDIT_I];
   var m=$('d_msg'),ok=$('d_ok'); m.className='dmsg'; m.textContent='Ukládám…'; ok.disabled=true;
-  var url,body;
+  function done(){m.className='dmsg ok';m.textContent='Uloženo.';setTimeout(function(){closeEdit();load();},450);}
+  function fail(msg){m.className='dmsg';m.textContent=msg;ok.disabled=false;}
   if(EDIT_NEW){
-    url='/api/v1/erp/app/dochazka-zak-tab/save-new';
-    body={cislo_zam:r._cz,zakazka:$('d_zak').value,cinnost_id:$('d_cin').value||null,
-      od_d:$('d_od_d').value,od_t:$('d_od_t').value,kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,
-      hodiny:$('d_hod').value,poznamka:$('d_pozn').value};
-  }else if(EDIT_MODE==='FIX'){
-    // Docházka z aplikace → oprava přes engine „Opravy docházky" (promítne se do mezd/výkazů/auditu).
-    var reason=($('d_reason').value||'').trim();
-    if(!reason){m.className='dmsg';m.textContent='Vyplň důvod opravy (povinné).';ok.disabled=false;try{$('d_reason').focus();}catch(_e){}return;}
-    if(!$('d_od_t').value||!$('d_kon_t').value){m.className='dmsg';m.textContent='Vyplň časy Začátek i Konec (HH:MM).';ok.disabled=false;return;}
-    url='/api/v1/erp/app/attendance/fix/entry';
-    body={id:r._id,zac:$('d_od_t').value,kon:$('d_kon_t').value,reason:reason,
-      cinnost_id:($('d_cin').value?parseInt($('d_cin').value,10):null),
-      project_ref:($('d_zak').value||'').trim()};
-  }else{
-    url='/api/v1/erp/app/dochazka-zak-tab/save';
-    body={kind:r._kind,id:r._id,zakazka:$('d_zak').value,cinnost_id:$('d_cin').value||null,
-      od_d:$('d_od_d').value,od_t:$('d_od_t').value,kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,
-      hodiny:$('d_hod').value,poznamka:$('d_pozn').value};
+    _postJ('/api/v1/erp/app/dochazka-zak-tab/save-new',{cislo_zam:r._cz,zakazka:$('d_zak').value,
+      cinnost_id:$('d_cin').value||null,od_d:$('d_od_d').value,od_t:$('d_od_t').value,
+      kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,hodiny:$('d_hod').value,poznamka:$('d_pozn').value})
+      .then(function(res){res.j&&res.j.ok?done():fail((res.j&&res.j.error)||('Nepodařilo se uložit ('+res.s+').'));})
+      .catch(function(){fail('Nepodařilo se spojit se serverem.');});
+    return;
   }
-  fetch(url,{method:'POST',credentials:'include',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(function(rp){return rp.json().then(function(j){return {s:rp.status,j:j};},
-      function(){return {s:rp.status,j:{ok:false,error:(rp.status>=500?'Server je dočasně nedostupný — zkus to za chvíli.':'Neočekávaná odpověď serveru.')}};});})
-    .then(function(res){ok.disabled=false;var j=res.j;
-      if(j&&j.ok){m.className='dmsg ok';m.textContent='Uloženo.';setTimeout(function(){closeEdit();load();},450);}
-      else{m.className='dmsg';m.textContent=(j&&j.error)||('Nepodařilo se uložit ('+res.s+').');}
-    }).catch(function(){ok.disabled=false;m.className='dmsg';m.textContent='Nepodařilo se spojit se serverem.';});
+  if(EDIT_MODE==='FIX'){
+    var od_t=$('d_od_t').value,kon_t=$('d_kon_t').value,zak=($('d_zak').value||'').trim(),cinId=$('d_cin').value||'';
+    var reason=($('d_reason').value||'').trim();
+    var meta={id:r._id,note:$('d_pozn').value,vedouci_poznamka:$('d_vpozn').value,ved_schvaleno:!!$('d_appr').checked};
+    var curCin=(r._cin_id!=null?String(r._cin_id):'');
+    var timesChanged=(od_t!==(r._od_t||''))||(kon_t!==(r._kon_t||''))||(zak!==(r._zak||''))||(cinId!==curCin);
+    function saveMeta(){return _postJ('/api/v1/erp/app/dochazka-zak-tab/save-doch-meta',meta);}
+    if(timesChanged){
+      if(!reason){fail('Měníš čas/zakázku/činnost → vyplň Důvod opravy (povinné).');try{$('d_reason').focus();}catch(_e){}return;}
+      if(!od_t||!kon_t){fail('Vyplň časy Začátek i Konec (HH:MM).');return;}
+      _postJ('/api/v1/erp/app/attendance/fix/entry',{id:r._id,zac:od_t,kon:kon_t,reason:reason,
+        cinnost_id:(cinId?parseInt(cinId,10):null),project_ref:zak}).then(function(res){
+        if(!(res.j&&res.j.ok)){fail((res.j&&res.j.error)||('Oprava se nepovedla ('+res.s+').'));return;}
+        saveMeta().then(function(r2){(r2.j&&r2.j.ok)?done():fail('Čas opraven, ale poznámky se neuložily: '+((r2.j&&r2.j.error)||'chyba'));})
+          .catch(function(){fail('Čas opraven, ale poznámky se neuložily (spojení).');});
+      }).catch(function(){fail('Nepodařilo se spojit se serverem.');});
+    }else{
+      saveMeta().then(function(res){(res.j&&res.j.ok)?done():fail((res.j&&res.j.error)||('Nepodařilo se uložit ('+res.s+').'));})
+        .catch(function(){fail('Nepodařilo se spojit se serverem.');});
+    }
+    return;
+  }
+  // W (výroba) — naše přímé uložení do vyroba_work
+  _postJ('/api/v1/erp/app/dochazka-zak-tab/save',{kind:r._kind,id:r._id,zakazka:$('d_zak').value,
+    cinnost_id:$('d_cin').value||null,od_d:$('d_od_d').value,od_t:$('d_od_t').value,
+    kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,hodiny:$('d_hod').value,poznamka:$('d_pozn').value})
+    .then(function(res){res.j&&res.j.ok?done():fail((res.j&&res.j.error)||('Nepodařilo se uložit ('+res.s+').'));})
+    .catch(function(){fail('Nepodařilo se spojit se serverem.');});
 }
 
 // Obarvení JEDNOHO řádku bez překreslení celé tabulky (14k řádků) — kvůli rychlosti

@@ -411,6 +411,71 @@ async def dochazka_zak_tab_save_new(req: Request) -> JSONResponse:
             pass
 
 
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/save-doch-meta")
+async def dochazka_zak_tab_save_doch_meta(req: Request) -> JSONResponse:
+    """Uloží k docházkovému záznamu (att_entry) POZNÁMKY a zaškrtávátka, které
+    NEmají vliv na mzdy: note (zaměstnanec pozn.), vedouci_poznamka, ved_schvaleno.
+    Zapisuje na AKTIVNÍ řádek — když byl původní opraven přes fix/entry (supersede),
+    najde nový řádek (source_id=orig). Časy/hodiny se řeší přes fix/entry zvlášť."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        orig = int((body or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+    has_note = "note" in (body or {})
+    has_vp = "vedouci_poznamka" in (body or {})
+    has_vs = "ved_schvaleno" in (body or {})
+    note = str((body or {}).get("note") or "")[:2000] if has_note else None
+    vp = str((body or {}).get("vedouci_poznamka") or "")[:2000] if has_vp else None
+    vs = bool((body or {}).get("ved_schvaleno")) if has_vs else None
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        # aktivní řádek: nový (source_id=orig) má přednost před orig samotným
+        aid = s.execute(_t(
+            "SELECT id FROM tenant.att_entry "
+            "WHERE tenant_id=2 AND COALESCE(status,'')<>'superseded' AND (source_id=:o OR id=:o) "
+            "ORDER BY (id=:o)::int ASC, id DESC LIMIT 1"), {"o": orig}).scalar()
+        if not aid:
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen (nebo byl nahrazen)."},
+                                status_code=404)
+        sets, params = [], {"id": aid}
+        if has_note:
+            sets.append("note=:note"); params["note"] = note
+        if has_vp:
+            sets.append("vedouci_poznamka=:vp"); params["vp"] = vp
+        if has_vs:
+            sets.append("ved_schvaleno=:vs"); params["vs"] = vs
+        if not sets:
+            return JSONResponse({"ok": True, "id": aid, "note": "nic ke změně"})
+        s.execute(_t("UPDATE tenant.att_entry SET " + ", ".join(sets) + " WHERE id=:id AND tenant_id=2"),
+                  params)
+        s.commit()
+        return JSONResponse({"ok": True, "id": aid})
+    except Exception as exc:  # noqa: BLE001
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
 @doch_zak_tab_router.post("/app/dochazka-zak-tab/widths")
 async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
     """Uloží OSOBNÍ šířky uživatele do DB (kdokoliv z povolených 11). Tím je Claude

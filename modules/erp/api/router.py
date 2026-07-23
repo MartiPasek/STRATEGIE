@@ -19947,8 +19947,10 @@ async def att_entry_trim(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         row = s.execute(_t(
-            "SELECT e.id, to_char(e.ended_at,'HH24:MI') "
+            "SELECT e.id, to_char(e.ended_at,'HH24:MI'), et.code, e.employee_id, "
+            "       e.entry_date::text, to_char(e.ended_at,'YYYY-MM-DD HH24:MI:SS') "
             "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id = e.employee_id "
+            "JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
             {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
         if not row:
@@ -19972,11 +19974,43 @@ async def att_entry_trim(req: Request) -> JSONResponse:
             "  AND (e.ended_at::date::text || ' ' || :endt)::timestamp < e.ended_at "
             "RETURNING e.id"),
             {"i": eid, "endt": endt, "nn": nn}).first()
-        s.commit()
         if not upd:
+            s.commit()
             logger.warning("ENTRY-TRIM | guard fail (ne-redukce) | uid=%s id=%s end=%s puvodni=%s", uid, eid, endt, row[1])
             return JSONResponse({"ok": False, "error": "Čas jde jen ZKRÁTIT — mezi začátkem a původním koncem (" + row[1] + ")."})
-        logger.warning("ENTRY-TRIM | OK | uid=%s id=%s end=%s", uid, eid, endt)
+        # Peťa 22.7.2026: když se zkrátí PAUZA, navazující práce má začínat na novém
+        # konci pauzy — jinak zůstane mezera (Beneš 22.7.: pauzu zkrátil na 11:15, ale
+        # práce dál začínala na původních 13:09). Posuneme začátek práce, která
+        # navazovala na PŮVODNÍ konec pauzy, na nový konec. Bereme tu s nejdřívějším
+        # koncem (ošetří i nula-délkový „návrat z pauzy" marker, který se tím roztáhne
+        # na mezeru). Jen NAŠE needitovaná práce (ne z Centrály, ne superseded).
+        moved = None
+        if row[2] == 'break':
+            try:
+                new_ts = str(row[4]) + ' ' + endt + ':00'   # entry_date + nový konec pauzy
+                old_ts = row[5]                              # původní konec pauzy (timestamp)
+                moved = s.execute(_t(
+                    "UPDATE tenant.att_entry SET started_at = CAST(:nts AS timestamp), "
+                    "  hours = round(GREATEST(EXTRACT(EPOCH FROM (ended_at - CAST(:nts AS timestamp)))/3600.0 "
+                    "        - COALESCE(break_minutes,0)/60.0, 0)::numeric,2), "
+                    "  note = CASE WHEN COALESCE(note,'')='' THEN :nn2 ELSE note || ' / ' || :nn2 END, "
+                    "  updated_at = now() "
+                    "WHERE id = (SELECT e2.id FROM tenant.att_entry e2 "
+                    "   JOIN tenant.att_entry_type et2 ON et2.id = e2.entry_type_id "
+                    "   WHERE e2.tenant_id = :t AND e2.employee_id = :emp AND e2.entry_date = CAST(:d AS date) "
+                    "     AND et2.code IN ('work','overhead') "
+                    "     AND COALESCE(e2.status,'') NOT IN ('superseded','announced') "
+                    "     AND COALESCE(e2.source_system,'') = '' "
+                    "     AND e2.started_at = CAST(:ots AS timestamp) "
+                    "   ORDER BY e2.ended_at ASC NULLS LAST LIMIT 1) "
+                    "RETURNING id"),
+                    {"nts": new_ts, "ots": old_ts, "t": _ATT_TENANT, "emp": row[3], "d": str(row[4]),
+                     "nn2": "začátek posunut na konec zkrácené pauzy"}).first()
+            except Exception:
+                logger.exception("ENTRY-TRIM | posun navazujici prace selhal (id=%s)", eid)
+                moved = None
+        s.commit()
+        logger.warning("ENTRY-TRIM | OK | uid=%s id=%s end=%s posun_prace=%s", uid, eid, endt, bool(moved))
         return JSONResponse({"ok": True, "id": eid})
     except Exception as exc:
         s.rollback()

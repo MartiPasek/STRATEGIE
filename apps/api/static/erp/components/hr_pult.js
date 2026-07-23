@@ -60,10 +60,16 @@
       '      <div id="hrpVrList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
-      // 3) Aktuality
-      '  <div class="hrp-panel hrp-feed">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
-      '    <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
+      // 3) Aktuality + Moje úkoly vedle sebe (Šárka 23.7.2026 — využít volné místo)
+      '  <div class="hrp-duo">' +
+      '    <div class="hrp-panel hrp-feed">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
+      '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
+      '    <div class="hrp-panel hrp-feed">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">✅</span> Moje úkoly <span class="hrp-cnt" id="hrpUkolyCnt"></span></div>' +
+      '      <div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
       '  </div>' +
       // 4) Přehled dlaždic (až dole)
       '  <div class="hrp-panel">' +
@@ -76,6 +82,7 @@
     loadMimoPanel(el);
     loadJubilea(el);
     loadNovi(el);
+    loadUkoly(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -188,6 +195,33 @@
           return '<div class="hrp-mrow"><span class="hrp-mic">' + (p.budouci ? '🔜' : '🆕') + '</span>' +
             '<div><div class="hrp-mnm">' + esc(p.jmeno) + ' ' + chip + '</div>' +
             '<div class="hrp-mdv">' + ty + ' nástup ' + esc(p.nastup || '—') + '</div></div></div>';
+        }).join("");
+      })
+      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+  }
+
+  // Panel „Moje úkoly" — nativní úkoly STRATEGIE (/app/task, view=moje) vedle Aktualit.
+  function loadUkoly(root) {
+    var list = root.querySelector("#hrpUkoly");
+    var cnt = root.querySelector("#hrpUkolyCnt");
+    if (!list) return;
+    fetch("/api/v1/erp/app/task?view=moje", { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          list.innerHTML = '<div class="hrp-empty">' + esc(d && d.error || "chyba") + '</div>'; return;
+        }
+        var u = d.ukoly || [];
+        if (cnt) { cnt.textContent = "(" + u.length + ")"; }
+        if (!u.length) {
+          list.innerHTML = '<div class="hrp-empty">Žádné otevřené úkoly. 🎉</div>'; return;
+        }
+        list.innerHTML = u.map(function (t) {
+          var pri = (t.priorita >= 2) ? "🔴" : (t.priorita === 1 ? "🟠" : "•");
+          var term = t.termin ? ('<span class="hrp-utrm' + (t.pozde ? ' late' : '') + '">⏰ ' + esc(t.termin) + '</span>') : '';
+          return '<div class="hrp-row"><span class="hrp-ic">' + pri + '</span><span style="min-width:0">' +
+            '<div class="hrp-mnm">' + esc(t.predmet) + '</div>' +
+            '<div class="hrp-mdv">' + (t.zak ? esc(t.zak) + ' · ' : '') + esc(t.stav_txt || '') + ' ' + term + '</div></span></div>';
         }).join("");
       })
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
@@ -354,7 +388,11 @@
       '.hrp-blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start;margin-bottom:12px;}' +
       '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;}' +
       '@media(max-width:900px){.hrp-blocks{grid-template-columns:repeat(2,minmax(0,1fr));}}' +
-      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:300px;overflow:auto;}' +
+      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList,#hrpUkoly{max-height:300px;overflow:auto;}' +
+      '.hrp-duo{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}' +
+      '@media(max-width:800px){.hrp-duo{grid-template-columns:1fr;}}' +
+      '.hrp-utrm{font-size:11px;color:#7f8ea0;}' +
+      '.hrp-utrm.late{color:#ff8a7a;font-weight:700;}' +
       // Kompaktní styl uvnitř 4 sloupců (Šárka 23.7.2026 — vejít se, menší písmo)
       '.hrp-blocks .hrp-phd{font-size:12.5px;margin-bottom:7px;gap:6px;}' +
       '.hrp-blocks .hrp-pi{width:22px;height:22px;font-size:12px;}' +

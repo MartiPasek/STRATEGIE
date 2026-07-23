@@ -9717,14 +9717,15 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         akt_rows = s.execute(_t(
             "WITH eng AS (SELECT ae.user_id, e.smlouva_od, e.zkusebni_do, e.smlouva_do, e.pozice_text"
             "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
-            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL),"
+            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
+            "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)),"
             " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
             "  max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
             " SELECT typ, jmeno, dat, info FROM ("
             "  SELECT 'novy' typ, n.jmeno, eng.smlouva_od dat, eng.pozice_text info FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od >= current_date-365"
             "  UNION ALL SELECT 'zkusebka', n.jmeno, eng.zkusebni_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.zkusebni_do BETWEEN current_date AND current_date+30"
             "  UNION ALL SELECT 'prodlouzeni', n.jmeno, eng.smlouva_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_do BETWEEN current_date AND current_date+30"
-            "  UNION ALL SELECT 'narozeniny', n.jmeno, n.birth, NULL FROM nm n WHERE n.birth IS NOT NULL AND ((date_part('doy',n.birth)-date_part('doy',current_date)+366)::int%366) <= 7"
+            "  UNION ALL SELECT 'narozeniny', n.jmeno, n.birth, NULL FROM nm n WHERE n.birth IS NOT NULL AND n.user_id IN (SELECT user_id FROM eng) AND ((date_part('doy',n.birth)-date_part('doy',current_date)+366)::int%366) <= 7"
             "  UNION ALL SELECT 'vyroci', n.jmeno, eng.smlouva_od, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od IS NOT NULL AND eng.smlouva_od < current_date-300 AND ((date_part('doy',eng.smlouva_od)-date_part('doy',current_date)+366)::int%366) <= 7"
             " ) q ORDER BY dat")).fetchall()
         akt = []
@@ -9967,13 +9968,14 @@ async def app_hr_jubilea(req: Request) -> JSONResponse:
             "WITH eng AS (SELECT ae.user_id, min(e.smlouva_od) smlouva_od"
             "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
             "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
+            "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)"
             "  GROUP BY ae.user_id),"
             " nm AS (SELECT user_id,"
             "  max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
             "  max(birth_date) birth FROM tenant.hr_person"
             "  WHERE tenant_id=2 AND is_current GROUP BY user_id)"
             " SELECT n.user_id, n.jmeno, n.birth, eng.smlouva_od"
-            " FROM nm n LEFT JOIN eng ON eng.user_id=n.user_id"
+            " FROM nm n JOIN eng ON eng.user_id=n.user_id"
             " WHERE n.birth IS NOT NULL OR eng.smlouva_od IS NOT NULL")).fetchall()
         today = _dt.date.today()
 
@@ -10130,10 +10132,11 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "WITH eng AS (SELECT ae.user_id, min(e.smlouva_od) smlouva_od"
             "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
-            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL GROUP BY ae.user_id),"
+            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
+            "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date) GROUP BY ae.user_id),"
             " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
             "  max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
-            " SELECT n.user_id, n.jmeno, n.birth, eng.smlouva_od FROM nm n LEFT JOIN eng ON eng.user_id=n.user_id"
+            " SELECT n.user_id, n.jmeno, n.birth, eng.smlouva_od FROM nm n JOIN eng ON eng.user_id=n.user_id"
             " WHERE n.birth IS NOT NULL OR eng.smlouva_od IS NOT NULL")).fetchall()
         today = _dt.date.today()
 

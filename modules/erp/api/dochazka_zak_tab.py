@@ -71,7 +71,9 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
     if not _dzt_can(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     obdobi = (req.query_params.get("obdobi") or "vse").strip().lower()
-    ds_code = _DZT_DATASET.get(obdobi, _DZT_DATASET["vse"])
+    # 'all' (Vše) = stejná data jako 'vse', jen bez omezení na poslední 2 měsíce
+    base = "budoucnost" if obdobi == "budoucnost" else "vse"
+    ds_code = _DZT_DATASET[base]
     from sqlalchemy import text as _t
     from modules.strategie_pg.application import service as _pg
     cm = _pg.get_session()
@@ -80,6 +82,10 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
         sql = s.execute(_t("SELECT sql_text FROM fw.data_set WHERE code=:c"), {"c": ds_code}).scalar()
         if not sql:
             return JSONResponse({"ok": False, "error": "dataset_missing"}, status_code=500)
+        if obdobi == "all":
+            # odstraň spodní mez „poslední 2 měsíce" → zůstane celé (d <= CURRENT_DATE)
+            sql = sql.replace(
+                "AND d >= (date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date", "")
         rows = s.execute(_t(sql)).mappings().all()
         from decimal import Decimal as _D
         import datetime as _dt

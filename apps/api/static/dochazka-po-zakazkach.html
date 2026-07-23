@@ -12,6 +12,8 @@
   :root{color-scheme:dark}
   *{box-sizing:border-box}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:8px 12px 6px;background:#0f1420;color:#e8edf6}
+  .pgh1{font-size:18px;font-weight:700;margin:2px 0 2px}
+  .pgsub{color:#9fb0c8;font-size:12px;margin:0 0 10px}
   .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
   .chips{display:flex;gap:6px}
   .rangelbl{font-weight:600;font-size:14px;color:#e8edf6}
@@ -27,7 +29,7 @@
   .sumtab tr.tot td{border-top:2px solid #34506f;font-weight:700;color:#fff}
   .muted{color:#8fa3bd;font-size:12.5px}
   .err{background:rgba(239,68,68,.12);border:1px solid #ef4444;color:#fca5a5;border-radius:8px;padding:10px 12px;font-size:13px;margin:8px 0}
-  .tw{overflow:auto;max-height:calc(100vh - 52px);border:1px solid #2a3546;border-radius:8px;background:#0f1420}
+  .tw{overflow:auto;max-height:calc(100vh - 118px);border:1px solid #2a3546;border-radius:8px;background:#0f1420}
   .tw::-webkit-scrollbar{width:13px;height:13px}
   .tw::-webkit-scrollbar-track{background:#131b26}
   .tw::-webkit-scrollbar-thumb{background:#33445c;border-radius:7px;border:2px solid #131b26}
@@ -91,8 +93,14 @@
 </style>
 </head>
 <body>
+<h1 class="pgh1">🕒 Docházka new</h1>
+<div class="pgsub">Docházka všech lidí — výroba přes zakázky, ostatní jako „Rezie", plus absence. Dvojklik na výrobní řádek = úprava.</div>
 <div class="top">
-  <span class="rangelbl" id="rangeLbl">Poslední 2 měsíce</span>
+  <div class="chips" id="tabs">
+    <button class="chip on" data-o="vse">📅 Poslední 2 měsíce</button>
+    <button class="chip" data-o="all">📖 Vše</button>
+    <button class="chip" data-o="budoucnost">⏭ Naplánovaná budoucnost</button>
+  </div>
   <span class="muted" id="info"></span>
   <button class="chip sumbtn" id="sumBtn" title="Sečíst hodnoty označených řádků po měsících a lidech">Σ Sumace označených</button>
 </div>
@@ -261,21 +269,36 @@ function projde(r){
   return true;
 }
 
+// Chytrá tabulka: nekreslíme všech 15k řádků naráz (zamrzlo by), ale po částech —
+// prvních CHUNK hned, další při scrollu ke spodku. Kvůli tomu „Vše" jede plynule.
+var FILT=[], RENDERED=0, CHUNK=600;
+function rowHtml(i){
+  var r=ROWS[i];
+  var mk=(CUR===i)?'▶':(SELSET[i]?'•':'');
+  var sel=(SELSET[i]||CUR===i);
+  var tr='<tr data-i="'+i+'"'+(sel?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
+  for(var j=0;j<COLS.length;j++){var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
+    if(c.s){v='<span class="src '+(SRC[v]||'z_x')+'">'+esc(v)+'</span>';}
+    else v=esc(v);
+    if(c.cls)cl+=' '+c.cls;
+    tr+='<td'+(cl.trim()?' class="'+cl.trim()+'"':'')+' title="'+esc(String(r[c.k]==null?'':r[c.k]))+'">'+v+'</td>';}
+  return tr+'</tr>';
+}
+function appendChunk(){
+  if(RENDERED>=FILT.length)return;
+  var tb=$('tab').getElementsByTagName('tbody')[0];
+  var end=Math.min(RENDERED+CHUNK,FILT.length),h='';
+  for(var k=RENDERED;k<end;k++)h+=rowHtml(FILT[k]);
+  tb.insertAdjacentHTML('beforeend',h);
+  RENDERED=end;
+}
 function render(){
-  var tb=$('tab').getElementsByTagName('tbody')[0],h=[],n=0;
-  for(var i=0;i<ROWS.length;i++){var r=ROWS[i];if(!projde(r))continue;n++;
-    var mk=(CUR===i)?'▶':(SELSET[i]?'•':'');
-    var sel=(SELSET[i]||CUR===i);
-    var tr='<tr data-i="'+i+'"'+(sel?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
-    for(var j=0;j<COLS.length;j++){var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
-      if(c.s){v='<span class="src '+(SRC[v]||'z_x')+'">'+esc(v)+'</span>';}
-      else v=esc(v);
-      if(c.cls)cl+=' '+c.cls;
-      tr+='<td'+(cl.trim()?' class="'+cl.trim()+'"':'')+' title="'+esc(String(r[c.k]==null?'':r[c.k]))+'">'+v+'</td>';}
-    h.push(tr+'</tr>');
-  }
-  tb.innerHTML=h.length?h.join(''):'<tr><td class="ld" colspan="'+(COLS.length+1)+'">Nic neodpovídá filtru.</td></tr>';
-  $('info').textContent='Řádků: '+n+(n!==ROWS.length?(' (z '+ROWS.length+')'):'');
+  FILT=[];for(var i=0;i<ROWS.length;i++){if(projde(ROWS[i]))FILT.push(i);}
+  var tb=$('tab').getElementsByTagName('tbody')[0];
+  tb.innerHTML=''; RENDERED=0;
+  if(!FILT.length){tb.innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Nic neodpovídá filtru.</td></tr>';}
+  else appendChunk();
+  $('info').textContent='Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'');
 }
 
 function load(){
@@ -402,12 +425,18 @@ function init(){
   hlavicka();
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
   // základní šířky (SRVW) nastaví Claude na server na vyžádání ("ulož šířky jako výchozí").
-  // Období řídí URL (?obdobi=vse|budoucnost) podle uzlu ve stromu — žádné přepínací tlačítko.
-  // „Docházka new" = 2 měsíce; „Naplánovaná budoucnost" = samostatný uzel; „Docházka vše" bude taky vlastní uzel.
+  // Podzáložky: 📅 Poslední 2 měsíce | 📖 Vše | ⏭ Naplánovaná budoucnost. Lze i z URL (?obdobi=).
   try{var _p=new URLSearchParams(location.search).get('obdobi');
-    if(_p==='budoucnost'||_p==='vse')OBD=_p;
+    if(_p==='budoucnost'||_p==='vse'||_p==='all')OBD=_p;
   }catch(_e){}
-  var _lbl=$('rangeLbl'); if(_lbl) _lbl.textContent=(OBD==='budoucnost')?'Naplánovaná budoucnost':'Poslední 2 měsíce';
+  [].forEach.call($('tabs').children,function(x){x.classList.toggle('on',x.getAttribute('data-o')===OBD);});
+  $('tabs').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
+    var o=b.getAttribute('data-o'); if(o===OBD)return;
+    [].forEach.call($('tabs').children,function(x){x.classList.remove('on');});b.classList.add('on');
+    OBD=o;load();});
+  // dokreslování po částech při scrollu ke spodku
+  var _tw=document.querySelector('.tw');
+  if(_tw)_tw.addEventListener('scroll',function(){if(_tw.scrollTop+_tw.clientHeight>_tw.scrollHeight-500)appendChunk();});
   // Dvojklik = otevřít formulář. Detekce dvou rychlých kliků; obarvení řádku je
   // teď inkrementální (paintRow), takže klik neblokuje a dvojklik se stihne.
   var _lastClick={i:-1,t:0};

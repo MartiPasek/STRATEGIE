@@ -61,6 +61,85 @@ def _dzt_can(uid: int | None) -> bool:
         return False
 
 
+_DOW_CZ = ['Po', 'Ut', 'St', 'Ct', 'Pa', 'So', 'Ne']
+
+
+def _dzt_ec_office_hist(s) -> list[dict]:
+    """Kancelář (lidé BEZ výrobní práce) leden–květen 2026 přímo z Centrály
+    (EC_Dochazka, read-only). Výroba je už v PG (vyroba_work), tu z EC vynecháme.
+    Vrací řádky ve stejném tvaru jako přehled, kind='C' (jen ke čtení)."""
+    from sqlalchemy import text as _t
+    prod = [int(r[0]) for r in s.execute(_t(
+        "SELECT DISTINCT cislo_zam FROM tenant.vyroba_work "
+        "WHERE tenant_id=2 AND source_system IN ('app','centrala1') "
+        "AND datum>='2026-01-01' AND cislo_zam ~ '^[0-9]+$'")).all()]
+    jmena = {}
+    for cz, nm in s.execute(_t(
+            "SELECT cislo_zam, full_name FROM tenant.att_employee "
+            "WHERE tenant_id=2 AND cislo_zam ~ '^[0-9]+$'")).all():
+        try:
+            jmena[int(cz)] = nm
+        except Exception:
+            pass
+    ciny = {}
+    for ec, nm in s.execute(_t(
+            "SELECT ec_cislo, name FROM tenant.vyroba_cinnost WHERE ec_cislo IS NOT NULL")).all():
+        try:
+            ciny[int(ec)] = nm
+        except Exception:
+            pass
+    prod_clause = ""
+    if prod:
+        prod_clause = " AND CisloZam NOT IN (" + ",".join(str(p) for p in prod) + ")"
+    q = ("SELECT ID, DatumPripadu, CisloZam, DruhCinnosti, CisloZakazky, "
+         "CasZacatek, CasKonec, CasCelkemVcRezii, ISNULL(ZamPoznamka,'') AS pozn "
+         "FROM dbo.EC_Dochazka "
+         "WHERE DatumPripadu>='2026-01-01' AND DatumPripadu<'2026-06-01'" + prod_clause +
+         " ORDER BY DatumPripadu DESC, CasZacatek")
+    out = []
+    from modules.eurosoft_mcp.sql_client import get_cursor
+    with get_cursor("DB_EC") as cur:
+        cur.execute(q)
+        cols = [d[0] for d in cur.description]
+        for rec in cur.fetchall():
+            r = {cols[i]: rec[i] for i in range(len(cols))}
+            d = r.get("DatumPripadu")
+            if d is None:
+                continue
+            try:
+                cz = int(r.get("CisloZam"))
+            except Exception:
+                cz = None
+            od = r.get("CasZacatek")
+            kon = r.get("CasKonec")
+            hv = r.get("CasCelkemVcRezii")
+            hod = round(float(hv), 2) if hv is not None else None
+            od_t = od.strftime("%H:%M") if od else None
+            kon_t = kon.strftime("%H:%M") if kon else None
+            den_iso = d.strftime("%Y-%m-%d")
+            jm = jmena.get(cz) or ("Zam " + str(cz))
+            dc = r.get("DruhCinnosti")
+            cin = ciny.get(int(dc)) if dc is not None else None
+            zak = r.get("CisloZakazky") or "Rezie"
+            pozn = r.get("pozn") or ""
+            out.append({
+                "PraceAktivni": "", "CisloZakazky": zak, "JmenoPrijmeni": jm,
+                "CisloZam": cz, "DruhCinnosti": dc, "CinnostText": cin,
+                "DenVTydnu": _DOW_CZ[d.weekday()],
+                "CasZacatek": d.strftime("%d.%m.%Y") + ((" " + od_t) if od_t else ""),
+                "CasKonec": (kon.strftime("%d.%m.%Y %H:%M") if kon else None),
+                "CasCelkem": hod, "Odkud": "z Centrály", "Smlouva": None,
+                "Poznamka": pozn, "DatumPripadu": d.strftime("%d.%m.%Y"),
+                "Rok": d.year, "Mesic": d.month,
+                "_kind": "C", "_id": int(r.get("ID")) if r.get("ID") is not None else None,
+                "_zak": zak, "_cin_id": None,
+                "_od_d": (od.strftime("%Y-%m-%d") if od else den_iso), "_od_t": od_t,
+                "_kon_d": (kon.strftime("%Y-%m-%d") if kon else None), "_kon_t": kon_t,
+                "_hod": hod, "_pozn": pozn, "_src": "z Centrály", "_cz": cz, "_jm": jm,
+            })
+    return out
+
+
 @doch_zak_tab_router.get("/app/dochazka-zak-tab/data")
 def dochazka_zak_tab_data(req: Request) -> JSONResponse:
     """Řádky přehledu docházky po zakázkách (obdobi=vse|budoucnost)."""
@@ -97,6 +176,14 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
                 return v.isoformat()
             return v
         out = [{k: _conv(v) for k, v in dict(r).items()} for r in rows]
+        if obdobi == "all":
+            # Kancelář leden–květen z Centrály (read-only). Best-effort: bez Centrály přehled funguje dál.
+            try:
+                out += _dzt_ec_office_hist(s)
+                out.sort(key=lambda r: (r.get("_od_d") or ""), reverse=True)
+            except Exception as _e:  # noqa: BLE001
+                import logging as _lg
+                _lg.getLogger("dochazka_zak_tab").warning("EC hist read failed: %s", _e)
         return JSONResponse({"ok": True, "obdobi": obdobi, "pocet": len(out), "rows": out})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)

@@ -327,21 +327,35 @@ function renderPU(edit){
     '<span style="display:flex;gap:14px">'+back+btn+'</span></div>';
   const rRO=(lab,val)=>'<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lab+'</td><td style="padding:5px 16px;color:#e8eef5">'+(val?esc(val):'<span style="color:#5d6b7c">—</span>')+'</td></tr>';
   const rIN=(lab,k,val,eid)=>'<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lab+'</td><td style="padding:5px 16px"><input data-eid="'+eid+'" data-k="'+k+'" value="'+esc(val||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit"></td></tr>';
+  const grp=(t)=>'<div style="padding:10px 16px 3px;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">'+t+'</div>';
+  const tbl=(rows)=>'<table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table>';
+  if((d.nadrizeny||[]).length){
+    h+='<div style="padding:9px 16px;color:#cdd6e2;font-size:13px;border-top:1px solid #1e2730">👤 <span style="color:#7f8ea0">Přímý nadřízený:</span> '+
+      d.nadrizeny.map(n=>'<b>'+esc(n.jmeno)+'</b>'+(n.post?(' <span style="color:#5d6b7c">('+esc(n.post)+')</span>'):'')).join(', ')+'</div>';
+  }
   for(const po of (d.pomery||[])){
-    let rows='';
-    rows+=rRO('Typ poměru', po.typ);
-    rows+=rRO('Druh smlouvy', po.druh);
-    rows+=rRO('Smlouva od', po.smlouva_od);
-    rows+=rRO('Smlouva do', po.smlouva_do || 'na dobu neurčitou');
-    rows+=rRO('Zkušební doba do', po.zkusebni_do);
-    rows+=rRO('Úvazek (h/týden)', po.uvazek);
-    rows += edit ? rIN('Pozice','pozice',po.pozice,po.id) : rRO('Pozice', po.pozice);
-    rows += edit ? rIN('Poznámka','note',po.note,po.id) : rRO('Poznámka', po.note);
-    const audit=(po.zmenil||po.zmeneno)?'<div style="font-size:10.5px;color:#5d6b7c;padding:4px 16px 0">naposledy upravil: '+esc(po.zmenil||'—')+(po.zmeneno?(' · '+esc(po.zmeneno)):'')+'</div>':'';
-    h+='<div style="margin:10px 0"><div style="font-weight:800;color:#e8eef5;padding:6px 16px;border-bottom:1px solid #233040">'+esc(po.firma)+' · '+esc(po.typ)+'</div><table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table>'+audit+'</div>';
+    const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
+    const zar = tbl((edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment));
+    const sml = tbl(rRO('Druh smlouvy', po.druh||po.typ) + rRO('Datum nástupu', po.smlouva_od) + rRO('Doba', dobaTxt) + rRO('Zkušební doba do', po.zkusebni_do));
+    const uva = tbl(rRO('Velikost úvazku', po.velikost) + rRO('Týdenní fond', po.uvazek?(po.uvazek+' h/týden'):'') + rRO('Odměňování', po.hodinovka?'hodinová mzda':'měsíční mzda'));
+    const pozn = tbl(edit?rIN('Poznámka','note',po.note,po.id):rRO('Poznámka', po.note));
+    const audit=(po.zmenil||po.zmeneno)?'<div style="font-size:10.5px;color:#5d6b7c;padding:4px 16px 8px">naposledy upravil: '+esc(po.zmenil||'—')+(po.zmeneno?(' · '+esc(po.zmeneno)):'')+'</div>':'';
+    h+='<div style="margin:6px 0 2px;border-top:1px solid #1e2730">'+
+      '<div style="font-weight:800;color:#e8eef5;padding:8px 16px 2px">'+esc(po.firma)+' · '+esc(po.typ)+'</div>'+
+      grp('Zařazení')+zar+grp('Smlouva')+sml+grp('Úvazek')+uva+grp('Poznámka')+pozn+audit+'</div>';
   }
   if(!(d.pomery||[]).length) h+='<div class="empty">Žádný aktuální pracovní poměr.</div>';
-  if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:0 16px 12px">Editovat lze pozici a poznámku. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul, ať se nerozbijí výplaty.</div>';
+  // Historie změn (SCD2) — jen když je co ukázat kromě aktuální verze
+  if((d.historie||[]).length>1){
+    h+=grp('Historie změn (pozice, úvazek, typ)')+tbl(
+      '<tr><td style="color:#7f8ea0;padding:5px 16px">Od</td><td style="color:#7f8ea0;padding:5px 16px">Pozice</td><td style="color:#7f8ea0;padding:5px 16px">Typ</td><td style="color:#7f8ea0;padding:5px 16px">Úvazek</td></tr>'+
+      d.historie.map(hh=>'<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:5px 16px;color:#cdd6e2;white-space:nowrap">'+esc(hh.od||'—')+(hh.aktualni?' <span style="color:#7fe0a0">• nyní</span>':(hh.do?(' – '+esc(hh.do)):''))+'</td>'+
+        '<td style="padding:5px 16px;color:#e8eef5">'+esc(hh.pozice)+'</td>'+
+        '<td style="padding:5px 16px;color:#cdd6e2">'+esc(hh.typ)+'</td>'+
+        '<td style="padding:5px 16px;color:#cdd6e2">'+(hh.uvazek?esc(hh.uvazek)+' h':'—')+'</td></tr>').join(''));
+  }
+  if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:8px 16px 12px">Editovat lze pozici a poznámku. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul. Nadřízený se bere z organizační struktury.</div>';
   det.innerHTML=h;
 }
 async function pracUdajeSave(){

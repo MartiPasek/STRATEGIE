@@ -9198,7 +9198,8 @@ async def app_hr_person_work(req: Request):
             " upper(COALESCE(e.engagement_type,'')), COALESCE(e.druh_text,''), "
             " e.smlouva_od, e.smlouva_do, e.zkusebni_do, e.uvazek_tyden_h, "
             " COALESCE(jp.label, e.pozice_text), COALESCE(e.note,''), "
-            " COALESCE(e.changed_by_text,''), e.changed_at "
+            " COALESCE(e.changed_by_text,''), e.changed_at, "
+            " COALESCE(jp.segment,''), e.fond_mesic_h, e.uvazek_real_tyden_h, COALESCE(e.hodinovka,false) "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
@@ -9207,12 +9208,64 @@ async def app_hr_person_work(req: Request):
 
         def _d(x):
             return x.strftime("%d.%m.%Y") if x else ""
-        pomery = [{"id": r[0], "firma": r[1], "typ": r[2], "druh": r[3],
-                   "smlouva_od": _d(r[4]), "smlouva_do": _d(r[5]), "zkusebni_do": _d(r[6]),
-                   "uvazek": ("" if r[7] is None else str(r[7])), "pozice": (r[8] or ""),
-                   "note": r[9], "zmenil": r[10],
-                   "zmeneno": (r[11].strftime("%d.%m.%Y %H:%M") if r[11] else "")} for r in rows]
-        return JSONResponse({"ok": True, "pomery": pomery})
+
+        def _num(x):
+            if x is None:
+                return None
+            f = float(x)
+            return int(f) if f == int(f) else round(f, 2)
+        pomery = []
+        for r in rows:
+            uv = _num(r[7])                       # úvazek h/týden
+            uvr = _num(r[14])                     # reálný úvazek h/týden
+            velikost = None
+            if uv:                                # velikost úvazku vůči 40h
+                velikost = round(uv / 40.0, 3)
+                velikost = int(velikost) if velikost == int(velikost) else round(velikost, 2)
+            pomery.append({
+                "id": r[0], "firma": r[1], "typ": r[2], "druh": r[3],
+                "smlouva_od": _d(r[4]), "smlouva_do": _d(r[5]), "zkusebni_do": _d(r[6]),
+                "uvazek": ("" if uv is None else str(uv)), "pozice": (r[8] or ""),
+                "note": r[9], "zmenil": r[10],
+                "zmeneno": (r[11].strftime("%d.%m.%Y %H:%M") if r[11] else ""),
+                "segment": (r[12] or ""), "fond_mesic": ("" if r[13] is None else str(_num(r[13]))),
+                "uvazek_real": ("" if uvr is None else str(uvr)),
+                "hodinovka": bool(r[15]),
+                "doba": ("neurčitá" if not r[5] else "určitá"),
+                "velikost": ("" if velikost is None else str(velikost).replace(".", ",")),
+            })
+        # historie změn (SCD2 – všechny verze poměru, i staré)
+        hrows = s.execute(_t(
+            "SELECT COALESCE(jp.label, e.pozice_text), upper(COALESCE(e.engagement_type,'')), "
+            " e.uvazek_tyden_h, e.valid_from, e.valid_to, e.is_current, "
+            " COALESCE(e.changed_by_text,'') "
+            "FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "WHERE ae.user_id=:u AND e.tenant_id=2 "
+            "ORDER BY e.valid_from DESC NULLS LAST, e.id DESC LIMIT 40"), {"u": tuid}).fetchall()
+        historie = [{"pozice": (h[0] or ""), "typ": (h[1] or ""),
+                     "uvazek": ("" if h[2] is None else str(_num(h[2]))),
+                     "od": _d(h[3]), "do": _d(h[4]), "aktualni": bool(h[5]),
+                     "zmenil": (h[6] or "")} for h in hrows]
+        # přímý nadřízený z org struktury (nadřazený post → jeho držitel), best-effort
+        nadrizeny = []
+        try:
+            nrows = s.execute(_t(
+                "SELECT DISTINCT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), sae.full_name) AS jm, pp.nazev "
+                "FROM tenant.att_employee ae "
+                "JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
+                "JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+                "JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+                "JOIN tenant.org_post_assign a2 ON a2.post_id=pp.id AND a2.tenant_id=2 AND a2.aktivni=true "
+                "  AND COALESCE(a2.zastupce_role,'')='' AND a2.employee_id<>ae.id "
+                "LEFT JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
+                "LEFT JOIN public.users su ON su.id=sae.user_id "
+                "WHERE ae.user_id=:u AND ae.tenant_id=2"), {"u": tuid}).fetchall()
+            nadrizeny = [{"jmeno": (x[0] or ""), "post": (x[1] or "")} for x in nrows if x[0]]
+        except Exception as exc:
+            logger.warning("[person_work nadrizeny] %s", exc)
+        return JSONResponse({"ok": True, "pomery": pomery, "historie": historie, "nadrizeny": nadrizeny})
     except Exception as exc:
         logger.exception("[hr_person_work] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

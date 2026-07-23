@@ -16,6 +16,14 @@
   .chips{display:flex;gap:6px}
   .chip{background:#27313f;color:#cdd9ea;border:0;border-radius:14px;padding:6px 13px;font-size:12.5px;cursor:pointer}
   .chip.on{background:#2563eb;color:#fff}
+  .sumbtn{margin-left:auto;background:#1f6f43;color:#dff3e6}
+  .sumbtn:hover{background:#248451}
+  /* Okno Sumace označených */
+  .sumtab{width:100%;border-collapse:collapse;font-size:12.5px}
+  .sumtab th,.sumtab td{border-bottom:1px solid #232c3b;padding:6px 10px;text-align:left;white-space:nowrap}
+  .sumtab th{color:#9fb2c8;font-weight:600;position:sticky;top:0;background:#1c2636}
+  .sumtab td.r,.sumtab th.r{text-align:right}
+  .sumtab tr.tot td{border-top:2px solid #34506f;font-weight:700;color:#fff}
   .muted{color:#8fa3bd;font-size:12.5px}
   .err{background:rgba(239,68,68,.12);border:1px solid #ef4444;color:#fca5a5;border-radius:8px;padding:10px 12px;font-size:13px;margin:8px 0}
   .tw{overflow:auto;max-height:calc(100vh - 52px);border:1px solid #2a3546;border-radius:8px;background:#0f1420}
@@ -88,6 +96,7 @@
     <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
+  <button class="chip sumbtn" id="sumBtn" title="Sečíst hodnoty označených řádků po měsících a lidech">Σ Sumace označených</button>
 </div>
 <div id="msg"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
@@ -129,6 +138,18 @@
         <button class="b-cn" onclick="closeEdit()">Storno</button>
         <button class="b-ok" id="d_ok" onclick="saveEdit()">OK</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Okno „Sumace označených" — sečte hodnoty označených řádků po měsících a lidech (jako v Centrále). -->
+<div class="ov" id="ovsum">
+  <div class="dlg" role="dialog" aria-modal="true">
+    <h3>Σ Sumace označených<span class="muted" id="sum_info" style="margin-left:auto;font-weight:400"></span></h3>
+    <div class="bd" id="sum_body"></div>
+    <div class="dbtn">
+      <button class="b-rf" onclick="copySum()">Kopírovat</button>
+      <div class="r"><button class="b-cn" onclick="closeSum()">Zavřít</button></div>
     </div>
   </div>
 </div>
@@ -347,6 +368,38 @@ function paintRow(idx){
   if(mkc)mkc.textContent=(CUR===idx)?'▶':(SELSET[idx]?'•':'');
 }
 
+/* ── Sumace označených (jako v Centrále) ─────────────────────────────── */
+function sumSelected(){
+  var idxs=[]; for(var k in SELSET){ if(SELSET[k]) idxs.push(parseInt(k,10)); }
+  if(!idxs.length){
+    $('sum_body').innerHTML='<div class="ld">Nejdřív označ řádky v přehledu — klik = označit řádek, Shift+klik = celý úsek. Pak dej Sumace.</div>';
+    $('sum_info').textContent=''; window.__sumText=''; $('ovsum').classList.add('on'); return;
+  }
+  var g={}, order=[], totH=0, totN=0;
+  idxs.forEach(function(i){ var r=ROWS[i]; if(!r)return;
+    var key=r.Rok+'|'+r.Mesic+'|'+(r.JmenoPrijmeni||'');
+    if(!g[key]){ g[key]={rok:r.Rok,mes:r.Mesic,jm:r.JmenoPrijmeni||'',hod:0,n:0}; order.push(key); }
+    var h=Number(r.CasCelkem)||0; g[key].hod+=h; g[key].n++; totH+=h; totN++;
+  });
+  order.sort(function(a,b){ var x=g[a],y=g[b];
+    return (''+x.jm).localeCompare(''+y.jm,'cs') || (x.rok-y.rok) || (x.mes-y.mes); });
+  var h='<table class="sumtab"><thead><tr><th>Rok</th><th>Měsíc</th><th>Jméno</th>'
+       +'<th class="r">Součet hodin</th><th class="r">Řádků</th></tr></thead><tbody>';
+  order.forEach(function(k){ var x=g[k];
+    h+='<tr><td>'+x.rok+'</td><td>'+x.mes+'</td><td>'+esc(x.jm)+'</td>'
+      +'<td class="r">'+x.hod.toFixed(2)+'</td><td class="r">'+x.n+'</td></tr>';
+  });
+  if(order.length>1) h+='<tr class="tot"><td colspan="3">Celkem</td><td class="r">'+totH.toFixed(2)+'</td><td class="r">'+totN+'</td></tr>';
+  h+='</tbody></table>';
+  $('sum_body').innerHTML=h;
+  $('sum_info').textContent=order.length+' skupin · '+totN+' řádků';
+  window.__sumText='Rok\tMěsíc\tJméno\tHodin\tŘádků\n'+order.map(function(k){var x=g[k];
+    return x.rok+'\t'+x.mes+'\t'+x.jm+'\t'+x.hod.toFixed(2)+'\t'+x.n;}).join('\n');
+  $('ovsum').classList.add('on');
+}
+function closeSum(){ $('ovsum').classList.remove('on'); }
+function copySum(){ if(window.__sumText){ try{ navigator.clipboard.writeText(window.__sumText); }catch(e){} } }
+
 function init(){
   hlavicka();
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
@@ -383,6 +436,10 @@ function init(){
   ['d_od_d','d_od_t','d_kon_d','d_kon_t'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',recalcH);});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ov').classList.contains('on'))closeEdit();});
   $('ov').addEventListener('mousedown',function(e){if(e.target===$('ov'))closeEdit();});
+  // Sumace označených
+  $('sumBtn').addEventListener('click',sumSelected);
+  $('ovsum').addEventListener('mousedown',function(e){if(e.target===$('ovsum'))closeSum();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovsum').classList.contains('on'))closeSum();});
   load();
 }
 // Nejdřív načti sdílené základní šířky ze serveru, pak postav tabulku

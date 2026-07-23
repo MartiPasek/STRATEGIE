@@ -119,6 +119,16 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
 - **Filtr čísel bere čárku i tečku:** hodnotu i hledaný text normalizuj (číslo přes `toFixed(2)`,
   pak `replace(/,/g,'.')`), ať „280,02" i „280.02" najde totéž (i „1 597,20"). Pokladny to 21.7.
   ztratily → vráceno; faktury (`_faktMatch`) to mají odjakživa.
+- **📅 DATUMOVÝ FILTR — VŠUDE, kde je v přehledu/tabulce sloupec s datem (Peťa 23.7.2026, závazné):**
+  každý datumový sloupec má mít ve filtrovacím řádku **klikací filtr** (ne psací), který otevře
+  popup **„Výběr období"** s poli **Jeden den** (nastaví OD i DO stejně) / **Datum OD** / **Datum DO**
+  a tlačítky **vymazat / zrušit / OK** — přesně jako v **Přijatých fakturách** (platby.html,
+  `openSplatFilter`, sloupec Splatnost). Vzor přenesený i do docházky (`openDateFilter`,
+  `dochazka-po-zakazkach.html`) a pokladen (`openDateFilterP`, `pokladny.html`).
+  - Filtrování: datum řádku i meze převeď na číslo (`_dnum` z `DD.MM.YYYY`, `_inum` z `YYYY-MM-DD`)
+    a porovnej rozsah — bere i datum s časem („23.07.2026 08:44"). Filtry se ukládají jako
+    `FIL[sloupec+'_od']` / `FIL[sloupec+'_do']`, ✕ (zrušit filtry) je maže spolu s ostatními.
+  - **Pravidlo:** kdykoli stavíš nebo upravuješ přehled a je v něm sloupec s datem, tenhle filtr tam dej.
 
 ## POJISTKA 2 — po deploji ověř, že server SERVÍRUJE novou verzi (21.7.2026)
 Deploy může napsat **„DEPLOY: OK · cloud: OK"**, a přesto cloud NEPŘEVEZME novou verzi. Stalo se

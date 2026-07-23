@@ -130,8 +130,8 @@ const DCOLS=[
   {k:'poradove_cislo',h:'Doklad'},
   {k:'popis',h:'Popis'},
   {k:'typ_dokladu',h:'Typ dokladu',t:'typ'},
-  {k:'dat_porizeni',h:'Datum pořízení'},
-  {k:'dat_pripad',h:'Datum případu'},
+  {k:'dat_porizeni',h:'Datum pořízení',date:1},
+  {k:'dat_pripad',h:'Datum případu',date:1},
   {k:'uhrada',h:'Úhrada',t:'m',r:1},
   {k:'saldo_dokladu',h:'Saldo dokladu',t:'m',r:1},
   {k:'castka_dokladu',h:'Částka dokladu',t:'m',r:1},
@@ -139,7 +139,7 @@ const DCOLS=[
   {k:'zakazka',h:'Číslo zakázky'},
   {k:'poznamka',h:'Poznámka vše'},
   {k:'stav_pokladny',h:'Zůstatek',t:'m',r:1},
-  {k:'dat_porizeno',h:'Dat.pořízeno'},
+  {k:'dat_porizeno',h:'Dat.pořízeno',date:1},
   {k:'autor',h:'Autor'}
 ];
 const DCOLW_DEF={uctovano:30,scan:32,pocet_polozek:30,bv:30,bv_seznam:80,poradove_cislo:56,popis:190,typ_dokladu:86,dat_porizeni:94,dat_pripad:94,uhrada:90,saldo_dokladu:98,castka_dokladu:100,utvar:50,zakazka:88,poznamka:220,stav_pokladny:112,dat_porizeno:114,autor:80};
@@ -166,13 +166,49 @@ function dcell(d,c){
   if(c.k==='poradove_cislo')return '<b>'+esc(d.poradove_cislo==null?'':d.poradove_cislo)+'</b>';
   return esc(d[c.k]==null?'':(''+d[c.k]));
 }
+function _dnum(s){var m=(''+s).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);return m?(parseInt(m[3],10)*10000+parseInt(m[2],10)*100+parseInt(m[1],10)):null;}
+function _inum(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(parseInt(m[1],10)*10000+parseInt(m[2],10)*100+parseInt(m[3],10)):null;}
+function _isoCz(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+'.'+m[2]+'.'+m[1]):'';}
+function _dateSummaryP(key){var od=DFIL[key+'_od'],dv=DFIL[key+'_do'];
+  if(od&&dv)return od===dv?_isoCz(od):(_isoCz(od)+'–'+_isoCz(dv));
+  if(od)return 'od '+_isoCz(od); if(dv)return 'do '+_isoCz(dv); return '';}
 function dmatch(d){
   return DCOLS.every(function(c){
+    if(c.date){var od=DFIL[c.k+'_od'],dv=DFIL[c.k+'_do'];if(!od&&!dv)return true;
+      var dn=_dnum(d[c.k]);if(dn===null)return false;
+      if(od){var o=_inum(od);if(o!==null&&dn<o)return false;}
+      if(dv){var vv=_inum(dv);if(vv!==null&&dn>vv)return false;}
+      return true;}
     var f=DFIL[c.k]; if(f==null||f==='')return true;
     var _rw=d[c.k];
     var v=(_rw==null?'':(typeof _rw==='number'?_rw.toFixed(2):(''+_rw))).toLowerCase().replace(/,/g,'.');
     return v.indexOf((''+f).toLowerCase().replace(/,/g,'.'))>=0;
   });
+}
+function openDateFilterP(inp,key){
+  var old=document.getElementById('dpopP');if(old)old.remove();
+  var r=inp.getBoundingClientRect();
+  var od=DFIL[key+'_od']||'',dv=DFIL[key+'_do']||'';
+  var pop=document.createElement('div');pop.id='dpopP';
+  pop.style.cssText='position:fixed;z-index:200;background:#141b28;border:1px solid #2a3546;border-radius:10px;padding:12px;box-shadow:0 10px 34px rgba(0,0,0,.55);width:230px;font-size:13px;color:#e8edf6';
+  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-246))+'px';
+  pop.style.top=(r.bottom+4)+'px';
+  var btn='display:inline-block;padding:5px 12px;border-radius:14px;cursor:pointer;font-size:12.5px';
+  pop.innerHTML='<div style="font-weight:700;margin-bottom:8px">Výběr období</div>'+
+    '<label style="display:block;margin-bottom:6px">Jeden den:<br><input type="date" id="dpp-one" style="width:100%"></label>'+
+    '<div style="text-align:center;color:#8fa3bd;font-size:11px;margin:4px 0">— nebo rozsah —</div>'+
+    '<label style="display:block;margin-bottom:6px">Datum OD:<br><input type="date" id="dpp-od" value="'+esc(od)+'" style="width:100%"></label>'+
+    '<label style="display:block;margin-bottom:10px">Datum DO:<br><input type="date" id="dpp-do" value="'+esc(dv)+'" style="width:100%"></label>'+
+    '<div style="display:flex;gap:6px;justify-content:flex-end">'+
+      '<span id="dpp-clear" style="'+btn+';background:#27313f;color:#cdd9ea">vymazat</span>'+
+      '<span id="dpp-cancel" style="'+btn+';background:#27313f;color:#cdd9ea">zrušit</span>'+
+      '<span id="dpp-ok" style="'+btn+';background:#2563eb;color:#fff">OK</span></div>';
+  document.body.appendChild(pop);
+  document.getElementById('dpp-one').onchange=function(){document.getElementById('dpp-od').value=this.value;document.getElementById('dpp-do').value=this.value;};
+  document.getElementById('dpp-ok').onclick=function(){DFIL[key+'_od']=document.getElementById('dpp-od').value;DFIL[key+'_do']=document.getElementById('dpp-do').value;pop.remove();renderDoklady();};
+  document.getElementById('dpp-cancel').onclick=function(){pop.remove();};
+  document.getElementById('dpp-clear').onclick=function(){delete DFIL[key+'_od'];delete DFIL[key+'_do'];pop.remove();renderDoklady();};
+  setTimeout(function(){document.addEventListener('click',function _cl(e){if(!pop.contains(e.target)&&e.target!==inp){pop.remove();document.removeEventListener('click',_cl);}});},0);
 }
 function dAnyFilter(){return Object.keys(DFIL).some(function(k){return DFIL[k]!=null&&DFIL[k]!=='';});}
 function renderDoklady(){
@@ -184,7 +220,9 @@ function renderDoklady(){
   h+='</colgroup><thead><tr><th data-dcol="_mark" style="padding:0"></th>';
   DCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-dcol="'+c.k+'"'+(c.tt?' title="'+esc(c.tt)+'"':'')+'>'+esc(c.h)+'<span class="dgrip" data-dcol="'+c.k+'" title="Táhni pro roztažení · dvojklik = výchozí šířka"></span></th>';});
   h+='</tr><tr class="frow"><td style="text-align:center;padding:2px 0;cursor:pointer;color:#8aa0bd;font-weight:700" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearDoklFilters()">✕</td>';
-  DCOLS.forEach(function(c){h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
+  DCOLS.forEach(function(c){
+    if(c.date)h+='<td><input data-dfcol="'+c.k+'" data-dfdate="1" readonly placeholder="datum…" value="'+esc(_dateSummaryP(c.k))+'" title="Filtr podle data — rozsah OD–DO nebo jeden den" style="cursor:pointer"></td>';
+    else h+='<td><input data-dfcol="'+c.k+'" value="'+esc(DFIL[c.k]||'')+'"></td>';});
   h+='</tr></thead><tbody>';
   rows.forEach(function(d,idx){var _k=(d.poradove_cislo==null?('_'+idx):(''+d.poradove_cislo));
     h+='<tr class="drow" data-k="'+esc(_k)+'" data-idx="'+idx+'"'+(_doklSel[_k]?' style="background:rgba(88,166,255,.10)"':'')+'>';
@@ -228,7 +266,9 @@ function bindDGrips(){
 }
 function bindDFilters(){
   document.querySelectorAll('#doklBox [data-dfcol]').forEach(function(el){
-    var k=el.dataset.dfcol;el.oninput=function(){DFIL[k]=el.value;DACTIVE=k;renderDoklady();};});
+    var k=el.dataset.dfcol;
+    if(el.dataset.dfdate){el.onclick=function(){openDateFilterP(el,k);};return;}
+    el.oninput=function(){DFIL[k]=el.value;DACTIVE=k;renderDoklady();};});
   if(DACTIVE){var e=document.querySelector('#doklBox input[data-dfcol="'+DACTIVE+'"]');
     if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
 }

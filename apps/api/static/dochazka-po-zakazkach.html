@@ -59,6 +59,13 @@
   table.dokl tbody tr:hover{background:#131d2b}
   table.dokl tbody tr.sel td{background:rgba(37,99,235,.16)}
   td.zak{color:#a5c8ff}
+  /* Okno výběru zakázky (čtvereček u pole Zakázka → seznam + filtr, jako Centrála) */
+  .zakpick{background:#22303f;color:#a9c0da;border:0;border-radius:5px;padding:0 11px;font-size:15px;line-height:1;cursor:pointer}
+  .zakpick:hover{background:#2a3b4d}
+  .zakpick:disabled{opacity:.4;cursor:not-allowed}
+  .zakrow{padding:7px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #1a2331;color:#a5c8ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .zakrow:hover{background:#131d2b}
+  .zakrow.on{background:rgba(37,99,235,.24);color:#fff}
   table.dokl th.mkcol,table.dokl td.mk{width:20px;padding:2px 0;text-align:center}
   td.mk{color:#8aa0bd;font-weight:700;cursor:default}
   .fx{text-align:center;padding:2px 0;cursor:pointer;color:#8aa0bd;font-weight:700}
@@ -132,7 +139,7 @@
       </div>
       <div class="fld prac"><label>Pracovník</label><input id="d_prac" readonly></div>
       <div class="frow2">
-        <div class="fld"><label>Zakázka</label><input id="d_zak" list="zaklist" autocomplete="off" placeholder="piš číslo zakázky…"><datalist id="zaklist"></datalist></div>
+        <div class="fld"><label>Zakázka</label><div class="two"><input id="d_zak" list="zaklist" autocomplete="off" placeholder="piš číslo zakázky…" style="flex:1;min-width:0"><button type="button" class="zakpick" id="d_zakbtn" title="Vybrat zakázku ze seznamu">▤</button></div><datalist id="zaklist"></datalist></div>
         <div class="fld"><label>Činnost</label><select id="d_cin"></select></div>
       </div>
       <div class="frow3">
@@ -169,6 +176,23 @@
     <div class="dbtn">
       <button class="b-rf" onclick="copySum()">Kopírovat</button>
       <div class="r"><button class="b-cn" onclick="closeSum()">Zavřít</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Okno „Výběr zakázky" — seznam všech píchatelných zakázek + filtr nahoře (jako Centrála). -->
+<div class="ov" id="ovzak">
+  <div class="dlg" style="width:min(460px,95vw)" role="dialog" aria-modal="true">
+    <h3>▤ Zakázky<span class="muted" id="zak_info" style="margin-left:auto;font-weight:400"></span></h3>
+    <div class="bd" style="padding:0">
+      <div style="padding:10px 12px;border-bottom:1px solid #2a3546">
+        <input id="zak_fil" autocomplete="off" placeholder="filtr čísla zakázky…" style="width:100%;background:#0b0d10;border:1px solid #363b43;border-radius:5px;color:#e9eef5;padding:7px 9px;font-size:13px">
+      </div>
+      <div id="zak_list" style="max-height:52vh;overflow:auto"></div>
+    </div>
+    <div class="dbtn">
+      <button class="b-cn" onclick="closeZak()">Storno</button>
+      <div class="r"><button class="b-ok" id="zak_ok" onclick="zakOk()">OK</button></div>
     </div>
   </div>
 </div>
@@ -399,6 +423,32 @@ function loadZak(){
       dl.innerHTML=ZAK.map(function(z){return '<option value="'+esc(z.cislo)+'"></option>';}).join('');
     }).catch(function(){ZAK=[];});
 }
+/* ── Okno výběru zakázky (čtvereček u pole Zakázka) ──────────────────── */
+var ZAKPICK=null;  // číslo právě vybrané v okně
+function openZakPicker(){
+  if($('d_zak').disabled)return;        // v režimu RO se zakázka needituje
+  loadZak();                            // zajistí načtení seznamu ZAK (async)
+  ZAKPICK=($('d_zak').value||'').trim()||null;
+  $('zak_fil').value='';
+  renderZakList('');
+  $('ovzak').classList.add('on');
+  setTimeout(function(){try{$('zak_fil').focus();}catch(e){}},30);
+}
+function renderZakList(q){
+  var box=$('zak_list'), list=ZAK||[];
+  q=(q||'').trim().toLowerCase();
+  var f=q?list.filter(function(z){return String(z.cislo).toLowerCase().indexOf(q)>=0;}):list;
+  if(!list.length){box.innerHTML='<div class="ld">Načítám seznam zakázek…</div>';$('zak_info').textContent='';return;}
+  if(!f.length){box.innerHTML='<div class="ld">Nic neodpovídá filtru.</div>';$('zak_info').textContent='0 zak.';return;}
+  box.innerHTML=f.map(function(z){var c=esc(z.cislo);
+    var on=(ZAKPICK!=null&&String(z.cislo)===String(ZAKPICK));
+    return '<div class="zakrow'+(on?' on':'')+'" data-c="'+c+'">'+c+'</div>';}).join('');
+  $('zak_info').textContent=f.length+' zak.';
+}
+function zakOk(){if(ZAKPICK!=null)$('d_zak').value=ZAKPICK;closeZak();}
+function closeZak(){$('ovzak').classList.remove('on');}
+function syncZakBtn(){var b=$('d_zakbtn');if(b)b.disabled=$('d_zak').disabled;}
+
 function fillCin(sel){
   var s=$('d_cin');
   s.innerHTML='<option value="">—</option>'+CINY.map(function(c){
@@ -426,6 +476,7 @@ function openNew(i){
   ['d_zak','d_od_d','d_od_t','d_kon_d','d_kon_t','d_pozn'].forEach(function(id){$(id).disabled=false;}); $('d_cin').disabled=false;
   $('d_vpozn').disabled=true; $('d_appr').disabled=true; $('d_reason').disabled=true;
   $('d_ok').style.display='';
+  syncZakBtn();
   $('ov').classList.add('on');
 }
 function openEdit(i){
@@ -473,6 +524,7 @@ function openEdit(i){
     dis('d_vpozn'); dis('d_appr');
     $('d_ok').style.display='none';
   }
+  syncZakBtn();
   $('ov').classList.add('on');
 }
 function reloadForm(){if(EDIT_I==null)return; if(EDIT_NEW)openNew(EDIT_I);else openEdit(EDIT_I);}
@@ -567,6 +619,55 @@ function sumSelected(){
 function closeSum(){ $('ovsum').classList.remove('on'); }
 function copySum(){ if(window.__sumText){ try{ navigator.clipboard.writeText(window.__sumText); }catch(e){} } }
 
+/* ── Excel / kopírování / tisk ────────────────────────────────────────── */
+// Když jsou označené řádky (•), pracuj s nimi; jinak s tím, co prošlo filtrem.
+function _selectedOrFiltered(){
+  var sel=[];for(var k in SELSET){if(SELSET[k])sel.push(parseInt(k,10));}
+  if(sel.length){sel.sort(function(a,b){return a-b;});return sel;}
+  return FILT.slice();
+}
+function _stamp(){var t=new Date();return ''+t.getFullYear()+('0'+(t.getMonth()+1)).slice(-2)+('0'+t.getDate()).slice(-2);}
+function _cellTxt(v){return String(v==null?'':v).replace(/\t/g,' ').replace(/[\r\n]+/g,' ');}
+function selectAll(){  // Ctrl+A = označit vše, co je vidět (po filtru)
+  SELSET={};FILT.forEach(function(i){SELSET[i]=true;});if(FILT.length)CUR=FILT[0];render();
+}
+function copyRows(){   // Ctrl+C = zkopírovat označené (nebo vše po filtru) jako tabulku (TSV)
+  var idxs=_selectedOrFiltered();if(!idxs.length)return false;
+  var head=COLS.map(function(c){return c.h;}).join('\t');
+  var body=idxs.map(function(i){var r=ROWS[i];return COLS.map(function(c){return _cellTxt(r[c.k]);}).join('\t');}).join('\n');
+  try{navigator.clipboard.writeText(head+'\n'+body);}catch(e){return false;}
+  return true;
+}
+function exportExcel(){  // stažení .xls (Excel otevře se sloupci) — označené, nebo vše po filtru
+  var idxs=_selectedOrFiltered();
+  if(!idxs.length){alert('Není co exportovat — přehled je prázdný.');return;}
+  var h='<table border="1"><tr>'+COLS.map(function(c){return '<th>'+esc(c.h)+'</th>';}).join('')+'</tr>';
+  idxs.forEach(function(i){var r=ROWS[i];h+='<tr>'+COLS.map(function(c){return '<td>'+esc(_cellTxt(r[c.k]))+'</td>';}).join('')+'</tr>';});
+  h+='</table>';
+  var html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'+h+'</body></html>';
+  var blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='dochazka_new_'+_stamp()+'.xls';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},1500);
+}
+function printView(){   // tisk označených, nebo vše po filtru
+  var idxs=_selectedOrFiltered();
+  if(!idxs.length){alert('Není co tisknout — přehled je prázdný.');return;}
+  var w=window.open('','_blank');
+  if(!w){alert('Tisk zablokoval prohlížeč — povol prosím vyskakovací okna a zkus to znovu.');return;}
+  var h='<table><tr>'+COLS.map(function(c){return '<th>'+esc(c.h)+'</th>';}).join('')+'</tr>';
+  idxs.forEach(function(i){var r=ROWS[i];h+='<tr>'+COLS.map(function(c){return '<td>'+esc(_cellTxt(r[c.k]))+'</td>';}).join('')+'</tr>';});
+  h+='</table>';
+  w.document.write('<html><head><meta charset="utf-8"><title>Docházka new</title>'+
+    '<style>body{font-family:system-ui,Segoe UI,sans-serif;font-size:10px;margin:10px}'+
+    'h3{margin:0 0 6px}table{border-collapse:collapse;width:100%}'+
+    'th,td{border:1px solid #999;padding:2px 4px;text-align:left;white-space:nowrap}'+
+    'th{background:#eee}</style></head><body>'+
+    '<h3>Docházka new — '+idxs.length+' řádků ('+new Date().toLocaleDateString('cs')+')</h3>'+
+    h+'<scr'+'ipt>window.onload=function(){window.print();}</scr'+'ipt></body></html>');
+  w.document.close();
+}
+
 /* ── Kontextové menu (pravý klik na řádek) ───────────────────────────── */
 var CTX_ROW=null;
 function openCtx(x,y,i){var m=$('ctxm');CTX_ROW=i;m.classList.add('on');
@@ -577,7 +678,9 @@ function closeCtx(){$('ctxm').classList.remove('on');}
 function ctxAction(a){
   if(a==='sumace'){sumSelected();return;}
   if(a==='novy'){ if(CTX_ROW!=null)openNew(CTX_ROW); return; }
-  var nazvy={smazat:'Smazat',excel:'Excel (export/kopírovat)',params:'Nastav parametry hromadné',tisk:'Tisk'};
+  if(a==='excel'){exportExcel();return;}
+  if(a==='tisk'){printView();return;}
+  var nazvy={smazat:'Smazat',params:'Nastav parametry hromadné'};
   alert('„'+(nazvy[a]||a)+'" — připravujeme v dalším kroku. 🙂');
 }
 
@@ -639,6 +742,29 @@ function init(){
   document.addEventListener('keydown',function(e){if(e.key==='Escape')closeCtx();});
   // Ctrl+X = Sumace označených (jako v Centrále), mimo psací pole
   document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&(e.key==='x'||e.key==='X')&&!/(INPUT|TEXTAREA|SELECT)/.test((e.target.tagName||''))){e.preventDefault();sumSelected();}});
+  // Okno výběru zakázky (čtvereček u pole Zakázka)
+  var _zb=$('d_zakbtn'); if(_zb)_zb.addEventListener('click',openZakPicker);
+  $('zak_fil').addEventListener('input',function(){renderZakList(this.value);});
+  $('zak_fil').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();zakOk();}});
+  $('zak_list').addEventListener('click',function(e){var row=e.target.closest('.zakrow');if(!row)return;
+    ZAKPICK=row.getAttribute('data-c');
+    [].forEach.call($('zak_list').querySelectorAll('.zakrow.on'),function(x){x.classList.remove('on');});
+    row.classList.add('on');});
+  $('zak_list').addEventListener('dblclick',function(e){var row=e.target.closest('.zakrow');if(!row)return;
+    ZAKPICK=row.getAttribute('data-c');zakOk();});
+  $('ovzak').addEventListener('mousedown',function(e){if(e.target===$('ovzak'))closeZak();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovzak').classList.contains('on'))closeZak();});
+  // Ctrl+A = označit vše (po filtru), Ctrl+C = kopírovat označené — mimo psací pole a mimo otevřená okna
+  function _modalOn(){return $('ov').classList.contains('on')||$('ovsum').classList.contains('on')||$('ovzak').classList.contains('on');}
+  document.addEventListener('keydown',function(e){
+    if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')&&!/(INPUT|TEXTAREA|SELECT)/.test((e.target.tagName||''))){
+      if(_modalOn())return; e.preventDefault(); selectAll();}});
+  document.addEventListener('keydown',function(e){
+    if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')&&!/(INPUT|TEXTAREA|SELECT)/.test((e.target.tagName||''))){
+      if(_modalOn())return;
+      var has=false;for(var k in SELSET){if(SELSET[k]){has=true;break;}}
+      if(!has)return;   // nic označeno → nech normální kopírování
+      e.preventDefault(); copyRows();}});
   window.addEventListener('scroll',closeCtx,true);
   load();
 }

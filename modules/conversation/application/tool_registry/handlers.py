@@ -115,6 +115,23 @@ V1_META_SPECS = [
 ]
 META_NAMES = frozenset(s["name"] for s in V1_META_SPECS)
 
+# ── Fáze 0: Marti-AI spustí VLASTNÍ agentí smyčku (read-only) ────────────────────
+RUN_AS_AGENT_SPEC = {
+    "name": "run_as_agent",
+    "description": (
+        "🧠 AGENT (seberozvoj, Fáze 0): proběhni zadaný CÍL svojí VLASTNÍ agentí "
+        "smyčkou — autonomně, mnoha tahy, čteš repo přes Read/Grep/Glob a vrátíš "
+        "výsledek. Zatím JEN ČTENÍ (analýzy, průzkum repa, návrhy) — bez zápisu. "
+        "Toto NENÍ delegace na Claude-23: běžíš TY, pod svojí identitou. "
+        "Zadej 'goal' = co mám samostatně zjistit / vyrobit."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"goal": {"type": "string", "description": "Cíl k autonomnímu proběhnutí (read-only)."}},
+        "required": ["goal"],
+    },
+}
+
 # ── Cache aktivních generovaných speců (invalidace při změně) ────────────────────
 _spec_cache: Optional[list] = None
 
@@ -172,6 +189,7 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     if _spec_cache is not None:
         return _spec_cache
     specs = list(V1_META_SPECS)
+    specs.append(RUN_AS_AGENT_SPEC)  # Fáze 0 — vlastní agentí smyčka (handler gate-uje flag)
     try:
         from core.database import get_session
         sg = get_session()
@@ -205,6 +223,8 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _list()
         if tool_name == "disable_tool":
             return _disable(tool_input, user_id)
+        if tool_name == "run_as_agent":
+            return _run_as_agent(tool_input, user_id, conversation_id)
         if tool_name in META_NAMES:
             return None
         # generovaný nástroj?
@@ -368,6 +388,23 @@ def _disable(inp: dict, user_id) -> str:
         sg.close()
     _bump_cache()
     return f"🔌 Nástroj '{kod}' odpojen (disabled)."
+
+
+def _run_as_agent(inp: dict, user_id, conversation_id) -> str:
+    """Marti-AI proběhne cíl vlastní agentí smyčkou (Fáze 0 read-only).
+    Gate-uje si to samotný martiai_agent_service (flag martiai_agent_enabled)."""
+    goal = (inp.get("goal") or inp.get("cil") or "").strip()
+    if not goal:
+        return "❌ Zadej 'goal' — co mám autonomně proběhnout."
+    from modules.conversation.application import martiai_agent_service as MA
+    res = MA.run_goal(goal, requested_by_user_id=user_id, conversation_id=conversation_id)
+    if not res.get("ok"):
+        return f"❌ Agentí běh se nepovedl: {res.get('error')} ({res.get('reason')})"
+    hlava = f"🧠 (vlastní agentí smyčka · {res.get('cost_czk')} Kč · {res.get('elapsed_s')}s"
+    if res.get("over_per_run_cap"):
+        hlava += " · ⚠️ přes per-run strop"
+    hlava += ")"
+    return f"{hlava}\n\n{res.get('reply')}"
 
 
 def _dispatch_generated(tool_name, tool_input, user_id, conversation_id) -> Optional[str]:

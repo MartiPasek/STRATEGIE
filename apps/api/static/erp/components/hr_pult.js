@@ -12,7 +12,6 @@
     { ic: "🎂", t: "Narozeniny a výročí", d: "Blížící se narozeniny a výročí nástupu.", st: "live" },
     { ic: "🆕", t: "Noví + budoucí nástupy", d: "Kdo nastoupil za poslední rok a kdo teprve nastoupí.", st: "live" },
     { ic: "🧲", t: "Výběrová řízení", d: "Běžící nábor, editace, publikace (Teamio).", st: "live", go: "/recruit" },
-    { ic: "👥", t: "Zaměstnanci", d: "Přehled lidí → karta 360°.", st: "soon" },
     { ic: "🔔", t: "Notifikace", d: "Konce smluv, prohlídky, propadající školení.", st: "soon" },
     { ic: "✅", t: "Úkoly", d: "HR úkoly z jednoho místa.", st: "soon" },
     { ic: "🗓️", t: "Kalendář", d: "Události + import z Outlooku (na konec).", st: "soon" }

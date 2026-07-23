@@ -162,21 +162,25 @@ async def _run(goal: str, conversation_id: Optional[int]) -> dict:
         os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = tok
 
     cli = _find_cli()
-    if cli:
-        _d = os.path.dirname(cli)
-        if _d and _d not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = _d + os.pathsep + os.environ.get("PATH", "")
-    diag = (f"cli={cli!r} exists={bool(cli and os.path.exists(cli))} "
-            f"token={bool(os.environ.get('CLAUDE_CODE_OAUTH_TOKEN'))} whoami={os.environ.get('USERNAME')} "
-            f"userprofile={os.environ.get('USERPROFILE')!r}")
+    # env pro CLI subproces: token = předplatné; odeber ANTHROPIC_API_KEY, ať nejede metered
+    sub_env = {k: v for k, v in os.environ.items()}
+    if tok:
+        sub_env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+    sub_env.pop("ANTHROPIC_API_KEY", None)
+    diag = (f"cli={cli!r} exists={bool(cli and os.path.exists(cli))} token={bool(tok)} "
+            f"whoami={os.environ.get('USERNAME')}")
     sp = _her_system_prompt(conversation_id)
     system = (sp + AGENT_NOTE) if sp else AGENT_NOTE.strip()
 
-    kwargs = {"model": DEFAULT_MODEL, "cwd": REPO_ROOT,
-              "allowed_tools": READONLY_TOOLS, "system_prompt": system}
-    if cli:
-        kwargs["cli_path"] = cli
-    options = _build_options(ClaudeAgentOptions, kwargs)
+    # POSTAVENO NAPŘÍMO (jako fungující interaktivní test) — žádný filtr, ať cli_path projde
+    options = ClaudeAgentOptions(
+        model=DEFAULT_MODEL,
+        cwd=REPO_ROOT,
+        allowed_tools=READONLY_TOOLS,
+        system_prompt=system,
+        cli_path=cli,
+        env=sub_env,
+    )
 
     messages = []
     try:

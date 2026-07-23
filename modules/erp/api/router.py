@@ -9747,6 +9747,50 @@ def _hr_generuj_ukoly(s):
             "Na konci kvartálu (%s) poslat Dušanovi výrobní směrnice. Opakuje se každý kvartál." % _d(qend))
 
 
+def _hr_auto_narozeniny(s):
+    """Automaticky odešle narozeninové přání každému aktivnímu zaměstnanci, který má DNES
+    narozeniny a nemá pro dnešek 'sent'/'skipped' (Šárka 23.7.2026). Přeskočit v panelu = stopka.
+    Stejný kanál jako ruční Odeslat (přání z persony). Idempotentní, best-effort po osobě."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    ev = _dt.date.today().isoformat()
+    rows = s.execute(_t(
+        "WITH eng AS (SELECT ae.user_id FROM tenant.engagement e"
+        "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+        "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
+        "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)),"
+        " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
+        "   max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
+        " SELECT n.user_id, n.jmeno FROM nm n JOIN eng ON eng.user_id=n.user_id"
+        " WHERE n.birth IS NOT NULL"
+        "   AND extract(month from n.birth)=extract(month from current_date)"
+        "   AND extract(day from n.birth)=extract(day from current_date)"
+        "   AND NOT EXISTS (SELECT 1 FROM tenant.hr_gratulace g WHERE g.tenant_id=2 AND g.typ='narozeniny'"
+        "     AND g.user_id=n.user_id AND g.event_date=:d AND g.stav IN ('sent','skipped'))"),
+        {"d": ev}).fetchall()
+    for user_id, jmeno in rows:
+        jm = (jmeno or "").strip()
+        try:
+            em = _self_owner_email(s, user_id)
+            if not em:
+                continue
+            from modules.notifications.application.email_service import send_email_or_raise
+            send_email_or_raise(to=em, subject="🎂 Všechno nejlepší k narozeninám!",
+                                body=_bday_html(jm), persona_id=1, from_identity="persona",
+                                html_body=True, inline_images=[(_bday_banner_path(), "narozeniny_banner")])
+            s.execute(_t(
+                "INSERT INTO tenant.hr_gratulace (tenant_id,typ,user_id,jmeno,event_date,roky,stav,kanal,rozhodl_uid,rozhodnuto_at,poznamka)"
+                " VALUES (2,'narozeniny',:u,:jm,:d,0,'sent','email',2,now(),'automaticky')"
+                " ON CONFLICT (tenant_id,typ,user_id,event_date) DO UPDATE SET stav='sent',kanal='email',rozhodnuto_at=now(),poznamka='automaticky'"),
+                {"u": user_id, "jm": jm[:200], "d": ev})
+            s.commit()
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.
@@ -9774,6 +9818,14 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         try:
             _hr_generuj_ukoly(s)
             s.commit()
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+        # Auto-odeslání narozeninových přání (v den narozenin, Přeskočit = stopka) — best-effort.
+        try:
+            _hr_auto_narozeniny(s)
         except Exception:
             try:
                 s.rollback()
@@ -9836,18 +9888,15 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
                     _vtext += " — odměna +1 den dovolené 🏖️"
                 akt.append({"typ": "milnik", "ikona": "🏆", "text": _vtext})
                 continue
+            # Šárka 23.7.2026: konec zkušebky i prodloužení smlouvy jsou ÚKOLY (auto-generátor),
+            # ne aktuality → do feedu nepatří. Výběrová řízení mají vlastní sloupec.
+            if typ in ("zkusebka", "prodlouzeni"):
+                continue
             if typ == "novy":
                 txt = "%s nastoupil(a) %s%s" % (jm, _cz(dat), (" jako " + info) if info else "")
-            elif typ == "zkusebka":
-                txt = "%s — končí zkušební doba %s" % (jm, _cz(dat))
-            elif typ == "prodlouzeni":
-                txt = "%s — řešit prodloužení smlouvy (do %s)" % (jm, _cz(dat))
             else:
                 txt = jm
             akt.append({"typ": typ, "ikona": IK.get(typ, "•"), "text": txt})
-        for title, pos, do, dv in vyb:
-            akt.insert(0, {"typ": "vyberka", "ikona": "🧲",
-                           "text": "Výběrové řízení: %s — běží od %s%s" % (title or pos or "?", _cz(do), (" do " + _cz(dv)) if dv else "")})
         # Vlastní stálé aktuality (Šárka 8.7.2026) — dokud nebude editovatelný seznam z UI.
         akt.append({"typ": "info", "ikona": "🎓",
                     "text": "Praxe studenta SOUE — Marek Horník (od 7. 9. 2026, liché týdny)"})
@@ -9855,11 +9904,7 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         if today <= _dt.date(2026, 12, 18):
             akt.append({"typ": "info", "ikona": "🎄",
                         "text": "18. 12. 2026 — vánoční večírek v Srdcovce (jako loni)"})
-        # Poslední doběhlé VŘ, když teď žádné neběží (Šárka 23.7.2026).
-        if not vyb and posl_vr:
-            akt.append({"typ": "vyberka_konec", "ikona": "🧲",
-                        "text": "Poslední výběrové řízení: %s — ukončeno %s" % (
-                            (posl_vr[0] or posl_vr[1] or "?"), _cz(posl_vr[2]))})
+        # (Výběrová řízení — běžící i poslední doběhlé — mají vlastní sloupec, do aktualit nedáváme.)
         # Výročí firmy — EUROSOFT založen 29. 8. 2006 (Šárka 20.7.2026). Počítá se samo,
         # kulaté výročí (násobek 10) dostane 🏆 a řadí se nahoru.
         _zal = _dt.date(2006, 8, 29)

@@ -58,9 +58,13 @@ V1_META_SPECS = [
         "description": (
             "🛠️ SEBEROZVOJ: navrhni SVŮJ NOVÝ nástroj. Zadej kod (^[a-z][a-z0-9_]+$), "
             "nazev, popis, parametry (JSON schema vstupu) a kod_python = TĚLO funkce "
-            "run(args, ctx) (můžeš použít need(args,'x') a ok(text)). Nástroj se hned "
-            "otestuje v sandboxu nad test_cases; když projde, podá se rodiči ke schválení "
-            "(sama ho neaktivuješ). Po schválení ho budeš moct rovnou používat."
+            "run(args, ctx). K dispozici máš: need(args,'x') (povinný argument), ok(text) "
+            "(návratová hodnota) a pro ČTENÍ Z DATABÁZE ctx.fetch('SELECT ... WHERE x=:x', "
+            "{'x': hodnota}) → vrací list dictů (parametry přes :bind, NE string concat). "
+            "Užitečné tabulky (data DB): conversations(audit_status['pending'|'audited'|"
+            "'excluded'], audited_at, last_message_at, tenant_id, title), messages, memories. "
+            "Nástroj se hned otestuje v sandboxu nad test_cases; když projde, podá se rodiči "
+            "ke schválení (sama ho neaktivuješ). Po schválení ho budeš moct rovnou používat."
         ),
         "input_schema": {
             "type": "object",
@@ -226,11 +230,11 @@ def _create(inp: dict, user_id) -> str:
     test_cases = inp.get("test_cases") or []
     spec = {"name": kod, "description": popis, "input_schema": parametry}
 
-    # self-test dostane DB přístup (ctx.fetch), ať se otestuje i nástroj co čte data
+    # self-test dostane DB přístup (ctx.fetch → data DB), ať se otestuje i nástroj co čte data
     from tool_registry._common import ToolContext as _TC
-    from core.database import get_session as _gs_test
+    from core.database_data import get_data_session as _gds_test
     res = RT.selftest(kod, spec, code_body, test_cases,
-                      ctx=_TC(entita_id=MARTI_AI_ENTITA_ID, db_session_factory=_gs_test))
+                      ctx=_TC(entita_id=MARTI_AI_ENTITA_ID, db_session_factory=_gds_test))
     if not res.ok:
         return (f"❌ Self-test nástroje '{kod}' NEPROŠEL — nic jsem neuložila.\n"
                 f"{json.dumps(res.to_dict(), ensure_ascii=False)[:600]}")
@@ -384,6 +388,7 @@ def _dispatch_generated(tool_name, tool_input, user_id, conversation_id) -> Opti
     spec = payload.get("spec"); code = payload.get("code")
     if spec and code is not None:
         _ensure_generated_file(tool_name, spec, code)
+    from core.database_data import get_data_session as _gds
     ctx = ToolContext(user_id=user_id, conversation_id=conversation_id,
-                      entita_id=MARTI_AI_ENTITA_ID, db_session_factory=get_session)
+                      entita_id=MARTI_AI_ENTITA_ID, db_session_factory=_gds)
     return RT.execute(tool_name, tool_input, ctx)

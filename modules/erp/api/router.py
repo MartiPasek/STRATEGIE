@@ -9226,6 +9226,8 @@ async def app_hr_person_work(req: Request):
                 return None
             f = float(x)
             return int(f) if f == int(f) else round(f, 2)
+        # číselník středisek (Šárka 23.7.): kód → název; neznámý kód se ukáže jako je
+        _STR = {"001": "Výroba", "002": "Automatizace"}
         pomery = []
         for r in rows:
             uv = _num(r[7])                       # úvazek h/týden
@@ -9245,7 +9247,7 @@ async def app_hr_person_work(req: Request):
                 "hodinovka": bool(r[15]),
                 "doba": ("neurčitá" if not r[5] else "určitá"),
                 "velikost": ("" if velikost is None else str(velikost).replace(".", ",")),
-                "stredisko": (r[16] or ""),
+                "stredisko": (_STR.get(r[16], r[16]) if r[16] else ""),
             })
         # historie změn (SCD2 – všechny verze poměru, i staré)
         hrows = s.execute(_t(

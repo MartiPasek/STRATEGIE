@@ -15,6 +15,15 @@
   .pgh1{font-size:18px;font-weight:700;margin:2px 0 2px}
   .pgsub{color:#9fb0c8;font-size:12px;margin:0 0 10px}
   .jnote{background:rgba(201,154,74,.12);border:1px solid #7a5a1f;color:#e6c67f;border-radius:6px;padding:6px 10px;font-size:11.5px;margin:0 0 8px}
+  /* Kontextové menu (pravý klik na řádek) */
+  .ctxm{position:fixed;z-index:300;background:#1c2636;border:1px solid #2a3546;border-radius:8px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.55);font-size:13px;min-width:210px;display:none}
+  .ctxm.on{display:block}
+  .ctxm .it{padding:7px 12px;border-radius:5px;cursor:pointer;color:#e8edf6;display:flex;justify-content:space-between;gap:20px;white-space:nowrap}
+  .ctxm .it:hover{background:#2563eb;color:#fff}
+  .ctxm .it .k{color:#8fa3bd;font-size:11px}
+  .ctxm .it:hover .k{color:#dbe6ff}
+  .ctxm .it.soon{opacity:.6}
+  .ctxm .sep{height:1px;background:#2a3546;margin:4px 2px}
   .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
   .chips{display:flex;gap:6px}
   .rangelbl{font-weight:600;font-size:14px;color:#e8edf6}
@@ -103,7 +112,7 @@
     <button class="chip" data-o="budoucnost">⏭ Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
-  <button class="chip sumbtn" id="sumBtn" title="Sečíst hodnoty označených řádků po měsících a lidech">Σ Sumace označených</button>
+  <span class="muted" style="font-size:11.5px" title="Pravým klikem na řádek otevřeš menu s akcemi">🖱 pravý klik na řádek = menu (Nový, Smazat, Excel, Sumace, …)</span>
 </div>
 <div class="jnote">⚠ <b>Červen 2026 je přechodový měsíc</b> (lidé přecházeli z Centrály do aplikace v různý čas) — hodnoty za červen ber s rezervou. Leden–květen = z Centrály, červenec dál = z aplikace.</div>
 <div id="msg"></div>
@@ -160,6 +169,18 @@
       <div class="r"><button class="b-cn" onclick="closeSum()">Zavřít</button></div>
     </div>
   </div>
+</div>
+
+<!-- Kontextové menu na pravý klik nad řádkem (pořadí jako v Centrále). -->
+<div class="ctxm" id="ctxm">
+  <div class="it" data-a="novy">➕ Nový</div>
+  <div class="it" data-a="smazat">🗑 Smazat</div>
+  <div class="it" data-a="excel">📊 Excel (export / kopírovat)</div>
+  <div class="sep"></div>
+  <div class="it" data-a="sumace">Σ Sumace označených <span class="k">Ctrl+X</span></div>
+  <div class="it" data-a="params">⚙ Nastav parametry hromadné</div>
+  <div class="sep"></div>
+  <div class="it" data-a="tisk">🖨 Tisk</div>
 </div>
 
 <script>
@@ -468,6 +489,19 @@ function sumSelected(){
 function closeSum(){ $('ovsum').classList.remove('on'); }
 function copySum(){ if(window.__sumText){ try{ navigator.clipboard.writeText(window.__sumText); }catch(e){} } }
 
+/* ── Kontextové menu (pravý klik na řádek) ───────────────────────────── */
+var CTX_ROW=null;
+function openCtx(x,y,i){var m=$('ctxm');CTX_ROW=i;m.classList.add('on');
+  var w=m.offsetWidth||210,h=m.offsetHeight||220;
+  m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';
+  m.style.top=Math.max(6,Math.min(y,window.innerHeight-h-6))+'px';}
+function closeCtx(){$('ctxm').classList.remove('on');}
+function ctxAction(a){
+  if(a==='sumace'){sumSelected();return;}
+  var nazvy={novy:'Nový',smazat:'Smazat',excel:'Excel (export/kopírovat)',params:'Nastav parametry hromadné',tisk:'Tisk'};
+  alert('„'+(nazvy[a]||a)+'" — připravujeme v dalším kroku. 🙂');
+}
+
 function init(){
   hlavicka();
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
@@ -511,10 +545,21 @@ function init(){
   ['d_od_d','d_od_t','d_kon_d','d_kon_t'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',recalcH);});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ov').classList.contains('on'))closeEdit();});
   $('ov').addEventListener('mousedown',function(e){if(e.target===$('ov'))closeEdit();});
-  // Sumace označených
-  $('sumBtn').addEventListener('click',sumSelected);
+  // Sumace + zavírání okna
   $('ovsum').addEventListener('mousedown',function(e){if(e.target===$('ovsum'))closeSum();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovsum').classList.contains('on'))closeSum();});
+  // Kontextové menu (pravý klik na řádek)
+  $('tab').getElementsByTagName('tbody')[0].addEventListener('contextmenu',function(e){
+    var tr=e.target.closest('tr[data-i]');if(!tr)return; e.preventDefault();
+    var i=parseInt(tr.getAttribute('data-i'),10);
+    var old=CUR; CUR=i; if(old!=null)paintRow(old); paintRow(i);  // pravý klik = aktuální řádek (▶), označení nechá
+    openCtx(e.clientX,e.clientY,i);});
+  $('ctxm').addEventListener('click',function(e){var it=e.target.closest('.it');if(!it)return;closeCtx();ctxAction(it.getAttribute('data-a'));});
+  document.addEventListener('click',function(e){if(!$('ctxm').contains(e.target))closeCtx();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeCtx();});
+  // Ctrl+X = Sumace označených (jako v Centrále), mimo psací pole
+  document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&(e.key==='x'||e.key==='X')&&!/(INPUT|TEXTAREA|SELECT)/.test((e.target.tagName||''))){e.preventDefault();sumSelected();}});
+  window.addEventListener('scroll',closeCtx,true);
   load();
 }
 // Nejdřív načti sdílené základní šířky ze serveru, pak postav tabulku

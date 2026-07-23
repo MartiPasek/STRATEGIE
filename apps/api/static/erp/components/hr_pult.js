@@ -362,12 +362,16 @@
       '.hrp-blocks .hrp-mic{flex:0 0 26px;height:26px;border-radius:7px;font-size:13px;}' +
       '.hrp-blocks .hrp-mnm{font-size:12.5px;}' +
       '.hrp-blocks .hrp-mdv{font-size:11px;}' +
-      '.hrp-blocks .hrp-jrow{gap:8px;padding:8px 8px;}' +
+      // Úzký sloupec: ikona + text nahoře, akční tlačítka na vlastní řádek pod nimi
+      // (využití volného prostoru + menší tlačítka; Šárka 23.7.2026).
+      '.hrp-blocks .hrp-jrow{gap:8px;padding:8px 9px;flex-wrap:wrap;align-items:flex-start;}' +
       '.hrp-blocks .hrp-jic{flex:0 0 28px;height:28px;font-size:15px;}' +
+      '.hrp-blocks .hrp-jbd{flex:1 1 auto;min-width:0;}' +
       '.hrp-blocks .hrp-jnm{font-size:12.5px;gap:5px;}' +
       '.hrp-blocks .hrp-jsub{font-size:11px;}' +
-      '.hrp-blocks .hrp-jact{gap:4px;}' +
-      '.hrp-blocks .hrp-abtn{font-size:11px;padding:4px 7px;}' +
+      '.hrp-blocks .hrp-jact{flex:1 1 100%;justify-content:flex-start;gap:5px;margin-top:5px;padding-left:36px;}' +
+      '.hrp-blocks .hrp-abtn{font-size:10.5px;padding:3px 8px;border-radius:7px;}' +
+      '.hrp-blocks .hrp-soon{font-size:10px;}' +
       '.hrp-blocks .hrp-j-major .hrp-jnm{font-size:13px;}' +
       '.hrp-blocks .hrp-cnt{font-size:11.5px;}' +
       '.hrp-blocks .hrp-jhint{display:none;}' +

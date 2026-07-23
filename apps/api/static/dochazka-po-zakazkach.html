@@ -219,7 +219,8 @@ function $(i){return document.getElementById(i);}
 /* Sloupce = přesně jak je vrací přehled (aliasy). h = nadpis (necháváme jak je),
    w = VÝCHOZÍ šířka, r = doprava (čísla), c = na střed, s = odznak zdroje,
    num = filtr bere čárku i tečku. */
-var COLS=[
+// Sloupce docházky (Poslední 2 měsíce / Vše) — výroba po zakázkách + rezie + absence po dnech.
+var COLS_DEF=[
  {k:'PraceAktivni',h:'PraceAktivni',w:34,c:1},
  {k:'CisloZakazky',h:'CisloZakazky',w:92,cls:'zak'},
  {k:'JmenoPrijmeni',h:'JmenoPrijmeni',w:150},
@@ -240,6 +241,23 @@ var COLS=[
  {k:'Rok',h:'Rok',w:52,r:1,num:1,exact:1},
  {k:'Mesic',h:'Mesic',w:50,r:1,num:1,exact:1}
 ];
+// Sloupce Naplánované budoucnosti (styl C „Správa docházky") — jeden řádek = člověk+druh+období.
+var COLS_BUD=[
+ {k:'Schvaleno',h:'S',ht:'Schváleno',w:28,c:1},
+ {k:'CisloZam',h:'Číslo',w:56,r:1,num:1,exact:1},
+ {k:'JmenoPrijmeni',h:'Příjmení Jméno',w:170},
+ {k:'Druh',h:'Druh',w:150},
+ {k:'DatumOd',h:'Od',w:96,date:1},
+ {k:'DatumDo',h:'Do',w:96,date:1},
+ {k:'PocetDni',h:'Dní',w:52,r:1,num:1},
+ {k:'Autor',h:'Autor',w:120},
+ {k:'DatPorizeni',h:'Pořízeno',w:96,date:1},
+ {k:'ZamPoznamka',h:'Zam. poznámka',w:200},
+ {k:'VedPoznamka',h:'Ved. poznámka',w:160},
+ {k:'Smlouva',h:'Smlouva',w:70,c:1}
+];
+var COLS=COLS_DEF;
+function setCols(){COLS=(OBD==='budoucnost')?COLS_BUD:COLS_DEF;}
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
 var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
 // Šířky: SRVW = SDÍLENÉ základní ze serveru (pro všechny). Osobní tažení je JEDNORÁZOVÉ
@@ -296,7 +314,7 @@ function hlavicka(){
   var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
     cg+='<col style="width:'+(MEW[c.k]||SRVW[c.k]||c.w)+'px">';
-    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.h)+'">'+esc(c.h)
+    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.ht||c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     if(c.date) f+='<td><input data-k="'+c.k+'" data-date="1" readonly placeholder="datum…" title="Filtr podle data — rozsah OD–DO nebo jeden den" style="cursor:pointer"></td>';
     else f+='<td><input data-k="'+c.k+'"></td>';
@@ -313,6 +331,7 @@ function hlavicka(){
   var hh=(hrow&&hrow.offsetHeight)?hrow.offsetHeight:25;
   // -1px = filtr se o pixel překrývá s hlavičkou → při rolování neprosvítá mezera
   [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=(hh-1)+'px';});
+  if(!th._wired){th._wired=true;  // navěsit jen jednou (thead přežívá překreslení při přepnutí sady sloupců)
   th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
     if(e.target.getAttribute('data-date'))return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
@@ -338,6 +357,7 @@ function hlavicka(){
     if(!e.target.classList.contains('dgrip'))return;
     var i=parseInt(e.target.getAttribute('data-i'),10);cols()[i+1].style.width=COLS[i].w+'px';applyW();
     delete MEW[COLS[i].k];saveMine();});  // dvojklik = zpět na výchozí (i v uložených osobních)
+  }
 }
 
 function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
@@ -462,6 +482,7 @@ function recalcH(){
     $('d_hod').value=isNaN(h)?'':(Math.round(h*100)/100).toFixed(2);}
 }
 function openNew(i){
+  if(OBD==='budoucnost')return;  // budoucnost: zadávání připravujeme v dalším kroku
   // Nový záznam pro osobu z řádku, na kterém stojíš (jako v Centrále).
   var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=true;
   $('d_id').textContent='· nový'; $('d_idnum').value='(nový)';
@@ -480,6 +501,7 @@ function openNew(i){
   $('ov').classList.add('on');
 }
 function openEdit(i){
+  if(OBD==='budoucnost')return;  // budoucnost: úpravy připravujeme v dalším kroku
   var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=false;
   // Režim: W = práce na zakázce (naše přímé uložení). FIX = docházka z aplikace
   // (přítomnost/Rezie) → oprava se ukládá přes engine „Opravy docházky" (audit, mzdy,
@@ -685,6 +707,11 @@ function ctxAction(a){
 }
 
 function init(){
+  // OBD z URL nejdřív, ať hlavička hned postaví správnou sadu sloupců (docházka vs. budoucnost)
+  try{var _pi=new URLSearchParams(location.search).get('obdobi');
+    if(_pi==='budoucnost'||_pi==='vse'||_pi==='all')OBD=_pi;
+  }catch(_e){}
+  setCols();
   hlavicka();
   loadZak();  // seznam zakázek pro našeptávač
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
@@ -697,7 +724,7 @@ function init(){
   $('tabs').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     var o=b.getAttribute('data-o'); if(o===OBD)return;
     [].forEach.call($('tabs').children,function(x){x.classList.remove('on');});b.classList.add('on');
-    OBD=o;load();});
+    OBD=o;setCols();hlavicka();load();});
   // dokreslování po částech při scrollu ke spodku
   var _tw=document.querySelector('.tw');
   if(_tw)_tw.addEventListener('scroll',function(){if(_tw.scrollTop+_tw.clientHeight>_tw.scrollHeight-500)appendChunk();});

@@ -52,6 +52,11 @@
       '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
+      // 2b) Noví + budoucí nástupy (živě z Centrály, Šárka 23.7.2026)
+      '  <div class="hrp-panel">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">🆕</span> Noví a budoucí nástupy <span class="hrp-cnt" id="hrpNoviCnt"></span><span class="hrp-jhint">12 měsíců</span></div>' +
+      '    <div id="hrpNoviList"><div class="hrp-empty">Načítám…</div></div>' +
+      '  </div>' +
       // 3) Aktuality
       '  <div class="hrp-panel hrp-feed">' +
       '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
@@ -67,6 +72,7 @@
     renderTiles(el.querySelector("#hrpGrid"));
     loadMimoPanel(el);
     loadJubilea(el);
+    loadNovi(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -80,7 +86,7 @@
         bEl.innerHTML =
           badge(b.mimo, "Mimo kancelář dnes", "mimo") +
           badge(b.naroz, "Narozeniny / výročí (7 dní)") +
-          badge(b.novi, "Noví (do roka)") +
+          badge(b.novi, "Noví + budoucí nástupy", null, "hrpBadgeNovi") +
           badge(b.vyberka, "Běžící výběrová řízení");
         var _mb = bEl.querySelector('[data-act="mimo"]');
         if (_mb) { _mb.onclick = openMimo; }
@@ -115,9 +121,9 @@
     });
   }
 
-  function badge(n, l, act) {
+  function badge(n, l, act, id) {
     return '<div class="hrp-badge' + (act ? ' click' : '') + '"' +
-      (act ? ' data-act="' + act + '"' : '') + '><div class="hrp-n">' + (n == null ? "0" : n) +
+      (act ? ' data-act="' + act + '"' : '') + '><div class="hrp-n"' + (id ? ' id="' + id + '"' : '') + '>' + (n == null ? "0" : n) +
       '</div><div class="hrp-l">' + esc(l) + '</div><div class="hrp-bar"></div></div>';
   }
 
@@ -148,6 +154,36 @@
           list.innerHTML = '<div class="hrp-empty">Dnes jsou všichni v kanceláři. 🎉</div>'; return;
         }
         list.innerHTML = mimoRowsHtml(d.lide);
+      })
+      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+  }
+
+  // Panel „Noví a budoucí nástupy" — živě z Centrály (Šárka 23.7.2026). Zahrnuje i
+  // ještě nenastoupivší (příznak budouci) — kvůli přehledu, koho čekáme.
+  function loadNovi(root) {
+    var list = root.querySelector("#hrpNoviList");
+    var cnt = root.querySelector("#hrpNoviCnt");
+    if (!list) return;
+    fetch("/api/v1/erp/app/hr/novi", { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          list.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>'; return;
+        }
+        var novi = d.novi || [];
+        if (cnt) { cnt.textContent = "(" + novi.length + ")"; }
+        var nb = document.getElementById("hrpBadgeNovi");
+        if (nb) { nb.textContent = novi.length; }
+        if (!novi.length) {
+          list.innerHTML = '<div class="hrp-empty">Za posledních 12 měsíců žádný nový nástup.</div>'; return;
+        }
+        list.innerHTML = novi.map(function (p) {
+          var chip = p.budouci ? '<span class="hrp-chip nastup">nastoupí</span>' : '';
+          var ty = p.typ ? '<span class="hrp-ntyp">' + esc(p.typ) + '</span>' : '';
+          return '<div class="hrp-mrow"><span class="hrp-mic">' + (p.budouci ? '🔜' : '🆕') + '</span>' +
+            '<div><div class="hrp-mnm">' + esc(p.jmeno) + ' ' + chip + '</div>' +
+            '<div class="hrp-mdv">' + ty + ' nástup ' + esc(p.nastup || '—') + '</div></div></div>';
+        }).join("");
       })
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
@@ -290,7 +326,9 @@
       '.hrp-wrap{max-width:1180px;margin:0 auto;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
       '.hrp-blocks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;margin-bottom:12px;}' +
       '.hrp-blocks .hrp-panel{margin:0;}' +
-      '#hrpMimoList,#hrpJubList,#hrpAkt{max-height:224px;overflow:auto;}' +
+      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList{max-height:224px;overflow:auto;}' +
+      '.hrp-ntyp{display:inline-block;font-size:10.5px;font-weight:700;padding:0 7px;border-radius:20px;background:#1f2a37;color:#aac8ec;margin-right:5px;}' +
+      '.hrp-chip.nastup{background:#241d0c;color:#e0a400;}' +
       '.hrp-badges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}' +
       '.hrp-badge{background:#161c24;border:1px solid #233040;border-radius:12px;padding:9px 13px;}' +
       '.hrp-n{font-size:22px;font-weight:800;color:#e8eef5;line-height:1;}' +

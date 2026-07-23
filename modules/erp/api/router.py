@@ -9709,6 +9709,11 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
             "SELECT title, position_text, date_open, date_valid_to FROM tenant.recruit_posting"
             " WHERE tenant_id=2 AND COALESCE(published,false)=true AND date_open<=current_date"
             " AND (date_valid_to IS NULL OR date_valid_to>=current_date) ORDER BY date_open DESC")).fetchall()
+        # Poslední doběhlé VŘ (když žádné neběží) — Šárka 23.7.2026.
+        posl_vr = s.execute(_t(
+            "SELECT title, position_text, date_valid_to FROM tenant.recruit_posting"
+            " WHERE tenant_id=2 AND date_valid_to IS NOT NULL AND date_valid_to < current_date"
+            " ORDER BY date_valid_to DESC LIMIT 1")).first()
         akt_rows = s.execute(_t(
             "WITH eng AS (SELECT ae.user_id, e.smlouva_od, e.zkusebni_do, e.smlouva_do, e.pozice_text"
             "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
@@ -9753,6 +9758,11 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         if today <= _dt.date(2026, 12, 18):
             akt.append({"typ": "info", "ikona": "🎄",
                         "text": "18. 12. 2026 — vánoční večírek v Srdcovce (jako loni)"})
+        # Poslední doběhlé VŘ, když teď žádné neběží (Šárka 23.7.2026).
+        if not vyb and posl_vr:
+            akt.append({"typ": "vyberka_konec", "ikona": "🧲",
+                        "text": "Poslední výběrové řízení: %s — ukončeno %s" % (
+                            (posl_vr[0] or posl_vr[1] or "?"), _cz(posl_vr[2]))})
         # Výročí firmy — EUROSOFT založen 29. 8. 2006 (Šárka 20.7.2026). Počítá se samo,
         # kulaté výročí (násobek 10) dostane 🏆 a řadí se nahoru.
         _zal = _dt.date(2006, 8, 29)
@@ -9777,6 +9787,69 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/novi")
+async def app_hr_novi(req: Request) -> JSONResponse:
+    """Noví zaměstnanci — ŽIVĚ z Centrály (pravda). Nástupy za posledních 12 měsíců
+    + budoucí nástupy (Šárka 23.7.2026). Zdroj TabCisZam_EXT._DatumNastupu; jen aktivní.
+    Vrací i příznak budouci=true pro ještě nenastoupivší (aktuality)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        cm.__exit__(None, None, None)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_novi
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "Centrála (MCP) nedostupná"}, status_code=503)
+
+    def _rows(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_novi.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    sql = (
+        "SELECT RTRIM(z.Prijmeni) AS prijmeni, RTRIM(z.Jmeno) AS jmeno,"
+        " CASE WHEN e._HPP=1 THEN 'HPP' WHEN e._DPP=1 THEN 'DPP' WHEN e._OSVC=1 THEN 'OSVČ' ELSE '' END AS typ,"
+        " CONVERT(varchar(10), e._DatumNastupu, 23) AS nastup"
+        " FROM dbo.TabCisZam z LEFT JOIN dbo.TabCisZam_EXT e ON e.ID = z.ID"
+        " WHERE e._DatumNastupu >= DATEADD(month, -12, GETDATE())"
+        "   AND (e._neaktivni IS NULL OR e._neaktivni = 0)"
+        "   AND (z.VyraditZPrehledu IS NULL OR z.VyraditZPrehledu = 0)"
+        "   AND RTRIM(ISNULL(z.Prijmeni,'')) <> ''"
+        " ORDER BY e._DatumNastupu DESC")
+    try:
+        rows = _rows(sql)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Centrála: " + str(exc)[:180]}, status_code=502)
+    import datetime as _dtn
+    today = _dtn.date.today()
+    out = []
+    for r in rows:
+        d = {(k or "").lower(): v for k, v in r.items()}
+        nast = (d.get("nastup") or "")[:10]
+        try:
+            budouci = _dtn.date.fromisoformat(nast) > today if nast else False
+        except Exception:
+            budouci = False
+        jm = ((d.get("jmeno") or "").strip() + " " + (d.get("prijmeni") or "").strip()).strip()
+        out.append({"jmeno": jm or (d.get("prijmeni") or "").strip(),
+                    "typ": (d.get("typ") or "").strip(), "nastup": nast, "budouci": budouci})
+    return JSONResponse({"ok": True, "novi": out, "pocet": len(out),
+                         "budoucich": sum(1 for x in out if x["budouci"])})
 
 
 @api_router.get("/app/hr/mimo")

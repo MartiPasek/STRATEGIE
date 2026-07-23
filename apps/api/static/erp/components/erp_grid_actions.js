@@ -1008,6 +1008,42 @@
           return _osloveniDialog(ids, ctx.refreshFn);
         },
       },
+      // Fronta osloveni (Kristy 23.7.2026): pravy klik na radek fronty ->
+      // dialog (nahled prijemcu + sablona + "Odeslat na ostro" /crm/osloveni/send).
+      // Gate v page_render.js (jen crm_fronta_osloveni / core 208). Multi-row.
+      crm_odeslat: {
+        key: "crm_odeslat",
+        icon: "\uD83D\uDCE4",
+        label: "Odeslat",
+        hint: "Odeslat osloveni vybranym firmam z fronty (dialog: nahled + sablona + odeslani na ostro)",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          var api = ctx.gridApi;
+          var rows = (api && typeof api.getSelectedRows === "function")
+            ? (api.getSelectedRows() || []) : [];
+          if ((!rows || rows.length === 0) && ctx.rowData) rows = [ctx.rowData];
+          if (!rows || rows.length === 0) {
+            alert("\u26A0 Odeslat: nejprve vyber radek(y) fronty (lze i vice \u2014 Ctrl/Shift + klik).");
+            return Promise.reject(new Error("no_rows"));
+          }
+          function _fid(r) {
+            if (!r) return null;
+            if (r["Firma ID"] != null) return r["Firma ID"];
+            if (r.firma_id != null) return r.firma_id;
+            for (var k in r) { if (String(k).toLowerCase().split(" ").join("").indexOf("firmaid") >= 0) return r[k]; }
+            return null;
+          }
+          var ids = [];
+          rows.forEach(function (r) { var f = _fid(r); if (f != null && f !== "") ids.push(parseInt(f, 10)); });
+          ids = ids.filter(function (x) { return !isNaN(x); });
+          if (ids.length === 0) {
+            alert("\u26A0 Odeslat: ve vybranych radcich nenachazim Firma ID.");
+            return Promise.reject(new Error("no_fid"));
+          }
+          return _osloveniDialog(ids, ctx.refreshFn);
+        },
+      },
       // Tracking otevření (Kristy 9.7.2026): na přehledu Aktivity obchodníka
       // (core 124) vyber e-mailové akce -> stav odeslání + otevření z pixelu.
       // Gate v page_render.js (jen crm_aktivity_obchodnik). Multi-row přes ctx.rowIds.

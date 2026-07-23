@@ -511,6 +511,13 @@
             // pravý klik na kontakt → 📁 Dokumenty → /files?type=kontakt&id=.
             _ctxMenuActions.push("docfiles");
           }
+          // Fronta oslovení (Kristy 23.7.2026): na přehledu Fronta oslovení
+          // (core 208) → pravý klik na řádek → 📤 Odeslat (dialog + ostré odeslání).
+          if (/crm_fronta_osloveni/i.test(_coreCodeForGraph) ||
+              /crm_fronta_osloveni/i.test(String(_gridCodeForActions)) ||
+              String(coreId) === "208") {
+            _ctxMenuActions.push("crm_odeslat");
+          }
           // Tracking otevření (Kristy 9.7.2026): na přehledu Aktivity obchodníka
           // (core 124) → pravý klik na e-mailové akce → 📊 Tracking (stav otevření).
           if (/crm_aktivity_obchodnik/i.test(_coreCodeForGraph) ||

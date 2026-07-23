@@ -6255,6 +6255,7 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
         except Exception:
             _autor_ls = None
         _autor_ls = _autor_ls or "PZeman"
+        _sent_fids = []
         for (fid, firma, rec) in _batch:
             tok = _uuid_ls.uuid4().hex
             pixel = ('<img src="' + _CRM_PUBLIC_BASE + '/crm/track/open/' + tok
@@ -6298,6 +6299,7 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                      "tc": template_code, "by": "uid:%d" % uid})
                 ds.commit()
                 sent += 1
+                _sent_fids.append(fid)
                 try:
                     _crm_zaloz_email_akci(mcp, fid, firma, rec, _autor_ls)
                 except Exception as _ae:
@@ -6309,6 +6311,15 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 except Exception:
                     pass
                 errs.append((firma[:40] + ": " + str(se))[:160])
+        if _sent_fids:
+            try:
+                ds.execute(_sql_ls(
+                    "UPDATE mod.crm_outreach SET status='sent', sent_at=now() "
+                    "WHERE firma_id = ANY(:f) AND status='pending' AND template_code = :tc"),
+                    {"f": _sent_fids, "tc": template_code})
+                ds.commit()
+            except Exception as _qe:
+                logger.warning("[crm_live_send] fronta close fail: %s", str(_qe)[:120])
     finally:
         ds.close()
     logger.info("[crm_live_send] uid=%d sent=%d rich=%s optout=%d noemail=%d tmpl=%s",

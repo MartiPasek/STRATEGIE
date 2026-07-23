@@ -493,12 +493,13 @@ function init(){
     if(_lastClick.i===i && (now-_lastClick.t)<600){_lastClick={i:-1,t:0};openEdit(i);return;}  // dvojklik = otevřít formulář
     _lastClick={i:i,t:now};
     var touched={}, oldCUR=CUR;
+    // Označování JEN na Ctrl/Shift (jako Přijaté faktury). Prostý klik = jen aktuální řádek (▶).
     if(e.shiftKey && CUR!=null){  // Shift+klik = označit úsek CUR..i
       var a=Math.min(CUR,i),b=Math.max(CUR,i);
       for(var x=a;x<=b;x++){SELSET[x]=true;touched[x]=1;}
-    }else{  // klik = přepnout výběr řádku
+    }else if(e.ctrlKey||e.metaKey){  // Ctrl+klik = přepnout výběr jednoho řádku
       if(SELSET[i]){delete SELSET[i];}else{SELSET[i]=true;}
-    }
+    }  // prostý klik → nic neoznačí, jen se posune ▶ (CUR níže)
     CUR=i; touched[i]=1; if(oldCUR!=null)touched[oldCUR]=1;
     for(var k in touched)paintRow(parseInt(k,10));});
   // Záloha: nativní dvojklik (kdyby překreslení nevadilo) — na jistotu

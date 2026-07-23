@@ -113,9 +113,13 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
   značky výběru — **tečka •** u vybraných řádků, **šipka ▶** u řádku, na kterém uživatel naposledy
   stál. (U faktur tuhle roli plní sloupec se zaškrtávátky; šipka ▶ je u aktuálního řádku.)
   Pozor: úzký sloupec potřebuje `padding:0`/`2px 0` na buňkách, jinak se ✕/šipka ořízne.
-- **Výběr řádků myší:** klik na řádek ho označí/odznačí (zvýrazní modře), **Shift+klik** označí celý
-  úsek. U faktur je výběr napojený na stejnou množinu jako zaškrtávátka (pro „Změna návrhu k platbě");
-  u pokladen zatím jen vizuální. Klik do filtru/vstupu řádek NEvybírá (guard `closest('input,select,…')`).
+- **Výběr řádků myší — JEN Ctrl a Shift (Peťa 23.7.2026, závazné, jako Přijaté faktury):**
+  **prostý klik NEOZNAČUJE** — jen posune „aktuální řádek" (šipka ▶). **Ctrl+klik** (Cmd na Macu)
+  přepne označení jednoho řádku (• / modré zvýraznění), **Shift+klik** označí celý úsek od aktuálního
+  řádku. Označení slouží k akcím nad výběrem (např. Sumace označených). U faktur je výběr napojený na
+  zaškrtávátka. Klik do filtru/vstupu řádek NEvybírá (guard `closest('input,select,…')`).
+  **Pravidlo pro všechny přehledy:** označování řádků dělej vždy takhle — prostý klik nikdy neoznačuje,
+  jen Ctrl (jeden) a Shift (úsek).
 - **Filtr čísel bere čárku i tečku:** hodnotu i hledaný text normalizuj (číslo přes `toFixed(2)`,
   pak `replace(/,/g,'.')`), ať „280,02" i „280.02" najde totéž (i „1 597,20"). Pokladny to 21.7.
   ztratily → vráceno; faktury (`_faktMatch`) to mají odjakživa.

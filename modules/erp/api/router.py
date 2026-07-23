@@ -9748,8 +9748,10 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
                 roky = (today.year - dat.year) if dat else 0
                 if roky < 5 or roky % 5 != 0:
                     continue
-                akt.append({"typ": "milnik", "ikona": "🏆",
-                            "text": "%s — %d. výročí nástupu 🎉 (%s)" % (jm, roky, _cz(dat))})
+                _vtext = "%s — %d let ve firmě 🏆 (%s)" % (jm, roky, _cz(dat))
+                if roky == 10:
+                    _vtext += " — odměna +1 den dovolené 🏖️"
+                akt.append({"typ": "milnik", "ikona": "🏆", "text": _vtext})
                 continue
             if typ == "novy":
                 txt = "%s nastoupil(a) %s%s" % (jm, _cz(dat), (" jako " + info) if info else "")
@@ -10018,16 +10020,19 @@ async def app_hr_jubilea(req: Request) -> JSONResponse:
             occ2 = _next_occ(smlouva_od)
             if occ2 is not None and 0 <= (occ2 - today).days <= days:
                 yrs = occ2.year - smlouva_od.year
-                if yrs >= 1:
-                    tier = "major" if yrs in WORK_MAJOR else ("minor" if yrs in WORK_MINOR else "normal")
+                # Šárka 23.7.2026: jen kulatá výročí (násobek 5); 10 let = +1 den dovolené.
+                if yrs >= 5 and yrs % 5 == 0:
+                    popis = "%d let ve firmě" % yrs
+                    if yrs == 10:
+                        popis += " · odměna: +1 den dovolené 🏖️"
                     items.append({
-                        "user_id": user_id, "jmeno": jm, "kind": "vyroci",
-                        "ikona": "🏆" if tier == "major" else ("⭐" if tier == "minor" else "🎉"),
+                        "user_id": user_id, "jmeno": jm, "kind": "vyroci", "ikona": "🏆",
                         "datum": occ2.isoformat(), "datum_cz": _cz(occ2),
-                        "za_dni": (occ2 - today).days, "roky": yrs, "tier": tier,
-                        "popis": "%d let ve firmě" % yrs,
+                        "za_dni": (occ2 - today).days, "roky": yrs,
+                        "tier": ("major10" if yrs == 10 else "major"),
+                        "popis": popis,
                     })
-        items.sort(key=lambda x: (x["za_dni"], 0 if x["tier"] == "major" else (1 if x["tier"] == "minor" else 2)))
+        items.sort(key=lambda x: (x["za_dni"], 0 if x["tier"] in ("major", "major10") else (1 if x["tier"] == "minor" else 2)))
         return JSONResponse({"ok": True, "jubilea": items, "pocet": len(items)})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -10175,12 +10180,16 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
             occ2 = _next_occ(smlouva_od)
             if occ2 is not None and 0 <= (occ2 - today).days <= days:
                 yrs = occ2.year - smlouva_od.year
-                if yrs >= 1:
-                    tier = "major" if yrs in WORK_MAJOR else ("minor" if yrs in WORK_MINOR else "normal")
+                # Šárka 23.7.2026: jen kulatá výročí (násobek 5) — ostatní nezajímavá.
+                # Certifikát po 5 letech donekonečna → každý násobek 5 = major.
+                if yrs >= 5 and yrs % 5 == 0:
+                    popis = "%d let ve firmě" % yrs
+                    if yrs == 10:
+                        popis += " · odměna: +1 den dovolené 🏖️"
                     items.append({"user_id": user_id, "jmeno": jm, "kind": "vyroci",
-                                  "ikona": "🏆" if tier == "major" else ("⭐" if tier == "minor" else "🎉"),
-                                  "datum": occ2.isoformat(), "datum_cz": _cz(occ2), "za_dni": (occ2 - today).days,
-                                  "roky": yrs, "tier": tier, "popis": "%d let ve firmě" % yrs})
+                                  "ikona": "🏆", "datum": occ2.isoformat(), "datum_cz": _cz(occ2),
+                                  "za_dni": (occ2 - today).days, "roky": yrs,
+                                  "tier": ("major10" if yrs == 10 else "major"), "popis": popis})
         st = {}
         try:
             for r in s.execute(_t("SELECT typ, user_id, event_date, stav, rozhodnuto_at, poznamka"

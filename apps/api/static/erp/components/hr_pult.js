@@ -398,6 +398,10 @@
       '.hrp-j-major .hrp-jic{background:#4a3a16;}' +
       '.hrp-j-major .hrp-jnm{font-size:15px;}' +
       '.hrp-j-major .hrp-jbadge{background:#e0a400;color:#1a1206;}' +
+      '.hrp-j-major10{background:#0f2a16;border:1px solid #1f5b33;padding:12px;}' +
+      '.hrp-j-major10 .hrp-jic{background:#1f5b33;}' +
+      '.hrp-j-major10 .hrp-jnm{font-size:15px;}' +
+      '.hrp-j-major10 .hrp-jbadge{background:#2e9e57;color:#eafff0;}' +
       '.hrp-j-minor{background:#16202b;border:1px solid #24303d;padding:11px 12px;}' +
       '.hrp-j-minor .hrp-jic{background:#1f2a37;}' +
       '.hrp-j-minor .hrp-jbadge{background:#1f2a37;color:#aac8ec;}' +

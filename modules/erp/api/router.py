@@ -8850,6 +8850,31 @@ def _has_capability(uid: int, cap: str, level: str = "read") -> bool:
             pass
 
 
+def _poz_style(s):
+    """Sjednocení stylu názvu pozice (Šárka 23.7.): první písmeno velké, zbytek jak je;
+    celé VELKÝMI → věta (první velké, zbytek malé). Zachovává zkratky jako SQL/IS."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if s == s.upper():
+        return s[:1].upper() + s[1:].lower()
+    return s[:1].upper() + s[1:]
+
+
+_VYROBA_KW = ("montér", "monter", "mechanik", "zámeč", "zamec", "přípravář", "pripravar",
+              "sklad", "obráb", "obrab", "výrob", "vyrob", "dílna", "dilna", "svář", "svar",
+              "dělník", "delnik", "příjem zboží", "prijem zbozi", "zámečník", "zamecnik")
+
+
+def _kategorie_prace(pozice):
+    """Hrubé zařazení Výroba/Kancelář dle názvu pozice (Šárka 23.7.). Prázdná pozice → ''.
+    Přesnou kategorizaci uděláme později (kategorizace práce)."""
+    p = (pozice or "").lower()
+    if not p:
+        return ""
+    return "Výroba" if any(k in p for k in _VYROBA_KW) else "Kancelář"
+
+
 @api_router.get("/app/hr/people")
 async def app_hr_people(req: Request) -> JSONResponse:
     """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""
@@ -8957,7 +8982,8 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "ma_kartu": bool(r[3]), "ma_pomer": bool(r[4]),
                         "nastup": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
                         "nastup_rok": (r[7].year if r[7] else None),
-                        "pozice": (r[8] or ""), "firma": (r[9] or ""), "typ": (r[10] or ""),
+                        "pozice": _poz_style(r[8]), "firma": (r[9] or ""), "typ": (r[10] or ""),
+                        "kategorie": _kategorie_prace(r[8]),
                         "vek": ((_dnes.year - r[11].year - ((_dnes.month, _dnes.day) < (r[11].month, r[11].day))) if r[11] else None),
                         "narozeniny": (r[11].strftime("%d.%m.") if r[11] else ""),
                         "email": (r[12] or ""), "telefon": (r[13] or "")})
@@ -9243,7 +9269,7 @@ async def app_hr_person_work(req: Request):
             pomery.append({
                 "id": r[0], "firma": r[1], "typ": r[2], "druh": r[3],
                 "smlouva_od": _d(r[4]), "smlouva_do": _d(r[5]), "zkusebni_do": _d(r[6]),
-                "uvazek": ("" if uv is None else str(uv)), "pozice": (r[8] or ""),
+                "uvazek": ("" if uv is None else str(uv)), "pozice": _poz_style(r[8]),
                 "note": r[9], "zmenil": r[10],
                 "zmeneno": (r[11].strftime("%d.%m.%Y %H:%M") if r[11] else ""),
                 "segment": (r[12] or ""), "fond_mesic": ("" if r[13] is None else str(_num(r[13]))),
@@ -9263,7 +9289,7 @@ async def app_hr_person_work(req: Request):
             "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
             "WHERE ae.user_id=:u AND e.tenant_id=2 "
             "ORDER BY e.valid_from DESC NULLS LAST, e.id DESC LIMIT 40"), {"u": tuid}).fetchall()
-        historie = [{"pozice": (h[0] or ""), "typ": (h[1] or ""),
+        historie = [{"pozice": _poz_style(h[0]), "typ": (h[1] or ""),
                      "uvazek": ("" if h[2] is None else str(_num(h[2]))),
                      "od": _d(h[3]), "do": _d(h[4]), "aktualni": bool(h[5]),
                      "zmenil": (h[6] or "")} for h in hrows]

@@ -340,7 +340,7 @@ function renderPU(edit){
   }
   for(const po of (d.pomery||[])){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
-    const zar = tbl((edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment) + rRO('Středisko', po.stredisko));
+    const zar = tbl((edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment));
     const sml = tbl(rRO('Druh smlouvy', po.druh||po.typ) + rRO('Datum nástupu', po.smlouva_od) + rRO('Doba', dobaTxt) + rRO('Zkušební doba do', po.zkusebni_do));
     const uva = tbl(rRO('Velikost úvazku', po.velikost) + rRO('Týdenní fond', po.uvazek?(po.uvazek+' h/týden'):'') + rRO('Odměňování', po.hodinovka?'hodinová mzda':'měsíční mzda'));
     const pozn = tbl(edit?rIN('Poznámka','note',po.note,po.id):rRO('Poznámka', po.note));

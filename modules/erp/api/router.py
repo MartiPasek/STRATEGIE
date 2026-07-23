@@ -9674,6 +9674,79 @@ async def app_hr_person_doc_log(req: Request):
         cm.__exit__(None, None, None)
 
 
+def _hr_generuj_ukoly(s):
+    """Idempotentně zakládá HR úkoly z dat (Šárka 23.7.2026) — řešitel = personalistka.
+    1) konec zkušebky → pohovor 14 dní předem; 2) konec smlouvy → měsíc předem;
+    3) kvartální výrobní směrnice → poslední den kvartálu. Popis = návod pro zástup.
+    Dedup podle předmětu (obsahuje datum) — opakované spuštění nic nezdvojí. Best-effort."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    import calendar as _cal
+
+    def _d(dd):
+        return "%d. %d. %d" % (dd.day, dd.month, dd.year) if dd else ""
+
+    owner = s.execute(_t(
+        "SELECT id FROM public.users WHERE lower(last_name) LIKE 'novot%' AND lower(first_name) LIKE 'šár%'"
+        " LIMIT 1")).scalar() or 13
+    today = _dt.date.today()
+
+    def _ensure(predmet, termin_date, popis, priorita=1):
+        ex = s.execute(_t(
+            "SELECT 1 FROM tenant.task t JOIN tenant.task_resitel r ON r.task_id=t.id"
+            " WHERE t.tenant_id=2 AND r.user_id=:o AND t.predmet=:p LIMIT 1"),
+            {"o": owner, "p": predmet}).first()
+        if ex:
+            return
+        tid = s.execute(_t(
+            "INSERT INTO tenant.task (tenant_id,predmet,popis,stav,priorita,termin,zadavatel,created_by)"
+            " VALUES (2,:p,:po,0,:pr, CAST(:tm AS timestamptz), :o,:o) RETURNING id"),
+            {"p": predmet, "po": popis, "pr": priorita,
+             "tm": (termin_date.isoformat() if termin_date else None), "o": owner}).first()[0]
+        s.execute(_t("INSERT INTO tenant.task_resitel (task_id,user_id,stav) VALUES (:t,:o,0)"
+                     " ON CONFLICT (task_id,user_id) DO NOTHING"), {"t": tid, "o": owner})
+        s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,novy_stav)"
+                     " VALUES (:t,:o,'auto (HR generátor)',0)"), {"t": tid, "o": owner})
+
+    # 1) Konec zkušební doby → hodnotící pohovor 14 dní předem
+    for jm, zd in s.execute(_t(
+        "SELECT ae.full_name, e.zkusebni_do FROM tenant.engagement e"
+        " JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+        " WHERE e.tenant_id=2 AND e.is_current AND e.zkusebni_do IS NOT NULL"
+        "   AND e.zkusebni_do BETWEEN current_date AND current_date + 60"
+        "   AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)")).fetchall():
+        if not (jm or "").strip():
+            continue
+        jm = jm.strip()
+        _ensure("%s — konec zkušební doby, hodnotící pohovor (%s)" % (jm, _d(zd)),
+                zd - _dt.timedelta(days=14),
+                "Zkušební doba končí %s. Domluvit a provést hodnotící pohovor, rozhodnout o "
+                "pokračování a založit zápis. (Automaticky z HR nástěnky.)" % _d(zd))
+
+    # 2) Konec platnosti smlouvy → řešit měsíc předem
+    for jm, sd in s.execute(_t(
+        "SELECT ae.full_name, e.smlouva_do FROM tenant.engagement e"
+        " JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+        " WHERE e.tenant_id=2 AND e.is_current AND e.smlouva_do IS NOT NULL"
+        "   AND e.smlouva_do BETWEEN current_date AND current_date + 60")).fetchall():
+        if not (jm or "").strip():
+            continue
+        jm = jm.strip()
+        _ensure("%s — konec smlouvy k %s" % (jm, _d(sd)),
+                sd - _dt.timedelta(days=30),
+                "Smlouva končí %s. Rozhodnout o prodloužení / novém výměru, připravit dodatek "
+                "nebo ukončení. (Automaticky z HR nástěnky.)" % _d(sd))
+
+    # 3) Kvartální výrobní směrnice → poslední den kvartálu
+    qend_month = ((today.month - 1) // 3 + 1) * 3
+    qend = _dt.date(today.year, qend_month, _cal.monthrange(today.year, qend_month)[1])
+    if qend < today:
+        ny, nm = (today.year + 1, 3) if qend_month == 12 else (today.year, qend_month + 3)
+        qend = _dt.date(ny, nm, _cal.monthrange(ny, nm)[1])
+    _ensure("Poslat výrobní směrnice (Dušan) — Q%d/%d" % (qend.month // 3, qend.year), qend,
+            "Na konci kvartálu (%s) poslat Dušanovi výrobní směrnice. Opakuje se každý kvartál." % _d(qend))
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.
@@ -9696,6 +9769,16 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Auto-generování HR úkolů (konec zkušebky/smlouvy, kvartální směrnice) — best-effort,
+        # idempotentní. Chytne i nové nástupy (Šárka 23.7.2026). Nikdy nesmí shodit nástěnku.
+        try:
+            _hr_generuj_ukoly(s)
+            s.commit()
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
         mimo = s.execute(_t(
             "SELECT count(*) FROM (SELECT e.user_id,"
             " (array_agg(t.code ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
@@ -9768,8 +9851,7 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         # Vlastní stálé aktuality (Šárka 8.7.2026) — dokud nebude editovatelný seznam z UI.
         akt.append({"typ": "info", "ikona": "🎓",
                     "text": "Praxe studenta SOUE — Marek Horník (od 7. 9. 2026, liché týdny)"})
-        akt.append({"typ": "info", "ikona": "📋",
-                    "text": "Dušanovi na konci kvartálu poslat výrobní směrnice"})
+        # (Dušan / výrobní směrnice přesunuto z aktualit do úkolníku — Šárka 23.7.2026.)
         if today <= _dt.date(2026, 12, 18):
             akt.append({"typ": "info", "ikona": "🎄",
                         "text": "18. 12. 2026 — vánoční večírek v Srdcovce (jako loni)"})

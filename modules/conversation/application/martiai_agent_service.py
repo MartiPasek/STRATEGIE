@@ -169,7 +169,12 @@ async def _run(goal: str, conversation_id: Optional[int]) -> dict:
     sub_env.pop("ANTHROPIC_API_KEY", None)
     diag = (f"cli={cli!r} exists={bool(cli and os.path.exists(cli))} token={bool(tok)} "
             f"whoami={os.environ.get('USERNAME')}")
+    # Identita: system_prompt jde do CLI přes příkazovou řádku → Windows limit ~32k.
+    # Její plný composer prompt (~100 kB) by spuštění shodil ("not found"). Zkrátíme
+    # na jádro identity (začátek promptu) — plnou identitu dořešíme jiným kanálem.
     sp = _her_system_prompt(conversation_id)
+    if sp and len(sp) > 6000:
+        sp = sp[:6000] + "\n[…identita zkrácena pro agentí režim (Fáze 0)…]"
     system = (sp + AGENT_NOTE) if sp else AGENT_NOTE.strip()
 
     # POSTAVENO NAPŘÍMO (jako fungující interaktivní test) — žádný filtr, ať cli_path projde

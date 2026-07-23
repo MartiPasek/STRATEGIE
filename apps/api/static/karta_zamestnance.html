@@ -78,6 +78,7 @@ const SEKCE=[
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true,key:'absence'},
+  {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, dle Centrály).",on:true,key:'podminky'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
@@ -224,7 +225,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje'};
+    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -387,6 +388,31 @@ async function absUdaje(){
       '<tr><td style="color:#7f8ea0;padding:6px 16px">Typ</td><td style="color:#7f8ea0;padding:6px 16px">Od – do</td><td style="color:#7f8ea0;padding:6px 16px">Stav</td></tr>'+
       d.zaznamy.map(z=>'<tr style="border-top:1px solid #1e2730"><td style="padding:6px 16px;color:#e8eef5">'+esc(z.typ)+'</td><td style="padding:6px 16px;color:#e8eef5">'+esc(z.od)+(z.do?(' – '+esc(z.do)):'')+'</td><td style="padding:6px 16px;color:'+col(z.stav)+'">'+esc(z.stav)+'</td></tr>').join('')+'</table>';
   }
+  det.innerHTML=h;
+}
+
+// Šárka 23.7.2026: Podmínky = to samé, co zaměstnanec vidí v mobilu „Moje podmínky".
+// Zdroj: resolved z /app/hr/conditions (systém → skupina → osobní; osobní hodnoty sync z Centrály).
+async function podmUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/conditions?scope_kind=user&user_id='+uid);
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📋 Podmínky (aktuálně platné)</span>'+back+'</div>';
+  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
+  const defs=d.defs||[], res=d.resolved||{};
+  const srcBadge=(s)=>{ s=(s||'').toLowerCase();
+    const m=/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4']);
+    return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; };
+  if(!defs.length){ h+='<div class="empty">Žádné podmínky nejsou nastavené.</div>'; det.innerHTML=h; return; }
+  h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    defs.map(dd=>{ const r=res[dd.code]||{}; const val=(r.value==null||r.value==='')?'<span style="color:#5d6b7c">—</span>':esc(r.value);
+      return '<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:7px 16px;color:#cdd6e2">'+esc(dd.label)+(dd.unit?(' <span style="color:#5d6b7c">('+esc(dd.unit)+')</span>'):'')+'</td>'+
+        '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
+        '<td style="padding:7px 16px;text-align:right">'+srcBadge(r.src)+'</td></tr>'; }).join('')+'</table>';
+  h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">Zdroj: systémový default → skupina → osobní výjimka. Osobní hodnoty jsou sync z Centrály.</div>';
   det.innerHTML=h;
 }
 

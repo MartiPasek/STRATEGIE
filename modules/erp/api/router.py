@@ -9746,6 +9746,11 @@ def _hr_generuj_ukoly(s):
     _ensure("Poslat výrobní směrnice (Dušan) — Q%d/%d" % (qend.month // 3, qend.year), qend,
             "Na konci kvartálu (%s) poslat Dušanovi výrobní směrnice. Opakuje se každý kvartál." % _d(qend))
 
+    # 4) LinkedIn článek → každé úterý (příprava út, zveřejnění út/čt)
+    tue = today + _dt.timedelta(days=(1 - today.weekday()) % 7)   # nejbližší úterý (dnes, je-li úterý)
+    _ensure("Připravit článek na LinkedIn — týden od %s" % _d(tue), tue,
+            "Připravit článek na LinkedIn. Zveřejnit v úterý nebo ve čtvrtek. Opakuje se každý týden.")
+
 
 def _hr_auto_narozeniny(s):
     """Automaticky odešle narozeninové přání každému aktivnímu zaměstnanci, který má DNES

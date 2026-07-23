@@ -139,6 +139,7 @@
         <div class="fld"><label>Konec</label><input type="date" id="d_kon_d"><input type="time" id="d_kon_t"></div>
         <div class="fld"><label>Pauza <span class="soon">dodělá se</span></label><input id="d_pauza" type="number" step="1" disabled></div>
       </div>
+      <div class="fld full" id="d_reason_wrap" style="display:none"><label>Důvod opravy <span class="soon">povinné — kvůli auditu</span></label><input id="d_reason" autocomplete="off" placeholder="např. zapomenutý odchod, oprava času…"></div>
       <div class="fnote">
         <div class="fld"><label>Zaměstnanec poznámka</label><textarea id="d_pozn" rows="2"></textarea></div>
         <label class="chk"><input type="checkbox" id="d_req" disabled> Požadavek úpravy <span class="soon">dodělá se</span></label>
@@ -379,7 +380,7 @@ function load(){
 }
 
 /* ── Editační okno (dvojklik na řádek) ───────────────────────────────── */
-var CINY=null, EDIT_I=null, EDIT_NEW=false;
+var CINY=null, EDIT_I=null, EDIT_NEW=false, EDIT_MODE='RO';
 function loadCiny(cb){
   if(CINY){cb();return;}
   fetch('/api/v1/erp/app/dochazka-zak-tab/cinnosti',{credentials:'include'})
@@ -415,7 +416,12 @@ function openNew(i){
   $('ov').classList.add('on');
 }
 function openEdit(i){
-  var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=false; var isW=(r._kind==='W');
+  var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=false;
+  // Režim: W = práce na zakázce (naše přímé uložení). FIX = docházka z aplikace
+  // (přítomnost/Rezie) → oprava se ukládá přes engine „Opravy docházky" (audit, mzdy,
+  // výkazy). RO = jen ke čtení (absence, historie z Centrály).
+  var mode = (r._kind==='W') ? 'W' : (r._kind==='P') ? 'FIX' : 'RO';
+  EDIT_MODE=mode;
   $('d_id').textContent=(r._src?('· '+r._src):'');
   $('d_idnum').value=(r._id!=null?r._id:'');
   $('d_prac').value=(r._jm||'')+(r._cz?(' '+r._cz):'');
@@ -426,20 +432,28 @@ function openEdit(i){
   $('d_hod').value=(r._hod!=null&&r._hod!=='')?Number(r._hod).toFixed(2):'';
   $('d_pozn').value=r._pozn||'';
   $('d_vpozn').value=''; $('d_pauza').value=''; $('d_req').checked=false; $('d_appr').checked=false;
+  $('d_reason').value='';
   $('d_msg').textContent=''; $('d_msg').className='dmsg';
-  var ro=$('d_ro'), edIds=['d_zak','d_od_d','d_od_t','d_kon_d','d_kon_t','d_pozn'];
-  if(isW){
-    ro.style.display='none';
-    edIds.forEach(function(id){$(id).disabled=false;}); $('d_cin').disabled=false;
+  var ro=$('d_ro'), rw=$('d_reason_wrap');
+  function en(id){$(id).disabled=false;} function dis(id){$(id).disabled=true;}
+  var allEd=['d_zak','d_od_d','d_od_t','d_kon_d','d_kon_t','d_pozn'];
+  if(mode==='W'){
+    ro.style.display='none'; rw.style.display='none';
+    allEd.forEach(en); $('d_cin').disabled=false; $('d_reason').disabled=true;
     $('d_ok').style.display='';
+  }else if(mode==='FIX'){
+    ro.style.display='none'; rw.style.display='';   // docházka z app: přes Opravy docházky, s důvodem
+    // editovatelné: časy (od/do), zakázka, činnost, důvod. Datum drží den (fix/entry). Poznámka read-only.
+    en('d_od_t'); en('d_kon_t'); en('d_zak'); $('d_cin').disabled=false; en('d_reason');
+    dis('d_od_d'); dis('d_kon_d'); dis('d_pozn');
+    $('d_ok').style.display='';
+    $('d_msg').className='dmsg'; $('d_msg').textContent='Docházka z aplikace — oprava se uloží přes „Opravy docházky" (promítne se do mezd, výkazů, auditu). Vyplň důvod.';
   }else{
-    ro.style.display='';
+    ro.style.display=''; rw.style.display='none';
     ro.textContent=(r._kind==='C')
       ? 'Záznam ze staré Centrály (leden–květen) — historie, jen k nahlédnutí.'
-      : (r._kind==='A')
-        ? 'Tohle je absence (dovolená / nemoc / lékař). Opravuje se v „Opravy docházky" — tady je jen k nahlédnutí.'
-        : 'Tohle je docházka (přítomnost / režie z píchačky). Opravuje se v „Opravy docházky" — tady je jen k nahlédnutí.';
-    edIds.forEach(function(id){$(id).disabled=true;}); $('d_cin').disabled=true;
+      : 'Absence (dovolená / nemoc / lékař) — opravuje se v „Opravy docházky", tady je jen k nahlédnutí.';
+    allEd.forEach(dis); $('d_cin').disabled=true; $('d_reason').disabled=true;
     $('d_ok').style.display='none';
   }
   $('ov').classList.add('on');
@@ -455,6 +469,15 @@ function saveEdit(){
     body={cislo_zam:r._cz,zakazka:$('d_zak').value,cinnost_id:$('d_cin').value||null,
       od_d:$('d_od_d').value,od_t:$('d_od_t').value,kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,
       hodiny:$('d_hod').value,poznamka:$('d_pozn').value};
+  }else if(EDIT_MODE==='FIX'){
+    // Docházka z aplikace → oprava přes engine „Opravy docházky" (promítne se do mezd/výkazů/auditu).
+    var reason=($('d_reason').value||'').trim();
+    if(!reason){m.className='dmsg';m.textContent='Vyplň důvod opravy (povinné).';ok.disabled=false;try{$('d_reason').focus();}catch(_e){}return;}
+    if(!$('d_od_t').value||!$('d_kon_t').value){m.className='dmsg';m.textContent='Vyplň časy Začátek i Konec (HH:MM).';ok.disabled=false;return;}
+    url='/api/v1/erp/app/attendance/fix/entry';
+    body={id:r._id,zac:$('d_od_t').value,kon:$('d_kon_t').value,reason:reason,
+      cinnost_id:($('d_cin').value?parseInt($('d_cin').value,10):null),
+      project_ref:($('d_zak').value||'').trim()};
   }else{
     url='/api/v1/erp/app/dochazka-zak-tab/save';
     body={kind:r._kind,id:r._id,zakazka:$('d_zak').value,cinnost_id:$('d_cin').value||null,

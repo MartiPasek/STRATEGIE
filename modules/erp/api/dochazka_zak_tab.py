@@ -331,6 +331,86 @@ async def dochazka_zak_tab_save(req: Request) -> JSONResponse:
             pass
 
 
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/save-new")
+async def dochazka_zak_tab_save_new(req: Request) -> JSONResponse:
+    """Založí NOVÝ řádek práce (tenant.vyroba_work) pro osobu dle cislo_zam.
+    source_system='app'. Vrací id nového řádku."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    cz = str((body or {}).get("cislo_zam") or "").strip()
+    if not cz:
+        return JSONResponse({"ok": False, "error": "Chybí pracovník."}, status_code=400)
+    zak = (str((body or {}).get("zakazka") or "").strip()) or None
+    cin_raw = (body or {}).get("cinnost_id")
+    try:
+        cin_id = int(cin_raw) if cin_raw not in (None, "", "null") else None
+    except Exception:
+        cin_id = None
+    od = _dzt_parse_ts((body or {}).get("od_d"), (body or {}).get("od_t"))
+    if not od:
+        return JSONResponse({"ok": False, "error": "Vyplň Začátek (datum a čas)."}, status_code=400)
+    kon = _dzt_parse_ts((body or {}).get("kon_d"), (body or {}).get("kon_t"))
+    pozn = (body or {}).get("poznamka")
+    if pozn is not None:
+        pozn = str(pozn)[:2000]
+    hod = (body or {}).get("hodiny")
+    try:
+        hod = float(hod) if hod not in (None, "") else None
+    except Exception:
+        hod = None
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        emp_uid = s.execute(_t("SELECT user_id FROM tenant.att_employee "
+                               "WHERE tenant_id=2 AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1"),
+                            {"cz": cz}).scalar()
+        if not emp_uid:
+            return JSONResponse({"ok": False, "error": "Pracovníka (č. " + cz + ") se nepodařilo najít."},
+                                status_code=400)
+        if hod is None and kon is not None:
+            r2 = s.execute(_t("SELECT EXTRACT(EPOCH FROM ((:kon)::timestamptz-(:od)::timestamptz))/3600.0"),
+                           {"od": od, "kon": kon}).scalar()
+            try:
+                hod = round(float(r2), 2)
+            except Exception:
+                hod = None
+        if hod is not None and hod < 0:
+            return JSONResponse({"ok": False, "error": "Konec je před začátkem — zkontroluj časy."},
+                                status_code=400)
+        new_id = s.execute(_t(
+            "INSERT INTO tenant.vyroba_work "
+            " (tenant_id, user_id, cislo_zam, datum, od, konec, zakazka_ref, cinnost_id, "
+            "  hodiny, poznamka, source_system, created_by, created_at, updated_at) "
+            "VALUES (2, :uid, :cz, (:od)::timestamptz::date, (:od)::timestamptz, "
+            "  CASE WHEN :kon IS NULL THEN NULL ELSE (:kon)::timestamptz END, "
+            "  :zak, :cin, :hod, :pozn, 'app', :creator, now(), now()) RETURNING id"),
+            {"uid": emp_uid, "cz": cz, "od": od, "kon": kon, "zak": zak, "cin": cin_id,
+             "hod": hod, "pozn": pozn, "creator": uid}).scalar()
+        s.commit()
+        return JSONResponse({"ok": True, "id": new_id, "hodiny": hod})
+    except Exception as exc:  # noqa: BLE001
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
 @doch_zak_tab_router.post("/app/dochazka-zak-tab/widths")
 async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
     """Uloží OSOBNÍ šířky uživatele do DB (kdokoliv z povolených 11). Tím je Claude

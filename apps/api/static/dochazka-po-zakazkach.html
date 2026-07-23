@@ -84,7 +84,7 @@
 <body>
 <div class="top">
   <div class="chips" id="chips">
-    <button class="chip on" data-o="vse">Do dneška</button>
+    <button class="chip on" data-o="vse">Poslední 2 měsíce</button>
     <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
   </div>
   <span class="muted" id="info"></span>
@@ -310,7 +310,9 @@ function openEdit(i){
     $('d_ok').style.display='';
   }else{
     ro.style.display='';
-    ro.textContent='Tohle je absence (dovolená / nemoc / lékař). Opravuje se v modulu „Opravy docházky" — tady je jen k nahlédnutí.';
+    ro.textContent=(r._kind==='A')
+      ? 'Tohle je absence (dovolená / nemoc / lékař). Opravuje se v „Opravy docházky" — tady je jen k nahlédnutí.'
+      : 'Tohle je docházka (přítomnost / režie z píchačky). Opravuje se v „Opravy docházky" — tady je jen k nahlédnutí.';
     edIds.forEach(function(id){$(id).disabled=true;}); $('d_cin').disabled=true;
     $('d_ok').style.display='none';
   }

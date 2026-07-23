@@ -176,8 +176,8 @@ var COLS=[
  {k:'PraceAktivni',h:'PraceAktivni',w:34,c:1},
  {k:'CisloZakazky',h:'CisloZakazky',w:92,cls:'zak'},
  {k:'JmenoPrijmeni',h:'JmenoPrijmeni',w:150},
- {k:'CisloZam',h:'CisloZam',w:56,r:1,num:1},
- {k:'DruhCinnosti',h:'DruhCinnosti',w:62,r:1,num:1},
+ {k:'CisloZam',h:'CisloZam',w:56,r:1,num:1,exact:1},
+ {k:'DruhCinnosti',h:'DruhCinnosti',w:62,r:1,num:1,exact:1},
  {k:'CinnostText',h:'CinnostText',w:180},
  {k:'DenVTydnu',h:'DenVTydnu',w:44,c:1},
  {k:'CasZacatek',h:'CasZacatek',w:128,date:1},
@@ -187,8 +187,8 @@ var COLS=[
  {k:'Smlouva',h:'Smlouva',w:70,c:1},
  {k:'Poznamka',h:'Poznamka',w:220},
  {k:'DatumPripadu',h:'DatumPripadu',w:92,date:1},
- {k:'Rok',h:'Rok',w:52,r:1,num:1},
- {k:'Mesic',h:'Mesic',w:50,r:1,num:1}
+ {k:'Rok',h:'Rok',w:52,r:1,num:1,exact:1},
+ {k:'Mesic',h:'Mesic',w:50,r:1,num:1,exact:1}
 ];
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
 var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
@@ -300,7 +300,8 @@ function projde(r){
     for(var i=0;i<COLS.length;i++){if(COLS[i].k===k){col=COLS[i];break;}}
     var v=r[k];
     if(col&&col.k==='PraceAktivni'){v=(String(v||'').indexOf('✓')>=0)?'✓ano':'ne';}
-    if(col&&col.num){if(normNum(v).indexOf(normNum(q))<0)return false;continue;}
+    if(col&&col.num){var nv=normNum(v),nq=normNum(q);
+      if(col.exact){if(nv!==nq)return false;}else{if(nv.indexOf(nq)<0)return false;}continue;}
     if(String(v==null?'':v).toLowerCase().indexOf(q)<0)return false;
   }
   // datumové rozsahy (OD/DO) na datumových sloupcích

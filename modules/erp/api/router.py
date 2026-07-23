@@ -9717,7 +9717,7 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
             "  max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
             " SELECT typ, jmeno, dat, info FROM ("
             "  SELECT 'novy' typ, n.jmeno, eng.smlouva_od dat, eng.pozice_text info FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od >= current_date-365"
-            "  UNION ALL SELECT 'zkusebka', n.jmeno, eng.zkusebni_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.zkusebni_do BETWEEN current_date AND current_date+14"
+            "  UNION ALL SELECT 'zkusebka', n.jmeno, eng.zkusebni_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.zkusebni_do BETWEEN current_date AND current_date+30"
             "  UNION ALL SELECT 'prodlouzeni', n.jmeno, eng.smlouva_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_do BETWEEN current_date AND current_date+30"
             "  UNION ALL SELECT 'narozeniny', n.jmeno, n.birth, NULL FROM nm n WHERE n.birth IS NOT NULL AND ((date_part('doy',n.birth)-date_part('doy',current_date)+366)::int%366) <= 7"
             "  UNION ALL SELECT 'vyroci', n.jmeno, eng.smlouva_od, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od IS NOT NULL AND eng.smlouva_od < current_date-300 AND ((date_part('doy',eng.smlouva_od)-date_part('doy',current_date)+366)::int%366) <= 7"

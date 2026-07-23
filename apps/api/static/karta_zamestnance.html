@@ -330,12 +330,17 @@ function renderPU(edit){
   const grp=(t)=>'<div style="padding:10px 16px 3px;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">'+t+'</div>';
   const tbl=(rows)=>'<table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table>';
   if((d.nadrizeny||[]).length){
-    h+='<div style="padding:9px 16px;color:#cdd6e2;font-size:13px;border-top:1px solid #1e2730">👤 <span style="color:#7f8ea0">Přímý nadřízený:</span> '+
+    h+='<div style="padding:9px 16px 4px;color:#cdd6e2;font-size:13px;border-top:1px solid #1e2730">👤 <span style="color:#7f8ea0">Přímý nadřízený:</span> '+
       d.nadrizeny.map(n=>'<b>'+esc(n.jmeno)+'</b>'+(n.post?(' <span style="color:#5d6b7c">('+esc(n.post)+')</span>'):'')).join(', ')+'</div>';
+  }
+  if((d.posty||[]).length){
+    const bt = (d.nadrizeny||[]).length ? '' : 'border-top:1px solid #1e2730;';
+    h+='<div style="'+bt+'padding:6px 16px 9px;color:#cdd6e2;font-size:13px">🏷️ <span style="color:#7f8ea0">Posty v organizaci:</span> '+
+      d.posty.map(pp=>esc(pp.nazev)+(pp.zastupce?' <span style="color:#E0A94A">(zástupce)</span>':'')).join(', ')+'</div>';
   }
   for(const po of (d.pomery||[])){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
-    const zar = tbl((edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment));
+    const zar = tbl((edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment) + rRO('Středisko', po.stredisko));
     const sml = tbl(rRO('Druh smlouvy', po.druh||po.typ) + rRO('Datum nástupu', po.smlouva_od) + rRO('Doba', dobaTxt) + rRO('Zkušební doba do', po.zkusebni_do));
     const uva = tbl(rRO('Velikost úvazku', po.velikost) + rRO('Týdenní fond', po.uvazek?(po.uvazek+' h/týden'):'') + rRO('Odměňování', po.hodinovka?'hodinová mzda':'měsíční mzda'));
     const pozn = tbl(edit?rIN('Poznámka','note',po.note,po.id):rRO('Poznámka', po.note));

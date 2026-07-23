@@ -9210,7 +9210,8 @@ async def app_hr_person_work(req: Request):
             " e.smlouva_od, e.smlouva_do, e.zkusebni_do, e.uvazek_tyden_h, "
             " COALESCE(jp.label, e.pozice_text), COALESCE(e.note,''), "
             " COALESCE(e.changed_by_text,''), e.changed_at, "
-            " COALESCE(jp.segment,''), e.fond_mesic_h, e.uvazek_real_tyden_h, COALESCE(e.hodinovka,false) "
+            " COALESCE(jp.segment,''), e.fond_mesic_h, e.uvazek_real_tyden_h, COALESCE(e.hodinovka,false), "
+            " COALESCE(e.stredisko,'') "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
@@ -9244,6 +9245,7 @@ async def app_hr_person_work(req: Request):
                 "hodinovka": bool(r[15]),
                 "doba": ("neurčitá" if not r[5] else "určitá"),
                 "velikost": ("" if velikost is None else str(velikost).replace(".", ",")),
+                "stredisko": (r[16] or ""),
             })
         # historie změn (SCD2 – všechny verze poměru, i staré)
         hrows = s.execute(_t(
@@ -9276,7 +9278,21 @@ async def app_hr_person_work(req: Request):
             nadrizeny = [{"jmeno": (x[0] or ""), "post": (x[1] or "")} for x in nrows if x[0]]
         except Exception as exc:
             logger.warning("[person_work nadrizeny] %s", exc)
-        return JSONResponse({"ok": True, "pomery": pomery, "historie": historie, "nadrizeny": nadrizeny})
+        # posty / role v organizační struktuře (Šárka 23.7.), best-effort
+        posty = []
+        try:
+            prows = s.execute(_t(
+                "SELECT DISTINCT p.nazev, COALESCE(NULLIF(TRIM(a.zastupce_role),''),'') AS zast "
+                "FROM tenant.att_employee ae "
+                "JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
+                "JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 AND p.aktivni=true "
+                "WHERE ae.user_id=:u AND ae.tenant_id=2 "
+                "ORDER BY p.nazev"), {"u": tuid}).fetchall()
+            posty = [{"nazev": x[0], "zastupce": bool(x[1])} for x in prows if x[0]]
+        except Exception as exc:
+            logger.warning("[person_work posty] %s", exc)
+        return JSONResponse({"ok": True, "pomery": pomery, "historie": historie,
+                             "nadrizeny": nadrizeny, "posty": posty})
     except Exception as exc:
         logger.exception("[hr_person_work] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

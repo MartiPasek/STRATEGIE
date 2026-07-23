@@ -132,7 +132,7 @@
       </div>
       <div class="fld prac"><label>Pracovník</label><input id="d_prac" readonly></div>
       <div class="frow2">
-        <div class="fld"><label>Zakázka</label><input id="d_zak" list="zaklist" autocomplete="off" placeholder="piš číslo nebo název…"><datalist id="zaklist"></datalist></div>
+        <div class="fld"><label>Zakázka</label><input id="d_zak" list="zaklist" autocomplete="off" placeholder="piš číslo zakázky…"><datalist id="zaklist"></datalist></div>
         <div class="fld"><label>Činnost</label><select id="d_cin"></select></div>
       </div>
       <div class="frow3">
@@ -396,7 +396,7 @@ function loadZak(){
   fetch('/api/v1/erp/app/dochazka-zak-tab/zakazky',{credentials:'include'})
     .then(function(r){return r.json();}).then(function(j){ZAK=(j&&j.ok&&j.zakazky)||[];
       var dl=$('zaklist'); if(!dl)return;
-      dl.innerHTML=ZAK.map(function(z){return '<option value="'+esc(z.cislo)+'">'+esc(z.cislo)+(z.nazev?(' — '+z.nazev):'')+(z.typ?(' ['+z.typ+']'):'')+'</option>';}).join('');
+      dl.innerHTML=ZAK.map(function(z){return '<option value="'+esc(z.cislo)+'"></option>';}).join('');
     }).catch(function(){ZAK=[];});
 }
 function fillCin(sel){

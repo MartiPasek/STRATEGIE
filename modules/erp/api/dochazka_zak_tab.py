@@ -176,14 +176,6 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
                 return v.isoformat()
             return v
         out = [{k: _conv(v) for k, v in dict(r).items()} for r in rows]
-        if obdobi == "all":
-            # Kancelář leden–květen z Centrály (read-only). Best-effort: bez Centrály přehled funguje dál.
-            try:
-                out += _dzt_ec_office_hist(s)
-                out.sort(key=lambda r: (r.get("_od_d") or ""), reverse=True)
-            except Exception as _e:  # noqa: BLE001
-                import logging as _lg
-                _lg.getLogger("dochazka_zak_tab").warning("EC hist read failed: %s", _e)
         return JSONResponse({"ok": True, "obdobi": obdobi, "pocet": len(out), "rows": out})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)

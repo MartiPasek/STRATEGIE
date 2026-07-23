@@ -8892,6 +8892,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
         # Šárka 20.7.2026: členství v tenantu (= přístup do systému) NENÍ pracovní poměr —
         # bývalí lidé s živým účtem zůstávali v seznamu. Default = jen s platným poměrem;
         # ?vse=1 ukáže i bývalé. Počet skrytých vracíme, ať nikdo nemizí potichu.
+        vse = (req.query_params.get("vse") or "").strip().lower() in ("1", "true", "ano")
+        # Šárka 23.7.: „i bývalé" zahrne i archivované členství (skuteční bývalí zaměstnanci).
+        _MEMB = "('active','invited','archived')" if vse else "('active','invited')"
         _POMER = (
             " EXISTS (SELECT 1 FROM tenant.engagement en"
             "   JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
@@ -8900,8 +8903,7 @@ async def app_hr_people(req: Request) -> JSONResponse:
         _ZAKLAD = (
             "FROM public.users u "
             "WHERE EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
-            "   AND ut.membership_status IN ('active','invited')) AND u.id NOT IN (2,3,23,24) ")
-        vse = (req.query_params.get("vse") or "").strip().lower() in ("1", "true", "ano")
+            "   AND ut.membership_status IN " + _MEMB + ") AND u.id NOT IN (2,3,23,24) ")
         rows = s.execute(_t(
             "SELECT u.id, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "

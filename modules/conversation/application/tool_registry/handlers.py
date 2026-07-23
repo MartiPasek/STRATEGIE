@@ -154,6 +154,24 @@ def _is_parent(user_id: Optional[int]) -> bool:
         cs.close()
 
 
+def _agent_allowed(user_id: Optional[int]) -> bool:
+    # run_as_agent (Faze 0): jen admin NEBO rodic, a jen kdyz ma zapnuty
+    # per-user prepinac users.agent_enabled (PATCH /me/agent-enabled).
+    if not user_id:
+        return False
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import User
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        if not u:
+            return False
+        is_ap = bool(getattr(u, "is_admin", False) or getattr(u, "is_marti_parent", False))
+        return bool(is_ap and getattr(u, "agent_enabled", False))
+    finally:
+        cs.close()
+
+
 def _audit(sg, akce, user_id=None, nastroj_id=None, proposal_id=None, detail=None):
     from sqlalchemy import text as _t
     sg.execute(_t(
@@ -396,6 +414,8 @@ def _run_as_agent(inp: dict, user_id, conversation_id) -> str:
     goal = (inp.get("goal") or inp.get("cil") or "").strip()
     if not goal:
         return "❌ Zadej 'goal' — co mám autonomně proběhnout."
+    if not _agent_allowed(user_id):
+        return "❌ Agentí režim (run_as_agent) je zatím jen pro admina a rodiče se zapnutým přepínačem v nastavení."
     from modules.conversation.application import martiai_agent_service as MA
     res = MA.run_goal(goal, requested_by_user_id=user_id, conversation_id=conversation_id)
     if not res.get("ok"):

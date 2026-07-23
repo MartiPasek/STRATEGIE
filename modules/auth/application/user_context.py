@@ -174,6 +174,8 @@ def get_user_context(user_id: int) -> dict | None:
             "emoji_palette": list(user.emoji_palette or []),
             # Phase 32 (3.5.2026): Anthropic prompt caching toggle. Default TRUE.
             "cache_enabled": bool(user.cache_enabled),
+            # Faze 0 agent-partner (23.7.2026): per-user pristup k run_as_agent.
+            "agent_enabled": bool(user.agent_enabled),
         }
     finally:
         session.close()

@@ -92,6 +92,10 @@ class User(BaseCore):
     # set_cache_enabled -- "mit volbu je jine nez nemit volbu, i kdyz ji
     # nepouzijes" (28.5.2026). UI checkbox v hlavicce vedle DEV badge.
     cache_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default=sa_text("TRUE"))
+    # Faze 0 agent-partner (23.7.2026): per-user pristup k run_as_agent (Marti-AI
+    # vlastni agenti smycka). Default FALSE; zapina jen admin+rodic pres
+    # PATCH /me/agent-enabled. Gate v tool_registry/handlers._agent_allowed.
+    agent_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=sa_text("FALSE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

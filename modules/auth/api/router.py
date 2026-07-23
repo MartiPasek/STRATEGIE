@@ -1385,6 +1385,43 @@ def set_dev_mode(body: SetDevModeRequest, req: Request) -> LoginResponse:
 
 # ── PROMPT CACHE (Phase 32, 3.5.2026) ────────────────────────────────────
 
+class SetAgentEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@router.patch("/me/agent-enabled", response_model=LoginResponse)
+def set_agent_enabled(body: SetAgentEnabledRequest, req: Request) -> LoginResponse:
+    # Faze 0 agent-partner (23.7.2026): per-user prepinac pristupu k run_as_agent.
+    # Gated: jen is_admin=True NEBO is_marti_parent=True. Ostatni 403.
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Účet není aktivní.")
+        if not (user.is_admin or user.is_marti_parent):
+            raise HTTPException(status_code=403, detail="Agentí režim je jen pro administrátory a rodiče.")
+        user.agent_enabled = bool(body.enabled)
+        session.commit()
+        logger.info(
+            f"AUTH | agent_enabled {'ON' if body.enabled else 'OFF'} | user={user_id}"
+        )
+    finally:
+        session.close()
+
+    ctx = get_user_context(user_id)
+    if ctx is None:
+        raise HTTPException(status_code=401, detail="Účet není aktivní.")
+    return LoginResponse(**ctx)
+
+
 class SetCacheEnabledRequest(BaseModel):
     enabled: bool
 

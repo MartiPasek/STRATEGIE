@@ -72,6 +72,8 @@ class LoginResponse(BaseModel):
     # UI checkbox v hlavicce vedle DEV badge. Marti-AI ovlada pres AI tool
     # set_cache_enabled (autonomie ne kvuli use, kvuli volbe).
     cache_enabled: bool = True
+    # Faze 0 agent-partner: per-user pristup k run_as_agent (jen admin+rodice).
+    agent_enabled: bool = False
     # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
     # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
     project_id: int | None = None

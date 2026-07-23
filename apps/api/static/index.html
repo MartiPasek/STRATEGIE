@@ -7823,6 +7823,15 @@
         isOn: cacheOn,
         action: () => toggleCacheEnabled(),
       },
+      // Faze 0 agent-partner (23.7.2026): per-user pristup k run_as_agent.
+      // Jen admin nebo rodic. Prepne users.agent_enabled pres PATCH /me/agent-enabled.
+      ...((isAdmin || isParent) ? [{
+        icon: '🧠',
+        label: 'Agentí režim (Marti-AI)',
+        kind: 'toggle',
+        isOn: !!(currentUser && currentUser.agent_enabled),
+        action: () => toggleAgentEnabled(),
+      }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       // Per-user volba jak otevírat e-maily z ERP buněk (Marti 2.6.2026):
       // systémový klient / webmail OWA / kopírovat. První dvojklik na e-mail
@@ -7964,6 +7973,32 @@
     } catch (e) {
       console.error('toggleCacheEnabled failed', e);
       alert('Chyba sítě při přepnutí cache.');
+    }
+  }
+
+  // Faze 0 agent-partner (23.7.2026): prepinac pristupu k run_as_agent.
+  // Flippe users.agent_enabled pres PATCH /auth/me/agent-enabled (jen admin+rodic).
+  async function toggleAgentEnabled() {
+    if (!currentUser) return;
+    const newValue = !currentUser.agent_enabled;
+    try {
+      const resp = await fetch('/api/v1/auth/me/agent-enabled', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: newValue }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Nepovedlo se přepnout agentí režim: ' + (err.detail || resp.status));
+        return;
+      }
+      const updated = await resp.json();
+      currentUser = updated;
+      _renderProfileDropdown();
+    } catch (e) {
+      console.error('toggleAgentEnabled failed', e);
+      alert('Chyba sítě při přepnutí agentího režimu.');
     }
   }
 

@@ -407,3 +407,5 @@ async def plzen_result(req: Request):
     if not row:
         return JSONResponse({"ok": False, "error": "unknown_or_already_done_nonce", "nonce": nonce}, status_code=404)
     return JSONResponse({"ok": True, "id": int(row[0]), "status": status})
+
+# --- Plzen relay endpoints nasazeny 2026-07-23, C23 (retrigger po srovnani stromu) ---

@@ -25,6 +25,19 @@ class ToolContext:
     db_session_factory: Optional[Callable[[], Any]] = None
     call_tool: Optional[Callable[[str, dict], str]] = None  # vnořené volání nástroje
 
+    def fetch(self, sql: str, params: Optional[dict] = None) -> list:
+        """Přečti z DB v nástroji: `ctx.fetch("SELECT ... WHERE x=:x", {"x": 1})`.
+        Vrací seznam dictů (řádky). Pro čtení; parametry přes :bind, ne string concat.
+        """
+        if self.db_session_factory is None:
+            raise ToolError("nástroj nemá přístup k DB (ctx.fetch není k dispozici)")
+        from sqlalchemy import text as _t
+        s = self.db_session_factory()
+        try:
+            return [dict(r) for r in s.execute(_t(sql), params or {}).mappings().all()]
+        finally:
+            s.close()
+
 
 class ToolError(Exception):
     """Řízená chyba nástroje → dispatcher ji přeloží na pri_chybe='eskaluj_llm'."""

@@ -226,7 +226,11 @@ def _create(inp: dict, user_id) -> str:
     test_cases = inp.get("test_cases") or []
     spec = {"name": kod, "description": popis, "input_schema": parametry}
 
-    res = RT.selftest(kod, spec, code_body, test_cases)
+    # self-test dostane DB přístup (ctx.fetch), ať se otestuje i nástroj co čte data
+    from tool_registry._common import ToolContext as _TC
+    from core.database import get_session as _gs_test
+    res = RT.selftest(kod, spec, code_body, test_cases,
+                      ctx=_TC(entita_id=MARTI_AI_ENTITA_ID, db_session_factory=_gs_test))
     if not res.ok:
         return (f"❌ Self-test nástroje '{kod}' NEPROŠEL — nic jsem neuložila.\n"
                 f"{json.dumps(res.to_dict(), ensure_ascii=False)[:600]}")
@@ -380,5 +384,6 @@ def _dispatch_generated(tool_name, tool_input, user_id, conversation_id) -> Opti
     spec = payload.get("spec"); code = payload.get("code")
     if spec and code is not None:
         _ensure_generated_file(tool_name, spec, code)
-    ctx = ToolContext(user_id=user_id, conversation_id=conversation_id, entita_id=MARTI_AI_ENTITA_ID)
+    ctx = ToolContext(user_id=user_id, conversation_id=conversation_id,
+                      entita_id=MARTI_AI_ENTITA_ID, db_session_factory=get_session)
     return RT.execute(tool_name, tool_input, ctx)

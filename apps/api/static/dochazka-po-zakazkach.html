@@ -14,6 +14,7 @@
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:8px 12px 6px;background:#0f1420;color:#e8edf6}
   .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
   .chips{display:flex;gap:6px}
+  .rangelbl{font-weight:600;font-size:14px;color:#e8edf6}
   .chip{background:#27313f;color:#cdd9ea;border:0;border-radius:14px;padding:6px 13px;font-size:12.5px;cursor:pointer}
   .chip.on{background:#2563eb;color:#fff}
   .sumbtn{margin-left:auto;background:#1f6f43;color:#dff3e6}
@@ -91,10 +92,7 @@
 </head>
 <body>
 <div class="top">
-  <div class="chips" id="chips">
-    <button class="chip on" data-o="vse">Poslední 2 měsíce</button>
-    <button class="chip" data-o="budoucnost">Naplánovaná budoucnost</button>
-  </div>
+  <span class="rangelbl" id="rangeLbl">Poslední 2 měsíce</span>
   <span class="muted" id="info"></span>
   <button class="chip sumbtn" id="sumBtn" title="Sečíst hodnoty označených řádků po měsících a lidech">Σ Sumace označených</button>
 </div>
@@ -404,14 +402,12 @@ function init(){
   hlavicka();
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
   // základní šířky (SRVW) nastaví Claude na server na vyžádání ("ulož šířky jako výchozí").
-  // období z URL (?obdobi=vse|budoucnost) — uzel „Naplánovaná budoucnost" otevře rovnou budoucnost
+  // Období řídí URL (?obdobi=vse|budoucnost) podle uzlu ve stromu — žádné přepínací tlačítko.
+  // „Docházka new" = 2 měsíce; „Naplánovaná budoucnost" = samostatný uzel; „Docházka vše" bude taky vlastní uzel.
   try{var _p=new URLSearchParams(location.search).get('obdobi');
-    if(_p==='budoucnost'||_p==='vse'){OBD=_p;
-      [].forEach.call($('chips').children,function(x){x.classList.toggle('on',x.getAttribute('data-o')===OBD);});}
+    if(_p==='budoucnost'||_p==='vse')OBD=_p;
   }catch(_e){}
-  $('chips').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
-    [].forEach.call($('chips').children,function(x){x.classList.remove('on');});b.classList.add('on');
-    OBD=b.getAttribute('data-o');load();});
+  var _lbl=$('rangeLbl'); if(_lbl) _lbl.textContent=(OBD==='budoucnost')?'Naplánovaná budoucnost':'Poslední 2 měsíce';
   // Dvojklik = otevřít formulář. Detekce dvou rychlých kliků; obarvení řádku je
   // teď inkrementální (paintRow), takže klik neblokuje a dvojklik se stihne.
   var _lastClick={i:-1,t:0};

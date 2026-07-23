@@ -207,3 +207,203 @@ async def dr_selfcheck(req: Request):
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
     return JSONResponse({"ok": True, "verdict": verdict, "reason": reason})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Plzeň command relay (Claude C23, 23.7.2026)
+# Cíl: 30.11 (Plzeň, RDP-only) přestane vyžadovat ruční copy-paste PowerShellu.
+# 30.11 už volá Prahu ven (DR pull) → obrátíme to v obousměrný audit-ovaný kanál:
+#   POST /api/v1/ops/plzen/enqueue  (X-Deploy-Token)  — zařadí příkaz do fronty (dělá watcher/most)
+#   GET  /api/v1/ops/plzen/pending  (X-Plzen-Token)   — poller si vyzvedne nejstarší 'queued'
+#   POST /api/v1/ops/plzen/result   (X-Plzen-Token)   — poller vrátí stdout/stderr/rc
+# Bezpečnost: samostatný token (fw.plzen_relay_cfg.token), master vypínač enabled,
+#   plný audit ve fw.plzen_cmd_queue; poller navíc odmítá destruktivní vzory.
+# ──────────────────────────────────────────────────────────────────────────────
+import secrets as _plz_secrets
+
+_PLZEN_DDL = [
+    "CREATE SCHEMA IF NOT EXISTS fw",
+    """CREATE TABLE IF NOT EXISTS fw.plzen_relay_cfg (
+        id         int PRIMARY KEY DEFAULT 1,
+        token      text NOT NULL,
+        enabled    boolean NOT NULL DEFAULT true,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT plzen_cfg_single CHECK (id = 1)
+    )""",
+    """CREATE TABLE IF NOT EXISTS fw.plzen_cmd_queue (
+        id          bigserial PRIMARY KEY,
+        nonce       text UNIQUE NOT NULL,
+        label       text,
+        command     text NOT NULL,
+        status      text NOT NULL DEFAULT 'queued',   -- queued|taken|done|error|refused
+        created_by  text,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        taken_at    timestamptz,
+        done_at     timestamptz,
+        exit_code   int,
+        stdout      text,
+        stderr      text,
+        duration_ms int
+    )""",
+    "CREATE INDEX IF NOT EXISTS plzen_cmd_queue_status_idx ON fw.plzen_cmd_queue (status, id)",
+]
+
+
+def _plzen_cfg(ds):
+    """Vrať (token, enabled). Tabulky se zkusí založit JEN když chybí (to_regclass) —
+    když existují (předpřipravené migrací přes schvalovací most), žádné DDL se nespouští,
+    takže app-role nepotřebuje CREATE práva. Token se vygeneruje 1x a uloží do DB (nikdy v gitu)."""
+    from sqlalchemy import text as _t
+    have = ds.execute(_t(
+        "SELECT to_regclass('fw.plzen_relay_cfg') IS NOT NULL "
+        "AND to_regclass('fw.plzen_cmd_queue') IS NOT NULL")).scalar()
+    if not have:
+        for stmt in _PLZEN_DDL:
+            ds.execute(_t(stmt))
+    row = ds.execute(_t("SELECT token, enabled FROM fw.plzen_relay_cfg WHERE id=1")).fetchone()
+    if not row:
+        tok = _plz_secrets.token_hex(24)
+        ds.execute(_t(
+            "INSERT INTO fw.plzen_relay_cfg (id, token, enabled) VALUES (1, :tk, true) "
+            "ON CONFLICT (id) DO NOTHING"), {"tk": tok})
+        row = ds.execute(_t("SELECT token, enabled FROM fw.plzen_relay_cfg WHERE id=1")).fetchone()
+    return (row[0], bool(row[1]))
+
+
+def _plzen_deploy_guard(req: Request):
+    """Enqueue je privilegovaná akce → deploy-grade auth (stejný token jako watcher/deploy)."""
+    want = (os.environ.get("STRATEGIE_DEPLOY_TOKEN", "") or "").strip()
+    if not want:
+        return JSONResponse({"ok": False, "error": "deploy_token_not_configured"}, status_code=503)
+    if not hmac.compare_digest(req.headers.get("X-Deploy-Token", "") or "", want):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return None
+
+
+def _plzen_token_guard(req: Request, want_token: str):
+    if not want_token:
+        return JSONResponse({"ok": False, "error": "relay_not_provisioned"}, status_code=503)
+    if not hmac.compare_digest(req.headers.get("X-Plzen-Token", "") or "", want_token):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return None
+
+
+@drops_router.post("/plzen/enqueue")
+async def plzen_enqueue(req: Request):
+    """Most/watcher (X-Deploy-Token) zařadí PowerShell příkaz pro 30.11 do fronty.
+    Body: {command, label?, created_by?, nonce?}. Vrátí {ok, id, nonce}."""
+    g = _plzen_deploy_guard(req)
+    if g is not None:
+        return g
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    command = (body.get("command") or "").strip()
+    if not command:
+        return JSONResponse({"ok": False, "error": "empty_command"}, status_code=400)
+    label = (str(body.get("label") or ""))[:200] or None
+    created_by = (str(body.get("created_by") or "claude-23"))[:64]
+    nonce = (str(body.get("nonce") or "")).strip()[:64] or ("q" + _plz_secrets.token_hex(8))
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        ds = _gds()
+        try:
+            _plzen_cfg(ds)  # ensure tables exist
+            row = ds.execute(_t(
+                "INSERT INTO fw.plzen_cmd_queue (nonce, label, command, created_by) "
+                "VALUES (:n, :l, :c, :by) "
+                "ON CONFLICT (nonce) DO NOTHING RETURNING id"),
+                {"n": nonce, "l": label, "c": command[:100000], "by": created_by}).fetchone()
+            ds.commit()
+        finally:
+            ds.close()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:300]}, status_code=500)
+    if not row:
+        return JSONResponse({"ok": True, "duplicate": True, "nonce": nonce})
+    return JSONResponse({"ok": True, "id": int(row[0]), "nonce": nonce})
+
+
+@drops_router.get("/plzen/pending")
+async def plzen_pending(req: Request):
+    """Poller (X-Plzen-Token) si atomicky vyzvedne nejstarší 'queued' příkaz (→ 'taken').
+    Když je relay vypnutá (enabled=false) nebo fronta prázdná, vrátí cmd=null."""
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        ds = _gds()
+        try:
+            token, enabled = _plzen_cfg(ds)
+            g = _plzen_token_guard(req, token)
+            if g is not None:
+                ds.close()
+                return g
+            if not enabled:
+                ds.commit()
+                return JSONResponse({"ok": True, "cmd": None, "disabled": True})
+            row = ds.execute(_t(
+                "WITH nxt AS ("
+                "  SELECT id FROM fw.plzen_cmd_queue WHERE status='queued' "
+                "  ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) "
+                "UPDATE fw.plzen_cmd_queue q SET status='taken', taken_at=now() "
+                "FROM nxt WHERE q.id=nxt.id "
+                "RETURNING q.nonce, q.label, q.command")).fetchone()
+            ds.commit()
+        finally:
+            ds.close()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:300]}, status_code=500)
+    if not row:
+        return JSONResponse({"ok": True, "cmd": None})
+    return JSONResponse({"ok": True, "cmd": {"nonce": row[0], "label": row[1], "command": row[2]}})
+
+
+@drops_router.post("/plzen/result")
+async def plzen_result(req: Request):
+    """Poller (X-Plzen-Token) vrátí výsledek běhu. Body: {nonce, status, exit_code, stdout, stderr, duration_ms}."""
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    nonce = (str(body.get("nonce") or "")).strip()[:64]
+    if not nonce:
+        return JSONResponse({"ok": False, "error": "missing_nonce"}, status_code=400)
+
+    def _int(x):
+        try:
+            return int(x)
+        except (TypeError, ValueError):
+            return None
+
+    status = (str(body.get("status") or "done"))[:16]
+    if status not in ("done", "error", "refused"):
+        status = "done"
+    rc = _int(body.get("exit_code"))
+    out = (str(body.get("stdout") or ""))[:200000]
+    err = (str(body.get("stderr") or ""))[:200000]
+    ms = _int(body.get("duration_ms"))
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        ds = _gds()
+        try:
+            token, _enabled = _plzen_cfg(ds)
+            g = _plzen_token_guard(req, token)
+            if g is not None:
+                ds.close()
+                return g
+            row = ds.execute(_t(
+                "UPDATE fw.plzen_cmd_queue "
+                "SET status=:st, done_at=now(), exit_code=:rc, stdout=:o, stderr=:e, duration_ms=:ms "
+                "WHERE nonce=:n AND status IN ('taken','queued') RETURNING id"),
+                {"st": status, "rc": rc, "o": out, "e": err, "ms": ms, "n": nonce}).fetchone()
+            ds.commit()
+        finally:
+            ds.close()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:300]}, status_code=500)
+    if not row:
+        return JSONResponse({"ok": False, "error": "unknown_or_already_done_nonce", "nonce": nonce}, status_code=404)
+    return JSONResponse({"ok": True, "id": int(row[0]), "status": status})

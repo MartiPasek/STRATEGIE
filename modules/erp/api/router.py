@@ -21237,6 +21237,25 @@ async def att_fix_void(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
+        # Marti-AI 23.7.2026 (konzultace) + Jirka: storno docházky KASKÁDUJE do výroby.
+        # Stornovaný att_entry zneplatní odpovídající řádky tenant.vyroba_work (is_active=false),
+        # aby se nepočítaly v přehledu „Docházka po zakázkách" (/app/dochazka/zakazky).
+        # Vazba: user + datum + shodná minuta začátku + shodná zakázka (att_entry.project_ref);
+        # jen práce SE zakázkou (project_ref NOT NULL — storna přestávek/absencí sem nepatří).
+        # Best-effort: nesmí NIKDY shodit storno docházky → vlastní try/except.
+        try:
+            s.execute(_t(
+                "UPDATE tenant.vyroba_work w SET is_active=false, att_entry_id=:i, updated_at=now() "
+                "FROM tenant.att_entry e "
+                "JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=:t "
+                "WHERE e.id=:i AND w.tenant_id=:t AND w.user_id=em.user_id "
+                "  AND w.datum=e.entry_date "
+                "  AND date_trunc('minute', w.od)=date_trunc('minute', e.started_at) "
+                "  AND e.project_ref IS NOT NULL AND w.zakazka_ref=e.project_ref "
+                "  AND w.is_active=true"),
+                {"i": eid, "t": _ATT_TENANT})
+        except Exception:
+            pass
         # Peťa 22.7.2026: po stornu anomálii NEVYŘEŠOVAT — ať zůstane ve frontě zeleně
         # „opraveno" s tlačítkem „Hotovo — z fronty" (maže se až odkliknutím). Viz fix/entry.
         _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=desc.strip(),
@@ -31145,7 +31164,8 @@ def dochazka_zakazky_ep(req: Request):
         od = req.query_params.get("od") or today.replace(day=1).isoformat()
         do = req.query_params.get("do") or today.isoformat()
         src = (req.query_params.get("src") or "").strip()
-        wh = "w.tenant_id=2 AND w.datum >= :od AND w.datum <= :do"
+        # Jirka 23.7.2026: stornované záznamy (att_fix_void → kaskáda na vyroba_work) NEpočítat.
+        wh = "w.tenant_id=2 AND w.is_active AND w.datum >= :od AND w.datum <= :do"
         params = {"od": od, "do": do}
         if src in ("app", "centrala1"):
             wh += " AND w.source_system = :src"

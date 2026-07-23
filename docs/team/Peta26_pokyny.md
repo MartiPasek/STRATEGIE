@@ -114,7 +114,8 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
   stál. (U faktur tuhle roli plní sloupec se zaškrtávátky; šipka ▶ je u aktuálního řádku.)
   Pozor: úzký sloupec potřebuje `padding:0`/`2px 0` na buňkách, jinak se ✕/šipka ořízne.
 - **Výběr řádků myší — JEN Ctrl a Shift (Peťa 23.7.2026, závazné, jako Přijaté faktury):**
-  **prostý klik NEOZNAČUJE** — jen posune „aktuální řádek" (šipka ▶). **Ctrl+klik** (Cmd na Macu)
+  **prostý klik NEOZNAČUJE a ZRUŠÍ dosavadní označení** (jako Excel/Windows) — jen posune „aktuální
+  řádek" (šipka ▶). **Ctrl+klik** (Cmd na Macu)
   přepne označení jednoho řádku (• / modré zvýraznění), **Shift+klik** označí celý úsek od aktuálního
   řádku. Označení slouží k akcím nad výběrem (např. Sumace označených). U faktur je výběr napojený na
   zaškrtávátka. Klik do filtru/vstupu řádek NEvybírá (guard `closest('input,select,…')`).

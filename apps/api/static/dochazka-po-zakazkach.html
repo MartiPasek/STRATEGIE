@@ -499,7 +499,9 @@ function init(){
       for(var x=a;x<=b;x++){SELSET[x]=true;touched[x]=1;}
     }else if(e.ctrlKey||e.metaKey){  // Ctrl+klik = přepnout výběr jednoho řádku
       if(SELSET[i]){delete SELSET[i];}else{SELSET[i]=true;}
-    }  // prostý klik → nic neoznačí, jen se posune ▶ (CUR níže)
+    }else{  // prostý klik = zruš označení (jako Excel/Windows), jen se posune ▶
+      for(var s in SELSET){touched[s]=1;} SELSET={};
+    }
     CUR=i; touched[i]=1; if(oldCUR!=null)touched[oldCUR]=1;
     for(var k in touched)paintRow(parseInt(k,10));});
   // Záloha: nativní dvojklik (kdyby překreslení nevadilo) — na jistotu

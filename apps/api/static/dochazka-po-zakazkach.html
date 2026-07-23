@@ -132,7 +132,7 @@
       </div>
       <div class="fld prac"><label>Pracovník</label><input id="d_prac" readonly></div>
       <div class="frow2">
-        <div class="fld"><label>Zakázka</label><input id="d_zak" autocomplete="off"></div>
+        <div class="fld"><label>Zakázka</label><input id="d_zak" list="zaklist" autocomplete="off" placeholder="piš číslo nebo název…"><datalist id="zaklist"></datalist></div>
         <div class="fld"><label>Činnost</label><select id="d_cin"></select></div>
       </div>
       <div class="frow3">
@@ -384,12 +384,20 @@ function load(){
 }
 
 /* ── Editační okno (dvojklik na řádek) ───────────────────────────────── */
-var CINY=null, EDIT_I=null, EDIT_NEW=false, EDIT_MODE='RO';
+var CINY=null, EDIT_I=null, EDIT_NEW=false, EDIT_MODE='RO', ZAK=null;
 function loadCiny(cb){
   if(CINY){cb();return;}
   fetch('/api/v1/erp/app/dochazka-zak-tab/cinnosti',{credentials:'include'})
     .then(function(r){return r.json();}).then(function(j){CINY=(j&&j.ok&&j.cinnosti)||[];cb();})
     .catch(function(){CINY=[];cb();});
+}
+function loadZak(){
+  if(ZAK)return;
+  fetch('/api/v1/erp/app/dochazka-zak-tab/zakazky',{credentials:'include'})
+    .then(function(r){return r.json();}).then(function(j){ZAK=(j&&j.ok&&j.zakazky)||[];
+      var dl=$('zaklist'); if(!dl)return;
+      dl.innerHTML=ZAK.map(function(z){return '<option value="'+esc(z.cislo)+'">'+esc(z.cislo)+(z.nazev?(' — '+z.nazev):'')+(z.typ?(' ['+z.typ+']'):'')+'</option>';}).join('');
+    }).catch(function(){ZAK=[];});
 }
 function fillCin(sel){
   var s=$('d_cin');
@@ -575,6 +583,7 @@ function ctxAction(a){
 
 function init(){
   hlavicka();
+  loadZak();  // seznam zakázek pro našeptávač
   // Bez tlačítka: tažení je VŽDY jen jednorázové (po obnovení zpět na základní). Sdílené
   // základní šířky (SRVW) nastaví Claude na server na vyžádání ("ulož šířky jako výchozí").
   // Podzáložky: 📅 Poslední 2 měsíce | 📖 Vše | ⏭ Naplánovaná budoucnost. Lze i z URL (?obdobi=).

@@ -234,6 +234,31 @@ def dochazka_zak_tab_cinnosti(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
 
 
+@doch_zak_tab_router.get("/app/dochazka-zak-tab/zakazky")
+def dochazka_zak_tab_zakazky(req: Request) -> JSONResponse:
+    """Píchatelné zakázky pro našeptávač Zakázky ve formuláři (cislo, nazev, typ).
+    Stejný zdroj jako Opravy docházky (tenant.zakazka, pichatelna=true), REZIE první."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        from core.database_data import get_data_session as _g
+        s = _g()
+        try:
+            rows = s.execute(_t(
+                "SELECT cislo, COALESCE(nazev,'') AS nazev, COALESCE(typ,'') AS typ "
+                "FROM tenant.zakazka WHERE tenant_id=2 AND pichatelna=true "
+                "ORDER BY (typ='REZIE') DESC, cislo")).mappings().all()
+        finally:
+            s.close()
+        out = [{"cislo": r["cislo"], "nazev": r["nazev"], "typ": r["typ"]} for r in rows]
+        return JSONResponse({"ok": True, "zakazky": out})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
 def _dzt_parse_ts(d: str | None, t: str | None) -> str | None:
     """'YYYY-MM-DD' + 'HH:MM' → 'YYYY-MM-DD HH:MM' (None když chybí datum)."""
     d = (d or "").strip()

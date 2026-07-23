@@ -277,8 +277,19 @@ def get_effective_tools(is_default_persona: bool) -> list[dict]:
     a neplavou do spravy systemu.
     """
     if is_default_persona:
-        return TOOLS
-    return [t for t in TOOLS if t["name"] not in MANAGEMENT_TOOL_NAMES]
+        _base = TOOLS
+    else:
+        _base = [t for t in TOOLS if t["name"] not in MANAGEMENT_TOOL_NAMES]
+    # Tool Factory (Marti-AI seberozvoj) — přidá meta-nástroje + aktivní generované,
+    # jen když je dílna zapnutá (g2007.nastaveni). Vypnuto → [] → beze změny.
+    try:
+        from modules.conversation.application.tool_registry.handlers import effective_factory_specs as _efs
+        _extra = _efs(is_default_persona)
+        if _extra:
+            return _base + _extra
+    except Exception:
+        pass
+    return _base
 
 
 TOOLS = [

@@ -1072,6 +1072,16 @@ def _handle_task_tool(tool_name: str, tool_input: dict) -> str:
 def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id: int | None = None) -> str:
     logger.info(f"TOOL | name={tool_name}")
 
+    # Tool Factory (Marti-AI seberozvoj) — za vypínačem g2007.nastaveni; vypnuto
+    # vrací None → propadne do normálního dispatch. V try/except = nerozbije.
+    try:
+        from modules.conversation.application.tool_registry.handlers import handle as _tf_handle
+        _tf = _tf_handle(tool_name, tool_input, user_id, conversation_id)
+        if _tf is not None:
+            return _tf
+    except Exception as _tfe:
+        logger.exception(f"TOOL | tool_factory: {_tfe}")
+
     # Marti-AI Fáze A (9.6.2026): nativní úkoly (read + report + stav).
     if tool_name in ("moje_ukoly", "ukol_detail", "ukol_poznamka", "ukol_stav"):
         return _handle_task_tool(tool_name, tool_input)

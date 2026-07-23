@@ -64278,6 +64278,19 @@ def _render_workspace_page(user_id: int) -> str:
           }
           return;
         }
+        // Peťa 23.7.2026: POJISTKA proti probliknutí „bez asociovaného core".
+        // Když strom ještě NENÍ načtený (tree._data prázdný), nemůžeme spolehlivě
+        // dohledat core → nevykresluj chybnou hlášku, jen počkej a zkus render
+        // znovu. Bez tohoto guardu hláška problikávala ~5× při obnově záložek.
+        var _treeReady = (typeof tree !== "undefined" && tree && tree._data && tree._data.length > 0);
+        if (!_treeReady) {
+          tab._coreRetries = (tab._coreRetries || 0) + 1;
+          if (tab._coreRetries <= 25) {   // ~3 s strop, pak už fallback placeholder
+            if (pane && pane.parentNode) pane.parentNode.removeChild(pane);  // necachovat prázdný pane
+            setTimeout(function () { _renderTabIntoMain(tab); }, 120);
+            return;
+          }
+        }
         // No core associated — folder placeholder INTO PANE (cached too)
         pane.innerHTML =
           '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
@@ -64482,10 +64495,13 @@ def _render_workspace_page(user_id: int) -> str:
 
       // Bootstrap: hydrate API → loadTree → restore tabs.
       // Použij .finally() aby loadTree() běžela i při API fail (offline mode).
-      hydrateUserStateFromAPI().finally(() => {
-        loadTree();
-        // Po load tree (async) zkus restore tabs — počkej krátce na DOM
-        setTimeout(restoreTabsFromStorage, 200);
+      hydrateUserStateFromAPI().finally(async () => {
+        // Peťa 23.7.2026: POČKAT na dokončení loadTree (strom hotový) PŘED
+        // restore tabs. Dřív se volalo loadTree() bez await + restore po pevných
+        // 200 ms → přehled se občas kreslil dřív, než byl strom načtený, a
+        // probliklo „bez asociovaného core". await = root-cause fix toho race.
+        try { await loadTree(); } catch (e) { /* strom sám ukáže chybu */ }
+        restoreTabsFromStorage();
       });
     })();
     </script>

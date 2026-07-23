@@ -78,7 +78,7 @@ def _git_working_tree_clean() -> tuple[bool, str]:
 
     Returns (clean, detail). detail je porcelain output (empty -> clean).
     """
-    rc, stdout, stderr = _run_git(["status", "--porcelain"])
+    rc, stdout, stderr = _run_git(["status", "--porcelain", "-uno"])  # C23 23.7.: -uno ignoruj untracked (generated/ apod.) - nezablokuji deploy; realny git pull je stejne nepocita
     if rc != 0:
         return False, f"git status failed: {stderr or stdout}"
     return not stdout.strip(), stdout

@@ -1,9 +1,10 @@
 # Nástroje — přehled
 
-Celkem **167** nástrojů. Zdroj pravdy: `g2007.nastroj`.
+Celkem **168** nástrojů. Zdroj pravdy: `g2007.nastroj`.
 
 | # | kód | kategorie | kufry | automat_safe | při chybě |
 |---|-----|-----------|-------|--------------|-----------|
+| 0 | [audit_progress](./audit_progress.md) | generated | — | — | eskaluj_llm |
 | 10 | [send_email](./send_email.md) | CORE | marti-ai-md5 | — | eskaluj_llm |
 | 20 | [send_sms](./send_sms.md) | CORE | marti-ai-md5 | — | eskaluj_llm |
 | 30 | [list_sms_inbox](./list_sms_inbox.md) | CORE | marti-ai-md5 | — | eskaluj_llm |

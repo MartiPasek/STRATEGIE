@@ -3,12 +3,12 @@
 > **Tento strom je PROJEKCE databáze `g2007`.** Needituj ručně — změň DB a přegeneruj přes `/g2007/export`.
 > Zdroj pravdy = databáze. Disk = výtisk na požádání.
 
-- Nástrojů: **167** → [nastroje/_prehled.md](nastroje/_prehled.md)
+- Nástrojů: **168** → [nastroje/_prehled.md](nastroje/_prehled.md)
 - Kufrů: **5** → `kufry/`
 - Entit: **5** → `entity/`
 - Grafů: **2** → `grafy/`
 - Snímků struktury: **1** → `struktura/`
-- Znalostí: **152** v **14** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)
+- Znalostí: **161** v **14** oblastech → [znalosti/_prehled.md](znalosti/_prehled.md)
 
 ## Grafy (Krok 0)
 

@@ -447,13 +447,15 @@ function load(){
 /* ── Editační okno (dvojklik na řádek) ───────────────────────────────── */
 var CINY=null, EDIT_I=null, EDIT_NEW=false, EDIT_MODE='RO', ZAK=null;
 function loadCiny(cb){
-  if(CINY){cb();return;}
+  // POZOR: prázdný seznam NEcachujeme (dřív se `if(CINY)` bralo i pro [] → Činnost
+  // zůstala prázdná po nezdařeném/rychlém prvním načtení, třeba hned po deploy restartu).
+  if(CINY && CINY.length){cb();return;}
   fetch('/api/v1/erp/app/dochazka-zak-tab/cinnosti',{credentials:'include'})
     .then(function(r){return r.json();}).then(function(j){CINY=(j&&j.ok&&j.cinnosti)||[];cb();})
     .catch(function(){CINY=[];cb();});
 }
 function loadZak(){
-  if(ZAK)return;
+  if(ZAK && ZAK.length)return;   // prázdno NEcachovat → příště zkus znovu
   fetch('/api/v1/erp/app/dochazka-zak-tab/zakazky',{credentials:'include'})
     .then(function(r){return r.json();}).then(function(j){ZAK=(j&&j.ok&&j.zakazky)||[];
       var dl=$('zaklist'); if(!dl)return;

@@ -10201,6 +10201,62 @@ async def app_hr_template_tokens(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     return JSONResponse({"ok": True, "tokeny": _HR_TOKENS})
+
+
+@api_router.get("/app/hr/person-docs-zip")
+async def app_hr_person_docs_zip(req: Request):
+    """Hromadné stažení celého spisu člověka jako ZIP (dokumenty ve složkách dle kategorie)."""
+    from sqlalchemy import text as _t
+    from fastapi.responses import Response as _Resp
+    import io as _io, zipfile as _zip, re as _re
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, COALESCE(kategorie,'ostatni'), nazev, obsah FROM tenant.employee_document "
+            "WHERE tenant_id=2 AND user_id=:u AND is_active=true ORDER BY kategorie, nazev"),
+            {"u": tuid}).fetchall()
+        if not rows:
+            return JSONResponse({"ok": False, "error": "Spis je prázdný."}, status_code=404)
+        prijmeni = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(last_name,'')||'_'||COALESCE(first_name,'')),''),"
+            " (SELECT full_name FROM tenant.att_employee ae WHERE ae.user_id=:u AND ae.tenant_id=2 LIMIT 1),"
+            " '#'||:u) FROM public.users WHERE id=:u"), {"u": tuid}).scalar() or ("osoba_" + str(tuid))
+
+        def _safe(x):
+            return _re.sub(r'[\\/:*?"<>|]+', "_", str(x or "")).strip() or "soubor"
+        buf = _io.BytesIO()
+        seen = {}
+        with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as z:
+            for r in rows:
+                if r[3] is None:
+                    continue
+                nm = _safe(r[2])
+                path = _safe(r[1]) + "/" + nm
+                if path in seen:
+                    seen[path] += 1
+                    root, dot, ext = nm.rpartition(".")
+                    nm2 = (root + "_" + str(seen[path]) + ("." + ext if dot else ""))
+                    path = _safe(r[1]) + "/" + nm2
+                else:
+                    seen[path] = 0
+                z.writestr(path, bytes(r[3]))
+        zipname = "Spis_" + _safe(prijmeni) + ".zip"
+        return _Resp(content=buf.getvalue(), media_type="application/zip",
+                     headers={"Content-Disposition": 'attachment; filename="' + zipname + '"'})
+    except Exception as exc:
+        logger.exception("[hr_person_docs_zip] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
 @api_router.get("/app/hr/templates")
 async def app_hr_templates(req: Request) -> JSONResponse:
     """Seznam šablon (všechny verze) pro správu — HR + rodiče."""

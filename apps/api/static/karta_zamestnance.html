@@ -1018,7 +1018,8 @@ async function dokUdaje(){
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
   const audit='<a href="#" onclick="dokAudit('+uid+');return false;" style="color:#aac8ec;text-decoration:none">📜 Audit</a>';
-  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📄 Dokumenty (digitální šanon)</span><span>'+audit+' · '+back+'</span></div>';
+  const zip=(d.ok && (d.dokumenty||[]).length)?('<a href="'+API+'/app/hr/person-docs-zip?uid='+uid+'" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout vše (ZIP)</a> · '):'';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📄 Dokumenty (digitální šanon)</span><span>'+zip+audit+' · '+back+'</span></div>';
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
   h+='<div style="padding:12px 16px;border-top:1px solid #1e2730;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
      '<select id="dokKat" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit">'+dokKatOpts('smlouva')+'</select>'+

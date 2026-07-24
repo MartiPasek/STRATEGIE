@@ -260,6 +260,33 @@ def dochazka_zak_tab_zakazky(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
 
 
+@doch_zak_tab_router.get("/app/dochazka-zak-tab/zamestnanci")
+def dochazka_zak_tab_zamestnanci(req: Request) -> JSONResponse:
+    """Seznam pracovníků pro výběr pole Pracovník ve formuláři nového záznamu.
+    Jen ti, které umí save-new dohledat (att_employee, user_id NOT NULL,
+    číselné cislo_zam). Vrací cislo_zam + jmeno, řazeno dle jména."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        from core.database_data import get_data_session as _g
+        s = _g()
+        try:
+            rows = s.execute(_t(
+                "SELECT cislo_zam, COALESCE(full_name,'') AS jmeno "
+                "FROM tenant.att_employee "
+                "WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam ~ '^[0-9]+$' "
+                "ORDER BY full_name")).mappings().all()
+        finally:
+            s.close()
+        out = [{"cislo": r["cislo_zam"], "jmeno": r["jmeno"]} for r in rows]
+        return JSONResponse({"ok": True, "zamestnanci": out})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
 def _dzt_parse_ts(d: str | None, t: str | None) -> str | None:
     """'YYYY-MM-DD' + 'HH:MM' → 'YYYY-MM-DD HH:MM' (None když chybí datum)."""
     d = (d or "").strip()

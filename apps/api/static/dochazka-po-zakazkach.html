@@ -137,7 +137,7 @@
         <div class="fld"><label>ID záznamu</label><input id="d_idnum" readonly></div>
         <div class="fld"><label>Čas</label><input id="d_hod" readonly></div>
       </div>
-      <div class="fld prac"><label>Pracovník</label><input id="d_prac" readonly></div>
+      <div class="fld prac"><label>Pracovník</label><div class="two"><input id="d_prac" readonly style="flex:1;min-width:0"><button type="button" class="zakpick" id="d_pracbtn" title="Vybrat pracovníka ze seznamu">▤</button></div></div>
       <div class="frow2">
         <div class="fld"><label>Zakázka</label><div class="two"><input id="d_zak" list="zaklist" autocomplete="off" placeholder="piš číslo zakázky…" style="flex:1;min-width:0"><button type="button" class="zakpick" id="d_zakbtn" title="Vybrat zakázku ze seznamu">▤</button></div><datalist id="zaklist"></datalist></div>
         <div class="fld"><label>Činnost</label><select id="d_cin"></select></div>
@@ -193,6 +193,24 @@
     <div class="dbtn">
       <button class="b-cn" onclick="closeZak()">Storno</button>
       <div class="r"><button class="b-ok" id="zak_ok" onclick="zakOk()">OK</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Okno výběru pracovníka (čtvereček u pole Pracovník). Ulehčení: přednabídne se člověk
+     z řádku, na kterém stojíš, ale jde změnit, kdyby ses omylem stavěla na někom jiném. -->
+<div class="ov" id="ovprac">
+  <div class="dlg" style="width:min(460px,95vw)" role="dialog" aria-modal="true">
+    <h3>▤ Pracovníci<span class="muted" id="prac_info" style="margin-left:auto;font-weight:400"></span></h3>
+    <div class="bd" style="padding:0">
+      <div style="padding:10px 12px;border-bottom:1px solid #2a3546">
+        <input id="prac_fil" autocomplete="off" placeholder="filtr jména nebo čísla…" style="width:100%;background:#0b0d10;border:1px solid #363b43;border-radius:5px;color:#e9eef5;padding:7px 9px;font-size:13px">
+      </div>
+      <div id="prac_list" style="max-height:52vh;overflow:auto"></div>
+    </div>
+    <div class="dbtn">
+      <button class="b-cn" onclick="closePrac()">Storno</button>
+      <div class="r"><button class="b-ok" id="prac_ok" onclick="pracOk()">OK</button></div>
     </div>
   </div>
 </div>
@@ -511,6 +529,50 @@ function zakOk(){if(ZAKPICK!=null)$('d_zak').value=ZAKPICK;closeZak();}
 function closeZak(){$('ovzak').classList.remove('on');}
 function syncZakBtn(){var b=$('d_zakbtn');if(b)b.disabled=$('d_zak').disabled;}
 
+/* ── Výběr pracovníka (čtvereček u pole Pracovník) ───────────────────────
+   Přednabídne se člověk z řádku, na kterém stojíš, ale jde změnit — kdyby
+   ses omylem stavěla na někom jiném. Aktivní jen u NOVÉHO záznamu. */
+var ZAML=null;             // seznam zaměstnanců [{cislo, jmeno}]
+var NEWZAM=null;           // vybraný pracovník pro nový záznam {cz, jm}
+var PRACPICK=null;         // číslo právě vybrané v okně
+function loadZam(cb){
+  if(ZAML && ZAML.length){if(cb)cb();return;}
+  fetch('/api/v1/erp/app/dochazka-zak-tab/zamestnanci',{credentials:'include'})
+    .then(function(r){return r.json();}).then(function(j){ZAML=(j&&j.ok&&j.zamestnanci)||[];if(cb)cb();})
+    .catch(function(){ZAML=[];if(cb)cb();});
+}
+function setNewZam(cz,jm){
+  NEWZAM={cz:cz||'', jm:jm||''};
+  $('d_prac').value=(NEWZAM.jm||'')+(NEWZAM.cz?(' '+NEWZAM.cz):'');
+  $('d_msg').className='dmsg ok';
+  $('d_msg').textContent='Nový záznam pro: '+((NEWZAM.jm||'')+' '+(NEWZAM.cz||'')).trim();
+}
+function openPracPicker(){
+  if($('d_pracbtn').disabled)return;     // u existujícího záznamu se pracovník nemění
+  loadZam(function(){renderPracList($('prac_fil').value||'');});
+  PRACPICK=(NEWZAM&&NEWZAM.cz)||null;
+  $('prac_fil').value='';
+  renderPracList('');
+  $('ovprac').classList.add('on');
+  setTimeout(function(){try{$('prac_fil').focus();}catch(e){}},30);
+}
+function renderPracList(q){
+  var box=$('prac_list'), list=ZAML||[];
+  q=(q||'').trim().toLowerCase();
+  if(!list.length){box.innerHTML='<div class="ld">Načítám seznam pracovníků…</div>';$('prac_info').textContent='';return;}
+  var f=q?list.filter(function(z){return (String(z.jmeno)+' '+String(z.cislo)).toLowerCase().indexOf(q)>=0;}):list;
+  if(!f.length){box.innerHTML='<div class="ld">Nic neodpovídá filtru.</div>';$('prac_info').textContent='0 os.';return;}
+  box.innerHTML=f.map(function(z){var on=(PRACPICK!=null&&String(z.cislo)===String(PRACPICK));
+    return '<div class="zakrow'+(on?' on':'')+'" data-c="'+esc(z.cislo)+'" data-j="'+esc(z.jmeno)+'">'+esc(z.jmeno)+' <span class="muted">('+esc(z.cislo)+')</span></div>';}).join('');
+  $('prac_info').textContent=f.length+' os.';
+}
+function pracOk(){
+  if(PRACPICK!=null){var z=(ZAML||[]).filter(function(x){return String(x.cislo)===String(PRACPICK);})[0];
+    setNewZam(PRACPICK, z?z.jmeno:'');}
+  closePrac();
+}
+function closePrac(){$('ovprac').classList.remove('on');}
+
 function fillCin(sel){
   var s=$('d_cin');
   s.innerHTML='<option value="">—</option>'+CINY.map(function(c){
@@ -528,7 +590,9 @@ function openNew(i){
   // Nový záznam pro osobu z řádku, na kterém stojíš (jako v Centrále).
   var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=true;
   $('d_id').textContent='· nový'; $('d_idnum').value='(nový)';
-  $('d_prac').value=(r._jm||'')+(r._cz?(' '+r._cz):'');
+  setNewZam(r._cz, r._jm);              // přednabídnutý člověk z řádku (jde změnit ▤)
+  $('d_pracbtn').disabled=false;        // u nového záznamu smí pracovníka měnit
+  loadZam();                            // seznam pro výběr (async)
   $('d_zak').value=''; loadCiny(function(){fillCin(null);});
   var t=new Date(),iso=t.getFullYear()+'-'+('0'+(t.getMonth()+1)).slice(-2)+'-'+('0'+t.getDate()).slice(-2);
   $('d_od_d').value=iso; $('d_od_t').value=''; $('d_kon_d').value=''; $('d_kon_t').value='';
@@ -552,6 +616,7 @@ function openEdit(i){
   EDIT_MODE=mode;
   $('d_id').textContent=(r._src?('· '+r._src):'');
   $('d_idnum').value=(r._id!=null?r._id:'');
+  NEWZAM=null; $('d_pracbtn').disabled=true;   // existující záznam: pracovník se nemění
   $('d_prac').value=(r._jm||'')+(r._cz?(' '+r._cz):'');
   $('d_zak').value=r._zak||'';
   loadCiny(function(){fillCin(r._cin_id);});
@@ -603,7 +668,9 @@ function saveEdit(){
   function done(){m.className='dmsg ok';m.textContent='Uloženo.';setTimeout(function(){closeEdit();load();},450);}
   function fail(msg){m.className='dmsg';m.textContent=msg;ok.disabled=false;}
   if(EDIT_NEW){
-    _postJ('/api/v1/erp/app/dochazka-zak-tab/save-new',{cislo_zam:r._cz,zakazka:$('d_zak').value,
+    var _cz=(NEWZAM&&NEWZAM.cz)||r._cz;   // vybraný pracovník (jde změnit ▤), jinak z řádku
+    if(!_cz){fail('Vyber pracovníka.');return;}
+    _postJ('/api/v1/erp/app/dochazka-zak-tab/save-new',{cislo_zam:_cz,zakazka:$('d_zak').value,
       cinnost_id:$('d_cin').value||null,od_d:$('d_od_d').value,od_t:$('d_od_t').value,
       kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,hodiny:$('d_hod').value,poznamka:$('d_pozn').value})
       .then(function(res){res.j&&res.j.ok?done():fail((res.j&&res.j.error)||('Nepodařilo se uložit ('+res.s+').'));})
@@ -968,12 +1035,24 @@ function init(){
     ZAKPICK=row.getAttribute('data-c');zakOk();});
   $('ovzak').addEventListener('mousedown',function(e){if(e.target===$('ovzak'))closeZak();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovzak').classList.contains('on'))closeZak();});
+  // Okno výběru pracovníka (čtvereček u pole Pracovník)
+  var _pb=$('d_pracbtn'); if(_pb)_pb.addEventListener('click',openPracPicker);
+  $('prac_fil').addEventListener('input',function(){renderPracList(this.value);});
+  $('prac_fil').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();pracOk();}});
+  $('prac_list').addEventListener('click',function(e){var row=e.target.closest('.zakrow');if(!row)return;
+    PRACPICK=row.getAttribute('data-c');
+    [].forEach.call($('prac_list').querySelectorAll('.zakrow.on'),function(x){x.classList.remove('on');});
+    row.classList.add('on');});
+  $('prac_list').addEventListener('dblclick',function(e){var row=e.target.closest('.zakrow');if(!row)return;
+    PRACPICK=row.getAttribute('data-c');pracOk();});
+  $('ovprac').addEventListener('mousedown',function(e){if(e.target===$('ovprac'))closePrac();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovprac').classList.contains('on'))closePrac();});
   // Okno Smazat záznam
   $('ovdel').addEventListener('mousedown',function(e){if(e.target===$('ovdel'))closeDel();});
   $('del_reason').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();delOk();}});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovdel').classList.contains('on'))closeDel();});
   // Ctrl+A = označit vše (po filtru), Ctrl+C = kopírovat označené — mimo psací pole a mimo otevřená okna
-  function _modalOn(){return $('ov').classList.contains('on')||$('ovsum').classList.contains('on')||$('ovzak').classList.contains('on');}
+  function _modalOn(){return $('ov').classList.contains('on')||$('ovsum').classList.contains('on')||$('ovzak').classList.contains('on')||$('ovprac').classList.contains('on');}
   document.addEventListener('keydown',function(e){
     if((e.ctrlKey||e.metaKey)&&(e.key==='a'||e.key==='A')&&!/(INPUT|TEXTAREA|SELECT)/.test((e.target.tagName||''))){
       if(_modalOn())return; e.preventDefault(); selectAll();}});

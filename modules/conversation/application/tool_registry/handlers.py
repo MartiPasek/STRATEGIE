@@ -132,6 +132,15 @@ RUN_AS_AGENT_SPEC = {
     },
 }
 
+SCHVAL_METERED_SPEC = {
+    "name": "schval_metered_varku",
+    "description": (
+        "💳 Schvalí DALŠÍ várku metered rozpočtu pro agentí failover (+1000 Kč). "
+        "Použij, když přijde upozornění 'metered várka vyčerpána'. JEN RODIČ."
+    ),
+    "input_schema": {"type": "object", "properties": {}},
+}
+
 # ── Cache aktivních generovaných speců (invalidace při změně) ────────────────────
 _spec_cache: Optional[list] = None
 
@@ -208,6 +217,7 @@ def effective_factory_specs(is_default_persona: bool) -> list:
         return _spec_cache
     specs = list(V1_META_SPECS)
     specs.append(RUN_AS_AGENT_SPEC)  # Fáze 0 — vlastní agentí smyčka (handler gate-uje flag)
+    specs.append(SCHVAL_METERED_SPEC)  # schválení další metered várky (rodič)
     try:
         from core.database import get_session
         sg = get_session()
@@ -243,6 +253,8 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _disable(tool_input, user_id)
         if tool_name == "run_as_agent":
             return _run_as_agent(tool_input, user_id, conversation_id)
+        if tool_name == "schval_metered_varku":
+            return _schval_metered_varku(user_id)
         if tool_name in META_NAMES:
             return None
         # generovaný nástroj?
@@ -425,6 +437,35 @@ def _run_as_agent(inp: dict, user_id, conversation_id) -> str:
         hlava += " · ⚠️ přes per-run strop"
     hlava += ")"
     return f"{hlava}\n\n{res.get('reply')}"
+
+
+def _schval_metered_varku(user_id) -> str:
+    # Rodic schvali dalsi varku metered rozpoctu pro agenti failover (+1 batch, denni reset).
+    if not _is_parent(user_id):
+        return "❌ Schvalit metered varku smi jen rodic (Marti/Kristy)."
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        today = sg.execute(_t("SELECT current_date::text")).scalar()
+        cur = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic='martiai_metered_batches'")).scalar()
+        n_today = 1
+        if cur:
+            p = str(cur).split("|")
+            if len(p) == 2 and p[1] == today:
+                try:
+                    n_today = max(1, int(p[0]))
+                except Exception:
+                    n_today = 1
+        n2 = n_today + 1
+        newval = f"{n2}|{today}"
+        r = sg.execute(_t("UPDATE g2007.nastaveni SET hodnota=:v WHERE klic='martiai_metered_batches'"), {"v": newval})
+        if r.rowcount == 0:
+            sg.execute(_t("INSERT INTO g2007.nastaveni (klic, hodnota) VALUES ('martiai_metered_batches', :v)"), {"v": newval})
+        sg.commit()
+    finally:
+        sg.close()
+    return f"✅ Schvaleno. Metered rozpocet agenta dnes rozsiren na {n2} varek (~{int(n2*1000)} Kc). Agent muze dal jet na metered API."
 
 
 def _dispatch_generated(tool_name, tool_input, user_id, conversation_id) -> Optional[str]:

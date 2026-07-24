@@ -27,6 +27,10 @@ READONLY_TOOLS = ["Read", "Grep", "Glob"]
 USD_TO_CZK = float(os.environ.get("USD_CZK", "23.5"))
 PER_RUN_CZK_CAP = float(os.environ.get("MARTIAI_AGENT_PER_RUN_CZK", "60"))
 DAILY_CZK_CAP = float(os.environ.get("MARTIAI_AGENT_DAILY_CZK", "600"))
+# Failover na metered API pri vycerpanem Max limitu (produkcni kontinuita).
+METERED_BATCH_CZK = float(os.environ.get("MARTIAI_METERED_BATCH_CZK", "1000"))  # velikost jedne varky
+MARTI_AI_PERSONA_ID = int(os.environ.get("MARTIAI_PERSONA_ID", "1"))  # persona s email kanalem
+_LIMIT_MARKERS = ("limit", "rate", "429", "quota", "credit", "capacity", "overloaded")
 
 AGENT_NOTE = ("\n\n[AGENTÍ REŽIM: běžíš jako autonomní agent s read-only nástroji "
               "(Read/Grep/Glob) nad repem. Splň zadaný cíl — prozkoumej co potřebuješ "
@@ -129,6 +133,7 @@ def _audit_run(user_id, goal, result: dict):
                     "input_tokens": result.get("input_tokens"), "output_tokens": result.get("output_tokens"),
                     "engine": "claude_code_sdk", "reply_len": len(result.get("reply") or ""),
                     "error": (result.get("error") or "")[:700], "reason": result.get("reason"),
+                    "auth": result.get("auth"), "failover": result.get("failover"),
                 }, ensure_ascii=False)})
             sg.commit()
         finally:
@@ -151,24 +156,27 @@ def _build_options(OptClass, kwargs: dict):
         return OptClass(**minimal)
 
 
-async def _run(goal: str, conversation_id: Optional[int]) -> dict:
+async def _run(goal: str, conversation_id: Optional[int], metered: bool = False) -> dict:
     from claude_agent_sdk import query, ClaudeAgentOptions
     from modules.conversation.application.claude_agent_service import (
         _extract_reply_text, _extract_cost_usd, _extract_tokens,
     )
-    # subscription token → prostředí (CLI subprocess ho zdědí) = Max kredity, ne API
     tok = _oauth_token()
-    if tok:
-        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = tok
-
     cli = _find_cli()
-    # env pro CLI subproces: token = předplatné; odeber ANTHROPIC_API_KEY, ať nejede metered
     sub_env = {k: v for k, v in os.environ.items()}
-    if tok:
-        sub_env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
-    sub_env.pop("ANTHROPIC_API_KEY", None)
-    diag = (f"cli={cli!r} exists={bool(cli and os.path.exists(cli))} token={bool(tok)} "
-            f"whoami={os.environ.get('USERNAME')}")
+    if metered:
+        # METERED failover: nech CLI pouzit ANTHROPIC_API_KEY (odeber subscription token)
+        sub_env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        auth_label = "metered_api"
+    else:
+        # SUBSCRIPTION (default): token -> CLI; odeber ANTHROPIC_API_KEY, at nejede metered
+        if tok:
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+            sub_env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+        sub_env.pop("ANTHROPIC_API_KEY", None)
+        auth_label = "subscription"
+    diag = (f"cli={cli!r} exists={bool(cli and os.path.exists(cli))} metered={metered} "
+            f"auth={auth_label} whoami={os.environ.get('USERNAME')}")
     # Identita: system_prompt jde do CLI přes příkazovou řádku → Windows limit ~32k.
     # Její plný composer prompt (~100 kB) by spuštění shodil ("not found"). Zkrátíme
     # na jádro identity (začátek promptu) — plnou identitu dořešíme jiným kanálem.
@@ -200,8 +208,59 @@ async def _run(goal: str, conversation_id: Optional[int]) -> dict:
         "ok": bool(reply), "reply": reply or "[agent nevrátil finální text]",
         "input_tokens": in_tok, "output_tokens": out_tok,
         "cost_usd": cost_usd, "cost_czk": round(cost_usd * USD_TO_CZK, 2),
-        "cli": cli, "auth": "subscription" if tok else "unknown",
+        "cli": cli, "auth": auth_label,
     }
+
+
+def _is_limit_error(result: dict) -> bool:
+    blob = f"{result.get('error','')} {result.get('reason','')}".lower()
+    return any(m in blob for m in _LIMIT_MARKERS)
+
+
+def _metered_batches_approved() -> int:
+    # g2007.nastaveni('martiai_metered_batches') = "N|YYYY-MM-DD"; jiny den => 1 (prvni varka auto)
+    try:
+        from core.database import get_session
+        from sqlalchemy import text as _t
+        sg = get_session()
+        try:
+            today = sg.execute(_t("SELECT current_date::text")).scalar()
+            h = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic='martiai_metered_batches'")).scalar()
+            if h:
+                p = str(h).split("|")
+                if len(p) == 2 and p[1] == today:
+                    return max(1, int(p[0]))
+            return 1
+        finally:
+            sg.close()
+    except Exception:
+        return 1
+
+
+def _spent_today_metered_czk() -> float:
+    try:
+        from core.database import get_session
+        from sqlalchemy import text as _t
+        sg = get_session()
+        try:
+            v = sg.execute(_t(
+                "SELECT COALESCE(SUM((detail->>'cost_czk')::numeric),0) FROM g2007.tool_audit "
+                "WHERE akce='agent_run' AND detail->>'auth'='metered_api' AND ts >= date_trunc('day', now())")).scalar()
+            return float(v or 0)
+        finally:
+            sg.close()
+    except Exception:
+        return 0.0
+
+
+def _notify(subject: str, body: str) -> None:
+    try:
+        from modules.notifications.application.email_service import queue_email
+        queue_email(to="m.pasek@eurosoft.com", subject=subject[:200], body=body,
+                    persona_id=MARTI_AI_PERSONA_ID, from_identity="persona",
+                    cc=["k.ksirova@eurosoft.com"], purpose="notification")
+    except Exception as e:
+        logger.warning(f"MARTIAI_AGENT _notify selhal: {e}")
 
 
 def run_goal(goal: str, requested_by_user_id: Optional[int] = None,
@@ -218,7 +277,33 @@ def run_goal(goal: str, requested_by_user_id: Optional[int] = None,
     import anyio
     t0 = time.monotonic()
     try:
-        result = anyio.run(_run, goal, conversation_id)
+        result = anyio.run(_run, goal, conversation_id, False)
+        # FAILOVER: kdyz predplatne narazi na limit, jed dal pres metered API (produkce nestoji).
+        if (not result.get("ok")) and _is_limit_error(result):
+            if not os.environ.get("ANTHROPIC_API_KEY"):
+                result["reason"] = "limit_no_metered_key"
+                _notify("⚠ Marti-AI agent: Max limit a NENI metered klic — agent stoji",
+                        f"Cil: {(goal or '')[:250]}\nDoplnte ANTHROPIC_API_KEY, jinak agent ceka na reset okna.")
+            else:
+                spent_m = _spent_today_metered_czk()
+                ceiling = _metered_batches_approved() * METERED_BATCH_CZK
+                if spent_m >= ceiling:
+                    result["reason"] = "limit_metered_batch"
+                    _notify(f"⚠ Marti-AI agent: metered varka vycerpana ({spent_m:.0f}/{ceiling:.0f} Kc) — ceka na schvaleni",
+                            f"Cil: {(goal or '')[:250]}\nSchvalit dalsi varku (+{METERED_BATCH_CZK:.0f} Kc): "
+                            f"napis Marti-AI v chatu 'schval metered varku' (jen rodic).")
+                else:
+                    result_m = anyio.run(_run, goal, conversation_id, True)
+                    result_m["failover"] = "subscription->metered"
+                    after = spent_m + (result_m.get("cost_czk") or 0)
+                    if spent_m <= 0.01:
+                        _notify("Marti-AI agent: prepnuto na metered API (vycerpany Max limit)",
+                                f"Aby produkce nestala, agent jede na metered.\nCil: {(goal or '')[:250]}\n"
+                                f"Metered dnes ~{after:.0f} Kc / varka {ceiling:.0f} Kc.")
+                    elif after >= 0.8 * ceiling:
+                        _notify(f"⚠ Marti-AI agent: metered ~{after:.0f}/{ceiling:.0f} Kc (blizi se strop varky)",
+                                f"Priprav se schvalit dalsi varku (napis Marti-AI 'schval metered varku').\nCil: {(goal or '')[:250]}")
+                    result = result_m
     except ImportError as e:
         return {"ok": False, "error": f"Agent SDK/anyio není: {e}", "reason": "sdk_missing"}
     except Exception as e:

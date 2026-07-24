@@ -10389,12 +10389,38 @@ async def app_hr_person_templates(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _docx_fill_tokens(raw: bytes, mapping: dict) -> bytes:
+    """Nahradí tokeny {{...}} v docx (word/*.xml) hodnotami. Jen std knihovna
+    (zipfile) — funguje i bez python-docx. Tokeny jsou v šabloně jako 1 run,
+    takže se v XML vyskytují souvisle a prostý replace stačí. XML-escape hodnot."""
+    import io as _io, zipfile as _zip
+    if b"{{" not in raw:
+        return raw
+
+    def _esc(v):
+        return (str(v or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    bio_in, bio_out = _io.BytesIO(raw), _io.BytesIO()
+    with _zip.ZipFile(bio_in) as zin:
+        with _zip.ZipFile(bio_out, "w", _zip.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename.startswith("word/") and item.filename.endswith(".xml") and b"{{" in data:
+                    txt = data.decode("utf-8")
+                    for k, v in mapping.items():
+                        txt = txt.replace(k, _esc(v))
+                    data = txt.encode("utf-8")
+                zout.writestr(item, data)
+    return bio_out.getvalue()
+
+
 @api_router.post("/app/hr/document-generate")
 async def app_hr_document_generate(req: Request) -> JSONResponse:
     """Vygeneruje osobní kopii šablony do spisu člověka (tenant.employee_document,
-    kategorie 'generovana'). Bezpečné — obsah šablony 1:1, HR doplní žlutá místa v kopii."""
+    kategorie 'generovana'). Tokeny {{...}} se předvyplní daty zaměstnance; žlutá
+    rozhodovací místa („/") zůstávají na HR."""
     from sqlalchemy import text as _t
     import datetime as _dt
+    import base64 as _b64
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -10415,17 +10441,51 @@ async def app_hr_document_generate(req: Request) -> JSONResponse:
             "FROM tenant.hr_template WHERE id=:i AND tenant_id=2 AND is_active=true"), {"i": tid}).first()
         if not tpl or tpl[1] is None:
             return JSONResponse({"ok": False, "error": "Šablona nenalezena / neaktivní."}, status_code=404)
-        prijmeni = s.execute(_t(
-            "SELECT COALESCE(NULLIF(TRIM(COALESCE(last_name,'')||' '||COALESCE(first_name,'')),''),"
-            " (SELECT full_name FROM tenant.att_employee ae WHERE ae.user_id=:u AND ae.tenant_id=2 LIMIT 1),"
-            " '#'||:u) FROM public.users WHERE id=:u"), {"u": tuid}).scalar() or ("#" + str(tuid))
+        pr = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'') AS cele, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.last_name,'')||' '||COALESCE(u.first_name,'')),''),"
+            "   (SELECT full_name FROM tenant.att_employee ae WHERE ae.user_id=u.id AND ae.tenant_id=2 LIMIT 1),'#'||u.id::text) AS prij, "
+            " d.birth_date, COALESCE(d.perm_street,''), COALESCE(d.perm_zip,''), COALESCE(d.perm_city,'') "
+            "FROM public.users u LEFT JOIN tenant.user_self_data d ON d.user_id=u.id AND d.tenant_id=2 "
+            "WHERE u.id=:u"), {"u": tuid}).first()
+        cele = (pr[0] if pr and pr[0] else "")
+        prijmeni = (pr[1] if pr and pr[1] else ("#" + str(tuid)))
+        bd = (pr[2] if pr else None)
+        adresa = ", ".join([x for x in [(pr[3] if pr else ""),
+                    ((str(pr[4]) + " " + str(pr[5])).strip() if pr else "")] if x]) if pr else ""
+        nast = s.execute(_t(
+            "SELECT min(e.smlouva_od) FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "WHERE ae.user_id=:u AND e.tenant_id=2 AND lower(e.engagement_type)='hpp'"), {"u": tuid}).scalar()
+        cislo = s.execute(_t(
+            "SELECT cislo_zam FROM tenant.att_employee WHERE user_id=:u AND tenant_id=2 ORDER BY id LIMIT 1"),
+            {"u": tuid}).scalar()
+        pozice = s.execute(_t(
+            "SELECT COALESCE(jp.label, e.pozice_text) FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "WHERE ae.user_id=:u AND e.tenant_id=2 AND e.is_current=true "
+            "ORDER BY e.valid_from DESC NULLS LAST LIMIT 1"), {"u": tuid}).scalar()
+
+        def _dcz(x):
+            return x.strftime("%d.%m.%Y") if x else "«DOPLNIT»"
+        DOP = "«DOPLNIT»"
+        mapping = {
+            "{{jmeno_prijmeni}}": (cele or prijmeni),
+            "{{datum_narozeni}}": _dcz(bd),
+            "{{adresa_trvala}}": (adresa or DOP),
+            "{{datum_nastupu}}": _dcz(nast),
+            "{{osobni_cislo}}": (str(cislo) if cislo else DOP),
+            "{{pozice}}": (pozice or DOP),
+        }
+        filled = _docx_fill_tokens(bytes(tpl[1]), mapping)
         dnes = _dt.date.today().strftime("%Y-%m-%d")
         nazev = (str(tpl[0]) + " — " + str(prijmeni) + " — " + dnes + ".docx")
         doc_id = int(s.execute(_t(
             "INSERT INTO tenant.employee_document (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, is_active) "
-            "SELECT 2, :u, 'generovana', :n, :m, obsah, octet_length(obsah), :by, true "
-            "FROM tenant.hr_template WHERE id=:i AND tenant_id=2 RETURNING id"),
-            {"u": tuid, "n": nazev, "m": tpl[2], "by": uid, "i": tid}).scalar())
+            "VALUES (2, :u, 'generovana', :n, :m, decode(:c,'base64'), :sz, :by, true) RETURNING id"),
+            {"u": tuid, "n": nazev, "m": tpl[2], "c": _b64.b64encode(filled).decode(),
+             "sz": len(filled), "by": uid}).scalar())
         try:
             s.execute(_t(
                 "INSERT INTO tenant.hr_template_log (tenant_id, template_id, akce, kdo, kdy, poznamka) "

@@ -748,170 +748,262 @@ def _dzt_parse_one(filename: str, raw: bytes) -> dict:
     return {"filename": filename, "hdr": hdr, "rows": rows}
 
 
-def _dzt_process_parsed(parsed: list[dict], do_commit: bool, uid: int, s) -> tuple[list, dict]:
-    """Sdílená logika náhledu/zápisu — použije upload i import ze složky.
-    Řeší pracovníka/činnost/zakázku, duplicitu (user_id, datum, od), a při do_commit
-    INSERT do tenant.vyroba_work (source_system='app'). NEcommituje — to dělá volající.
-    Vrací (out_files, totals)."""
+def _dzt_day_segments(od_dt, do_dt, net_h: float, break_h: float):
+    """Rozseká den [od,do] na úseky jako mobilní „Makat": práce/pauza/práce.
+    Bez pauzy → jeden pracovní úsek. S pauzou → práce (půl čisté) + pauza + práce
+    (druhá půl); součet práce = net_h, pauza uprostřed. Vrací [(druh, start, end)]."""
+    from datetime import timedelta as _td
+    if not break_h or break_h <= 0.011:
+        return [("work", od_dt, do_dt)]
+    w1_end = od_dt + _td(hours=net_h / 2.0)
+    brk_end = w1_end + _td(hours=break_h)
+    return [("work", od_dt, w1_end), ("break", w1_end, brk_end), ("work", brk_end, do_dt)]
+
+
+def _dzt_process_parsed(parsed: list[dict], do_commit: bool, uid: int, s) -> tuple[list, dict, dict]:
+    """Náhled/zápis importu. Zapisuje STEJNĚ jako mobilní „Makat" / „Přidat záznam":
+    přítomnost do tenant.att_entry (práce + pauza → mzda) A úsek do tenant.work_alloc
+    (→ vyroba_work → zakázky). Pauza se založí jako samostatný záznam, takže čistá
+    práce sedí (06:00–14:30 s pauzou 0,5 = 8 h práce + 0,5 h pauza). NEcommituje.
+    Pojistky (jako fix/add): uzamčený měsíc a překryv s existující docházkou → přeskočí
+    (chrání před dvojí mzdou). Vrací (out_files, totals, post_actions)."""
+    import datetime as _dtm
     from sqlalchemy import text as _t
-    # Číselník činností: ec_cislo→(id,name) + name(lower)→id
-    cin_by_ec: dict[int, tuple[int, str]] = {}
-    cin_by_name: dict[str, int] = {}
-    for cid, ec, nm in s.execute(_t(
-            "SELECT id, ec_cislo, name FROM tenant.vyroba_cinnost "
+    # činnost: ec_cislo→(id,name,icon) + name(lower)→(id,name,icon)
+    cin_by_ec: dict = {}
+    cin_by_name: dict = {}
+    for cid, ec, nm, ic in s.execute(_t(
+            "SELECT id, ec_cislo, name, COALESCE(icon,'') FROM tenant.vyroba_cinnost "
             "WHERE COALESCE(active,true)")).all():
+        rec = (int(cid), nm, ic or None)
         if ec is not None:
             try:
-                cin_by_ec[int(ec)] = (int(cid), nm)
+                cin_by_ec[int(ec)] = rec
             except Exception:
                 pass
         if nm:
-            cin_by_name[str(nm).strip().lower()] = int(cid)
+            cin_by_name[str(nm).strip().lower()] = rec
+    # typy záznamů
+    work_tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='work'")).scalar()
+    break_tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='break'")).scalar()
+
+    from modules.erp.api.router import _att_period_locked, _att_fix_overlap  # guardy (mzdy)
 
     out_files = []
     total = {"ok": 0, "duplicate": 0, "error": 0, "inserted": 0}
-    if True:
-        for pf in parsed:
-            if pf.get("error"):
-                out_files.append({"filename": pf["filename"], "error": pf["error"]})
-                total["error"] += 1
-                continue
-            hdr, rows = pf["hdr"], pf["rows"]
-            cz = str(hdr.get("cislo_zam") or "").strip()
-            emp_uid = None
-            emp_name = None
-            if cz:
-                res = s.execute(_t(
-                    "SELECT user_id, full_name FROM tenant.att_employee "
-                    "WHERE tenant_id=2 AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1"),
-                    {"cz": cz}).first()
-                if res:
-                    emp_uid, emp_name = res[0], res[1]
-            worker_ok = emp_uid is not None
+    emp_days: set = set()        # (employee_id, 'YYYY-MM-DD') pro přepočet fondu
+    dmin = dmax = None           # rozsah dní pro fold work_alloc→vyroba_work
+    for pf in parsed:
+        if pf.get("error"):
+            out_files.append({"filename": pf["filename"], "error": pf["error"]})
+            total["error"] += 1
+            continue
+        hdr, rows = pf["hdr"], pf["rows"]
+        cz = str(hdr.get("cislo_zam") or "").strip()
+        emp_id = emp_uid = emp_name = None
+        if cz:
+            res = s.execute(_t(
+                "SELECT id, user_id, full_name FROM tenant.att_employee "
+                "WHERE tenant_id=2 AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1"),
+                {"cz": cz}).first()
+            if res:
+                emp_id, emp_uid, emp_name = res[0], res[1], res[2]
+        worker_ok = emp_id is not None
 
-            out_rows = []
-            f_sum = {"ok": 0, "duplicate": 0, "error": 0}
-            for r in rows:
-                warn = []
-                status = "ok"
-                # činnost
-                cin_id = None
-                cin_db = None
-                if r["cin_cislo"] is not None and r["cin_cislo"] in cin_by_ec:
-                    cin_id, cin_db = cin_by_ec[r["cin_cislo"]]
-                elif r["cin_name"] and r["cin_name"].lower() in cin_by_name:
-                    cin_id = cin_by_name[r["cin_name"].lower()]
-                    cin_db = r["cin_name"]
+        out_rows = []
+        f_sum = {"ok": 0, "duplicate": 0, "error": 0}
+        for r in rows:
+            warn = []
+            status = "ok"
+            # činnost
+            cin_id = cin_db = cin_icon = None
+            if r["cin_cislo"] is not None and r["cin_cislo"] in cin_by_ec:
+                cin_id, cin_db, cin_icon = cin_by_ec[r["cin_cislo"]]
+            elif r["cin_name"] and r["cin_name"].lower() in cin_by_name:
+                cin_id, cin_db, cin_icon = cin_by_name[r["cin_name"].lower()]
+            # zakázka
+            zak = (r["zakazka"] or "").strip() or None
+            is_rezie = bool(zak and zak.strip().lower() in ("rezie", "režie"))
+            zak_ok = True
+            if zak and not is_rezie:
+                zr = s.execute(_t(
+                    "SELECT COALESCE(pichatelna,false), COALESCE(nazev,'') FROM tenant.zakazka "
+                    "WHERE tenant_id=2 AND cislo=:z LIMIT 1"), {"z": zak}).first()
+                if not zr:
+                    zak_ok = False
+                    warn.append("zakázka '" + zak + "' neexistuje")
+                elif not zr[0]:
+                    zak_ok = False
+                    warn.append("zakázka '" + zak + "' není píchatelná")
+            zak_nazev = None
+            if zak and not is_rezie and zak_ok:
+                zak_nazev = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=2 AND cislo=:c"),
+                                      {"c": zak}).scalar()
+            # časy + pauza
+            od_dt = kon_dt = None
+            net_h = float(r["hodiny"] or 0)
+            break_h = 0.0
+            if r["od"] and r["do"]:
+                try:
+                    od_dt = _dtm.datetime.strptime(r["datum"] + " " + r["od"], "%Y-%m-%d %H:%M")
+                    kon_dt = _dtm.datetime.strptime(r["datum"] + " " + r["do"], "%Y-%m-%d %H:%M")
+                except Exception:
+                    od_dt = kon_dt = None
+            gross = (kon_dt - od_dt).total_seconds() / 3600.0 if (od_dt and kon_dt) else None
+            if gross is not None:
+                break_h = round(gross - net_h, 2)
+            # rozhodnutí o stavu (money-safe)
+            if not worker_ok:
+                status = "error"; warn.insert(0, "pracovník č. " + (cz or "?") + " nenalezen")
+            elif not (od_dt and kon_dt):
+                status = "error"; warn.insert(0, "chybí čas od/do")
+            elif kon_dt <= od_dt:
+                status = "error"; warn.insert(0, "konec není po začátku")
+            elif break_h < -0.02:
+                status = "error"; warn.insert(0, "hodiny > rozpětí od–do (zkontroluj výkaz)")
+            elif zak and not is_rezie and not zak_ok:
+                status = "error"
+            else:
                 if cin_id is None:
-                    warn.append("činnost nerozpoznána (uloží se bez druhu)")
-                # zakázka — kontrola píchatelnosti (jen varování)
-                zak = (r["zakazka"] or "").strip() or None
-                zak_ok = True
-                if zak:
-                    zr = s.execute(_t(
-                        "SELECT COALESCE(pichatelna,false), COALESCE(nazev,'') FROM tenant.zakazka "
-                        "WHERE tenant_id=2 AND cislo=:z LIMIT 1"), {"z": zak}).first()
-                    if not zr:
-                        zak_ok = False
-                        warn.append("zakázka '" + zak + "' neexistuje")
-                    elif not zr[0]:
-                        zak_ok = False
-                        warn.append("zakázka '" + zak + "' není píchatelná")
-                # časy
-                od = (r["datum"] + " " + r["od"]) if r["od"] else (r["datum"] + " 00:00")
-                kon = (r["datum"] + " " + r["do"]) if r["do"] else None
-                # stav řádku
-                dup = False
-                if not worker_ok:
-                    status = "error"
-                    warn.insert(0, "pracovník č. " + (cz or "?") + " nenalezen")
+                    warn.append("činnost nerozpoznána — přítomnost se založí, ale na zakázku se nepromítne")
+                day_d = _dtm.date.fromisoformat(r["datum"])
+                if _att_period_locked(s, day_d):
+                    status = "error"; warn.insert(0, "měsíc je uzamčen (mzdy zpracovány)")
                 else:
-                    dup = bool(s.execute(_t(
-                        "SELECT 1 FROM tenant.vyroba_work "
-                        "WHERE tenant_id=2 AND user_id=:u AND datum=:d "
-                        "  AND od=(:od)::timestamptz AND is_active LIMIT 1"),
-                        {"u": emp_uid, "d": r["datum"], "od": od}).first())
-                    if dup:
-                        status = "duplicate"
-                out_rows.append({
-                    "datum": r["datum"], "od": r["od"], "do": r["do"], "hodiny": r["hodiny"],
-                    "cin_cislo": r["cin_cislo"], "cin_name": r["cin_name"], "cin_id": cin_id,
-                    "cin_db": cin_db, "zakazka": zak, "zakazka_ok": zak_ok,
-                    "poznamka": r["poznamka"], "status": status, "warn": warn,
-                    "_od": od, "_kon": kon, "_emp_uid": emp_uid, "_cz": cz, "_cin_id": cin_id,
-                })
-                f_sum[status] = f_sum.get(status, 0) + 1
-
-            # commit = zapiš jen řádky se status 'ok'
-            inserted_ids = []
-            if do_commit and worker_ok:
-                for orow in out_rows:
-                    if orow["status"] != "ok":
-                        continue
-                    try:
-                        nid = s.execute(_t(
-                            "INSERT INTO tenant.vyroba_work "
-                            " (tenant_id, user_id, cislo_zam, datum, od, konec, zakazka_ref, cinnost_id, "
-                            "  hodiny, poznamka, source_system, created_by, created_at, updated_at) "
-                            "VALUES (2, :uid, :cz, (:od)::timestamptz::date, (:od)::timestamptz, "
-                            "  CASE WHEN :kon IS NULL THEN NULL ELSE (:kon)::timestamptz END, "
-                            "  :zak, :cin, :hod, :pozn, 'app', :creator, now(), now()) RETURNING id"),
-                            {"uid": orow["_emp_uid"], "cz": orow["_cz"], "od": orow["_od"],
-                             "kon": orow["_kon"], "zak": orow["zakazka"], "cin": orow["_cin_id"],
-                             "hod": orow["hodiny"], "pozn": (orow["poznamka"] or None),
-                             "creator": uid}).scalar()
-                        inserted_ids.append(int(nid))
-                        orow["status"] = "inserted"
-                    except Exception as exc:  # noqa: BLE001
-                        orow["status"] = "error"
-                        orow["warn"].append("zápis selhal: " + str(exc)[:80])
-                        f_sum["error"] = f_sum.get("error", 0) + 1
-
-            # očisti interní klíče z výstupu
-            for orow in out_rows:
-                for k in ("_od", "_kon", "_emp_uid", "_cz", "_cin_id"):
-                    orow.pop(k, None)
-
-            total["ok"] += f_sum.get("ok", 0) if not do_commit else 0
-            total["duplicate"] += f_sum.get("duplicate", 0)
-            total["error"] += f_sum.get("error", 0)
-            total["inserted"] += len(inserted_ids)
-            out_files.append({
-                "filename": pf["filename"],
-                "worker": {"cislo": cz, "name_excel": hdr.get("worker_name"),
-                           "name_db": emp_name, "resolved": worker_ok},
-                "customer": hdr.get("customer"),
-                "order_default": hdr.get("order_default"),
-                "rows": out_rows,
-                "summary": f_sum,
-                "inserted_ids": inserted_ids,
+                    ovl = _att_fix_overlap(s, emp_id, od_dt, kon_dt, None)
+                    if ovl:
+                        status = "duplicate"; warn.insert(0, "překryv s docházkou " + str(ovl) + " — přeskočí se")
+            if break_h < 0:
+                break_h = 0.0
+            out_rows.append({
+                "datum": r["datum"], "od": r["od"], "do": r["do"], "hodiny": round(net_h, 2),
+                "pauza": break_h, "cin_cislo": r["cin_cislo"], "cin_name": r["cin_name"],
+                "cin_id": cin_id, "cin_db": cin_db, "zakazka": zak, "zakazka_ok": zak_ok,
+                "poznamka": r["poznamka"], "status": status, "warn": warn,
+                "_od": od_dt, "_kon": kon_dt, "_net": net_h, "_brk": break_h,
+                "_cin": cin_id, "_cinn": cin_db, "_cinic": cin_icon,
+                "_zak": (None if is_rezie else zak), "_zaknz": zak_nazev, "_rez": is_rezie,
             })
+            f_sum[status] = f_sum.get(status, 0) + 1
 
-    return out_files, total
+        inserted_ids = []
+        if do_commit and worker_ok:
+            note = "IMPORT výkaz práce"
+            for orow in out_rows:
+                if orow["status"] != "ok":
+                    continue
+                try:
+                    day_iso = orow["datum"]
+                    for druh, sdt, edt in _dzt_day_segments(orow["_od"], orow["_kon"], orow["_net"], orow["_brk"]):
+                        seg_h = round((edt - sdt).total_seconds() / 3600.0, 2)
+                        tid = work_tid if druh == "work" else break_tid
+                        pr = (orow["_zak"] if druh == "work" else None)
+                        aid = s.execute(_t(
+                            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
+                            "started_at, ended_at, project_ref, note, status, source, is_active, "
+                            "created_by_id, created_at, updated_at) "
+                            "VALUES (2,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:pr,:n,"
+                            "'approved','import',false,:u,now(),now()) RETURNING id"),
+                            {"e": emp_id, "d": day_iso, "ti": tid, "h": seg_h,
+                             "ns": sdt.isoformat(sep=" "), "ne": edt.isoformat(sep=" "),
+                             "pr": pr, "n": (note if druh == "work" else note + " (pauza)"), "u": uid}).scalar()
+                        inserted_ids.append(int(aid))
+                        if druh == "work":
+                            s.execute(_t(
+                                "INSERT INTO tenant.work_alloc (tenant_id,user_id,started_at,ended_at,project_ref,"
+                                "project_nazev,cinnost_id,cinnost_name,cinnost_icon,is_rezie,source,created_at,updated_at) "
+                                "VALUES (2,:u,CAST(:ns AS timestamptz),CAST(:ne AS timestamptz),:pr,:pn,:ci,:cn,:cic,:rz,'import',now(),now())"),
+                                {"u": emp_uid, "ns": sdt.isoformat(sep=" "), "ne": edt.isoformat(sep=" "),
+                                 "pr": (orow["_zak"] or (_REZIE_REF if orow["_rez"] else None)),
+                                 "pn": orow["_zaknz"], "ci": orow["_cin"], "cn": orow["_cinn"],
+                                 "cic": orow["_cinic"], "rz": orow["_rez"]})
+                    emp_days.add((emp_id, day_iso))
+                    if dmin is None or day_iso < dmin:
+                        dmin = day_iso
+                    if dmax is None or day_iso > dmax:
+                        dmax = day_iso
+                    orow["status"] = "inserted"
+                except Exception as exc:  # noqa: BLE001
+                    orow["status"] = "error"
+                    orow["warn"].append("zápis selhal: " + str(exc)[:80])
+                    f_sum["error"] = f_sum.get("error", 0) + 1
+
+            # nový součet po zápisu
+            f_sum = {"ok": 0, "duplicate": 0, "error": 0}
+            for orow in out_rows:
+                st = orow["status"] if orow["status"] in ("duplicate", "error") else ("inserted" if orow["status"] == "inserted" else "ok")
+                f_sum[st if st in f_sum else "ok"] = f_sum.get(st if st in f_sum else "ok", 0) + 1
+
+        for orow in out_rows:
+            for k in ("_od", "_kon", "_net", "_brk", "_cin", "_cinn", "_cinic", "_zak", "_zaknz", "_rez"):
+                orow.pop(k, None)
+
+        total["ok"] += sum(1 for o in out_rows if o["status"] == "ok")
+        total["duplicate"] += sum(1 for o in out_rows if o["status"] == "duplicate")
+        total["error"] += sum(1 for o in out_rows if o["status"] == "error")
+        total["inserted"] += sum(1 for o in out_rows if o["status"] == "inserted")
+        out_files.append({
+            "filename": pf["filename"],
+            "worker": {"cislo": cz, "name_excel": hdr.get("worker_name"),
+                       "name_db": emp_name, "resolved": worker_ok},
+            "customer": hdr.get("customer"),
+            "order_default": hdr.get("order_default"),
+            "rows": out_rows,
+            "summary": f_sum,
+            "inserted_ids": inserted_ids,
+        })
+
+    return out_files, total, {"emp_days": emp_days, "frm": dmin, "to": dmax}
 
 
 def _dzt_import_run(parsed: list[dict], do_commit: bool, uid: int) -> JSONResponse:
-    """Otevře PG session, spustí _dzt_process_parsed, commitne a vrátí odpověď."""
+    """Otevře PG session, spustí _dzt_process_parsed, commitne a vrátí odpověď.
+    Po zápisu přepočítá fond dotčených dní a přelije work_alloc → vyroba_work
+    (aby se úseky hned objevily na zakázkách v Docházka new)."""
     from modules.strategie_pg.application import service as _pg
     cm = _pg.get_session()
     s = cm.__enter__()
+    post = {}
     try:
-        out_files, total = _dzt_process_parsed(parsed, do_commit, uid, s)
+        out_files, total, post = _dzt_process_parsed(parsed, do_commit, uid, s)
         if do_commit:
             s.commit()
-        return JSONResponse({"ok": True, "mode": ("commit" if do_commit else "preview"),
-                             "files": out_files, "totals": total})
     except Exception as exc:  # noqa: BLE001
         try:
             s.rollback()
         except Exception:
             pass
-        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
-    finally:
         try:
             cm.__exit__(None, None, None)
         except Exception:
             pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally_done = False
+    try:
+        cm.__exit__(None, None, None)
+        finally_done = True
+    except Exception:
+        pass
+    # po-commit akce (vlastní session uvnitř helperů) — jen při ostrém zápisu
+    if do_commit and post:
+        try:
+            from modules.erp.api.router import _att_automat_recalc_day
+            import datetime as _d2
+            for emp_id, day_iso in (post.get("emp_days") or set()):
+                try:
+                    _att_automat_recalc_day(emp_id, _d2.date.fromisoformat(day_iso))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        if post.get("frm"):
+            try:
+                from modules.erp.api.router import _sync_vyroba_work_app
+                _sync_vyroba_work_app(frm=post["frm"], to=post["to"])
+            except Exception:
+                pass
+    return JSONResponse({"ok": True, "mode": ("commit" if do_commit else "preview"),
+                         "files": out_files, "totals": total})
 
 
 # ── Sdílená složka výkazů (Dušan) — čtení přes EUROSOFT MCP ───────────────────

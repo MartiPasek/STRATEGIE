@@ -251,7 +251,7 @@
     <h3>⬆ Import z výkazu práce<span class="muted" id="imp_info" style="margin-left:auto;font-weight:400"></span></h3>
     <div class="bd">
       <div id="imp_pick">
-        <p class="muted" style="margin:0 0 8px">Založí výrobní úseky do docházky z výkazů (EUROSOFT Work Report — list „Stunden"). Pracovník se páruje podle <b>čísla zaměstnance</b> (buňka G5). Nejdřív uvidíš náhled, teprve pak potvrdíš zápis.</p>
+        <p class="muted" style="margin:0 0 8px">Z výkazů (EUROSOFT Work Report — list „Stunden") založí docházku <b>stejně jako „Makat"</b>: přítomnost + pauzu (→ mzda) i úsek na zakázce (→ zakázky). Pracovník se páruje podle <b>čísla zaměstnance</b> (buňka G5). Den 06:00–14:30 s pauzou 0,5 = 8 h práce + 0,5 h pauza. Nejdřív uvidíš náhled, teprve pak potvrdíš zápis.</p>
         <div id="imp_slozka" style="margin:0 0 10px">
           <div style="font-weight:600;font-size:12.5px;margin:0 0 5px">📁 Ze složky <span class="muted" id="imp_slozka_path" style="font-weight:400"></span>
             <button class="b-rf" style="padding:2px 9px;font-size:11px;margin-left:6px" onclick="loadImpSlozka()">↻ Obnovit</button></div>
@@ -923,14 +923,15 @@ function renderImp(j,committed){
     }
     var rows=f.rows||[];
     if(rows.length){
-      html+='<table class="sumtab"><thead><tr><th>Datum</th><th>Od</th><th>Do</th><th class="r">Hodiny</th><th>Činnost</th><th>Zakázka</th><th>Stav</th></tr></thead><tbody>';
+      html+='<table class="sumtab"><thead><tr><th>Datum</th><th>Od</th><th>Do</th><th class="r">Práce</th><th class="r">Pauza</th><th>Činnost</th><th>Zakázka</th><th>Stav</th></tr></thead><tbody>';
       rows.forEach(function(r){
         if(!committed&&r.status==='ok')IMP_OKCOUNT++;
         var cin=r.cin_db?esc(r.cin_db):(r.cin_name?esc(r.cin_name):'—');
         if(r.cin_cislo!=null)cin+=' <span class="muted">('+r.cin_cislo+')</span>';
         var zak=esc(r.zakazka||'—'); if(r.zakazka&&!r.zakazka_ok)zak='<span style="color:#e6c67f">'+zak+'</span>';
         html+='<tr><td>'+esc(r.datum)+'</td><td>'+esc(r.od||'')+'</td><td>'+esc(r.do||'')+'</td>'
-          +'<td class="r">'+(r.hodiny!=null?r.hodiny:'')+'</td><td>'+cin+'</td><td>'+zak+'</td>'
+          +'<td class="r">'+(r.hodiny!=null?r.hodiny+' h':'')+'</td>'
+          +'<td class="r">'+(r.pauza?(r.pauza+' h'):'—')+'</td><td>'+cin+'</td><td>'+zak+'</td>'
           +'<td>'+_impStatCell(r.status,r.warn)+'</td></tr>';
       });
       html+='</tbody></table>';

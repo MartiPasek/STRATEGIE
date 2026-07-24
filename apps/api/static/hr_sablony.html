@@ -50,7 +50,13 @@
         <option value="DPP">DPP</option><option value="Popis místa">Popis místa</option></select>
       <label class="chk"><input type="checkbox" id="fakt" checked> jen aktivní</label>
       <span id="cnt" class="muted" style="margin-left:auto;font-size:12.5px"></span>
+      <button class="btnp" onclick="toggleTokens()" style="background:#2c2140;border-color:#4a3a6a">📋 Tokeny</button>
       <button class="btnp" onclick="openNew()">➕ Nahrát novou šablonu</button>
+    </div>
+    <div id="tokpanel" style="display:none;padding:10px 14px;border-bottom:1px solid var(--line);background:#12181f">
+      <div style="color:#aac8ec;font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">📋 Tokeny k předvyplnění (vlož do šablony jako běžný text)</div>
+      <div id="toklist" class="muted" style="font-size:12.5px">Načítám…</div>
+      <div class="muted" style="font-size:11px;margin-top:6px">Generátor tokeny nahradí daty zaměstnance. Žlutá rozhodovací místa a volby „/" nechávej k ruční volbě.</div>
     </div>
     <div style="overflow:auto;max-height:80vh">
       <table>
@@ -137,6 +143,15 @@ async function doUpload(){
   const d=await r.json().catch(()=>({ok:false,error:'server'}));
   if(!d.ok){msg.style.color='#ff8a7a';msg.textContent='Chyba: '+(d.error||'');return;}
   closeOv();load();
+}
+let TOK_LOADED=false;
+async function toggleTokens(){
+  const p=document.getElementById('tokpanel');
+  const show=p.style.display==='none'; p.style.display=show?'':'none';
+  if(show && !TOK_LOADED){
+    const d=await j(API+'/app/hr/template-tokens');
+    if(d.ok){ document.getElementById('toklist').innerHTML=(d.tokeny||[]).map(t=>'<div style="margin:2px 0"><code style="color:#c9a9ec;background:#1b1430;padding:1px 6px;border-radius:4px">'+esc(t.token)+'</code> <span style="color:#cdd6e2">— '+esc(t.popis)+'</span></div>').join(''); TOK_LOADED=true; }
+  }
 }
 async function toggle(id,active){
   const r=await fetch(API+'/app/hr/template-toggle',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,active:active})});

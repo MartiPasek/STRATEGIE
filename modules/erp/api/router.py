@@ -10183,6 +10183,24 @@ async def app_hr_person_asset_delete(req: Request) -> JSONResponse:
 
 # ── Šablony pracovněprávních dokumentů (Šárka 24.7.2026): úložiště hr_template ──────
 # Přiřazení dle firmy + typu poměru, verzování přes hr_template_log. Fáze A = správa.
+# Tokeny, které generátor předvyplní daty zaměstnance (musí být v šabloně jako 1 run).
+_HR_TOKENS = [
+    {"token": "{{jmeno_prijmeni}}", "popis": "Jméno a příjmení zaměstnance"},
+    {"token": "{{datum_narozeni}}", "popis": "Datum narození (DD.MM.RRRR)"},
+    {"token": "{{adresa_trvala}}", "popis": "Trvalá adresa (ulice, PSČ obec)"},
+    {"token": "{{datum_nastupu}}", "popis": "Datum nástupu (HPP)"},
+    {"token": "{{osobni_cislo}}", "popis": "Osobní (zaměstnanecké) číslo"},
+    {"token": "{{pozice}}", "popis": "Aktuální pracovní pozice"},
+]
+
+
+@api_router.get("/app/hr/template-tokens")
+async def app_hr_template_tokens(req: Request) -> JSONResponse:
+    """Seznam tokenů, které generátor předvyplní daty zaměstnance."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return JSONResponse({"ok": True, "tokeny": _HR_TOKENS})
 @api_router.get("/app/hr/templates")
 async def app_hr_templates(req: Request) -> JSONResponse:
     """Seznam šablon (všechny verze) pro správu — HR + rodiče."""

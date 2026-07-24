@@ -1060,7 +1060,7 @@ async function dokGenLoad(uid){
       '<select id="dokGenSel" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit;max-width:520px">'+opts+'</select>'+
       '<button onclick="dokGenerate('+uid+')" style="border:1px solid #3a6aa8;background:#2e5a8f;color:#eaf2ff;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">Generovat do spisu</button>'+
       '<span id="dokGenMsg" style="font-size:12px;color:#7fe0a0"></span></div>'+
-    '<div style="color:#7f8ea0;font-size:11px;margin-top:6px">Vytvoří osobní kopii šablony do Dokumentů. Žlutě zvýrazněná místa a volby „/" doplníš/vybereš ve staženém dokumentu.</div></div>';
+    '<div style="color:#7f8ea0;font-size:11px;margin-top:6px">Vytvoří osobní kopii šablony do Dokumentů. Automaticky se předvyplní jméno, datum narození, trvalá adresa a datum nástupu (kde jsou v šabloně tokeny). Žlutě zvýrazněná místa a volby „/" doplníš/vybereš ve staženém dokumentu.</div></div>';
 }
 async function dokGenerate(uid){
   const sel=document.getElementById('dokGenSel'), msg=document.getElementById('dokGenMsg');

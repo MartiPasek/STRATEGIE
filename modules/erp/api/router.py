@@ -26203,17 +26203,12 @@ async def att_absence(req: Request) -> JSONResponse:
             _fmt = lambda x: str(x.day) + ". " + str(x.month) + "."  # Windows nemá %-d
             rng = _fmt(d0) if d0 == d1 else (_fmt(d0) + " – " + _fmt(d1))
             msg = who + ": " + tlabel + " " + rng + ((" — " + note) if note else "") + " (čeká na schválení)"
-            # Org resolver (Fáze A): schvalovatel dle org struktury; rodiče = pevný anchor
-            # (Marti-AI: hardcoded ID zmizí před prvním externím zákazníkem — fallback drží).
-            targets = {1, 11}
-            try:
-                appr = s.execute(_tn("SELECT tenant.resolve_role(2, :e, 'absence_approver')"),
-                                 {"e": emp}).scalar()
-                if appr:
-                    targets.add(int(appr))
-            except Exception:
-                pass
-            for puid in sorted(targets):
+            # Notifikace schvalovatelům DLE TABULKY (tenant.resolve_approvers → vedoucí skupiny
+            # + zástup v nepřítomnosti), NE natvrdo Martimu/Kristý. Peťa 24.7.2026: „na Martiho
+            # už neposílat, posílat dle tabulky kdo schvaluje volno." _abs_resolve nikdy nespadne
+            # na Martiho (prázdné → Šárka 13; jen když žádá sama Šárka → Marti jako záchrana).
+            targets = _abs_resolve(s, emp, uid)
+            for puid in sorted(set(targets)):
                 s.execute(_tn(
                     "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                     "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),

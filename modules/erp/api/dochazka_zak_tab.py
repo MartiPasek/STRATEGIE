@@ -735,66 +735,42 @@ def _dzt_parse_vykaz(raw: bytes) -> tuple[dict, list[dict]]:
     return hdr, rows
 
 
-@doch_zak_tab_router.post("/app/dochazka-zak-tab/import-vykaz")
-async def dochazka_zak_tab_import_vykaz(
-    req: Request,
-    files: list[UploadFile] = File(...),
-    commit: str = Form("0"),
-) -> JSONResponse:
-    """Import výkazu(ů) práce z Excelu do tenant.vyroba_work.
-    commit='0' → náhled (nic se nezapíše); commit='1' → zápis nenaduplikovaných řádků.
-    Vrací per-soubor rozpis s ověřením pracovníka/činnosti/zakázky a stavem každého řádku."""
-    from modules.erp.api.router import _uid_from_token_or_cookie
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _dzt_can(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    do_commit = str(commit or "0").strip() in ("1", "true", "yes", "on")
-    if not files:
-        return JSONResponse({"ok": False, "error": "Nebyl nahrán žádný soubor."}, status_code=400)
-
-    # Načti obsah souborů + naparsuj (limit velikosti)
-    parsed: list[dict] = []
-    for f in files:
-        try:
-            raw = await f.read()
-        except Exception:
-            raw = b""
-        if not raw:
-            parsed.append({"filename": f.filename, "error": "Prázdný soubor."})
-            continue
-        if len(raw) > 6 * 1024 * 1024:
-            parsed.append({"filename": f.filename, "error": "Soubor je příliš velký (max 6 MB)."})
-            continue
-        try:
-            hdr, rows = _dzt_parse_vykaz(raw)
-        except Exception as exc:  # noqa: BLE001
-            parsed.append({"filename": f.filename, "error": "Nepodařilo se přečíst Excel: " + str(exc)[:120]})
-            continue
-        parsed.append({"filename": f.filename, "hdr": hdr, "rows": rows})
-
-    from sqlalchemy import text as _t
-    from modules.strategie_pg.application import service as _pg
-    cm = _pg.get_session()
-    s = cm.__enter__()
+def _dzt_parse_one(filename: str, raw: bytes) -> dict:
+    """(název, bajty) → {filename, hdr, rows} nebo {filename, error}. Bez DB."""
+    if not raw:
+        return {"filename": filename, "error": "Prázdný soubor."}
+    if len(raw) > 6 * 1024 * 1024:
+        return {"filename": filename, "error": "Soubor je příliš velký (max 6 MB)."}
     try:
-        # Číselník činností: ec_cislo→(id,name) + name(lower)→id
-        cin_by_ec: dict[int, tuple[int, str]] = {}
-        cin_by_name: dict[str, int] = {}
-        for cid, ec, nm in s.execute(_t(
-                "SELECT id, ec_cislo, name FROM tenant.vyroba_cinnost "
-                "WHERE COALESCE(active,true)")).all():
-            if ec is not None:
-                try:
-                    cin_by_ec[int(ec)] = (int(cid), nm)
-                except Exception:
-                    pass
-            if nm:
-                cin_by_name[str(nm).strip().lower()] = int(cid)
+        hdr, rows = _dzt_parse_vykaz(raw)
+    except Exception as exc:  # noqa: BLE001
+        return {"filename": filename, "error": "Nepodařilo se přečíst Excel: " + str(exc)[:120]}
+    return {"filename": filename, "hdr": hdr, "rows": rows}
 
-        out_files = []
-        total = {"ok": 0, "duplicate": 0, "error": 0, "inserted": 0}
+
+def _dzt_process_parsed(parsed: list[dict], do_commit: bool, uid: int, s) -> tuple[list, dict]:
+    """Sdílená logika náhledu/zápisu — použije upload i import ze složky.
+    Řeší pracovníka/činnost/zakázku, duplicitu (user_id, datum, od), a při do_commit
+    INSERT do tenant.vyroba_work (source_system='app'). NEcommituje — to dělá volající.
+    Vrací (out_files, totals)."""
+    from sqlalchemy import text as _t
+    # Číselník činností: ec_cislo→(id,name) + name(lower)→id
+    cin_by_ec: dict[int, tuple[int, str]] = {}
+    cin_by_name: dict[str, int] = {}
+    for cid, ec, nm in s.execute(_t(
+            "SELECT id, ec_cislo, name FROM tenant.vyroba_cinnost "
+            "WHERE COALESCE(active,true)")).all():
+        if ec is not None:
+            try:
+                cin_by_ec[int(ec)] = (int(cid), nm)
+            except Exception:
+                pass
+        if nm:
+            cin_by_name[str(nm).strip().lower()] = int(cid)
+
+    out_files = []
+    total = {"ok": 0, "duplicate": 0, "error": 0, "inserted": 0}
+    if True:
         for pf in parsed:
             if pf.get("error"):
                 out_files.append({"filename": pf["filename"], "error": pf["error"]})
@@ -911,6 +887,16 @@ async def dochazka_zak_tab_import_vykaz(
                 "inserted_ids": inserted_ids,
             })
 
+    return out_files, total
+
+
+def _dzt_import_run(parsed: list[dict], do_commit: bool, uid: int) -> JSONResponse:
+    """Otevře PG session, spustí _dzt_process_parsed, commitne a vrátí odpověď."""
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        out_files, total = _dzt_process_parsed(parsed, do_commit, uid, s)
         if do_commit:
             s.commit()
         return JSONResponse({"ok": True, "mode": ("commit" if do_commit else "preview"),
@@ -926,3 +912,131 @@ async def dochazka_zak_tab_import_vykaz(
             cm.__exit__(None, None, None)
         except Exception:
             pass
+
+
+# ── Sdílená složka výkazů (Dušan) — čtení přes EUROSOFT MCP ───────────────────
+# UNC \\192.168.30.11\Data\... = lokální D:\data\... na EC-SERVER2, což je
+# whitelistovaný RO root MCP (MCP_FS_RO_ROOTS) — jako bank_api / cenik_engine.
+_DZT_IMPORT_UNC = r"\\192.168.30.11\Data\Vedouci vyroby\ImportDochazky"
+_DZT_IMPORT_LOCAL = r"D:\data\Vedouci vyroby\ImportDochazky"
+
+
+def _dzt_mcp():
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    return get_eurosoft_mcp_client()
+
+
+def _dzt_slozka_list() -> tuple[list[dict] | None, str | None]:
+    """Vypíše .xlsx ve složce výkazů přes MCP. Vrací (soubory, chyba)."""
+    import json as _j
+    mcp = _dzt_mcp()
+    if mcp is None:
+        return None, "EUROSOFT MCP je nedostupný (spojení s on-prem serverem)."
+    try:
+        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                 {"user_namespace": "ro", "base_override": _DZT_IMPORT_LOCAL, "subpath": ""},
+                                 conversation_id=None)
+    except Exception as exc:  # noqa: BLE001
+        return None, "Nepodařilo se načíst složku: " + str(exc)[:150]
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(r, dict) or r.get("ok") is False:
+        return None, str((r or {}).get("error") or "Složku se nepodařilo otevřít.")[:200]
+    out = []
+    for it in (r.get("items") or []):
+        if it.get("type") == "file" and str(it.get("name", "")).lower().endswith(".xlsx"):
+            out.append({"name": it["name"], "size": it.get("size"), "modified": it.get("modified")})
+    return out, None
+
+
+def _dzt_slozka_read(filename: str) -> tuple[bytes | None, str | None]:
+    """Přečte jeden .xlsx ze složky výkazů přes MCP (base64 → bytes)."""
+    import base64 as _b64
+    import json as _j
+    mcp = _dzt_mcp()
+    if mcp is None:
+        return None, "EUROSOFT MCP je nedostupný."
+    fn = (filename or "").replace("\\", "/").split("/")[-1].strip()  # jen holé jméno
+    if not fn or not fn.lower().endswith(".xlsx"):
+        return None, "Neplatný soubor."
+    try:
+        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                 {"user_namespace": "ro", "base_override": _DZT_IMPORT_LOCAL,
+                                  "path": fn, "encoding": "base64"}, conversation_id=None)
+    except Exception as exc:  # noqa: BLE001
+        return None, "Čtení selhalo: " + str(exc)[:150]
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict) and r.get("ok") is False:
+        return None, str(r.get("error") or "Soubor se nepodařilo přečíst.")[:200]
+    b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+    try:
+        return _b64.b64decode(b64), None
+    except Exception:
+        return None, "Obsah souboru se nepodařilo dekódovat."
+
+
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/import-vykaz")
+async def dochazka_zak_tab_import_vykaz(
+    req: Request,
+    files: list[UploadFile] = File(...),
+    commit: str = Form("0"),
+) -> JSONResponse:
+    """Import NAHRANÝCH výkazů (multipart). commit=0 náhled / 1 zápis."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    do_commit = str(commit or "0").strip() in ("1", "true", "yes", "on")
+    if not files:
+        return JSONResponse({"ok": False, "error": "Nebyl nahrán žádný soubor."}, status_code=400)
+    parsed = []
+    for f in files:
+        try:
+            raw = await f.read()
+        except Exception:
+            raw = b""
+        parsed.append(_dzt_parse_one(f.filename, raw))
+    return _dzt_import_run(parsed, do_commit, uid)
+
+
+@doch_zak_tab_router.get("/app/dochazka-zak-tab/import-slozka")
+def dochazka_zak_tab_import_slozka(req: Request) -> JSONResponse:
+    """Seznam .xlsx ve sdílené složce výkazů (Dušanova ImportDochazky) přes MCP."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    files, err = _dzt_slozka_list()
+    if err:
+        return JSONResponse({"ok": False, "error": err, "unc": _DZT_IMPORT_UNC})
+    return JSONResponse({"ok": True, "unc": _DZT_IMPORT_UNC, "files": files})
+
+
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/import-vykaz-slozka")
+async def dochazka_zak_tab_import_vykaz_slozka(req: Request) -> JSONResponse:
+    """Import VYBRANÝCH souborů ze sdílené složky (čte se přes MCP). commit=0/1."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    names = [str(x) for x in ((body or {}).get("files") or []) if x]
+    do_commit = str((body or {}).get("commit") or "0").strip() in ("1", "true", "yes", "on")
+    if not names:
+        return JSONResponse({"ok": False, "error": "Nevybral jsi žádný soubor."}, status_code=400)
+    parsed = []
+    for nm in names[:50]:
+        raw, err = _dzt_slozka_read(nm)
+        if err:
+            parsed.append({"filename": nm, "error": err})
+        else:
+            parsed.append(_dzt_parse_one(nm, raw))
+    return _dzt_import_run(parsed, do_commit, uid)

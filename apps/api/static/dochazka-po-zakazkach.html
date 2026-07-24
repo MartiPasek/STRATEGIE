@@ -251,8 +251,16 @@
     <h3>⬆ Import z výkazu práce<span class="muted" id="imp_info" style="margin-left:auto;font-weight:400"></span></h3>
     <div class="bd">
       <div id="imp_pick">
-        <p class="muted" style="margin:0 0 8px">Nahraj jeden nebo víc výkazů (EUROSOFT Work Report — list „Stunden"). Z každého se založí výrobní úseky do docházky; pracovník se páruje podle <b>čísla zaměstnance</b> (buňka G5). Nejdřív uvidíš náhled, teprve pak potvrdíš zápis.</p>
-        <input type="file" id="imp_files" multiple accept=".xlsx" style="font-size:13px;color:#e9eef5">
+        <p class="muted" style="margin:0 0 8px">Založí výrobní úseky do docházky z výkazů (EUROSOFT Work Report — list „Stunden"). Pracovník se páruje podle <b>čísla zaměstnance</b> (buňka G5). Nejdřív uvidíš náhled, teprve pak potvrdíš zápis.</p>
+        <div id="imp_slozka" style="margin:0 0 10px">
+          <div style="font-weight:600;font-size:12.5px;margin:0 0 5px">📁 Ze složky <span class="muted" id="imp_slozka_path" style="font-weight:400"></span>
+            <button class="b-rf" style="padding:2px 9px;font-size:11px;margin-left:6px" onclick="loadImpSlozka()">↻ Obnovit</button></div>
+          <div id="imp_slozka_list" class="muted" style="font-size:12.5px;max-height:180px;overflow:auto;border:1px solid #2a3546;border-radius:6px;padding:8px">Načítám složku…</div>
+        </div>
+        <div style="border-top:1px solid #2a3546;margin:10px 0 0;padding-top:8px">
+          <div class="muted" style="margin:0 0 5px">…nebo nahraj soubor ručně z počítače:</div>
+          <input type="file" id="imp_files" multiple accept=".xlsx" style="font-size:13px;color:#e9eef5">
+        </div>
       </div>
       <div id="imp_prev" style="margin-top:10px"></div>
       <div class="dmsg" id="imp_msg" style="padding-left:0"></div>
@@ -826,27 +834,65 @@ function openImport(){
   $('imp_btn_commit').style.display='none'; $('imp_btn_prev').disabled=false;
   IMP_OKCOUNT=0;
   $('ovimp').classList.add('on');
+  loadImpSlozka();
 }
 function closeImport(){$('ovimp').classList.remove('on');}
 function impErr(t){var m=$('imp_msg');m.className='dmsg';m.textContent=t;}
 function impOk(t){var m=$('imp_msg');m.className='dmsg ok';m.textContent=t;}
+function _impFmtSize(n){if(n==null)return'';if(n<1024)return n+' B';if(n<1048576)return Math.round(n/1024)+' kB';return (n/1048576).toFixed(1)+' MB';}
+function loadImpSlozka(){
+  var box=$('imp_slozka_list'); box.innerHTML='Načítám složku…';
+  fetch('/api/v1/erp/app/dochazka-zak-tab/import-slozka',{credentials:'include'})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(j&&j.unc)$('imp_slozka_path').textContent=j.unc;
+      if(!j||!j.ok){
+        box.innerHTML='<span style="color:#e6c67f">Složku se teď nepodařilo otevřít'+(j&&j.error?(' — '+esc(j.error)):'')+'. Použij ruční nahrání níže.</span>';
+        return;
+      }
+      var fs=j.files||[];
+      if(!fs.length){box.innerHTML='<span class="muted">Ve složce nejsou žádné .xlsx výkazy.</span>';return;}
+      var h='<div style="display:flex;justify-content:space-between;margin:0 0 6px"><label class="chk" style="gap:6px;color:#cdd9ea"><input type="checkbox" id="imp_all" onclick="impToggleAll(this)"> vybrat vše ('+fs.length+')</label></div>';
+      fs.forEach(function(f){
+        var d=f.modified?new Date(f.modified*1000).toLocaleDateString('cs'):'';
+        h+='<label class="chk" style="gap:8px;padding:3px 0;color:#e8edf6;cursor:pointer">'
+          +'<input type="checkbox" class="imp_fchk" value="'+esc(f.name)+'">'
+          +'<span style="flex:1">'+esc(f.name)+'</span>'
+          +'<span class="muted" style="font-size:11px">'+esc(d)+(f.size!=null?(' · '+_impFmtSize(f.size)):'')+'</span></label>';
+      });
+      box.innerHTML=h;
+    })
+    .catch(function(){box.innerHTML='<span style="color:#e6c67f">Složku se nepodařilo načíst (spojení). Použij ruční nahrání níže.</span>';});
+}
+function impToggleAll(cb){[].forEach.call(document.getElementsByClassName('imp_fchk'),function(c){c.checked=cb.checked;});}
+function impSelectedFolder(){return [].map.call(document.querySelectorAll('.imp_fchk:checked'),function(c){return c.value;});}
+function _impDone(res,doCommit){
+  $('imp_btn_prev').disabled=false; $('imp_btn_commit').disabled=false;
+  var j=res.j;
+  if(!j||!j.ok){impErr((j&&j.error)||('Nepovedlo se ('+res.s+').'));return;}
+  renderImp(j,doCommit);
+}
 function _impSend(doCommit){
-  var fi=$('imp_files');
-  if(!fi.files||!fi.files.length){impErr('Vyber aspoň jeden .xlsx soubor.');return;}
-  var fd=new FormData();
-  for(var i=0;i<fi.files.length;i++)fd.append('files',fi.files[i]);
-  fd.append('commit',doCommit?'1':'0');
+  var folder=impSelectedFolder();
+  var fi=$('imp_files'); var hasManual=fi.files&&fi.files.length;
   $('imp_btn_prev').disabled=true; $('imp_btn_commit').disabled=true;
   impOk(doCommit?'Zapisuji…':'Načítám náhled…');
-  fetch('/api/v1/erp/app/dochazka-zak-tab/import-vykaz',{method:'POST',credentials:'include',body:fd})
-    .then(function(r){return r.json().then(function(j){return {s:r.status,j:j};},function(){return {s:r.status,j:{ok:false,error:'Neočekávaná odpověď serveru.'}};});})
-    .then(function(res){
-      $('imp_btn_prev').disabled=false; $('imp_btn_commit').disabled=false;
-      var j=res.j;
-      if(!j||!j.ok){impErr((j&&j.error)||('Nepovedlo se ('+res.s+').'));return;}
-      renderImp(j,doCommit);
-    })
-    .catch(function(){$('imp_btn_prev').disabled=false;$('imp_btn_commit').disabled=false;impErr('Nepodařilo se spojit se serverem.');});
+  var okJson=function(r){return r.json().then(function(j){return {s:r.status,j:j};},function(){return {s:r.status,j:{ok:false,error:'Neočekávaná odpověď serveru.'}};});};
+  var fail=function(){$('imp_btn_prev').disabled=false;$('imp_btn_commit').disabled=false;impErr('Nepodařilo se spojit se serverem.');};
+  if(folder.length){
+    fetch('/api/v1/erp/app/dochazka-zak-tab/import-vykaz-slozka',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({files:folder,commit:doCommit?'1':'0'})})
+      .then(okJson).then(function(res){_impDone(res,doCommit);}).catch(fail);
+  }else if(hasManual){
+    var fd=new FormData();
+    for(var i=0;i<fi.files.length;i++)fd.append('files',fi.files[i]);
+    fd.append('commit',doCommit?'1':'0');
+    fetch('/api/v1/erp/app/dochazka-zak-tab/import-vykaz',{method:'POST',credentials:'include',body:fd})
+      .then(okJson).then(function(res){_impDone(res,doCommit);}).catch(fail);
+  }else{
+    $('imp_btn_prev').disabled=false;$('imp_btn_commit').disabled=false;
+    impErr('Vyber soubor(y) ze složky, nebo nahraj ručně z počítače.');
+  }
 }
 function impPreview(){_impSend(false);}
 function impCommit(){

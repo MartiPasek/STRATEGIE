@@ -8135,12 +8135,14 @@ _SELF_SECTIONS = [
 _SELF_FIELDS = [
     ("first_name",     "Jméno",             "identita", "text",  False, False),
     ("last_name",      "Příjmení",          "identita", "text",  False, False),
-    ("birth_surname",  "Rodné příjmení",    "identita", "text",  False, False),
     ("title_before",   "Titul před jménem", "identita", "text",  False, False),
     ("title_after",    "Titul za jménem",   "identita", "text",  False, False),
+    ("middle_name",    "Prostřední jméno",  "identita", "text",  False, False),
+    ("birth_surname",  "Rodné příjmení",    "identita", "text",  False, False),
     ("birth_date",     "Datum narození",    "identita", "date",  False, False),
     ("birth_place",    "Místo narození",    "identita", "text",  False, False),
     ("birth_country",  "Země narození",     "identita", "text",  False, False),
+    ("gender",         "Pohlaví",           "identita", "text",  False, False),
     ("marital_status", "Rodinný stav",      "identita", "text",  False, False),
     ("citizenship",    "Státní občanství",  "identita", "text",  False, False),
     ("ico",            "IČO",               "podnikani", "text", False, False),
@@ -8199,8 +8201,14 @@ def _self_hr_recipients(s):
 
 
 def _je_zena(vals):
-    """Odhad pohlaví (kvůli skrytí 'rodné příjmení' u mužů). Priorita: rodné číslo
-    (ženy mají u měsíce +50, příp. +70), pak příjmení na -á. None = nejisté."""
+    """Odhad pohlaví (kvůli skrytí 'rodné příjmení' u mužů). Priorita: explicitní
+    pole Pohlaví, pak rodné číslo (ženy mají u měsíce +50, příp. +70), pak příjmení
+    na -á. None = nejisté."""
+    g = str((vals or {}).get("gender") or "").strip().lower()
+    if g.startswith("žen") or g.startswith("zen") or g in ("f", "female", "ž"):
+        return True
+    if g.startswith("muž") or g.startswith("muz") or g in ("m", "male"):
+        return False
     rc = str((vals or {}).get("birth_number") or "").replace("/", "").replace(" ", "")
     if len(rc) >= 4 and rc[:4].isdigit():
         mm = int(rc[2:4])

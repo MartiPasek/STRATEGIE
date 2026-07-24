@@ -558,6 +558,14 @@ function eduSelect(cur){
   return '<select data-k="education" style="'+st+'"><option value="">—</option>'+
     opts.map(o=>'<option value="'+esc(o)+'"'+(o===cur?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
 }
+// Šárka 24.7.2026: pohlaví jako výběr (Muž/Žena) — dle Pinya
+function genderSelect(cur){
+  cur=cur||''; const opts=['Muž','Žena'];
+  if(cur && opts.indexOf(cur)<0) opts.unshift(cur);
+  const st='width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit';
+  return '<select data-k="gender" style="'+st+'"><option value="">—</option>'+
+    opts.map(o=>'<option value="'+esc(o)+'"'+(o===cur?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+}
 // Šárka 21.7.2026: profilová hlavička (foto, pozice·bydliště, nástup·firma, stav, výročí, věk, narozeniny)
 function pheadHTML(p){
   const _ini=esc(ini(p.jmeno));
@@ -645,6 +653,8 @@ function renderZU(edit){
       if(edit){
         if(it.key==='marital_status'){
           val=maritalSelect(it.value, d.zena);
+        } else if(it.key==='gender'){
+          val=genderSelect(it.value);
         } else if(it.key==='education'){
           val=eduSelect(it.value);
         } else if(it.type==='textarea'){

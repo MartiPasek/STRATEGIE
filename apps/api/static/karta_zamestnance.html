@@ -1011,6 +1011,11 @@ function finUdaje(){
 // Šárka 21.7.2026: Dokumenty = digitální šanon (nahrát/stáhnout/smazat, uloženo v DB mimo git).
 const DOK_KAT={smlouva:'Pracovní smlouvy',dodatek:'Dodatky',generovana:'Generovaná dokumentace',zapoctovy:'Zápočtové listy',posudek:'Lékařské posudky',diplom:'Diplomy / certifikáty',mzda:'Mzdové dokumenty',ostatni:'Ostatní'};
 function dokKatOpts(sel){return Object.keys(DOK_KAT).map(k=>'<option value="'+k+'"'+(k===sel?' selected':'')+'>'+esc(DOK_KAT[k])+'</option>').join('');}
+// Šárka 24.7.2026: stavy dokumentů (koncept / k podpisu / podepsaný / platný)
+const DOC_STAV={koncept:['Koncept','#2a2410','#E0A94A'],k_podpisu:['K podpisu','#12233b','#7fb2e8'],podepsany:['Podepsaný','#12261a','#7fe0a0'],platny:['Platný','#16301f','#7fe0a0']};
+function stavChip(st){const m=DOC_STAV[st]||DOC_STAV.platny;return '<span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
+function stavSel(id,st){return '<select onchange="dokStav('+id+',this.value)" style="border:1px solid #2b3a4a;background:#0f141a;color:#7f8ea0;border-radius:6px;padding:2px 5px;font:inherit;font-size:11px">'+Object.keys(DOC_STAV).map(k=>'<option value="'+k+'"'+(k===st?' selected':'')+'>'+esc(DOC_STAV[k][0])+'</option>').join('')+'</select>';}
+async function dokStav(id,stav){const r=await fetch(API+'/app/hr/person-doc/stav',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,stav:stav})});const d=await r.json().catch(()=>({ok:false}));if(d.ok)dokUdaje();else alert('Nepovedlo se změnit stav.');}
 async function dokUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
@@ -1040,6 +1045,7 @@ async function dokUdaje(){
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
         list.map(x=>'<tr style="border-top:1px solid #1e2730">'+
           '<td style="padding:6px 16px 6px 22px;color:#e8eef5">📄 '+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
+          '<td style="padding:6px 10px;white-space:nowrap">'+stavChip(x.stav)+' '+stavSel(x.id,x.stav)+'</td>'+
           '<td style="padding:6px 16px;color:#7f8ea0;white-space:nowrap">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
           '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> &nbsp;·&nbsp; <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>').join('')+'</table>';
     });

@@ -10556,8 +10556,8 @@ async def app_hr_document_generate(req: Request) -> JSONResponse:
         dnes = _dt.date.today().strftime("%Y-%m-%d")
         nazev = (str(tpl[0]) + " — " + str(prijmeni) + " — " + dnes + ".docx")
         doc_id = int(s.execute(_t(
-            "INSERT INTO tenant.employee_document (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, is_active) "
-            "VALUES (2, :u, 'generovana', :n, :m, decode(:c,'base64'), :sz, :by, true) RETURNING id"),
+            "INSERT INTO tenant.employee_document (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, is_active, stav) "
+            "VALUES (2, :u, 'generovana', :n, :m, decode(:c,'base64'), :sz, :by, true, 'koncept') RETURNING id"),
             {"u": tuid, "n": nazev, "m": tpl[2], "c": _b64.b64encode(filled).decode(),
              "sz": len(filled), "by": uid}).scalar())
         try:
@@ -10858,7 +10858,8 @@ async def app_hr_person_docs(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
             "SELECT d.id, d.kategorie, d.nazev, d.velikost, d.uploaded_at, "
-            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS kdo "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS kdo, "
+            " COALESCE(d.stav,'platny') AS stav "
             "FROM tenant.employee_document d LEFT JOIN public.users u ON u.id=d.uploaded_by "
             "WHERE d.tenant_id=2 AND d.user_id=:u AND d.is_active=true "
             "ORDER BY d.uploaded_at DESC"), {"u": tuid}).fetchall()
@@ -10866,11 +10867,45 @@ async def app_hr_person_docs(req: Request):
             "id": r[0], "kategorie": (r[1] or "ostatni"), "nazev": (r[2] or ""),
             "velikost_h": _velikost_h(r[3]),
             "uploaded_at": (r[4].strftime("%d.%m.%Y") if r[4] else ""),
-            "uploaded_by_h": (r[5] or ""),
+            "uploaded_by_h": (r[5] or ""), "stav": (r[6] or "platny"),
         } for r in rows]
         return JSONResponse({"ok": True, "dokumenty": dokumenty})
     except Exception as exc:
         logger.exception("[hr_person_docs] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+_DOC_STAVY = ["koncept", "k_podpisu", "podepsany", "platny"]
+
+
+@api_router.post("/app/hr/person-doc/stav")
+async def app_hr_person_doc_stav(req: Request) -> JSONResponse:
+    """Změní stav dokumentu ve spisu (koncept / k_podpisu / podepsany / platny). HR + rodiče."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    did = int((b or {}).get("id") or 0)
+    stav = str((b or {}).get("stav") or "").strip()
+    if not did or stav not in _DOC_STAVY:
+        return JSONResponse({"ok": False, "error": "Chybí dokument nebo neplatný stav."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("UPDATE tenant.employee_document SET stav=:st WHERE id=:i AND tenant_id=2"),
+                  {"st": stav, "i": did})
+        s.commit()
+        return JSONResponse({"ok": True, "stav": stav})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_person_doc_stav] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

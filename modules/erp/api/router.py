@@ -9472,13 +9472,31 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
             "FROM tenant.att_employee WHERE tenant_id=2 AND cislo_zam ~ '^[0-9]+$'")).scalar() or 100018)
         full = (first + " " + last).strip()
         actor = "claude-25 (Šárka)"
-        new_uid = int(s.execute(_t(
-            "INSERT INTO public.users (first_name, last_name, status) "
-            "VALUES (:f, :l, 'active') RETURNING id"), {"f": first, "l": last}).scalar())
-        s.execute(_t(
-            "INSERT INTO public.user_tenants (user_id, tenant_id, role, membership_status) "
-            "VALUES (:u, 2, :r, :ms)"),
-            {"u": new_uid, "r": role, "ms": ("invited" if create_login else "active")})
+        invite_token = None
+        if create_login:
+            # Přístup do systému → pozvánka (create_invitation vytvoří pending usera +
+            # členství 'invited' + token; e-mail odešleme po dokončení celé transakce).
+            from modules.auth.application.invitation_service import (
+                create_invitation as _create_invitation,
+                UserAlreadyActive as _UAA, UserDisabled as _UD)
+            try:
+                invite_token = _create_invitation(
+                    email=email, invited_by_user_id=uid, tenant_id=2,
+                    role=role, first_name=first, last_name=last)
+            except _UAA:
+                return JSONResponse({"ok": False, "error": "Tento e-mail už patří aktivnímu uživateli systému."}, status_code=409)
+            except _UD as _ude:
+                return JSONResponse({"ok": False, "error": "Tento e-mail patří deaktivovanému uživateli (" + str(getattr(_ude, "status", "")) + "). Nejdřív ho aktivuj."}, status_code=409)
+            new_uid = int(s.execute(_t(
+                "SELECT user_id FROM public.invitations WHERE token=:t ORDER BY id DESC LIMIT 1"),
+                {"t": invite_token}).scalar())
+        else:
+            new_uid = int(s.execute(_t(
+                "INSERT INTO public.users (first_name, last_name, status) "
+                "VALUES (:f, :l, 'active') RETURNING id"), {"f": first, "l": last}).scalar())
+            s.execute(_t(
+                "INSERT INTO public.user_tenants (user_id, tenant_id, role, membership_status) "
+                "VALUES (:u, 2, :r, 'active')"), {"u": new_uid, "r": role})
         rez_forma = "HPP" if typ == "hpp" else typ.upper()
         emp_id = int(s.execute(_t(
             "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, user_id, full_name, rez_forma) "
@@ -9527,7 +9545,21 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
         except Exception as _ne:
             logger.warning("[employee_create notify] %s", _ne)
 
-        return JSONResponse({"ok": True, "user_id": new_uid, "cislo": str(cislo), "employee_id": emp_id})
+        # pozvánka e-mailem (až po dokončení všeho) — best-effort, nesmí shodit založení
+        pozvanka_sent = False
+        if create_login and invite_token:
+            try:
+                from modules.notifications.application.email_service import send_invitation_email as _send_inv
+                inviter_name = s.execute(_t(
+                    "SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+                    "FROM public.users WHERE id=:u"), {"u": uid}).scalar() or "HR EUROSOFT"
+                pozvanka_sent = bool(_send_inv(to=email, invited_by=inviter_name,
+                                               token=invite_token, invitee_first_name=first))
+            except Exception as _ee:
+                logger.warning("[employee_create invite email] %s", _ee)
+
+        return JSONResponse({"ok": True, "user_id": new_uid, "cislo": str(cislo),
+                             "employee_id": emp_id, "login": create_login, "pozvanka": pozvanka_sent})
     except Exception as exc:
         s.rollback()
         logger.exception("[hr_employee_create] %s", exc)

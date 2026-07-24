@@ -329,7 +329,9 @@ async function crSubmit(){
   const r=await fetch(API+'/app/hr/employee-create',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({ok:false,error:'server'}));
   if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
-  msg.style.color='#7fe0a0'; msg.textContent='✔ Založeno (č. '+d.cislo+'). Otevírám kartu…';
+  let extra='';
+  if(d.login){ extra = d.pozvanka ? ' Pozvánka odeslána e-mailem.' : ' (Pozvánku se nepodařilo odeslat — zkontroluj e-mail.)'; }
+  msg.style.color='#7fe0a0'; msg.textContent='✔ Založeno (č. '+d.cislo+').'+extra+' Otevírám kartu…';
   const nid=d.user_id;
   crReset();
   await load();

@@ -219,11 +219,34 @@
   <div class="it" data-a="novy">➕ Nový</div>
   <div class="it" data-a="smazat">🗑 Smazat</div>
   <div class="it" data-a="excel">📊 Excel (export / kopírovat)</div>
+  <div class="it" data-a="import">⬆ Import z výkazu</div>
   <div class="sep"></div>
   <div class="it" data-a="sumace">Σ Sumace označených <span class="k">Ctrl+X</span></div>
   <div class="it" data-a="params">⚙ Nastav parametry hromadné</div>
   <div class="sep"></div>
   <div class="it" data-a="tisk">🖨 Tisk</div>
+</div>
+
+<!-- Import z výkazu práce (EUROSOFT Work Report .xlsx) -->
+<div class="ov" id="ovimp">
+  <div class="dlg" style="width:min(940px,96vw)">
+    <h3>⬆ Import z výkazu práce<span class="muted" id="imp_info" style="margin-left:auto;font-weight:400"></span></h3>
+    <div class="bd">
+      <div id="imp_pick">
+        <p class="muted" style="margin:0 0 8px">Nahraj jeden nebo víc výkazů (EUROSOFT Work Report — list „Stunden"). Z každého se založí výrobní úseky do docházky; pracovník se páruje podle <b>čísla zaměstnance</b> (buňka G5). Nejdřív uvidíš náhled, teprve pak potvrdíš zápis.</p>
+        <input type="file" id="imp_files" multiple accept=".xlsx" style="font-size:13px;color:#e9eef5">
+      </div>
+      <div id="imp_prev" style="margin-top:10px"></div>
+      <div class="dmsg" id="imp_msg" style="padding-left:0"></div>
+    </div>
+    <div class="dbtn">
+      <button class="b-cn" onclick="closeImport()">Zavřít</button>
+      <div class="r">
+        <button class="b-rf" id="imp_btn_prev" onclick="impPreview()">Načíst náhled</button>
+        <button class="b-ok" id="imp_btn_commit" onclick="impCommit()" style="display:none;background:#1f6f43">Zapsat do docházky</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -720,10 +743,104 @@ function ctxAction(a){
   if(a==='sumace'){sumSelected();return;}
   if(a==='novy'){ if(CTX_ROW!=null)openNew(CTX_ROW); return; }
   if(a==='excel'){exportExcel();return;}
+  if(a==='import'){openImport();return;}
   if(a==='tisk'){printView();return;}
   if(a==='smazat'){ if(CTX_ROW!=null)smazatRow(CTX_ROW); return; }
   var nazvy={params:'Nastav parametry hromadné'};
   alert('„'+(nazvy[a]||a)+'" — připravujeme v dalším kroku. 🙂');
+}
+
+/* ── Import z výkazu práce (Work Report .xlsx) ───────────────────────────── */
+var IMP_OKCOUNT=0;
+function openImport(){
+  closeCtx();
+  $('imp_files').value=''; $('imp_prev').innerHTML=''; $('imp_info').textContent='';
+  $('imp_msg').textContent=''; $('imp_msg').className='dmsg';
+  $('imp_btn_commit').style.display='none'; $('imp_btn_prev').disabled=false;
+  IMP_OKCOUNT=0;
+  $('ovimp').classList.add('on');
+}
+function closeImport(){$('ovimp').classList.remove('on');}
+function impErr(t){var m=$('imp_msg');m.className='dmsg';m.textContent=t;}
+function impOk(t){var m=$('imp_msg');m.className='dmsg ok';m.textContent=t;}
+function _impSend(doCommit){
+  var fi=$('imp_files');
+  if(!fi.files||!fi.files.length){impErr('Vyber aspoň jeden .xlsx soubor.');return;}
+  var fd=new FormData();
+  for(var i=0;i<fi.files.length;i++)fd.append('files',fi.files[i]);
+  fd.append('commit',doCommit?'1':'0');
+  $('imp_btn_prev').disabled=true; $('imp_btn_commit').disabled=true;
+  impOk(doCommit?'Zapisuji…':'Načítám náhled…');
+  fetch('/api/v1/erp/app/dochazka-zak-tab/import-vykaz',{method:'POST',credentials:'include',body:fd})
+    .then(function(r){return r.json().then(function(j){return {s:r.status,j:j};},function(){return {s:r.status,j:{ok:false,error:'Neočekávaná odpověď serveru.'}};});})
+    .then(function(res){
+      $('imp_btn_prev').disabled=false; $('imp_btn_commit').disabled=false;
+      var j=res.j;
+      if(!j||!j.ok){impErr((j&&j.error)||('Nepovedlo se ('+res.s+').'));return;}
+      renderImp(j,doCommit);
+    })
+    .catch(function(){$('imp_btn_prev').disabled=false;$('imp_btn_commit').disabled=false;impErr('Nepodařilo se spojit se serverem.');});
+}
+function impPreview(){_impSend(false);}
+function impCommit(){
+  if(IMP_OKCOUNT<1)return;
+  if(!confirm('Zapsat '+IMP_OKCOUNT+' '+(IMP_OKCOUNT===1?'úsek':(IMP_OKCOUNT<5?'úseky':'úseků'))+' do docházky? Duplicitní a chybné řádky se přeskočí.'))return;
+  _impSend(true);
+}
+function _impStatCell(st,warn){
+  var lbl={ok:'✔ založit',duplicate:'⏭ už existuje',error:'✕ chyba',inserted:'✓ založeno'}[st]||st;
+  var col={ok:'#8fe0a0',duplicate:'#e6c67f',error:'#fca5a5',inserted:'#8fe0a0'}[st]||'#cdd9ea';
+  var h='<span style="color:'+col+'">'+lbl+'</span>';
+  if(warn&&warn.length)h+='<div class="muted" style="font-size:10.5px;white-space:normal;max-width:230px">'+esc(warn.join('; '))+'</div>';
+  return h;
+}
+function renderImp(j,committed){
+  IMP_OKCOUNT=0;
+  var t=j.totals||{}; var html='';
+  (j.files||[]).forEach(function(f){
+    html+='<div style="margin:0 0 16px">';
+    html+='<div style="font-weight:600;margin:0 0 4px">📄 '+esc(f.filename)+'</div>';
+    if(f.error){html+='<div class="err">'+esc(f.error)+'</div></div>';return;}
+    var w=f.worker||{};
+    if(w.resolved){
+      html+='<div class="muted" style="margin:0 0 6px">Pracovník: <b style="color:#e8edf6">'+esc(w.name_db||w.name_excel||'')+'</b> (č. '+esc(w.cislo||'')+')'
+        +(f.order_default?(' · výchozí zakázka '+esc(f.order_default)):'')+(f.customer?(' · '+esc(f.customer)):'')+'</div>';
+    }else{
+      html+='<div class="err">Pracovník č. '+esc(w.cislo||'?')+' ('+esc(w.name_excel||'')+') nebyl v docházce nalezen — řádky nelze založit.</div>';
+    }
+    var rows=f.rows||[];
+    if(rows.length){
+      html+='<table class="sumtab"><thead><tr><th>Datum</th><th>Od</th><th>Do</th><th class="r">Hodiny</th><th>Činnost</th><th>Zakázka</th><th>Stav</th></tr></thead><tbody>';
+      rows.forEach(function(r){
+        if(!committed&&r.status==='ok')IMP_OKCOUNT++;
+        var cin=r.cin_db?esc(r.cin_db):(r.cin_name?esc(r.cin_name):'—');
+        if(r.cin_cislo!=null)cin+=' <span class="muted">('+r.cin_cislo+')</span>';
+        var zak=esc(r.zakazka||'—'); if(r.zakazka&&!r.zakazka_ok)zak='<span style="color:#e6c67f">'+zak+'</span>';
+        html+='<tr><td>'+esc(r.datum)+'</td><td>'+esc(r.od||'')+'</td><td>'+esc(r.do||'')+'</td>'
+          +'<td class="r">'+(r.hodiny!=null?r.hodiny:'')+'</td><td>'+cin+'</td><td>'+zak+'</td>'
+          +'<td>'+_impStatCell(r.status,r.warn)+'</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+    var s=f.summary||{};
+    html+='<div class="muted" style="margin:5px 0 0">Celkem '+rows.length+' řádků'
+      +(s.ok?(' · '+s.ok+' k založení'):'')+(s.duplicate?(' · '+s.duplicate+' duplicit'):'')
+      +(s.error?(' · '+s.error+' chyb'):'')+((f.inserted_ids&&f.inserted_ids.length)?(' · '+f.inserted_ids.length+' založeno ✓'):'')+'</div>';
+    html+='</div>';
+  });
+  $('imp_prev').innerHTML=html;
+  if(committed){
+    $('imp_btn_commit').style.display='none'; $('imp_btn_prev').style.display='none';
+    $('imp_info').textContent='Hotovo';
+    impOk('Založeno '+(t.inserted||0)+' úseků'+((t.duplicate)?(', '+t.duplicate+' přeskočeno (duplicita)'):'')+((t.error)?(', '+t.error+' chyb'):'')+'. Přehled se obnoví.');
+    setTimeout(function(){load();},1200);
+  }else{
+    $('imp_info').textContent='Náhled — nic zatím nezapsáno';
+    if(IMP_OKCOUNT>0){$('imp_btn_commit').style.display=''; $('imp_btn_commit').textContent='Zapsat '+IMP_OKCOUNT+' do docházky';}
+    else{$('imp_btn_commit').style.display='none';}
+    if(IMP_OKCOUNT>0)impOk('Zkontroluj náhled a potvrď zápis.');
+    else impErr('Není co zakládat — všechny řádky jsou duplicitní nebo chybné.');
+  }
 }
 
 /* ── Smazat záznam (pod šipkou ▶) ────────────────────────────────────────
@@ -825,6 +942,9 @@ function init(){
   // Sumace + zavírání okna
   $('ovsum').addEventListener('mousedown',function(e){if(e.target===$('ovsum'))closeSum();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovsum').classList.contains('on'))closeSum();});
+  // Import okno — zavření klikem mimo / Esc
+  $('ovimp').addEventListener('mousedown',function(e){if(e.target===$('ovimp'))closeImport();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovimp').classList.contains('on'))closeImport();});
   // Kontextové menu (pravý klik na řádek)
   $('tab').getElementsByTagName('tbody')[0].addEventListener('contextmenu',function(e){
     var tr=e.target.closest('tr[data-i]');if(!tr)return; e.preventDefault();

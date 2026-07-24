@@ -9,7 +9,7 @@ Gate = shodný s viditelností uzlu „🕒 Docházka" (11 lidí) + rodičovský
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 doch_zak_tab_router = APIRouter(prefix="/api/v1/erp", tags=["dochazka-zak-tab"])
@@ -600,6 +600,294 @@ async def dochazka_zak_tab_delete_usek(req: Request) -> JSONResponse:
             "WHERE id=:id AND tenant_id=2 AND is_active=true"), {"id": rid, "tag": tag})
         s.commit()
         return JSONResponse({"ok": True, "id": rid})
+    except Exception as exc:  # noqa: BLE001
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+# ── Import z výkazu práce (EUROSOFT Work Report .xlsx) ────────────────────────
+# List „Stunden": C2=pracovník (jen zobrazení), G5=číslo zam (podle něj se páruje),
+# G2=výchozí zakázka, C5=výchozí druh činnosti. Datové řádky 8..34:
+#   B=datum, C=hodiny (NETTO, pauza už odečtená), D=od, E=do, F=pauza,
+#   G=činnost (název), H=činnost č. (= vyroba_cinnost.ec_cislo), I=poznámka, J=zakázka.
+# Zapisujeme do tenant.vyroba_work stejně jako „Nový" (save-new), source_system='app'
+# (jinak by řádky nebyly v přehledu — dataset filtruje source_system IN ('app','centrala1')).
+# Ochrana proti duplicitě: (user_id, datum, od) — opakovaný import téhož výkazu nepřidá hodiny.
+def _dzt_norm_date(v) -> str | None:
+    """Různé podoby datumu z Excelu → 'YYYY-MM-DD' (None, když prázdné/nečitelné)."""
+    import datetime as _dt
+    if v is None:
+        return None
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        return v.strftime("%Y-%m-%d")
+    s = str(v).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d.%m.%y", "%Y/%m/%d"):
+        try:
+            return _dt.datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return s[:10]
+
+
+def _dzt_norm_time(v) -> str | None:
+    """'HH:MM' z time/datetime/textu (None, když prázdné)."""
+    import datetime as _dt
+    if v is None:
+        return None
+    if isinstance(v, (_dt.time, _dt.datetime)):
+        return v.strftime("%H:%M")
+    s = str(v).strip()
+    if not s:
+        return None
+    try:
+        p = s.split(":")
+        return "%02d:%02d" % (int(p[0]), int(p[1]))
+    except Exception:
+        return s[:5]
+
+
+def _dzt_parse_vykaz(raw: bytes) -> tuple[dict, list[dict]]:
+    """Naparsuje jeden Work Report (.xlsx) → (hlavička, řádky). Bez DB."""
+    import io
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+    ws = wb["Stunden"] if "Stunden" in wb.sheetnames else wb.worksheets[0]
+
+    def _c(ref):
+        return ws[ref].value
+    hdr = {
+        "worker_name": (str(_c("C2")).strip() if _c("C2") is not None else ""),
+        "cislo_zam": (str(_c("G5")).strip() if _c("G5") is not None else ""),
+        "order_default": (str(_c("G2")).strip() if _c("G2") is not None else ""),
+        "customer": (str(_c("C4")).strip() if _c("C4") is not None else ""),
+    }
+    rows: list[dict] = []
+    for r in range(8, 35):
+        datum = _dzt_norm_date(ws.cell(r, 2).value)   # B
+        if not datum:
+            continue
+        hraw = ws.cell(r, 3).value                     # C = hodiny (netto)
+        try:
+            hod = float(hraw) if hraw not in (None, "") else 0.0
+        except Exception:
+            hod = 0.0
+        if hod == 0:
+            continue
+        cin_cislo = ws.cell(r, 8).value                # H
+        try:
+            cin_cislo = int(cin_cislo) if cin_cislo not in (None, "") else None
+        except Exception:
+            cin_cislo = None
+        zak = ws.cell(r, 10).value                      # J
+        zak = (str(zak).strip() if zak not in (None, "") else "") or hdr["order_default"]
+        pozn = ws.cell(r, 9).value                       # I
+        rows.append({
+            "datum": datum,
+            "hodiny": round(hod, 2),
+            "od": _dzt_norm_time(ws.cell(r, 4).value),   # D
+            "do": _dzt_norm_time(ws.cell(r, 5).value),   # E
+            "cin_name": (str(ws.cell(r, 7).value).strip() if ws.cell(r, 7).value else ""),  # G
+            "cin_cislo": cin_cislo,
+            "zakazka": zak,
+            "poznamka": (str(pozn).strip() if pozn not in (None, "") else ""),
+        })
+    try:
+        wb.close()
+    except Exception:
+        pass
+    return hdr, rows
+
+
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/import-vykaz")
+async def dochazka_zak_tab_import_vykaz(
+    req: Request,
+    files: list[UploadFile] = File(...),
+    commit: str = Form("0"),
+) -> JSONResponse:
+    """Import výkazu(ů) práce z Excelu do tenant.vyroba_work.
+    commit='0' → náhled (nic se nezapíše); commit='1' → zápis nenaduplikovaných řádků.
+    Vrací per-soubor rozpis s ověřením pracovníka/činnosti/zakázky a stavem každého řádku."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    do_commit = str(commit or "0").strip() in ("1", "true", "yes", "on")
+    if not files:
+        return JSONResponse({"ok": False, "error": "Nebyl nahrán žádný soubor."}, status_code=400)
+
+    # Načti obsah souborů + naparsuj (limit velikosti)
+    parsed: list[dict] = []
+    for f in files:
+        try:
+            raw = await f.read()
+        except Exception:
+            raw = b""
+        if not raw:
+            parsed.append({"filename": f.filename, "error": "Prázdný soubor."})
+            continue
+        if len(raw) > 6 * 1024 * 1024:
+            parsed.append({"filename": f.filename, "error": "Soubor je příliš velký (max 6 MB)."})
+            continue
+        try:
+            hdr, rows = _dzt_parse_vykaz(raw)
+        except Exception as exc:  # noqa: BLE001
+            parsed.append({"filename": f.filename, "error": "Nepodařilo se přečíst Excel: " + str(exc)[:120]})
+            continue
+        parsed.append({"filename": f.filename, "hdr": hdr, "rows": rows})
+
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        # Číselník činností: ec_cislo→(id,name) + name(lower)→id
+        cin_by_ec: dict[int, tuple[int, str]] = {}
+        cin_by_name: dict[str, int] = {}
+        for cid, ec, nm in s.execute(_t(
+                "SELECT id, ec_cislo, name FROM tenant.vyroba_cinnost "
+                "WHERE COALESCE(active,true)")).all():
+            if ec is not None:
+                try:
+                    cin_by_ec[int(ec)] = (int(cid), nm)
+                except Exception:
+                    pass
+            if nm:
+                cin_by_name[str(nm).strip().lower()] = int(cid)
+
+        out_files = []
+        total = {"ok": 0, "duplicate": 0, "error": 0, "inserted": 0}
+        for pf in parsed:
+            if pf.get("error"):
+                out_files.append({"filename": pf["filename"], "error": pf["error"]})
+                total["error"] += 1
+                continue
+            hdr, rows = pf["hdr"], pf["rows"]
+            cz = str(hdr.get("cislo_zam") or "").strip()
+            emp_uid = None
+            emp_name = None
+            if cz:
+                res = s.execute(_t(
+                    "SELECT user_id, full_name FROM tenant.att_employee "
+                    "WHERE tenant_id=2 AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1"),
+                    {"cz": cz}).first()
+                if res:
+                    emp_uid, emp_name = res[0], res[1]
+            worker_ok = emp_uid is not None
+
+            out_rows = []
+            f_sum = {"ok": 0, "duplicate": 0, "error": 0}
+            for r in rows:
+                warn = []
+                status = "ok"
+                # činnost
+                cin_id = None
+                cin_db = None
+                if r["cin_cislo"] is not None and r["cin_cislo"] in cin_by_ec:
+                    cin_id, cin_db = cin_by_ec[r["cin_cislo"]]
+                elif r["cin_name"] and r["cin_name"].lower() in cin_by_name:
+                    cin_id = cin_by_name[r["cin_name"].lower()]
+                    cin_db = r["cin_name"]
+                if cin_id is None:
+                    warn.append("činnost nerozpoznána (uloží se bez druhu)")
+                # zakázka — kontrola píchatelnosti (jen varování)
+                zak = (r["zakazka"] or "").strip() or None
+                zak_ok = True
+                if zak:
+                    zr = s.execute(_t(
+                        "SELECT COALESCE(pichatelna,false), COALESCE(nazev,'') FROM tenant.zakazka "
+                        "WHERE tenant_id=2 AND cislo=:z LIMIT 1"), {"z": zak}).first()
+                    if not zr:
+                        zak_ok = False
+                        warn.append("zakázka '" + zak + "' neexistuje")
+                    elif not zr[0]:
+                        zak_ok = False
+                        warn.append("zakázka '" + zak + "' není píchatelná")
+                # časy
+                od = (r["datum"] + " " + r["od"]) if r["od"] else (r["datum"] + " 00:00")
+                kon = (r["datum"] + " " + r["do"]) if r["do"] else None
+                # stav řádku
+                dup = False
+                if not worker_ok:
+                    status = "error"
+                    warn.insert(0, "pracovník č. " + (cz or "?") + " nenalezen")
+                else:
+                    dup = bool(s.execute(_t(
+                        "SELECT 1 FROM tenant.vyroba_work "
+                        "WHERE tenant_id=2 AND user_id=:u AND datum=:d "
+                        "  AND od=(:od)::timestamptz AND is_active LIMIT 1"),
+                        {"u": emp_uid, "d": r["datum"], "od": od}).first())
+                    if dup:
+                        status = "duplicate"
+                out_rows.append({
+                    "datum": r["datum"], "od": r["od"], "do": r["do"], "hodiny": r["hodiny"],
+                    "cin_cislo": r["cin_cislo"], "cin_name": r["cin_name"], "cin_id": cin_id,
+                    "cin_db": cin_db, "zakazka": zak, "zakazka_ok": zak_ok,
+                    "poznamka": r["poznamka"], "status": status, "warn": warn,
+                    "_od": od, "_kon": kon, "_emp_uid": emp_uid, "_cz": cz, "_cin_id": cin_id,
+                })
+                f_sum[status] = f_sum.get(status, 0) + 1
+
+            # commit = zapiš jen řádky se status 'ok'
+            inserted_ids = []
+            if do_commit and worker_ok:
+                for orow in out_rows:
+                    if orow["status"] != "ok":
+                        continue
+                    try:
+                        nid = s.execute(_t(
+                            "INSERT INTO tenant.vyroba_work "
+                            " (tenant_id, user_id, cislo_zam, datum, od, konec, zakazka_ref, cinnost_id, "
+                            "  hodiny, poznamka, source_system, created_by, created_at, updated_at) "
+                            "VALUES (2, :uid, :cz, (:od)::timestamptz::date, (:od)::timestamptz, "
+                            "  CASE WHEN :kon IS NULL THEN NULL ELSE (:kon)::timestamptz END, "
+                            "  :zak, :cin, :hod, :pozn, 'app', :creator, now(), now()) RETURNING id"),
+                            {"uid": orow["_emp_uid"], "cz": orow["_cz"], "od": orow["_od"],
+                             "kon": orow["_kon"], "zak": orow["zakazka"], "cin": orow["_cin_id"],
+                             "hod": orow["hodiny"], "pozn": (orow["poznamka"] or None),
+                             "creator": uid}).scalar()
+                        inserted_ids.append(int(nid))
+                        orow["status"] = "inserted"
+                    except Exception as exc:  # noqa: BLE001
+                        orow["status"] = "error"
+                        orow["warn"].append("zápis selhal: " + str(exc)[:80])
+                        f_sum["error"] = f_sum.get("error", 0) + 1
+
+            # očisti interní klíče z výstupu
+            for orow in out_rows:
+                for k in ("_od", "_kon", "_emp_uid", "_cz", "_cin_id"):
+                    orow.pop(k, None)
+
+            total["ok"] += f_sum.get("ok", 0) if not do_commit else 0
+            total["duplicate"] += f_sum.get("duplicate", 0)
+            total["error"] += f_sum.get("error", 0)
+            total["inserted"] += len(inserted_ids)
+            out_files.append({
+                "filename": pf["filename"],
+                "worker": {"cislo": cz, "name_excel": hdr.get("worker_name"),
+                           "name_db": emp_name, "resolved": worker_ok},
+                "customer": hdr.get("customer"),
+                "order_default": hdr.get("order_default"),
+                "rows": out_rows,
+                "summary": f_sum,
+                "inserted_ids": inserted_ids,
+            })
+
+        if do_commit:
+            s.commit()
+        return JSONResponse({"ok": True, "mode": ("commit" if do_commit else "preview"),
+                             "files": out_files, "totals": total})
     except Exception as exc:  # noqa: BLE001
         try:
             s.rollback()

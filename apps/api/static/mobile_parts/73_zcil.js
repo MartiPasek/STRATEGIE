@@ -8,9 +8,13 @@
   var _CIL_FILTRY=[["","Vše"],["navrzen","Čeká na schválení"],["aktivni","Aktivní"],["pozastaven","Pozastavené"],["splnen","Hotové"],["zamitnut","Zamítnuté"]];
   var _CIL_COL={navrzen:"#e8b13a",schvalen:"#4f9dff",aktivni:"#4f9dff",splnen:"#3fbf6b",zamitnut:"#ef6a6a",pozastaven:"#8ea3bd"};
   function _cilBadge(s){ var c=_CIL_COL[s]||"#8ea3bd"; return '<span style="flex:none;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:'+c+'22;color:'+c+';text-transform:uppercase;letter-spacing:.3px;">'+esc(_CIL_STAV_L[s]||s)+'</span>'; }
+  // Vlastní „← Zpět" — appka na Androidu skrývá spodní back lištu (systémové Zpět),
+  // tak dáme viditelné tlačítko do obrazovky (funguje na všech platformách).
+  function _cilBack(){ var b=el('<div style="color:var(--blue);font-size:15px;font-weight:600;padding:8px 4px 6px;cursor:pointer;">← Zpět</div>'); b.addEventListener("click",back); return b; }
 
   function cil(){
     app.innerHTML=topbar("🎯 Cíle", true);
+    app.appendChild(_cilBack());
     var p=el('<div class="panel"></div>');
     var nb=el('<button class="green full" style="margin:0 0 10px;">＋ Nový cíl</button>');
     nb.addEventListener("click",function(){ go("cil_new"); });
@@ -44,6 +48,7 @@
 
   function cil_detail(){
     app.innerHTML=topbar("🎯 Cíl", true);
+    app.appendChild(_cilBack());
     var p=el('<div class="panel"><div class="hint">Načítám…</div></div>');
     app.appendChild(p);
     api("GET","/api/v1/erp/app/cil/"+_cilId,"").then(function(j){
@@ -79,6 +84,7 @@
 
   function cil_new(){
     app.innerHTML=topbar("＋ Nový cíl", true);
+    app.appendChild(_cilBack());
     var p=el('<div class="panel"></div>');
     function fi(id,label,ph,ta){
       p.appendChild(el('<div style="color:var(--mut);font-size:12px;margin-top:10px;">'+esc(label)+'</div>'));

@@ -95,6 +95,7 @@
     <button id="vbtnTable" class="vbtn" onclick="setView('table')">👥 Seznam zaměstnanců</button>
     <button id="vbtnContr" class="vbtn" onclick="setView('contracts')">📄 Pracovní smlouvy</button>
     <button id="vbtnCreate" class="vbtn" onclick="setView('create')">➕ Přidat zaměstnance</button>
+    <button id="vbtnTerm" class="vbtn" onclick="setView('terminated')">🚫 Ukončení zaměstnanci</button>
   </div>
 </div>
 <div class="wrap" id="mdwrap">
@@ -239,6 +240,23 @@
     </div>
   </div>
 </div>
+<div class="wrapfull" id="termcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <input id="tmsrch" placeholder="🔎 Hledat zaměstnance…">
+      <span id="tmcnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
+    </div>
+    <div class="tblscroll">
+      <table class="ptbl" id="tmtbl">
+        <thead><tr>
+          <th>Jméno</th><th>Pracovní pozice</th><th>Kategorie</th><th>Nadřízený</th>
+          <th>Pracovní e-mail</th><th>Společnost</th><th>Datum odchodu</th>
+        </tr></thead>
+        <tbody id="tmbody"><tr><td colspan="7" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -281,8 +299,11 @@ function setView(v){
   const cc=document.getElementById('contrcard'); if(cc) cc.style.display=(v==='contracts')?'':'none';
   const vc=document.getElementById('vbtnCreate'); if(vc) vc.classList.toggle('on',v==='create');
   const cr=document.getElementById('createcard'); if(cr) cr.style.display=(v==='create')?'':'none';
+  const vt=document.getElementById('vbtnTerm'); if(vt) vt.classList.toggle('on',v==='terminated');
+  const tm=document.getElementById('termcard'); if(tm) tm.style.display=(v==='terminated')?'':'none';
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
+  if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
   paint();
 }
 let CREATE_META=null;
@@ -351,7 +372,8 @@ function filteredLide(){
     && (!fk || p.kategorie===fk)
     && (!ff || (p.firma||'').includes(ff)));
 }
-function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else render(); }
+function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else if(VIEW==='terminated') renderTerminated(); else render(); }
+let TERM=[], TERM_LOADED=false;
 async function load(){
   const d=await j(API+"/app/hr/people"+(VSE?"?vse=1":""));
   const l=document.getElementById('lst');
@@ -373,7 +395,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated'){ setView(v); }
 }catch(e){} })();
 function naplnPozice(){
   // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů
@@ -469,6 +491,31 @@ function renderContracts(){
 [['csrch','input'],['cftyp','change'],['cfkat','change'],['cffirma','change']].forEach(function(x){
   const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],renderContracts);
 });
+// Ukončení zaměstnanci (Šárka 24.7.2026) — bývalí (archivované členství), řádek = člověk
+async function loadTerminated(){
+  const tb=document.getElementById('tmbody');
+  const d=await j(API+'/app/hr/terminated');
+  if(!d.ok){ tb.innerHTML='<tr><td colspan="7" class="empty">🔒 '+esc(d.error||'nedostupné')+'</td></tr>'; return; }
+  TERM=d.lide||[]; TERM_LOADED=true;
+  renderTerminated();
+}
+function renderTerminated(){
+  const tb=document.getElementById('tmbody'); if(!tb) return;
+  const q=((document.getElementById('tmsrch')||{}).value||'').toLowerCase();
+  const f=TERM.filter(r=>(r.jmeno||'').toLowerCase().includes(q));
+  const cc=document.getElementById('tmcnt'); if(cc) cc.textContent=f.length+' ukončených';
+  if(!f.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Žádní ukončení zaměstnanci.</td></tr>'; return; }
+  const c=(v)=> v?esc(v):'<span class="muted">—</span>';
+  tb.innerHTML=f.map(r=>'<tr onclick="openFromTable('+r.user_id+')">'+
+    '<td><span class="tnm">'+esc(r.jmeno)+'</span></td>'+
+    '<td>'+c(r.pozice)+'</td>'+
+    '<td>'+c(r.kategorie)+'</td>'+
+    '<td>'+c(r.nadrizeny)+'</td>'+
+    '<td>'+c(r.prac_email)+'</td>'+
+    '<td>'+c(r.firma)+'</td>'+
+    '<td>'+c(r.odchod)+'</td></tr>').join('');
+}
+(function(){ const el=document.getElementById('tmsrch'); if(el) el.addEventListener('input',renderTerminated); })();
 [['srch','input'],['fpoz','change'],['ftyp','change'],['fkat','change'],
  ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change'],['tffirma','change']].forEach(function(x){
   const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],paint);

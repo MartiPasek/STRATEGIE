@@ -9568,6 +9568,84 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/terminated")
+async def app_hr_terminated(req: Request) -> JSONResponse:
+    """Ukončení zaměstnanci (Šárka 24.7.2026) — lidé, jejichž poměr už skončil
+    (nejpozdější smlouva_do < dnes a žádný živý poměr). Datum odchodu = smlouva_do."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    import unicodedata as _ud
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT u.id, u.first_name, u.last_name, "
+            " (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1) AS full_name, "
+            " (SELECT COALESCE(jp.label, e.pozice_text) FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "    LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 "
+            "   ORDER BY e.valid_from DESC NULLS LAST LIMIT 1) AS pozice, "
+            " (SELECT NULLIF(d.company_email,'') FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS prac_email, "
+            " (SELECT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), sae.full_name) "
+            "    FROM tenant.att_employee ae2 "
+            "    JOIN tenant.org_post_assign a ON a.employee_id=ae2.id AND a.tenant_id=2 AND a.aktivni=true "
+            "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            "    JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+            "    JOIN tenant.org_post_assign a2 ON a2.post_id=pp.id AND a2.tenant_id=2 AND a2.aktivni=true "
+            "      AND COALESCE(a2.zastupce_role,0)=0 AND a2.employee_id<>ae2.id "
+            "    LEFT JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
+            "    LEFT JOIN public.users su ON su.id=sae.user_id "
+            "   WHERE ae2.user_id=u.id AND ae2.tenant_id=2 LIMIT 1) AS nadrizeny, "
+            " (SELECT max(e.smlouva_do) FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2) AS odchod, "
+            " (SELECT string_agg(DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+            "         WHEN 2 THEN 'EUROSOFT - System' END, ' / ') FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2) AS firma "
+            "FROM public.users u "
+            "WHERE u.id NOT IN (2,3,23,24) "
+            "  AND EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "     AND ut.membership_status='archived')")).fetchall()
+
+        def _klic(x):
+            return _ud.normalize("NFKD", x or "").encode("ascii", "ignore").decode().lower()
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            first, last = (r[1] or "").strip(), (r[2] or "").strip()
+            if last:
+                nm, prij = (last + " " + first).strip(), last
+            else:
+                cele = (r[3] or "").strip(); casti = cele.split()
+                prij = casti[-1] if len(casti) >= 2 else cele
+                nm = (prij + " " + " ".join(casti[:-1])).strip() if len(casti) >= 2 else cele
+            nm = nm or ("#" + str(r[0]))
+            if q and q not in nm.lower():
+                continue
+            out.append({
+                "user_id": r[0], "jmeno": nm, "prijmeni": prij,
+                "pozice": _poz_style(r[4]) if r[4] else "",
+                "prac_email": (r[5] or ""), "nadrizeny": (r[6] or ""),
+                "odchod": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
+                "odchod_key": (r[7].isoformat() if r[7] else ""),
+                "kategorie": _kategorie_prace(r[4]), "firma": (r[8] or ""),
+            })
+        out.sort(key=lambda x: x["odchod_key"], reverse=True)
+        return JSONResponse({"ok": True, "lide": out, "pocet": len(out)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Fotky zaměstnanců (Šárka 21.7.2026) ─────────────────────────────────────
 # Úložiště: tenant.employee_photo (bytea, MIMO git – nezveřejní se). Routa jen
 # pro přihlášené (foto = osobní údaj, GDPR). Vlastník vidí/nahrává svou fotku;

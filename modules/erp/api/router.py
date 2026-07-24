@@ -9604,6 +9604,145 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
+# ── Odpovědnost: kdo kontroluje docházku / schvaluje volno (Šárka 24.7.2026) ──────
+# Fáze 1 = kontrola docházky (agenda='dochazka'); volno (Fáze 2) až po koordinaci s Jirkou.
+def _je_vedouci_daneho(s, uid, target_uid) -> bool:
+    """Je přihlášený uid vedoucím cílového target_uid? (přímý nadřízený z org struktury
+    NEBO vedoucí/zástupce skupiny, kam cílový patří). Best-effort, defenzivní."""
+    from sqlalchemy import text as _t
+    try:
+        r = s.execute(_t(
+            "SELECT 1 FROM tenant.att_employee tae "
+            " JOIN tenant.org_post_assign a ON a.employee_id=tae.id AND a.tenant_id=2 AND a.aktivni=true "
+            " JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            " JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+            " JOIN tenant.org_post_assign a2 ON a2.post_id=pp.id AND a2.tenant_id=2 AND a2.aktivni=true "
+            " JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
+            "WHERE tae.user_id=:t AND tae.tenant_id=2 AND sae.user_id=:u "
+            "UNION ALL "
+            "SELECT 1 FROM tenant.staff_group_member m "
+            " JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+            "WHERE m.tenant_id=2 AND m.user_id=:t AND (g.leader_user_id=:u OR g.deputy_user_id=:u) LIMIT 1"),
+            {"t": int(target_uid), "u": int(uid)}).first()
+        return r is not None
+    except Exception:
+        return False
+
+
+def _jmena_uid(s, ids):
+    from sqlalchemy import text as _t
+    ids = [int(x) for x in ids if x]
+    if not ids:
+        return {}
+    rows = s.execute(_t(
+        "SELECT id, COALESCE(NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),''),'#'||id) "
+        "FROM public.users WHERE id = ANY(:ids)"), {"ids": ids}).fetchall()
+    return {int(r[0]): r[1] for r in rows}
+
+
+@api_router.get("/app/hr/person-odpovednost")
+async def app_hr_person_odpovednost(req: Request):
+    """Kdo člověku kontroluje docházku (Fáze 1) + kdo schvaluje volno (Fáze 2 — placeholder)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        can_edit = _hr_can_manage(s, uid) or _je_vedouci_daneho(s, uid, tuid)
+        if not can_edit:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        emp_ids = [int(r[0]) for r in s.execute(_t(
+            "SELECT id FROM tenant.att_employee WHERE user_id=:u AND tenant_id=2"), {"u": tuid}).fetchall()]
+        editors = set()
+        for e in emp_ids:
+            editors |= _att_fix_editors_for_emp(s, e)
+        # je to osobní výjimka, nebo zděděné ze stromu?
+        vyjimka = None
+        try:
+            ovr = s.execute(_t(
+                "SELECT odpovedny_user_id, platnost_do FROM tenant.att_odpovednost "
+                "WHERE tenant_id=2 AND agenda='dochazka' AND user_id=:u AND aktivni=true "
+                "  AND (platnost_do IS NULL OR platnost_do >= CURRENT_DATE)"), {"u": tuid}).fetchall()
+            if ovr:
+                vyjimka = {"odpovedni": [int(x[0]) for x in ovr],
+                           "platnost_do": (ovr[0][1].strftime("%Y-%m-%d") if ovr[0][1] else "")}
+        except Exception:
+            vyjimka = None
+        # pool osob s fix právy (nabídka)
+        moznosti = []
+        try:
+            prows = s.execute(_t(
+                "SELECT f.user_id, f.scope FROM tenant.att_fix_scope f ORDER BY f.user_id")).fetchall()
+            nm = _jmena_uid(s, [r[0] for r in prows])
+            moznosti = [{"user_id": int(r[0]), "jmeno": nm.get(int(r[0]), "#" + str(r[0])), "scope": r[1]} for r in prows]
+        except Exception:
+            moznosti = []
+        nm2 = _jmena_uid(s, editors)
+        rezi = [{"user_id": u2, "jmeno": nm2.get(u2, "#" + str(u2))} for u2 in sorted(editors)]
+        dochazka = {"rezi": rezi, "zdroj": ("výjimka" if vyjimka else "zděděno ze stromu skupin"),
+                    "platnost_do": (vyjimka["platnost_do"] if vyjimka else ""),
+                    "je_vyjimka": bool(vyjimka)}
+        return JSONResponse({"ok": True, "can_edit": True,
+                             "dochazka": dochazka, "moznosti": moznosti,
+                             "volno": {"stav": "pripravujeme"}})
+    except Exception as exc:
+        logger.exception("[hr_person_odpovednost] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person-odpovednost/save")
+async def app_hr_person_odpovednost_save(req: Request):
+    """Uloží/zruší osobní výjimku kontroly docházky. agenda='dochazka' (Fáze 1)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    agenda = str((b or {}).get("agenda") or "dochazka").strip()
+    tuid = int((b or {}).get("uid") or 0)
+    odp = (b or {}).get("odpovedny_user_id")
+    odp = int(odp) if (odp not in (None, "", 0)) else None
+    platnost = (str((b or {}).get("platnost_do") or "").strip() or None)
+    if agenda != "dochazka":
+        return JSONResponse({"ok": False, "error": "Fáze 1 umí zatím jen kontrolu docházky."}, status_code=400)
+    if not tuid:
+        return JSONResponse({"ok": False, "error": "chybí uid"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not (_hr_can_manage(s, uid) or _je_vedouci_daneho(s, uid, tuid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # nejdřív deaktivuj stávající výjimky téhle agendy pro daného člověka
+        s.execute(_t("UPDATE tenant.att_odpovednost SET aktivni=false, changed_by=:by, changed_at=now() "
+                     "WHERE tenant_id=2 AND agenda=:a AND user_id=:u AND aktivni=true"),
+                  {"a": agenda, "u": tuid, "by": uid})
+        if odp:  # nastavit novou výjimku (null = jen zrušit = vrátit na zděděné)
+            s.execute(_t(
+                "INSERT INTO tenant.att_odpovednost "
+                " (tenant_id, agenda, user_id, odpovedny_user_id, platnost_do, aktivni, changed_by, changed_at) "
+                "VALUES (2, :a, :u, :o, :p, true, :by, now()) "
+                "ON CONFLICT (tenant_id, agenda, user_id, odpovedny_user_id) DO UPDATE SET "
+                " aktivni=true, platnost_do=:p, changed_by=:by, changed_at=now()"),
+                {"a": agenda, "u": tuid, "o": odp, "p": platnost, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_person_odpovednost_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
     """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""
@@ -20941,6 +21080,20 @@ def _att_fix_editors_for_emp(s, emp_id):
     (může být prázdný — volající si řeší fallback)."""
     out = set()
     from sqlalchemy import text as _t
+    # Osobní výjimka (att_odpovednost, agenda='dochazka') má přednost před stromem
+    # (Šárka 24.7., handoff Kristý). Defenzivně — když tabulka ještě není, propadne na strom.
+    try:
+        ovr = s.execute(_t(
+            "SELECT o.odpovedny_user_id FROM tenant.att_employee ae "
+            "JOIN tenant.att_odpovednost o ON o.user_id=ae.user_id AND o.tenant_id=2 "
+            "  AND o.agenda='dochazka' AND o.aktivni=true "
+            "  AND (o.platnost_do IS NULL OR o.platnost_do >= CURRENT_DATE) "
+            "WHERE ae.id=:e AND ae.tenant_id=2"), {"e": int(emp_id)}).fetchall()
+        ovr = {int(x[0]) for x in ovr if x[0]}
+        if ovr:
+            return ovr
+    except Exception:
+        pass
     try:
         rows = s.execute(_t(
             "SELECT f.user_id, f.scope FROM tenant.att_fix_scope f "

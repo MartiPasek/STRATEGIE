@@ -84,6 +84,7 @@ const SEKCE=[
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true,key:'absence'},
   {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, dle Centrály).",on:true,key:'podminky'},
+  {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
@@ -233,7 +234,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje'};
+    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -441,6 +442,49 @@ async function podmUdaje(){
         '<td style="padding:7px 16px;text-align:right">'+srcBadge(r.src)+'</td></tr>'; }).join('')+'</table>';
   h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">Zdroj: systémový default → skupina → osobní výjimka. Osobní hodnoty jsou sync z Centrály.</div>';
   det.innerHTML=h;
+}
+
+// Šárka 24.7.2026: Odpovědnost — kdo kontroluje docházku (Fáze 1) + schvalování volna (Fáze 2).
+let ODP_DATA=null, ODP_UID=null;
+async function odpUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/person-odpovednost?uid='+uid);
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">🛡️ Odpovědnost</span>'+back+'</div>';
+  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error==='forbidden'?'Nemáš oprávnění (jen HR nebo vedoucí daného člověka).':(d.error||'nedostupné'))+'</div>'; det.innerHTML=h; return; }
+  ODP_DATA=d; ODP_UID=uid;
+  const dd=d.dochazka||{};
+  const rezi=(dd.rezi||[]).map(r=>esc(r.jmeno)).join(', ')||'—';
+  const zdroj = dd.je_vyjimka ? '<span style="color:#E0A94A">osobní výjimka</span>' : '<span style="color:#7f8ea0">'+esc(dd.zdroj||'zděděno')+'</span>';
+  h+='<div style="padding:12px 16px 4px"><div style="color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">⏱️ Kontrola docházky</div>'+
+    '<div style="margin:6px 0;color:#e8eef5;font-size:13px">Aktuálně řeší: <b>'+rezi+'</b> &nbsp;('+zdroj+(dd.platnost_do?(' · do '+esc(czDate(dd.platnost_do))):'')+')</div>';
+  const opts='<option value="">— vybrat osobu —</option>'+(d.moznosti||[]).map(o=>'<option value="'+o.user_id+'">'+esc(o.jmeno)+'</option>').join('');
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px">'+
+    '<select id="odpSel" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit">'+opts+'</select>'+
+    '<label style="color:#7f8ea0;font-size:12px">Platnost do: <input id="odpPlat" type="date" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:4px 6px;font:inherit"></label>'+
+    '<button onclick="odpSave()" style="border:1px solid #3a8a4d;background:#2e6f3e;color:#eafff0;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">Uložit výjimku</button>'+
+    (dd.je_vyjimka?'<button onclick="odpClear()" style="border:1px solid #5a2a26;background:#1b232d;color:#ff8a7a;border-radius:6px;padding:5px 12px;font:inherit;cursor:pointer">Zrušit výjimku</button>':'')+
+    '<span id="odpMsg" style="font-size:12px;color:#7fe0a0"></span></div>'+
+    '<div style="color:#5d6b7c;font-size:11px;padding-bottom:6px">Osobní výjimka přebije zděděné ze stromu skupin.</div></div>';
+  h+='<div style="padding:10px 16px;border-top:1px solid #1e2730"><div style="color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">🏖️ Schvalování volna</div>'+
+    '<div style="color:#7f8ea0;font-size:12.5px;margin-top:4px">Připravujeme — napojení na modul schvalování (koordinace s Jirkou/Marti-AI). Zatím se řídí org posty.</div></div>';
+  det.innerHTML=h;
+}
+async function odpSave(){
+  const sel=document.getElementById('odpSel'), plat=document.getElementById('odpPlat'), msg=document.getElementById('odpMsg');
+  if(!sel.value){ msg.style.color='#E0A94A'; msg.textContent='Vyber osobu.'; return; }
+  msg.style.color='#7f8ea0'; msg.textContent='Ukládám…';
+  const r=await fetch(API+'/app/hr/person-odpovednost/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({agenda:'dochazka',uid:ODP_UID,odpovedny_user_id:parseInt(sel.value),platnost_do:(plat.value||null)})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok) odpUdaje(); else { msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); }
+}
+async function odpClear(){
+  if(!confirm('Zrušit osobní výjimku a vrátit na zděděné?')) return;
+  const r=await fetch(API+'/app/hr/person-odpovednost/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({agenda:'dochazka',uid:ODP_UID,odpovedny_user_id:null})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok) odpUdaje(); else alert('Nepovedlo se: '+(d.error||''));
 }
 
 // Šárka 21.7.2026: Finanční podmínky přímo v kartě (hlavička + fotka + editace uvnitř).

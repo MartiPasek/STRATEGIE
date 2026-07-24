@@ -41,11 +41,45 @@
   .tag.on{background:#16301f;color:#7fe0a0}
   .tag.soon{background:#23262b;color:#7f8ea0}
   .empty{padding:40px;color:var(--muted);text-align:center;font-style:italic}
+  /* Přepínač pohledu (Šárka 24.7.2026) */
+  .vbtn{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:8px;
+        padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+  .vbtn:hover{background:#1b232d;color:var(--txt)}
+  .vbtn.on{background:#1e2a38;color:var(--title);border-color:#2b3a4a}
+  /* Pinya-like tabulkový pohled */
+  .wrapfull{max-width:1440px;margin:16px auto;padding:0 14px}
+  .tbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .tbar input,.tbar select{border:1px solid var(--line);background:var(--panel2);color:var(--txt);
+        border-radius:8px;padding:7px 10px;font:inherit;outline:none}
+  .tbar #tsrch{min-width:220px;flex:1 1 220px;max-width:340px}
+  .tblscroll{overflow:auto;max-height:78vh}
+  table.ptbl{border-collapse:collapse;width:100%;font-size:13px}
+  table.ptbl thead th{position:sticky;top:0;background:#12181f;color:var(--accent);text-align:left;
+        font-weight:700;font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;
+        padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
+  table.ptbl tbody td{padding:9px 12px;border-bottom:1px solid var(--line2);color:var(--txt);vertical-align:middle;white-space:nowrap}
+  table.ptbl tbody tr{cursor:pointer}
+  table.ptbl tbody tr:hover td{background:#1b232d}
+  table.ptbl .tavatar{width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;background:#1f2a37}
+  table.ptbl .tini{width:34px;height:34px;border-radius:50%;background:#1f2a37;color:var(--accent);
+        display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800}
+  table.ptbl .tnm{font-weight:700;color:var(--title)}
+  table.ptbl a{color:var(--accent);text-decoration:none}
+  table.ptbl a:hover{text-decoration:underline}
+  table.ptbl .muted{color:var(--muted)}
+  .schip{font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px}
+  .schip.ok{background:#16301f;color:#7fe0a0}
+  .schip.old{background:#23262b;color:#7f8ea0}
 </style>
 </head>
 <body>
-<div class="top"><span class="b">🪪 Karta zaměstnance</span><span class="sub">· vše o člověku na jednom místě</span></div>
-<div class="wrap">
+<div class="top"><span class="b">🪪 Karta zaměstnance</span><span class="sub">· vše o člověku na jednom místě</span>
+  <div style="margin-left:auto;display:flex;gap:6px">
+    <button id="vbtnList" class="vbtn on" onclick="setView('list')">🪪 Karta</button>
+    <button id="vbtnTable" class="vbtn" onclick="setView('table')">👥 Seznam zaměstnanců</button>
+  </div>
+</div>
+<div class="wrap" id="mdwrap">
   <div class="card">
     <div class="hd">Zaměstnanci <span id="cnt" style="color:#5d6b7c;font-weight:600"></span></div>
     <input id="srch" placeholder="🔎 Hledat…">
@@ -67,6 +101,37 @@
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
   </div>
   <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
+</div>
+<div class="wrapfull" id="tblcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <input id="tsrch" placeholder="🔎 Hledat zaměstnance…">
+      <select id="tfpoz"><option value="">💼 Pozice: vše</option></select>
+      <select id="tftyp">
+        <option value="">👤 Typ poměru: vše</option>
+        <option value="HPP">HPP (zaměstnanec)</option>
+        <option value="OSVČ">OSVČ</option>
+        <option value="DPP">DPP</option>
+      </select>
+      <select id="tfkat">
+        <option value="">🏭 Výroba / kancelář: vše</option>
+        <option value="Výroba">Výroba</option>
+        <option value="Kancelář">Kancelář</option>
+      </select>
+      <span id="tcnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
+      <span id="texbar" style="font-size:11.5px;color:#7f8ea0;width:100%"></span>
+    </div>
+    <div class="tblscroll">
+      <table class="ptbl" id="ptbl">
+        <thead><tr>
+          <th>Foto</th><th>Jméno</th><th>Pracovní pozice</th><th>Kategorie</th>
+          <th>Nadřízený</th><th>Pracovní e-mail</th><th>Pracovní mobil</th>
+          <th>Společnost</th><th>Nástup</th><th>Země</th><th>Stav</th>
+        </tr></thead>
+        <tbody id="ptbody"><tr><td colspan="11" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 <script>
 const API="/api/v1/erp";
@@ -98,6 +163,29 @@ const SEKCE=[
 ];
 
 let VSE=false;
+let VIEW='list';
+function setView(v){
+  VIEW=v;
+  document.getElementById('vbtnList').classList.toggle('on',v==='list');
+  document.getElementById('vbtnTable').classList.toggle('on',v==='table');
+  document.getElementById('mdwrap').style.display=(v==='list')?'':'none';
+  document.getElementById('tblcard').style.display=(v==='table')?'':'none';
+  paint();
+}
+// Sdílené filtrování (čte z ovládacích prvků aktivního pohledu)
+function activeFilters(){
+  const t=(VIEW==='table');
+  const g=(l,tb)=>((document.getElementById(t?tb:l)||{}).value||'');
+  return {q:(g('srch','tsrch')).toLowerCase(), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat')};
+}
+function filteredLide(){
+  const {q,fp,ft,fk}=activeFilters();
+  return LIDE.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
+    && (!fp || p.pozice===fp)
+    && (!ft || (p.typ||'').split(' / ').includes(ft))
+    && (!fk || p.kategorie===fk));
+}
+function paint(){ if(VIEW==='table') renderTable(); else render(); }
 async function load(){
   const d=await j(API+"/app/hr/people"+(VSE?"?vse=1":""));
   const l=document.getElementById('lst');
@@ -105,36 +193,39 @@ async function load(){
   LIDE=d.lide||[];
   document.getElementById('cnt').textContent='('+LIDE.length+')';
   // Šárka 20.7.2026: seznam ukazuje jen lidi s platným poměrem; bývalí jdou zobrazit přepínačem.
-  const b=document.getElementById('exbar');
-  if(b){
-    if(VSE){ b.innerHTML='Zobrazeni <b>i bývalí</b> (bez platného poměru). '+
-      '<a href="#" onclick="toggleVse();return false;">Zobrazit jen aktivní</a>'; }
-    else if(d.skryto>0){ b.innerHTML='Skryto <b>'+d.skryto+'</b> osob bez platného pracovního poměru. '+
-      '<a href="#" onclick="toggleVse();return false;">Zobrazit i bývalé</a>'; }
-    else { b.innerHTML=''; }
-  }
+  let exHTML='';
+  if(VSE){ exHTML='Zobrazeni <b>i bývalí</b> (bez platného poměru). '+
+    '<a href="#" onclick="toggleVse();return false;">Zobrazit jen aktivní</a>'; }
+  else if(d.skryto>0){ exHTML='Skryto <b>'+d.skryto+'</b> osob bez platného pracovního poměru. '+
+    '<a href="#" onclick="toggleVse();return false;">Zobrazit i bývalé</a>'; }
+  const eb=document.getElementById('exbar'); if(eb) eb.innerHTML=exHTML;
+  const teb=document.getElementById('texbar'); if(teb) teb.innerHTML=exHTML;
   naplnPozice();
-  render();
+  paint();
 }
 function toggleVse(){ VSE=!VSE; load(); }
+// Deep-link: /karta-zamestnance?view=table otevře rovnou přehled „Seznam zaměstnanců" (uzel hr.seznam)
+(function initView(){ try{
+  if(new URLSearchParams(location.search).get('view')==='table'){
+    VIEW='table';
+    document.getElementById('vbtnTable').classList.add('on');
+    document.getElementById('vbtnList').classList.remove('on');
+    document.getElementById('mdwrap').style.display='none';
+    document.getElementById('tblcard').style.display='';
+  }
+}catch(e){} })();
 function naplnPozice(){
-  // dropdown pozic z načtených lidí (Šárka 21.7.2026)
-  const sel=document.getElementById('fpoz'); if(!sel) return;
-  const cur=sel.value;
+  // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů
   const poz=[...new Set(LIDE.map(p=>p.pozice).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'cs'));
-  sel.innerHTML='<option value="">💼 Pozice: vše</option>'+poz.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
-  sel.value=cur;
+  const opts='<option value="">💼 Pozice: vše</option>'+poz.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
+  for(const id of ['fpoz','tfpoz']){
+    const sel=document.getElementById(id); if(!sel) continue;
+    const cur=sel.value; sel.innerHTML=opts; sel.value=cur;
+  }
 }
 function render(){
-  const q=(document.getElementById('srch').value||'').toLowerCase();
-  const fp=(document.getElementById('fpoz')||{}).value||'';
-  const ft=(document.getElementById('ftyp')||{}).value||'';
-  const fk=(document.getElementById('fkat')||{}).value||'';
   const l=document.getElementById('lst');
-  const f=LIDE.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
-    && (!fp || p.pozice===fp)
-    && (!ft || (p.typ||'').split(' / ').includes(ft))
-    && (!fk || p.kategorie===fk));
+  const f=filteredLide();
   document.getElementById('cnt').textContent='('+f.length+')';
   if(!f.length){l.innerHTML='<div class="empty">Nic nenalezeno.</div>';return;}
   l.innerHTML=f.map(p=>{
@@ -148,10 +239,46 @@ function render(){
       '<div class="mt">'+esc(meta)+(p.ma_kartu?'':' · <span style="color:#c98">bez karty</span>')+'</div></div>';
   }).join('');
 }
-document.getElementById('srch').addEventListener('input',render);
-document.getElementById('fpoz').addEventListener('change',render);
-document.getElementById('ftyp').addEventListener('change',render);
-document.getElementById('fkat').addEventListener('change',render);
+// Pinya-like tabulkový pohled (Šárka 24.7.2026)
+function renderTable(){
+  const tb=document.getElementById('ptbody'); if(!tb) return;
+  const f=filteredLide();
+  const tc=document.getElementById('tcnt'); if(tc) tc.textContent=f.length+' zaměstnanců';
+  document.getElementById('cnt').textContent='('+f.length+')';
+  if(!f.length){ tb.innerHTML='<tr><td colspan="11" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  const c=(v)=> v?esc(v):'<span class="muted">—</span>';
+  tb.innerHTML=f.map(p=>{
+    const fi=esc(ini(p.jmeno));
+    const foto='<div class="tini"><img class="tavatar" src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
+      'onerror="this.remove();this.parentNode.textContent=\''+fi+'\'"></div>';
+    const zeme=zemeZMesta(p.mesto);
+    const mail=p.prac_email?('<a href="mailto:'+esc(p.prac_email)+'" onclick="event.stopPropagation()">'+esc(p.prac_email)+'</a>'):'<span class="muted">—</span>';
+    const telN=String(p.prac_telefon||'').replace(/\s+/g,'');
+    const tel=p.prac_telefon?('<a href="tel:'+esc(telN)+'" onclick="event.stopPropagation()">'+esc(p.prac_telefon)+'</a>'):'<span class="muted">—</span>';
+    const stav=p.ma_pomer?'<span class="schip ok">Aktivní</span>':'<span class="schip old">Bývalý</span>';
+    return '<tr onclick="openFromTable('+p.user_id+')">'+
+      '<td>'+foto+'</td>'+
+      '<td><span class="tnm">'+esc(p.jmeno)+'</span>'+(p.ma_kartu?'':' <span class="muted" style="font-size:11px">(bez karty)</span>')+'</td>'+
+      '<td>'+c(p.pozice)+'</td>'+
+      '<td>'+c(p.kategorie)+'</td>'+
+      '<td>'+c(p.nadrizeny)+'</td>'+
+      '<td>'+mail+'</td>'+
+      '<td>'+tel+'</td>'+
+      '<td>'+c(p.firma)+'</td>'+
+      '<td>'+c(p.nastup)+'</td>'+
+      '<td>'+c(zeme)+'</td>'+
+      '<td>'+stav+'</td></tr>';
+  }).join('');
+}
+function openFromTable(uid){
+  setView('list'); openP(uid);
+  const row=document.querySelector('.prow[data-u="'+uid+'"]');
+  if(row){ document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel')); row.classList.add('sel'); row.scrollIntoView({block:'center'}); }
+}
+[['srch','input'],['fpoz','change'],['ftyp','change'],['fkat','change'],
+ ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change']].forEach(function(x){
+  const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],paint);
+});
 
 // Šárka 22.7.2026: ISO (RRRR-MM-DD) → české DD.MM.RRRR (nejsme v Americe:)
 function czDate(v){ if(!v) return v; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v)); return m?(m[3]+'.'+m[2]+'.'+m[1]):v; }

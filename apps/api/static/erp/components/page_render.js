@@ -77,6 +77,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Seznam zaměstnanců (Šárka 24.7.2026): jádro hr.seznam = iframe karty rovnou
+      // v tabulkovém pohledu (Pinya-styl: foto, pozice, oddělení, nadřízený, kontakty…).
+      if (String(coreCode) === 'hr.seznam') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=table" title="Seznam zaměstnanců" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Přehled zaměstnanců a OSVČ (Šárka 20.7.2026): jádro hr.headcount = iframe
       // stránky /hr-headcount. Jen agregovaná čísla (firma × typ × kancelář/výroba).
       if (String(coreCode) === 'hr.headcount') {

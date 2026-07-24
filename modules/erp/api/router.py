@@ -9175,7 +9175,39 @@ async def app_hr_people(req: Request) -> JSONResponse:
             " (SELECT COALESCE(NULLIF(d.company_email,''), NULLIF(d.personal_email,'')) "
             "    FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS email, "
             " (SELECT COALESCE(NULLIF(d.company_phone,''), NULLIF(d.personal_phone,'')) "
-            "    FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS telefon "
+            "    FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS telefon, "
+            # Pinya-like sloupce (Šárka 24.7.2026): pracovní e-mail/mobil zvlášť, nadřízený, středisko, org post
+            " (SELECT NULLIF(d.company_email,'') FROM tenant.user_self_data d "
+            "   WHERE d.user_id=u.id AND d.tenant_id=2) AS prac_email, "
+            " (SELECT NULLIF(d.company_phone,'') FROM tenant.user_self_data d "
+            "   WHERE d.user_id=u.id AND d.tenant_id=2) AS prac_telefon, "
+            " (SELECT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), sae.full_name) "
+            "    FROM tenant.att_employee ae "
+            "    JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
+            "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            "    JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+            "    JOIN tenant.org_post_assign a2 ON a2.post_id=pp.id AND a2.tenant_id=2 AND a2.aktivni=true "
+            "      AND COALESCE(a2.zastupce_role,0)=0 AND a2.employee_id<>ae.id "
+            "    LEFT JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
+            "    LEFT JOIN public.users su ON su.id=sae.user_id "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2 LIMIT 1) AS nadrizeny, "
+            " (SELECT su.id FROM tenant.att_employee ae "
+            "    JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
+            "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            "    JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+            "    JOIN tenant.org_post_assign a2 ON a2.post_id=pp.id AND a2.tenant_id=2 AND a2.aktivni=true "
+            "      AND COALESCE(a2.zastupce_role,0)=0 AND a2.employee_id<>ae.id "
+            "    JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
+            "    JOIN public.users su ON su.id=sae.user_id "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2 LIMIT 1) AS nadrizeny_uid, "
+            " (SELECT COALESCE(e.stredisko,'') FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true "
+            "     AND COALESCE(e.stredisko,'')<>'' LIMIT 1) AS stredisko, "
+            " (SELECT string_agg(DISTINCT p.nazev, ', ') FROM tenant.att_employee ae "
+            "    JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
+            "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 AND p.aktivni=true "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2) AS post "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -9223,7 +9255,11 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "kategorie": _kategorie_prace(r[8]),
                         "vek": ((_dnes.year - r[11].year - ((_dnes.month, _dnes.day) < (r[11].month, r[11].day))) if r[11] else None),
                         "narozeniny": (r[11].strftime("%d.%m.") if r[11] else ""),
-                        "email": (r[12] or ""), "telefon": (r[13] or "")})
+                        "email": (r[12] or ""), "telefon": (r[13] or ""),
+                        "prac_email": (r[14] or ""), "prac_telefon": (r[15] or ""),
+                        "nadrizeny": (r[16] or ""),
+                        "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[17], r[17]) if r[17] else ""),
+                        "post": (r[18] or "")})
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
         return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
     except Exception as exc:

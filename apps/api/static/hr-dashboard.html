@@ -7,71 +7,60 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root{
-    --navy:#0f2a4a; --navy2:#173a63; --bg:#f4f6f9; --card:#ffffff; --line:#e4e8ef;
-    --ink:#1f2a37; --muted:#6b7686; --muted2:#9aa4b2;
-    --green:#5ba829; --blue:#2f6fed; --amber:#e8a400; --pink:#d6336c; --grayd:#c4c9d4;
-    --ok:#5ba829; --warn:#e8a400; --bad:#e0453a;
+    --bg:#0f141a; --panel:#161c24; --panel2:#12181f; --card:#161c24; --line:#233040; --line2:#1e2730;
+    --ink:#cdd6e2; --title:#e8eef5; --muted:#7f8ea0; --muted2:#5d6b7c;
+    --green:#6cc04a; --blue:#4a90ff; --amber:#f0b429; --pink:#e0518a; --teal:#57b0d4; --grayd:#3f4b5c;
+    --ok:#6cc04a; --warn:#f0b429; --bad:#e0453a;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
-  /* top bar mimicking ERP */
-  .topnav{background:var(--navy);color:#fff;display:flex;align-items:center;gap:22px;padding:0 20px;height:48px;font-size:14px}
-  .topnav .logo{font-weight:800;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
-  .topnav .logo b{color:#4ea1ff}
-  .topnav a{color:#cbd6e6;text-decoration:none;padding:0 4px}
-  .topnav a.active{color:#fff;font-weight:600;border-bottom:3px solid #4ea1ff;height:48px;display:flex;align-items:center}
-  .topnav .spacer{flex:1}
-  /* page header */
   .pagehead{display:flex;align-items:center;justify-content:space-between;padding:18px 24px 6px}
-  .pagehead h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.5px}
-  .filterbtn{background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:center;box-shadow:0 1px 2px rgba(15,42,74,.04)}
+  .pagehead h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.5px;color:var(--title)}
+  .filterbtn{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-weight:600;color:var(--ink);cursor:pointer;display:flex;gap:8px;align-items:center}
   .filterbtn:hover{border-color:var(--blue)}
-  /* filter panel */
-  .filterpanel{display:none;margin:6px 24px 0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 8px 24px rgba(15,42,74,.10)}
+  .filterpanel{display:none;margin:6px 24px 0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
   .filterpanel.open{display:block}
-  .filternote{background:#fdf6e3;border:1px solid #f0e4b8;color:#7a6413;border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
+  .filternote{background:#241f10;border:1px solid #4a4020;color:#d9c37a;border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
   .filtergrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 18px}
-  .filtergrid label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:#334}
-  .filtergrid select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe;color:var(--muted);font-size:13px}
-  /* layout */
+  .filtergrid label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:var(--ink)}
+  .filtergrid select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--muted);font-size:13px}
   .wrap{display:flex;gap:20px;padding:14px 24px 40px;align-items:flex-start}
-  .side{width:236px;flex:none;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px;position:sticky;top:14px}
-  .side button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:10px;padding:12px 12px;font-size:14.5px;font-weight:600;color:#40506a;cursor:pointer}
+  .side{width:236px;flex:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;position:sticky;top:14px}
+  .side button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:10px;padding:12px 12px;font-size:14.5px;font-weight:600;color:#9fb0c2;cursor:pointer}
   .side button .ic{font-size:17px;width:22px;text-align:center}
-  .side button:hover{background:#f1f5fb}
-  .side button.active{background:#eaf1ff;color:var(--navy)}
+  .side button:hover{background:#1b2530}
+  .side button.active{background:#1b2b3f;color:#8fc0ff}
   .main{flex:1;min-width:0}
-  /* cards */
-  .sectioncard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,42,74,.03)}
-  .sectioncard h2{margin:0 0 16px;font-size:20px;font-weight:800}
+  .sectioncard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:20px}
+  .sectioncard h2{margin:0 0 16px;font-size:20px;font-weight:800;color:var(--title)}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-  .kpi{border:1px solid var(--line);border-radius:12px;padding:16px 16px}
-  .kpi .lbl{font-weight:700;font-size:14px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px 16px}
+  .kpi .lbl{font-weight:700;font-size:14px;color:var(--title)}
   .kpi .sub{color:var(--muted);font-size:12px;margin-top:2px;min-height:16px}
   .kpi .val{display:flex;align-items:center;gap:12px;margin-top:16px}
   .kpi .circle{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;flex:none}
-  .kpi .num{font-size:30px;font-weight:800;line-height:1}
+  .kpi .num{font-size:30px;font-weight:800;line-height:1;color:var(--title)}
   .kpi .num small{font-size:14px;font-weight:600;color:var(--muted)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  .chartcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 1px 2px rgba(15,42,74,.03)}
-  .chartcard h3{margin:0 0 3px;font-size:17px;font-weight:800}
+  .chartcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .chartcard h3{margin:0 0 3px;font-size:17px;font-weight:800;color:var(--title)}
   .chartcard p.desc{margin:0 0 14px;color:var(--muted);font-size:12.5px}
   .chartbox{position:relative;height:280px}
   .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;vertical-align:middle;margin-left:6px}
-  .b-real{background:#e7f5e0;color:#357a12}
-  .b-part{background:#fdf1d8;color:#8a6400}
-  .b-todo{background:#f0f1f4;color:#6b7686}
+  .b-real{background:#173a1f;color:#7fd05a}
+  .b-part{background:#3a3110;color:#e6b84a}
+  .b-todo{background:#232b36;color:#8a97a8}
   .empty{display:flex;align-items:center;justify-content:center;height:280px;color:var(--muted2);text-align:center;flex-direction:column;gap:8px;border:1px dashed var(--line);border-radius:10px}
   .empty .big{font-size:30px}
-  /* gauges (kvalita dat) */
   .qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-  .qcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-  .qcard .qt{font-weight:700;font-size:13.5px;min-height:34px}
+  .qcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .qcard .qt{font-weight:700;font-size:13.5px;min-height:34px;color:var(--title)}
   .qcard .qbox{position:relative;height:120px}
   .qcard .qv{text-align:center;font-size:13px;color:var(--muted);margin-top:2px}
   .subhead{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:6px 0 12px}
   .hidden{display:none}
-  .note{font-size:12.5px;color:var(--muted);background:#f7f9fc;border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:8px;padding:10px 14px;margin-top:4px}
+  .note{font-size:12.5px;color:var(--muted);background:#12202b;border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:8px;padding:10px 14px;margin-top:4px}
+  .note b{color:var(--ink)}
   .footer{padding:6px 24px 30px;color:var(--muted2);font-size:12px}
   @media(max-width:900px){.grid2,.kpis,.qgrid,.filtergrid{grid-template-columns:1fr 1fr}.wrap{flex-direction:column}.side{width:100%;position:static;display:flex;gap:6px;overflow:auto}}
 </style>
@@ -84,7 +73,7 @@
 </div>
 
 <div class="filterpanel" id="fp">
-  <div class="filternote">ℹ️ Data o organizačním zařazení jsou čerpána z primárních smluv zaměstnance (<b>engagement</b>). <i>Ve prototypu jsou filtry jen náhled — v ostrém uzlu budou funkční.</i></div>
+  <div class="filternote">ℹ️ Data o organizačním zařazení jsou čerpána z primárních smluv zaměstnance (<b>engagement</b>). <i>Filtry jsou zatím náhled — funkční budou v navazujícím kroku (živý endpoint).</i></div>
   <div class="filtergrid">
     <div><label>🏛️ Společnost</label><select><option>— Vybrat společnost —</option><option>EUROSOFT (ES)</option><option>EUROSOFT Centrála (EC)</option></select></div>
     <div><label>🌐 Země</label><select><option>— Vybrat zemi —</option><option>Česko</option></select></div>
@@ -287,19 +276,20 @@
 <script>
 Chart.defaults.font.family='"Segoe UI",Roboto,Arial,sans-serif';
 Chart.defaults.font.size=12;
-Chart.defaults.color='#40506a';
-const C={green:'#5ba829',blue:'#2f6fed',amber:'#e8a400',pink:'#d6336c',gray:'#c4c9d4',teal:'#5aa9c9'};
+Chart.defaults.color='#8fa0b3';
+Chart.defaults.borderColor='rgba(255,255,255,.07)';
+const C={green:'#6cc04a',blue:'#4a90ff',amber:'#f0b429',pink:'#e0518a',gray:'#5a6a7d',teal:'#57b0d4'};
 
 // value labels plugin for bar charts
-const valLabels={id:'valLabels',afterDatasetsDraw(ch){const{ctx}=ch;ch.data.datasets.forEach((ds,di)=>{const meta=ch.getDatasetMeta(di);if(meta.type!=='bar')return;meta.data.forEach((el,i)=>{const v=ds.data[i];if(v==null||v===0)return;ctx.save();ctx.fillStyle='#243b57';ctx.font='700 12px Segoe UI';ctx.textAlign='center';const horiz=ch.options.indexAxis==='y';if(horiz){ctx.textBaseline='middle';ctx.fillText(v,el.x-14,el.y);}else{ctx.textBaseline='bottom';ctx.fillText(v,el.x,el.y-4);}ctx.restore();});});}};
+const valLabels={id:'valLabels',afterDatasetsDraw(ch){const{ctx}=ch;ch.data.datasets.forEach((ds,di)=>{const meta=ch.getDatasetMeta(di);if(meta.type!=='bar')return;meta.data.forEach((el,i)=>{const v=ds.data[i];if(v==null||v===0)return;ctx.save();ctx.fillStyle='#e8eef5';ctx.font='700 12px Segoe UI';ctx.textAlign='center';const horiz=ch.options.indexAxis==='y';if(horiz){ctx.textBaseline='middle';ctx.fillText(v,el.x-14,el.y);}else{ctx.textBaseline='bottom';ctx.fillText(v,el.x,el.y-4);}ctx.restore();});});}};
 
 function bar(id,labels,data,color,opts={}){new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:color,borderRadius:6,maxBarThickness:64}]},options:{indexAxis:opts.horiz?'y':'x',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:true}},scales:{x:{grid:{display:opts.horiz},beginAtZero:true,ticks:{precision:0}},y:{grid:{display:!opts.horiz},beginAtZero:true,ticks:{precision:0}}}},plugins:[valLabels]});}
 
-function donut(id,labels,data,colors){new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8,padding:14}},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.parsed}`}}}}});}
+function donut(id,labels,data,colors){new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:'#161c24'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8,padding:14}},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.parsed}`}}}}});}
 
 function gauge(id,pct){ // pct = % vyplněno
   const col= pct>=100?C.green : pct>=90?C.amber : C.pink;
-  new Chart(document.getElementById(id),{type:'doughnut',data:{datasets:[{data:[pct,100-pct],backgroundColor:[col,'#eef1f5'],borderWidth:0,circumference:180,rotation:270}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{display:false},tooltip:{enabled:false}}},plugins:[{id:'g'+id,afterDraw(ch){const{ctx,chartArea}=ch;ctx.save();ctx.font='800 20px Segoe UI';ctx.fillStyle=col;ctx.textAlign='center';ctx.fillText(pct+'%',(chartArea.left+chartArea.right)/2,chartArea.bottom-4);ctx.restore();}}]});}
+  new Chart(document.getElementById(id),{type:'doughnut',data:{datasets:[{data:[pct,100-pct],backgroundColor:[col,'#233040'],borderWidth:0,circumference:180,rotation:270}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{display:false},tooltip:{enabled:false}}},plugins:[{id:'g'+id,afterDraw(ch){const{ctx,chartArea}=ch;ctx.save();ctx.font='800 20px Segoe UI';ctx.fillStyle=col;ctx.textAlign='center';ctx.fillText(pct+'%',(chartArea.left+chartArea.right)/2,chartArea.bottom-4);ctx.restore();}}]});}
 
 // ---- Lidé ve firmě
 donut('c_gender',['Muž','Žena'],[45,19],[C.blue,C.amber]);

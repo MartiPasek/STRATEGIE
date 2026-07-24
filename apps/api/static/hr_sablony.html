@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📄 Šablony dokumentů</title>
+<style>
+  :root{--bg:#0f141a;--panel:#161c24;--panel2:#12181f;--line:#233040;--line2:#1e2730;
+        --txt:#cdd6e2;--title:#e8eef5;--accent:#aac8ec;--muted:#7f8ea0;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--txt);background:var(--bg)}
+  .top{background:var(--panel2);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+  .top .b{font-weight:800;font-size:16px;color:var(--title)}
+  .wrap{max-width:1400px;margin:16px auto;padding:0 14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .tbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .tbar input,.tbar select{border:1px solid var(--line);background:var(--panel2);color:var(--txt);border-radius:8px;padding:7px 10px;font:inherit;outline:none}
+  .tbar #srch{min-width:200px;flex:1 1 200px;max-width:320px}
+  .btnp{border:1px solid #3a6aa8;background:#2e5a8f;color:#eaf2ff;border-radius:8px;padding:7px 13px;font:inherit;font-weight:800;cursor:pointer}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  thead th{position:sticky;top:0;background:#12181f;color:var(--accent);text-align:left;font-weight:700;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.03em;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody td{padding:9px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+  tbody tr:hover td{background:#1b232d}
+  .chip{font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px}
+  .chip.on{background:#16301f;color:#7fe0a0}.chip.off{background:#23262b;color:#7f8ea0}
+  .chip.ec{background:#1b2c44;color:#7fb2e8}.chip.es{background:#2c2140;color:#c9a9ec}.chip.ob{background:#23262b;color:#aab4c0}
+  a.act{color:var(--accent);text-decoration:none;white-space:nowrap}a.act:hover{text-decoration:underline}
+  .muted{color:var(--muted)}
+  .empty{padding:36px;color:var(--muted);text-align:center;font-style:italic}
+  #ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:9}
+  #ov .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(460px,92vw)}
+  #ov label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+  #ov input,#ov select{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:8px 10px;font:inherit}
+</style>
+</head>
+<body>
+<div class="top"><span class="b">📄 Šablony dokumentů</span><span class="muted" style="font-size:12px">· pracovněprávní vzory (firma × typ) + verzování</span></div>
+<div class="wrap">
+  <div class="card">
+    <div class="tbar">
+      <input id="srch" placeholder="🔎 Hledat název / kód…">
+      <select id="ffirma"><option value="">🏢 Firma: vše</option>
+        <option value="EUROSOFT - Control">EUROSOFT - Control</option>
+        <option value="EUROSOFT - System">EUROSOFT - System</option>
+        <option value="EUROSOFT (obě)">EUROSOFT (obě)</option></select>
+      <select id="ftyp"><option value="">📄 Typ: vše</option>
+        <option value="HPP">HPP</option><option value="OSVČ">OSVČ</option>
+        <option value="DPP">DPP</option><option value="Popis místa">Popis místa</option></select>
+      <label class="chk"><input type="checkbox" id="fakt" checked> jen aktivní</label>
+      <span id="cnt" class="muted" style="margin-left:auto;font-size:12.5px"></span>
+      <button class="btnp" onclick="openNew()">➕ Nahrát novou šablonu</button>
+    </div>
+    <div style="overflow:auto;max-height:80vh">
+      <table>
+        <thead><tr><th>Firma</th><th>Typ</th><th>Název</th><th>Kód</th><th>Verze</th><th>Stav</th><th>Velikost</th><th>Vytvořeno</th><th>Akce</th></tr></thead>
+        <tbody id="body"><tr><td colspan="9" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div id="ov"><div class="box">
+  <div style="font-weight:800;color:#e8eef5;font-size:15px" id="ovt">Nahrát šablonu</div>
+  <div id="ovnew">
+    <label>Firma</label><select id="ov_firma">
+      <option value="EUROSOFT - Control">EUROSOFT - Control</option>
+      <option value="EUROSOFT - System">EUROSOFT - System</option>
+      <option value="EUROSOFT (obě)">EUROSOFT (obě)</option></select>
+    <label>Typ</label><select id="ov_typ">
+      <option value="HPP">HPP</option><option value="OSVČ">OSVČ</option>
+      <option value="DPP">DPP</option><option value="Popis místa">Popis místa</option></select>
+    <label>Kód (unikátní)</label><input id="ov_kod" placeholder="např. EC_PracovniSmlouva_HPP_Vyrobni">
+    <label>Název</label><input id="ov_nazev" placeholder="Pracovní smlouva HPP výrobní">
+  </div>
+  <label>Soubor (.docx)</label><input id="ov_file" type="file" accept=".docx">
+  <label>Poznámka k verzi</label><input id="ov_pozn" placeholder="co se změnilo">
+  <div style="display:flex;gap:10px;align-items:center;margin-top:14px">
+    <button class="btnp" onclick="doUpload()">Nahrát</button>
+    <a href="#" class="act" onclick="closeOv();return false;" style="color:#7f8ea0">Zrušit</a>
+    <span id="ov_msg" style="font-size:12px"></span>
+  </div>
+</div></div>
+<script>
+const API="/api/v1/erp";
+let DATA=[], NEWMODE=true, CUR_KOD="";
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+async function j(u,o){const r=await fetch(u,Object.assign({credentials:'same-origin'},o||{}));return r.json();}
+async function load(){
+  const d=await j(API+'/app/hr/templates');
+  const b=document.getElementById('body');
+  if(!d.ok){b.innerHTML='<tr><td colspan="9" class="empty">🔒 '+esc(d.error||'')+'</td></tr>';return;}
+  DATA=d.sablony||[]; render();
+}
+function firmaChip(f){const c=f==='EUROSOFT - Control'?'ec':(f==='EUROSOFT - System'?'es':'ob');return '<span class="chip '+c+'">'+esc(f||'—')+'</span>';}
+function render(){
+  const q=(document.getElementById('srch').value||'').toLowerCase();
+  const ff=document.getElementById('ffirma').value, ft=document.getElementById('ftyp').value, fa=document.getElementById('fakt').checked;
+  const rows=DATA.filter(t=>(!q||(t.nazev+' '+t.kod).toLowerCase().includes(q))
+    &&(!ff||t.firma===ff)&&(!ft||t.typ===ft)&&(!fa||t.is_active));
+  document.getElementById('cnt').textContent=rows.length+' šablon';
+  const b=document.getElementById('body');
+  if(!rows.length){b.innerHTML='<tr><td colspan="9" class="empty">Nic nenalezeno.</td></tr>';return;}
+  b.innerHTML=rows.map(t=>'<tr>'+
+    '<td>'+firmaChip(t.firma)+'</td>'+
+    '<td>'+esc(t.typ||'—')+'</td>'+
+    '<td style="color:#e8eef5;font-weight:600">'+esc(t.nazev)+'</td>'+
+    '<td class="muted">'+esc(t.kod)+'</td>'+
+    '<td>v'+t.verze+'</td>'+
+    '<td><span class="chip '+(t.is_active?'on':'off')+'">'+(t.is_active?'aktivní':'neaktivní')+'</span></td>'+
+    '<td class="muted">'+t.kb+' kB</td>'+
+    '<td class="muted">'+esc(t.created_at)+'</td>'+
+    '<td>'+
+      '<a class="act" href="'+API+'/app/hr/template-download?id='+t.id+'">⬇ Stáhnout</a> &nbsp; '+
+      '<a class="act" href="#" onclick="openVer('+"'"+esc(t.kod)+"'"+');return false;">🔼 Nová verze</a> &nbsp; '+
+      '<a class="act" href="#" onclick="toggle('+t.id+','+(t.is_active?'false':'true')+');return false;" style="color:'+(t.is_active?'#ff8a7a':'#7fe0a0')+'">'+(t.is_active?'Deaktivovat':'Aktivovat')+'</a>'+
+    '</td></tr>').join('');
+}
+['srch','ffirma','ftyp','fakt'].forEach(id=>{const e=document.getElementById(id);e.addEventListener(id==='srch'?'input':'change',render);});
+function openNew(){NEWMODE=true;document.getElementById('ovt').textContent='Nahrát novou šablonu';document.getElementById('ovnew').style.display='';document.getElementById('ov_msg').textContent='';document.getElementById('ov').style.display='flex';}
+function openVer(kod){NEWMODE=false;CUR_KOD=kod;document.getElementById('ovt').textContent='Nová verze: '+kod;document.getElementById('ovnew').style.display='none';document.getElementById('ov_msg').textContent='';document.getElementById('ov').style.display='flex';}
+function closeOv(){document.getElementById('ov').style.display='none';document.getElementById('ov_file').value='';}
+function b64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});}
+async function doUpload(){
+  const msg=document.getElementById('ov_msg'), f=document.getElementById('ov_file').files[0];
+  if(!f){msg.style.color='#E0A94A';msg.textContent='Vyber .docx soubor.';return;}
+  let body={content_b64:await b64(f),poznamka:document.getElementById('ov_pozn').value.trim()};
+  if(NEWMODE){
+    body.kod=document.getElementById('ov_kod').value.trim();
+    body.firma=document.getElementById('ov_firma').value;
+    body.typ=document.getElementById('ov_typ').value;
+    body.nazev=document.getElementById('ov_nazev').value.trim();
+    if(!body.kod){msg.style.color='#E0A94A';msg.textContent='Vyplň kód.';return;}
+  } else { body.kod=CUR_KOD; }
+  msg.style.color='#7f8ea0';msg.textContent='Nahrávám…';
+  const r=await fetch(API+'/app/hr/template-upload',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(!d.ok){msg.style.color='#ff8a7a';msg.textContent='Chyba: '+(d.error||'');return;}
+  closeOv();load();
+}
+async function toggle(id,active){
+  const r=await fetch(API+'/app/hr/template-toggle',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,active:active})});
+  const d=await r.json().catch(()=>({ok:false}));
+  if(d.ok)load(); else alert('Nepovedlo se.');
+}
+load();
+</script>
+</body>
+</html>

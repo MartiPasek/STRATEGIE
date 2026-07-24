@@ -1411,6 +1411,16 @@ def hr_dashboard_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/hr-sablony")
+def hr_sablony_page():
+    """📄 Šablony dokumentů (Šárka 24.7.2026) — správa pracovněprávních šablon
+    (hr_template): seznam, filtr firma/typ, náhled/stažení, nová verze, verzování."""
+    return FileResponse(os.path.join(static_dir, "hr_sablony.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/karta-zamestnance")
 def karta_zamestnance_page():
     """🪪 Karta zaměstnance (Šárka 8.7.2026) — 360° karta v ERP (Pinya × Centrála),

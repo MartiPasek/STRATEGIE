@@ -105,6 +105,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
+      // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
+      if (String(coreCode) === 'hr.sablony') {
+        mainContent.innerHTML = '<iframe src="/hr-sablony" title="Šablony dokumentů" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Přehled zaměstnanců a OSVČ (Šárka 20.7.2026): jádro hr.headcount = iframe
       // stránky /hr-headcount. Jen agregovaná čísla (firma × typ × kancelář/výroba).
       if (String(coreCode) === 'hr.headcount') {

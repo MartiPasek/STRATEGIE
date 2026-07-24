@@ -10181,6 +10181,170 @@ async def app_hr_person_asset_delete(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Šablony pracovněprávních dokumentů (Šárka 24.7.2026): úložiště hr_template ──────
+# Přiřazení dle firmy + typu poměru, verzování přes hr_template_log. Fáze A = správa.
+@api_router.get("/app/hr/templates")
+async def app_hr_templates(req: Request) -> JSONResponse:
+    """Seznam šablon (všechny verze) pro správu — HR + rodiče."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, COALESCE(firma,''), COALESCE(typ,''), kod, nazev, verze, "
+            " COALESCE(is_active,false), COALESCE(octet_length(obsah),0), created_at, COALESCE(poznamka,'') "
+            "FROM tenant.hr_template WHERE tenant_id=2 "
+            "ORDER BY firma, typ, nazev, verze DESC")).fetchall()
+        sablony = [{
+            "id": r[0], "firma": r[1], "typ": r[2], "kod": r[3], "nazev": r[4],
+            "verze": r[5], "is_active": bool(r[6]), "kb": round((r[7] or 0) / 1024.0, 1),
+            "created_at": (r[8].strftime("%d.%m.%Y") if r[8] else ""), "poznamka": r[9],
+        } for r in rows]
+        return JSONResponse({"ok": True, "sablony": sablony})
+    except Exception as exc:
+        logger.exception("[hr_templates] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/template-download")
+async def app_hr_template_download(req: Request):
+    """Stáhne obsah šablony (docx). HR + rodiče."""
+    from sqlalchemy import text as _t
+    from fastapi.responses import Response as _Resp
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tid = int(req.query_params.get("id") or 0)
+    except Exception:
+        tid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT kod, verze, obsah, COALESCE(mime,'application/octet-stream') "
+            "FROM tenant.hr_template WHERE id=:i AND tenant_id=2"), {"i": tid}).first()
+        if not row or row[2] is None:
+            return JSONResponse({"ok": False, "error": "nenalezeno"}, status_code=404)
+        fname = (str(row[0]) + "_v" + str(row[1]) + ".docx")
+        return _Resp(content=bytes(row[2]), media_type=row[3],
+                     headers={"Content-Disposition": 'attachment; filename="' + fname + '"'})
+    except Exception as exc:
+        logger.exception("[hr_template_download] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/template-upload")
+async def app_hr_template_upload(req: Request) -> JSONResponse:
+    """Nahraje NOVOU šablonu nebo NOVOU VERZI existující (dle kódu). HR + rodiče.
+    Nová verze = nový řádek (verze+1, is_active=true), stará verze se deaktivuje.
+    Zapisuje do hr_template_log (kdo/kdy/akce)."""
+    from sqlalchemy import text as _t
+    import base64 as _b64
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    kod = str((b or {}).get("kod") or "").strip()
+    firma = (str((b or {}).get("firma") or "").strip() or None)
+    typ = (str((b or {}).get("typ") or "").strip() or None)
+    nazev = str((b or {}).get("nazev") or "").strip()
+    pozn = (str((b or {}).get("poznamka") or "").strip() or None)
+    c_b64 = str((b or {}).get("content_b64") or "")
+    if "," in c_b64:  # data URL prefix
+        c_b64 = c_b64.split(",", 1)[1]
+    if not kod or not c_b64:
+        return JSONResponse({"ok": False, "error": "Chybí kód šablony nebo soubor."}, status_code=400)
+    try:
+        obsah = _b64.b64decode(c_b64)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatný obsah souboru."}, status_code=400)
+    MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cur = s.execute(_t(
+            "SELECT max(verze), max(firma), max(typ), max(nazev) FROM tenant.hr_template "
+            "WHERE tenant_id=2 AND kod=:k"), {"k": kod}).first()
+        stara_verze = (cur[0] if cur else None)
+        if stara_verze:  # nová verze existující šablony
+            nova = int(stara_verze) + 1
+            s.execute(_t("UPDATE tenant.hr_template SET is_active=false WHERE tenant_id=2 AND kod=:k"), {"k": kod})
+            fr = firma or (cur[1] if cur else None)
+            ty = typ or (cur[2] if cur else None)
+            nz = nazev or (cur[3] if cur else kod)
+            akce = "nova_verze"
+        else:  # zcela nová šablona
+            nova = 1
+            fr, ty, nz = firma, typ, (nazev or kod)
+            akce = "novy"
+        new_id = int(s.execute(_t(
+            "INSERT INTO tenant.hr_template (tenant_id, firma, typ, kod, nazev, obsah, mime, verze, is_active, poznamka, created_by) "
+            "VALUES (2, :f, :t, :k, :n, decode(:c,'base64'), :m, :v, true, :p, :by) RETURNING id"),
+            {"f": fr, "t": ty, "k": kod, "n": nz, "c": _b64.b64encode(obsah).decode(),
+             "m": MIME, "v": nova, "p": pozn, "by": uid}).scalar())
+        s.execute(_t(
+            "INSERT INTO tenant.hr_template_log (tenant_id, template_id, akce, kdo, kdy, poznamka) "
+            "VALUES (2, :tid, :a, :by, now(), :p)"),
+            {"tid": new_id, "a": akce, "by": uid, "p": pozn})
+        s.commit()
+        return JSONResponse({"ok": True, "id": new_id, "verze": nova, "akce": akce})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_template_upload] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/template-toggle")
+async def app_hr_template_toggle(req: Request) -> JSONResponse:
+    """Aktivuje/deaktivuje šablonu. HR + rodiče. Auditováno."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    tid = int((b or {}).get("id") or 0)
+    active = bool((b or {}).get("active"))
+    if not tid:
+        return JSONResponse({"ok": False, "error": "Chybí id"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("UPDATE tenant.hr_template SET is_active=:a WHERE id=:i AND tenant_id=2"),
+                  {"a": active, "i": tid})
+        s.execute(_t(
+            "INSERT INTO tenant.hr_template_log (tenant_id, template_id, akce, kdo, kdy) "
+            "VALUES (2, :tid, :a, :by, now())"),
+            {"tid": tid, "a": ("aktivace" if active else "deaktivace"), "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_template_toggle] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Odpovědnost: kdo kontroluje docházku / schvaluje volno (Šárka 24.7.2026) ──────
 # Fáze 1 = kontrola docházky (agenda='dochazka'); volno (Fáze 2) až po koordinaci s Jirkou.
 def _je_vedouci_daneho(s, uid, target_uid) -> bool:

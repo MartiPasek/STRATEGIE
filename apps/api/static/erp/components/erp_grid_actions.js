@@ -1281,6 +1281,106 @@
           return Promise.resolve();
         },
       },
+      // Vyhodnocení zakázek — sloučit vybrané zakázky do společného hodnocení
+      // (Claude-28/Jirka 24.7.2026, bod 1 doladění). Přehled
+      // grid_ec_vyhodnoceni_prehled: označ 2+ řádky (Ctrl/Shift + klik) → pravý
+      // klik → hodiny i prémie se pak počítají dohromady.
+      // Backend ec.slouci_zakazky(zaks[]) přes /api/v1/erp/action/run.
+      hodnotit_spolecne: {
+        key: "hodnotit_spolecne",
+        icon: "🔗",
+        label: "Hodnotit společně",
+        hint: "Sloučit vybrané zakázky do společného vyhodnocení (označ 2+ řádky: Ctrl/Shift + klik)",
+        cssClass: "erp-action-hodnotit-spolecne",
+        destructive: false,
+        requiresRow: true,
+        userAction: true,
+        handler: function (ctx) {
+          var rows = [];
+          try {
+            if (ctx.gridApi && typeof ctx.gridApi.getSelectedRows === "function") {
+              rows = ctx.gridApi.getSelectedRows() || [];
+            }
+          } catch (e) { rows = []; }
+          if (rows.length === 0 && ctx.rowData) rows = [ctx.rowData];
+          var zaks = rows
+            .map(function (r) { return r ? (r["Zakázka"] || r.cislo_zakazky) : null; })
+            .filter(function (z) { return z != null && String(z).trim() !== ""; })
+            .map(function (z) { return String(z).trim(); });
+          if (zaks.length < 2) {
+            alert("⚠ Hodnotit společně: označ aspoň 2 zakázky (Ctrl/Shift + klik).");
+            return Promise.reject(new Error("need_two"));
+          }
+          if (!confirm("Sloučit " + zaks.length + " zakázek do společného vyhodnocení?\n\n" +
+                       zaks.join(", ") + "\n\nHodiny i prémie se pak počítají dohromady.")) {
+            return Promise.reject(new Error("cancelled"));
+          }
+          return fetch("/api/v1/erp/action/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ action_code: "slouci", zaks: zaks })
+          }).then(function (resp) {
+            return resp.json().then(function (j) { return { ok: resp.ok, j: j }; });
+          }).then(function (o) {
+            if (!o.j || !o.j.ok) {
+              alert("Sloučení selhalo: " + ((o.j && o.j.error) || "chyba"));
+              return;
+            }
+            try { if (typeof ctx.refreshFn === "function") ctx.refreshFn(); } catch (e) {}
+          }).catch(function (e) {
+            alert("Chyba spojení: " + (e && e.message ? e.message : e));
+          });
+        },
+      },
+      // Vyhodnocení zakázek — zrušit dřívější sloučení (opak výše, aby šel omyl
+      // vrátit). Backend ec.slouci_zakazky_zrus(zaks[]).
+      zrusit_slouceni: {
+        key: "zrusit_slouceni",
+        icon: "✂️",
+        label: "Zrušit sloučení",
+        hint: "Rozdělit dříve sloučené zakázky zpět (označ řádky → pravý klik)",
+        cssClass: "erp-action-zrusit-slouceni",
+        destructive: true,
+        requiresRow: true,
+        userAction: true,
+        handler: function (ctx) {
+          var rows = [];
+          try {
+            if (ctx.gridApi && typeof ctx.gridApi.getSelectedRows === "function") {
+              rows = ctx.gridApi.getSelectedRows() || [];
+            }
+          } catch (e) { rows = []; }
+          if (rows.length === 0 && ctx.rowData) rows = [ctx.rowData];
+          var zaks = rows
+            .map(function (r) { return r ? (r["Zakázka"] || r.cislo_zakazky) : null; })
+            .filter(function (z) { return z != null && String(z).trim() !== ""; })
+            .map(function (z) { return String(z).trim(); });
+          if (zaks.length === 0) {
+            alert("⚠ Zrušit sloučení: nejprve vyber zakázku(y).");
+            return Promise.reject(new Error("no_rows"));
+          }
+          if (!confirm("Zrušit sloučení u " + zaks.length + " zakázek?\n\n" + zaks.join(", "))) {
+            return Promise.reject(new Error("cancelled"));
+          }
+          return fetch("/api/v1/erp/action/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ action_code: "slouci_zrus", zaks: zaks })
+          }).then(function (resp) {
+            return resp.json().then(function (j) { return { ok: resp.ok, j: j }; });
+          }).then(function (o) {
+            if (!o.j || !o.j.ok) {
+              alert("Zrušení sloučení selhalo: " + ((o.j && o.j.error) || "chyba"));
+              return;
+            }
+            try { if (typeof ctx.refreshFn === "function") ctx.refreshFn(); } catch (e) {}
+          }).catch(function (e) {
+            alert("Chyba spojení: " + (e && e.message ? e.message : e));
+          });
+        },
+      },
     };
 
     // ════════════════════════════════════════════════════════════════════

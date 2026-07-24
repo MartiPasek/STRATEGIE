@@ -569,6 +569,16 @@
               String(coreId) === "140") {
             _ctxMenuActions.push("kalkulace_jadro");
           }
+          // Vyhodnocení zakázek (Claude-28/Jirka 24.7.2026, bod 1 doladění):
+          // na přehledu Zakázky k vyhodnocení (core 199,
+          // grid_ec_vyhodnoceni_prehled) → označ 2+ řádky → pravý klik
+          // „🔗 Hodnotit společně" (sloučí) / „✂️ Zrušit sloučení" (rozdělí zpět).
+          if (/^grid_ec_vyhodnoceni_prehled$/i.test(String(_gridCodeForActions)) ||
+              /ec\.vyhodnoceni_prehled/i.test(_coreCodeForGraph) ||
+              String(coreId) === "199") {
+            _ctxMenuActions.push("hodnotit_spolecne");
+            _ctxMenuActions.push("zrusit_slouceni");
+          }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

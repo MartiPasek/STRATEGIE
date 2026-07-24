@@ -119,6 +119,11 @@
         <option value="Výroba">Výroba</option>
         <option value="Kancelář">Kancelář</option>
       </select>
+      <select id="tffirma">
+        <option value="">🏢 Společnost: vše</option>
+        <option value="EUROSOFT - Control">EUROSOFT - Control</option>
+        <option value="EUROSOFT - System">EUROSOFT - System</option>
+      </select>
       <span id="tcnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
       <span id="texbar" style="font-size:11.5px;color:#7f8ea0;width:100%"></span>
     </div>
@@ -149,6 +154,11 @@
         <option value="">🏭 Výroba / kancelář: vše</option>
         <option value="Výroba">Výroba</option>
         <option value="Kancelář">Kancelář</option>
+      </select>
+      <select id="cffirma">
+        <option value="">🏢 Společnost: vše</option>
+        <option value="EUROSOFT - Control">EUROSOFT - Control</option>
+        <option value="EUROSOFT - System">EUROSOFT - System</option>
       </select>
       <span id="ccnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
     </div>
@@ -210,14 +220,15 @@ function setView(v){
 function activeFilters(){
   const t=(VIEW==='table');
   const g=(l,tb)=>((document.getElementById(t?tb:l)||{}).value||'');
-  return {q:(g('srch','tsrch')).toLowerCase(), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat')};
+  return {q:(g('srch','tsrch')).toLowerCase(), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat'), ff:g('ffirma','tffirma')};
 }
 function filteredLide(){
-  const {q,fp,ft,fk}=activeFilters();
+  const {q,fp,ft,fk,ff}=activeFilters();
   return LIDE.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
     && (!fp || p.pozice===fp)
     && (!ft || (p.typ||'').split(' / ').includes(ft))
-    && (!fk || p.kategorie===fk));
+    && (!fk || p.kategorie===fk)
+    && (!ff || (p.firma||'').includes(ff)));
 }
 function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else render(); }
 async function load(){
@@ -317,8 +328,9 @@ function renderContracts(){
   const q=((document.getElementById('csrch')||{}).value||'').toLowerCase();
   const ft=((document.getElementById('cftyp')||{}).value||'');
   const fk=((document.getElementById('cfkat')||{}).value||'');
+  const ff=((document.getElementById('cffirma')||{}).value||'');
   const f=SMLOUVY.filter(r=>(r.jmeno||'').toLowerCase().includes(q)
-    && (!ft || r.typ===ft) && (!fk || r.oddeleni===fk));
+    && (!ft || r.typ===ft) && (!fk || r.oddeleni===fk) && (!ff || (r.firma||'').includes(ff)));
   const cc=document.getElementById('ccnt'); if(cc) cc.textContent=f.length+' smluv';
   if(!f.length){ tb.innerHTML='<tr><td colspan="9" class="empty">Nic nenalezeno.</td></tr>'; return; }
   const c=(v)=> v?esc(v):'<span class="muted">—</span>';
@@ -333,11 +345,11 @@ function renderContracts(){
     '<td>'+c(r.fte)+'</td>'+
     '<td>'+c(r.denni_smena)+'</td></tr>').join('');
 }
-[['csrch','input'],['cftyp','change'],['cfkat','change']].forEach(function(x){
+[['csrch','input'],['cftyp','change'],['cfkat','change'],['cffirma','change']].forEach(function(x){
   const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],renderContracts);
 });
 [['srch','input'],['fpoz','change'],['ftyp','change'],['fkat','change'],
- ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change']].forEach(function(x){
+ ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change'],['tffirma','change']].forEach(function(x){
   const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],paint);
 });
 

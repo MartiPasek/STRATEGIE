@@ -1009,7 +1009,7 @@ function finUdaje(){
 }
 
 // Šárka 21.7.2026: Dokumenty = digitální šanon (nahrát/stáhnout/smazat, uloženo v DB mimo git).
-const DOK_KAT={smlouva:'Pracovní smlouva',dodatek:'Dodatek',zapoctovy:'Zápočtový list',posudek:'Lékařský posudek',diplom:'Diplom / certifikát',ostatni:'Ostatní'};
+const DOK_KAT={smlouva:'Pracovní smlouvy',dodatek:'Dodatky',generovana:'Generovaná dokumentace',zapoctovy:'Zápočtové listy',posudek:'Lékařské posudky',diplom:'Diplomy / certifikáty',mzda:'Mzdové dokumenty',ostatni:'Ostatní'};
 function dokKatOpts(sel){return Object.keys(DOK_KAT).map(k=>'<option value="'+k+'"'+(k===sel?' selected':'')+'>'+esc(DOK_KAT[k])+'</option>').join('');}
 async function dokUdaje(){
   const uid=CUR_UID; if(!uid) return;
@@ -1029,13 +1029,19 @@ async function dokUdaje(){
   const docs=d.dokumenty||[];
   if(!docs.length){ h+='<div class="empty">Zatím žádné dokumenty.</div>'; }
   else {
-    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-      '<tr><td style="color:#7f8ea0;padding:6px 16px">Kategorie</td><td style="color:#7f8ea0;padding:6px 16px">Název</td><td style="color:#7f8ea0;padding:6px 16px">Nahráno</td><td style="padding:6px 16px"></td></tr>'+
-      docs.map(x=>'<tr style="border-top:1px solid #1e2730">'+
-        '<td style="padding:6px 16px;color:#aac8ec">'+esc(DOK_KAT[x.kategorie]||x.kategorie)+'</td>'+
-        '<td style="padding:6px 16px;color:#e8eef5">'+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
-        '<td style="padding:6px 16px;color:#7f8ea0">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
-        '<td style="padding:6px 16px;white-space:nowrap"><a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> · <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>').join('')+'</table>';
+    // Pinya-styl: seskupení do sekcí dle kategorie (tmavý ERP vzhled)
+    const ORDER=['smlouva','dodatek','generovana','zapoctovy','posudek','diplom','mzda','ostatni'];
+    const groups={}; docs.forEach(x=>{(groups[x.kategorie]=groups[x.kategorie]||[]).push(x);});
+    const cats=Object.keys(groups).sort((a,b)=>{const ia=ORDER.indexOf(a),ib=ORDER.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib);});
+    cats.forEach(cat=>{
+      const list=groups[cat];
+      h+='<div style="padding:11px 16px 3px;color:#aac8ec;font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #1e2730">📁 '+esc(DOK_KAT[cat]||cat)+' <span style="color:#5d6b7c;font-weight:600">('+list.length+')</span></div>'+
+        '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+        list.map(x=>'<tr style="border-top:1px solid #1e2730">'+
+          '<td style="padding:6px 16px 6px 22px;color:#e8eef5">📄 '+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
+          '<td style="padding:6px 16px;color:#7f8ea0;white-space:nowrap">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
+          '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> &nbsp;·&nbsp; <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>').join('')+'</table>';
+    });
   }
   h+='<div id="dokAdr" style="border-top:8px solid #0c1116;margin-top:8px"></div>';
   det.innerHTML=h;

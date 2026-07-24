@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>🎯 Cíle</title>
+<style>
+  :root{ --bg:#0b1020; --card:#171f2b; --bord:#25303f; --tx:#e6edf5; --mut:#8ea3bd; --acc:#4f9dff; --ok:#3fbf6b; --warn:#e8b13a; --bad:#ef6a6a; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:12px 12px 40px}
+  h1{font-size:19px;margin:2px 0 12px;display:flex;align-items:center;gap:8px}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px}
+  .chip{flex:0 0 auto;background:var(--card);border:1px solid var(--bord);color:var(--mut);border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .chip.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
+  .card:active{background:#1b2432}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .nazev{font-weight:600}
+  .sub{color:var(--mut);font-size:12.5px;margin-top:4px}
+  .badge{flex:0 0 auto;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.3px}
+  .b-navrzen{background:rgba(232,177,58,.16);color:var(--warn)}
+  .b-aktivni{background:rgba(79,157,255,.16);color:var(--acc)}
+  .b-splnen{background:rgba(63,191,107,.16);color:var(--ok)}
+  .b-zamitnut{background:rgba(239,106,106,.16);color:var(--bad)}
+  .b-pozastaven{background:rgba(142,163,189,.18);color:var(--mut)}
+  .b-schvalen{background:rgba(79,157,255,.16);color:var(--acc)}
+  .kroky{flex:0 0 auto;color:var(--mut);font-size:12px}
+  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  button.act{flex:1 1 auto;min-width:120px;border:0;border-radius:12px;padding:13px;font-size:15px;font-weight:600;color:#fff;cursor:pointer}
+  .a-ok{background:var(--ok)} .a-bad{background:var(--bad)} .a-warn{background:var(--warn);color:#20160a} .a-acc{background:var(--acc)}
+  .back{background:transparent;border:0;color:var(--acc);font-size:15px;padding:6px 0;cursor:pointer;margin-bottom:6px}
+  .field{margin:10px 0}
+  .field .k{color:var(--mut);font-size:12px} .field .v{margin-top:2px}
+  .log{margin-top:14px;border-top:1px solid var(--bord);padding-top:10px}
+  .logit{font-size:12.5px;color:var(--mut);padding:7px 0;border-bottom:1px dashed var(--bord)}
+  .logit b{color:var(--tx)}
+  .empty{color:var(--mut);text-align:center;padding:34px 10px}
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1c2634;border:1px solid var(--bord);color:var(--tx);padding:11px 16px;border-radius:12px;font-size:14px;max-width:90%;z-index:99;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+  input,textarea{width:100%;background:#0e141d;border:1px solid var(--bord);color:var(--tx);border-radius:10px;padding:11px;font:15px system-ui;margin-top:4px}
+  .fabnew{background:var(--acc);border:0;color:#fff;border-radius:12px;padding:12px;font-size:15px;font-weight:600;width:100%;margin-bottom:14px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app"><div class="empty">Načítám…</div></div>
+
+<script>
+var STAVY_LABEL={navrzen:"Návrh",schvalen:"Schválen",aktivni:"Aktivní",splnen:"Splněn",zamitnut:"Zamítnut",pozastaven:"Pozastaven"};
+var FILTRY=[["","Vše"],["navrzen","Čeká na schválení"],["aktivni","Aktivní"],["pozastaven","Pozastavené"],["splnen","Hotové"]];
+var _filtr="";
+var app=document.getElementById("app");
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function toast(m){var t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.remove();},2600);}
+async function api(method,path,body){
+  var opt={method:method,headers:{},credentials:"same-origin"};
+  if(body){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(body);}
+  var r=await fetch("/api/v1/erp"+path,opt);
+  var j={}; try{j=await r.json();}catch(e){}
+  return {status:r.status,j:j};
+}
+function badge(stav){return '<span class="badge b-'+esc(stav)+'">'+esc(STAVY_LABEL[stav]||stav)+'</span>';}
+
+async function renderList(){
+  app.innerHTML='<div class="empty">Načítám…</div>';
+  var q=_filtr?("?stav="+encodeURIComponent(_filtr)):"";
+  var res=await api("GET","/app/cil"+q);
+  if(res.status===401){app.innerHTML='<div class="empty">Nejsi přihlášen. Otevři appku znovu.</div>';return;}
+  var cile=(res.j&&res.j.cile)||[];
+  var h='<h1>🎯 Cíle</h1>';
+  h+='<button class="fabnew" onclick="formNew()">＋ Nový cíl</button>';
+  h+='<div class="chips">';
+  FILTRY.forEach(function(f){h+='<div class="chip'+(f[0]===_filtr?" on":"")+'" onclick="setFiltr(\''+f[0]+'\')">'+esc(f[1])+'</div>';});
+  h+='</div>';
+  if(!cile.length){h+='<div class="empty">Žádné cíle v tomto filtru.</div>';}
+  else{cile.forEach(function(c){
+    h+='<div class="card" onclick="detail('+c.id+')">'
+      +'<div class="row"><span class="nazev">'+esc(c.nazev)+'</span>'+badge(c.stav)+'</div>'
+      +'<div class="row"><span class="sub">#'+c.id+' · '+esc(c.navrhl_jmeno||("#"+c.navrhl_user_id))+' · '+esc(c.created||"")+'</span>'
+      +'<span class="kroky">'+(c.kroku||0)+' kroků</span></div>'
+      +(c.popis?'<div class="sub">'+esc(c.popis)+'</div>':'')
+      +'</div>';
+  });}
+  app.innerHTML=h;
+}
+function setFiltr(f){_filtr=f;renderList();}
+
+async function detail(id){
+  app.innerHTML='<div class="empty">Načítám…</div>';
+  var res=await api("GET","/app/cil/"+id);
+  if(!res.j||!res.j.ok){app.innerHTML='<button class="back" onclick="renderList()">← Zpět</button><div class="empty">Cíl nenalezen.</div>';return;}
+  var c=res.j.cil, log=res.j.kroky_log||[];
+  var h='<button class="back" onclick="renderList()">← Zpět na seznam</button>';
+  h+='<div class="row"><h1 style="margin:0">'+esc(c.nazev)+'</h1>'+badge(c.stav)+'</div>';
+  h+='<div class="sub">#'+c.id+' · navrhl '+esc(c.navrhl_jmeno||("#"+c.navrhl_user_id))+' · '+esc(c.created||"")+'</div>';
+  if(c.popis)h+='<div class="field"><div class="k">Popis</div><div class="v">'+esc(c.popis)+'</div></div>';
+  if(c.rozsah)h+='<div class="field"><div class="k">Rozsah (čeho se smí dotknout)</div><div class="v">'+esc(c.rozsah)+'</div></div>';
+  h+='<div class="field"><div class="k">Strop kroků</div><div class="v">'+(c.strop_kroku!=null?c.strop_kroku:"—")+' · zatím '+(c.kroku||0)+' kroků</div></div>';
+  if(c.okno_od||c.okno_do)h+='<div class="field"><div class="k">Časové okno</div><div class="v">'+esc(c.okno_od||"—")+' → '+esc(c.okno_do||"—")+'</div></div>';
+  if(c.schvalil_jmeno)h+='<div class="field"><div class="k">Schválil</div><div class="v">'+esc(c.schvalil_jmeno)+' · '+esc(c.schvaleno_at||"")+'</div></div>';
+  if(c.uzavren_at)h+='<div class="field"><div class="k">Uzavřeno</div><div class="v">'+esc(c.uzavren_at)+'</div></div>';
+  // akce dle stavu
+  h+='<div class="btns">';
+  if(c.stav==="navrzen"){
+    h+='<button class="act a-ok" onclick="prechod('+c.id+',\'schvalit\')">✅ Schválit</button>';
+    h+='<button class="act a-bad" onclick="prechod('+c.id+',\'zamitnout\')">⛔ Zamítnout</button>';
+  } else if(c.stav==="aktivni"){
+    h+='<button class="act a-warn" onclick="prechod('+c.id+',\'pozastavit\')">⏸️ Pozastavit</button>';
+    h+='<button class="act a-ok" onclick="prechod('+c.id+',\'splnit\')">🎯 Splnit</button>';
+  } else if(c.stav==="pozastaven"){
+    h+='<button class="act a-acc" onclick="prechod('+c.id+',\'obnovit\')">▶️ Obnovit</button>';
+  } else {
+    h+='<div class="sub">Cíl je uzavřen — žádné další přechody.</div>';
+  }
+  h+='</div>';
+  // log kroků
+  h+='<div class="log"><div class="k" style="color:var(--mut);font-size:12px;margin-bottom:6px">Log akcí ('+log.length+')</div>';
+  if(!log.length)h+='<div class="sub">Zatím žádné kroky.</div>';
+  log.forEach(function(l){h+='<div class="logit"><b>'+esc(l.actor)+'</b> · '+esc(l.akce)+' · '+esc(l.ts)+(l.detail?'<br>'+esc(l.detail):'')+(l.vysledek?'<br>→ '+esc(l.vysledek):'')+'</div>';});
+  h+='</div>';
+  app.innerHTML=h;
+}
+
+async function prechod(id,akce){
+  var res=await api("POST","/app/cil/"+id+"/"+akce);
+  if(res.j&&res.j.ok){toast("Hotovo — stav: "+(STAVY_LABEL[res.j.stav]||res.j.stav));detail(id);}
+  else{toast((res.j&&res.j.error)||("Chyba ("+res.status+")"));}
+}
+
+function formNew(){
+  var h='<button class="back" onclick="renderList()">← Zpět</button><h1>＋ Nový cíl</h1>';
+  h+='<div class="field"><div class="k">Název *</div><input id="f_nazev" maxlength="200" placeholder="Krátký název cíle"></div>';
+  h+='<div class="field"><div class="k">Popis</div><textarea id="f_popis" rows="3" placeholder="Co se má splnit (dílčí, konkrétní)"></textarea></div>';
+  h+='<div class="field"><div class="k">Rozsah</div><input id="f_rozsah" placeholder="Čeho se smí dotknout (schémata/systémy)"></div>';
+  h+='<div class="field"><div class="k">Strop kroků</div><input id="f_strop" type="number" inputmode="numeric" placeholder="např. 10"></div>';
+  h+='<div class="btns"><button class="act a-ok" onclick="createCil()">Uložit návrh</button></div>';
+  app.innerHTML=h;
+}
+async function createCil(){
+  var nazev=(document.getElementById("f_nazev").value||"").trim();
+  if(!nazev){toast("Zadej název.");return;}
+  var body={nazev:nazev,popis:document.getElementById("f_popis").value,rozsah:document.getElementById("f_rozsah").value,strop_kroku:document.getElementById("f_strop").value};
+  var res=await api("POST","/app/cil",body);
+  if(res.j&&res.j.ok){toast("Cíl založen (#"+res.j.id+", návrh)");detail(res.j.id);}
+  else{toast((res.j&&res.j.error)||("Chyba ("+res.status+")"));}
+}
+
+renderList();
+</script>
+</body>
+</html>

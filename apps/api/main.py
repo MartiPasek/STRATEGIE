@@ -1726,6 +1726,15 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/cil")
+def cil_page():
+    """Cílový režim — schválené cíle pro autonomní agenty (g2007.cil). Stavový automat:
+    navrzen→schvalen→aktivni→splnen/zamitnut/pozastaven. UI pro mobil (Kristý + C24,
+    24.7.2026). Data z /app/cil*. Práva: schválení rodič, pauza rodič+vlastník."""
+    return FileResponse(os.path.join(static_dir, "cil.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/edi-stat")
 def edi_stat_page():
     """Statistika samoučícího EDI workflow + náš trvalý audit. Marti 20.6.2026. Parent-only data."""

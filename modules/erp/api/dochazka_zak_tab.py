@@ -225,7 +225,8 @@ def dochazka_zak_tab_cinnosti(req: Request) -> JSONResponse:
         try:
             rows = s.execute(_t(
                 "SELECT id, ec_cislo, name FROM tenant.vyroba_cinnost "
-                "WHERE COALESCE(name,'')<>'' ORDER BY name")).mappings().all()
+                "WHERE COALESCE(name,'')<>'' AND COALESCE(active,true) "
+                "ORDER BY name")).mappings().all()
         finally:
             s.close()
         out = [{"id": int(r["id"]), "ec": r["ec_cislo"], "name": r["name"]} for r in rows]

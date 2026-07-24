@@ -276,11 +276,27 @@ function loadQueue(){
         document.getElementById('right').innerHTML='<div class="rph"><div class="ic">🛠</div>Vyber vlevo položku fronty nebo člověka —<br>den k opravě se otevře tady.</div>';
       }
     }
-    function quickDone(c,payload){payload.reason='opraveno v detailu dne';api('POST','/api/v1/erp/app/attendance/fix/resolve',payload).then(function(x){if(x.ok)removeCard(c);else c._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';});}
+    // Peťa 24.7.2026: „Hotovo — z fronty" odbaví CELÝ den — tuhle kartu i případnou
+    // sourozeneckou (stejný člověk + den) z druhé sekce. Když je den vyřešený, nemá
+    // smysl nechat viset jednu (rozpor od člověka × nesrovnalost z automatu na tomtéž dni).
+    function quickDone(c){
+      var targets=[c];
+      document.querySelectorAll('#left .card').forEach(function(x){
+        if(x!==c && x._pay && x._uid===c._uid && x._day===c._day) targets.push(x);
+      });
+      targets.forEach(function(t){
+        var p={reason:'opraveno v detailu dne'};
+        for(var k in t._pay)p[k]=t._pay[k];
+        api('POST','/api/v1/erp/app/attendance/fix/resolve',p).then(function(x){
+          if(x.ok)removeCard(t);else t._fx.innerHTML='<div class="hint">✗ '+esc(x.error||'chyba')+'</div>';
+        });
+      });
+    }
     if(rz.length)L.appendChild(el('<div class="sec">✋ ROZPOROVANÉ DNY</div>'));
     rz.forEach(function(r){
       var c=card(r.name,r.day,'„'+(r.note||'')+'“');
-      if(r.opraveno){markDone(c);var bh=el('<button class="b g" title="Označeno jako opravené — jen odebrat z fronty">✓ Hotovo — z fronty</button>');bh.addEventListener('click',function(){quickDone(c,{uid:r.user_id,day:r.day});});c._ar.appendChild(bh);}
+      c._uid=r.user_id;c._day=r.day;c._pay={uid:r.user_id,day:r.day};
+      if(r.opraveno){markDone(c);var bh=el('<button class="b g" title="Označeno jako opravené — jen odebrat z fronty">✓ Hotovo — z fronty</button>');bh.addEventListener('click',function(){quickDone(c);});c._ar.appendChild(bh);}
       var bo=el('<button class="b g">🛠 Otevřít den</button>');bo.addEventListener('click',function(){setActive(c);openDay(r.user_id,r.name,r.day);});
       var bv=el('<button class="b g">✓ Vyřídit bez opravy</button>');bv.addEventListener('click',function(){resolveUI(c,{uid:r.user_id,day:r.day});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);
@@ -289,7 +305,8 @@ function loadQueue(){
     an.forEach(function(a){
       var ex=(a.rule==='zapomenuty_odchod'&&a.navrh_konec)?('<div class="hint">💡 Poslední aktivita na zakázce: '+esc(a.navrh_konec)+'</div>'):'';
       var c=card(a.name,a.day,a.detail,ex);
-      if(a.opraveno){markDone(c);var bh=el('<button class="b g" title="Označeno jako opravené — jen odebrat z fronty">✓ Hotovo — z fronty</button>');bh.addEventListener('click',function(){quickDone(c,{anomaly_id:a.id});});c._ar.appendChild(bh);}
+      c._uid=a.user_id;c._day=a.day;c._pay={anomaly_id:a.id};
+      if(a.opraveno){markDone(c);var bh=el('<button class="b g" title="Označeno jako opravené — jen odebrat z fronty">✓ Hotovo — z fronty</button>');bh.addEventListener('click',function(){quickDone(c);});c._ar.appendChild(bh);}
       var bo=el('<button class="b g">🛠 Otevřít den</button>');bo.addEventListener('click',function(){setActive(c);openDay(a.user_id,a.name,a.day);});
       var bv=el('<button class="b g">✓ V pořádku — vyřídit</button>');bv.addEventListener('click',function(){resolveUI(c,{anomaly_id:a.id});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);

@@ -9687,9 +9687,39 @@ async def app_hr_person_odpovednost(req: Request):
         dochazka = {"rezi": rezi, "zdroj": ("výjimka" if vyjimka else "zděděno ze stromu skupin"),
                     "platnost_do": (vyjimka["platnost_do"] if vyjimka else ""),
                     "je_vyjimka": bool(vyjimka)}
+        # VOLNO (Fáze 2) — osobní výjimka (naše data) + nabídka schvalovatelů. Skutečné přepnutí
+        # řídí Jirkova tenant.resolve_approvers — do ní override zapojí Marti-AI/Jirka (nesaháme).
+        volno_vyj = None
+        try:
+            ovv = s.execute(_t(
+                "SELECT odpovedny_user_id, platnost_do FROM tenant.att_odpovednost "
+                "WHERE tenant_id=2 AND agenda='volno' AND user_id=:u AND aktivni=true "
+                "  AND (platnost_do IS NULL OR platnost_do >= CURRENT_DATE)"), {"u": tuid}).fetchall()
+            if ovv:
+                volno_vyj = {"ids": [int(x[0]) for x in ovv],
+                             "platnost_do": (ovv[0][1].strftime("%Y-%m-%d") if ovv[0][1] else "")}
+        except Exception:
+            volno_vyj = None
+        moznosti_volno = []
+        try:
+            lrows = s.execute(_t(
+                "SELECT DISTINCT uid FROM ("
+                " SELECT leader_user_id AS uid FROM tenant.staff_group WHERE tenant_id=2 AND COALESCE(archived,false)=false AND leader_user_id IS NOT NULL "
+                " UNION SELECT deputy_user_id FROM tenant.staff_group WHERE tenant_id=2 AND COALESCE(archived,false)=false AND deputy_user_id IS NOT NULL "
+                " UNION SELECT ae.user_id FROM tenant.att_approver ap JOIN tenant.att_employee ae ON ae.id=ap.employee_id AND ae.tenant_id=2 WHERE ap.tenant_id=2 AND COALESCE(ap.aktivni,true)=true "
+                ") x WHERE uid IS NOT NULL")).fetchall()
+            nmv = _jmena_uid(s, [r[0] for r in lrows])
+            moznosti_volno = [{"user_id": int(r[0]), "jmeno": nmv.get(int(r[0]), "#" + str(r[0]))} for r in lrows]
+            moznosti_volno.sort(key=lambda x: x["jmeno"])
+        except Exception:
+            moznosti_volno = []
+        nmv2 = _jmena_uid(s, (volno_vyj["ids"] if volno_vyj else []))
+        volno = {"stav": "aktivni", "je_vyjimka": bool(volno_vyj),
+                 "schvaluji": ([{"user_id": i, "jmeno": nmv2.get(i, "#" + str(i))} for i in volno_vyj["ids"]] if volno_vyj else []),
+                 "platnost_do": (volno_vyj["platnost_do"] if volno_vyj else ""),
+                 "moznosti": moznosti_volno}
         return JSONResponse({"ok": True, "can_edit": True,
-                             "dochazka": dochazka, "moznosti": moznosti,
-                             "volno": {"stav": "pripravujeme"}})
+                             "dochazka": dochazka, "moznosti": moznosti, "volno": volno})
     except Exception as exc:
         logger.exception("[hr_person_odpovednost] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -9699,7 +9729,7 @@ async def app_hr_person_odpovednost(req: Request):
 
 @api_router.post("/app/hr/person-odpovednost/save")
 async def app_hr_person_odpovednost_save(req: Request):
-    """Uloží/zruší osobní výjimku kontroly docházky. agenda='dochazka' (Fáze 1)."""
+    """Uloží/zruší osobní výjimku odpovědnosti. agenda='dochazka' (kontrola docházky) nebo 'volno' (schvalování volna)."""
     from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
     if not uid:
@@ -9713,8 +9743,8 @@ async def app_hr_person_odpovednost_save(req: Request):
     odp = (b or {}).get("odpovedny_user_id")
     odp = int(odp) if (odp not in (None, "", 0)) else None
     platnost = (str((b or {}).get("platnost_do") or "").strip() or None)
-    if agenda != "dochazka":
-        return JSONResponse({"ok": False, "error": "Fáze 1 umí zatím jen kontrolu docházky."}, status_code=400)
+    if agenda not in ("dochazka", "volno"):
+        return JSONResponse({"ok": False, "error": "neznámá agenda"}, status_code=400)
     if not tuid:
         return JSONResponse({"ok": False, "error": "chybí uid"}, status_code=400)
     cm, s = _att_session()

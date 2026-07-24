@@ -468,9 +468,34 @@ async function odpUdaje(){
     (dd.je_vyjimka?'<button onclick="odpClear()" style="border:1px solid #5a2a26;background:#1b232d;color:#ff8a7a;border-radius:6px;padding:5px 12px;font:inherit;cursor:pointer">Zrušit výjimku</button>':'')+
     '<span id="odpMsg" style="font-size:12px;color:#7fe0a0"></span></div>'+
     '<div style="color:#5d6b7c;font-size:11px;padding-bottom:6px">Osobní výjimka přebije zděděné ze stromu skupin.</div></div>';
-  h+='<div style="padding:10px 16px;border-top:1px solid #1e2730"><div style="color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">🏖️ Schvalování volna</div>'+
-    '<div style="color:#7f8ea0;font-size:12.5px;margin-top:4px">Připravujeme — napojení na modul schvalování (koordinace s Jirkou/Marti-AI). Zatím se řídí org posty.</div></div>';
+  const vd=d.volno||{};
+  const vschv=(vd.schvaluji||[]).map(r=>esc(r.jmeno)).join(', ');
+  const vzdroj = vd.je_vyjimka ? '<span style="color:#E0A94A">osobní výjimka</span>' : '<span style="color:#7f8ea0">dle org postů (modul schvalování)</span>';
+  const vopts='<option value="">— vybrat schvalovatele —</option>'+(vd.moznosti||[]).map(o=>'<option value="'+o.user_id+'">'+esc(o.jmeno)+'</option>').join('');
+  h+='<div style="padding:12px 16px 4px;border-top:1px solid #1e2730"><div style="color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">🏖️ Schvalování volna</div>'+
+    '<div style="margin:6px 0;color:#e8eef5;font-size:13px">Aktuálně schvaluje: <b>'+(vd.je_vyjimka?vschv:'—')+'</b> &nbsp;('+vzdroj+(vd.platnost_do?(' · do '+esc(czDate(vd.platnost_do))):'')+')</div>'+
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px">'+
+      '<select id="odpVSel" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit">'+vopts+'</select>'+
+      '<label style="color:#7f8ea0;font-size:12px">Platnost do: <input id="odpVPlat" type="date" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:4px 6px;font:inherit"></label>'+
+      '<button onclick="odpVSave()" style="border:1px solid #3a8a4d;background:#2e6f3e;color:#eafff0;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">Uložit výjimku</button>'+
+      (vd.je_vyjimka?'<button onclick="odpVClear()" style="border:1px solid #5a2a26;background:#1b232d;color:#ff8a7a;border-radius:6px;padding:5px 12px;font:inherit;cursor:pointer">Zrušit výjimku</button>':'')+
+      '<span id="odpVMsg" style="font-size:12px;color:#7fe0a0"></span></div>'+
+    '<div style="color:#E0A94A;font-size:11px;padding-bottom:6px">⚠️ Výjimka se uloží; schvalování podle ní začne řídit až po napojení do modulu schvalování (žádost odeslána Marti‑AI/Jirkovi).</div></div>';
   det.innerHTML=h;
+}
+async function odpVSave(){
+  const sel=document.getElementById('odpVSel'), plat=document.getElementById('odpVPlat'), msg=document.getElementById('odpVMsg');
+  if(!sel.value){ msg.style.color='#E0A94A'; msg.textContent='Vyber schvalovatele.'; return; }
+  msg.style.color='#7f8ea0'; msg.textContent='Ukládám…';
+  const r=await fetch(API+'/app/hr/person-odpovednost/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({agenda:'volno',uid:ODP_UID,odpovedny_user_id:parseInt(sel.value),platnost_do:(plat.value||null)})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok) odpUdaje(); else { msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); }
+}
+async function odpVClear(){
+  if(!confirm('Zrušit osobní výjimku schvalování volna?')) return;
+  const r=await fetch(API+'/app/hr/person-odpovednost/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({agenda:'volno',uid:ODP_UID,odpovedny_user_id:null})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok) odpUdaje(); else alert('Nepovedlo se: '+(d.error||''));
 }
 async function odpSave(){
   const sel=document.getElementById('odpSel'), plat=document.getElementById('odpPlat'), msg=document.getElementById('odpMsg');

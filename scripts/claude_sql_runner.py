@@ -1764,8 +1764,40 @@ def _process_docpush() -> None:
         pass
 
 
+# Single-instance guard (Jirka 24.7.2026): dva běžící watchery zpracují KAŽDÝ GO
+# dvakrát → dvojité e-maily / zápisy (přesně to se dělo). Zámek drží jen JEDEN
+# watcher (msvcrt file lock, OS ho uvolní při pádu procesu); druhý se sám ukončí.
+_SINGLETON_LOCK_PATH = BRIDGE_DIR / ".watcher_singleton.lock"
+_singleton_fh = None
+
+
+def _acquire_singleton() -> bool:
+    """True = máme zámek (jsme jediný watcher). False = už běží jiný → ukončit se.
+    Fail-OPEN jen při nečekané chybě (radši běžet než nikdy nenaběhnout)."""
+    global _singleton_fh
+    try:
+        import msvcrt
+        BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
+        _singleton_fh = open(_SINGLETON_LOCK_PATH, "a+")
+        try:
+            msvcrt.locking(_singleton_fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            try:
+                _singleton_fh.close()
+            except Exception:
+                pass
+            _singleton_fh = None
+            return False
+    except Exception:
+        return True  # fail-open: neznámá chyba zámku nesmí shodit celý most
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
+    if not _acquire_singleton():
+        _log("Jiný watcher už běží (singleton lock) → tento se ukončuje (prevence dvojích emailů/zápisů).")
+        return
     _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · host={HOSTNAME} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
     if INSTANCE_ID == "?":
         _log("WARNING: CLAUDE_INSTANCE_ID není nastaven — atribuce commitů/deploye bude '?'. Nastav v NSSM (23=Marti, 24=Kristy).")

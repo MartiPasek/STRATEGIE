@@ -10027,8 +10027,9 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
-# ── Svěřený majetek (Šárka 24.7.2026): IT + oblečení + ostatní; IT napojen na fw.hr_device ──
-_ASSET_KAT = ["IT", "Oblečení", "Ostatní"]
+# ── Svěřený majetek (Šárka 24.7.2026): IT + oblečení + klíče/přístupy + skříňka + ostatní ──
+# IT navíc napojen na fw.hr_device. Klíče/přístupy = klíče od kanceláří, vstupní čipy.
+_ASSET_KAT = ["IT", "Oblečení", "Klíče a přístupy", "Skříňka", "Ostatní"]
 
 
 @api_router.get("/app/hr/person-assets")

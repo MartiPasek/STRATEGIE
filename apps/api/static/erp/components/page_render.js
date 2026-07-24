@@ -84,6 +84,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Pracovní smlouvy (Šárka 24.7.2026): jádro hr.smlouvy = iframe karty v pohledu
+      // smluv (řádek = smlouva: pozice, typ, začátek, společnost, oddělení, FTE, denní směna).
+      if (String(coreCode) === 'hr.smlouvy') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=contracts" title="Pracovní smlouvy" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Přehled zaměstnanců a OSVČ (Šárka 20.7.2026): jádro hr.headcount = iframe
       // stránky /hr-headcount. Jen agregovaná čísla (firma × typ × kancelář/výroba).
       if (String(coreCode) === 'hr.headcount') {

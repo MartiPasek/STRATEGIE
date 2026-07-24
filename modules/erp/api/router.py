@@ -9268,6 +9268,100 @@ async def app_hr_people(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/contracts")
+async def app_hr_contracts(req: Request) -> JSONResponse:
+    """Přehled pracovních smluv (Šárka 24.7.2026) — řádek = jedna aktuální smlouva
+    (tenant.engagement is_current). Pinya-styl tabulka vnořená pod Kartou zaměstnance."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    import unicodedata as _ud
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        vse = (req.query_params.get("vse") or "").strip().lower() in ("1", "true", "ano")
+        _MEMB = "('active','invited','archived')" if vse else "('active','invited')"
+        rows = s.execute(_t(
+            "SELECT u.id, u.first_name, u.last_name, "
+            " (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1) AS full_name, "
+            " COALESCE(jp.label, e.pozice_text) AS pozice, "
+            " lower(COALESCE(e.engagement_type,'')) AS typ, "
+            " COALESCE(NULLIF(TRIM(e.druh_text),''),'') AS druh, "
+            " e.smlouva_od, e.smlouva_do, e.company_id, e.uvazek_tyden_h, e.zkusebni_do, "
+            " (SELECT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), sae.full_name) "
+            "    FROM tenant.att_employee ae2 "
+            "    JOIN tenant.org_post_assign a ON a.employee_id=ae2.id AND a.tenant_id=2 AND a.aktivni=true "
+            "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            "    JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+            "    JOIN tenant.org_post_assign a2 ON a2.post_id=pp.id AND a2.tenant_id=2 AND a2.aktivni=true "
+            "      AND COALESCE(a2.zastupce_role,0)=0 AND a2.employee_id<>ae2.id "
+            "    LEFT JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
+            "    LEFT JOIN public.users su ON su.id=sae.user_id "
+            "   WHERE ae2.user_id=u.id AND ae2.tenant_id=2 LIMIT 1) AS nadrizeny "
+            "FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "JOIN public.users u ON u.id=ae.user_id "
+            "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "WHERE e.tenant_id=2 AND e.is_current=true AND u.id NOT IN (2,3,23,24) "
+            "  AND EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "     AND ut.membership_status IN " + _MEMB + ")")).fetchall()
+
+        def _klic(x):
+            return _ud.normalize("NFKD", x or "").encode("ascii", "ignore").decode().lower()
+
+        def _fmt(v):
+            if v is None:
+                return ""
+            f = float(v)
+            if abs(f - round(f)) < 1e-9:
+                return str(int(round(f)))
+            return ("%.1f" % f).replace(".", ",")
+
+        _TYP = {"hpp": "HPP", "osvc": "OSVČ", "dpp": "DPP", "dpc": "DPČ"}
+        _FIRMA = {1: "EUROSOFT - Control", 2: "EUROSOFT - System"}
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            first, last = (r[1] or "").strip(), (r[2] or "").strip()
+            if last:
+                nm = (last + " " + first).strip()
+                prij = last
+            else:
+                cele = (r[3] or "").strip()
+                casti = cele.split()
+                prij = casti[-1] if len(casti) >= 2 else cele
+                nm = (prij + " " + " ".join(casti[:-1])).strip() if len(casti) >= 2 else cele
+            nm = nm or ("#" + str(r[0]))
+            if q and q not in nm.lower():
+                continue
+            uv = r[10]
+            out.append({
+                "user_id": r[0], "jmeno": nm, "prijmeni": prij,
+                "pozice": _poz_style(r[4]) if r[4] else "",
+                "typ": _TYP.get(r[5], (r[5] or "").upper()),
+                "druh": (r[6] or ""),
+                "zacatek": (r[7].strftime("%d.%m.%Y") if r[7] else ""),
+                "konec": (r[8].strftime("%d.%m.%Y") if r[8] else ""),
+                "firma": _FIRMA.get(r[9], ""),
+                "oddeleni": _kategorie_prace(r[4]),
+                "nadrizeny": (r[12] or ""),
+                "fte": _fmt((uv / 40.0) if uv is not None else None),
+                "denni_smena": _fmt((uv / 5.0) if uv is not None else None),
+                "zkusebni_do": (r[11].strftime("%d.%m.%Y") if r[11] else ""),
+            })
+        out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"]), x["typ"]))
+        return JSONResponse({"ok": True, "smlouvy": out, "pocet": len(out), "vse": vse})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Fotky zaměstnanců (Šárka 21.7.2026) ─────────────────────────────────────
 # Úložiště: tenant.employee_photo (bytea, MIMO git – nezveřejní se). Routa jen
 # pro přihlášené (foto = osobní údaj, GDPR). Vlastník vidí/nahrává svou fotku;

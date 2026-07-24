@@ -77,6 +77,7 @@
   <div style="margin-left:auto;display:flex;gap:6px">
     <button id="vbtnList" class="vbtn on" onclick="setView('list')">🪪 Karta</button>
     <button id="vbtnTable" class="vbtn" onclick="setView('table')">👥 Seznam zaměstnanců</button>
+    <button id="vbtnContr" class="vbtn" onclick="setView('contracts')">📄 Pracovní smlouvy</button>
   </div>
 </div>
 <div class="wrap" id="mdwrap">
@@ -133,6 +134,35 @@
     </div>
   </div>
 </div>
+<div class="wrapfull" id="contrcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <input id="csrch" placeholder="🔎 Hledat zaměstnance…">
+      <select id="cftyp">
+        <option value="">📄 Typ smlouvy: vše</option>
+        <option value="HPP">HPP</option>
+        <option value="OSVČ">OSVČ</option>
+        <option value="DPP">DPP</option>
+        <option value="DPČ">DPČ</option>
+      </select>
+      <select id="cfkat">
+        <option value="">🏭 Výroba / kancelář: vše</option>
+        <option value="Výroba">Výroba</option>
+        <option value="Kancelář">Kancelář</option>
+      </select>
+      <span id="ccnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
+    </div>
+    <div class="tblscroll">
+      <table class="ptbl" id="cstbl">
+        <thead><tr>
+          <th>Jméno</th><th>Pracovní pozice</th><th>Typ smlouvy</th><th>Začátek smlouvy</th>
+          <th>Společnost</th><th>Oddělení</th><th>Nadřízený</th><th>FTE</th><th>Denní směna</th>
+        </tr></thead>
+        <tbody id="csbody"><tr><td colspan="9" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -164,12 +194,16 @@ const SEKCE=[
 
 let VSE=false;
 let VIEW='list';
+let SMLOUVY=[], SMLOUVY_LOADED=false;
 function setView(v){
   VIEW=v;
   document.getElementById('vbtnList').classList.toggle('on',v==='list');
   document.getElementById('vbtnTable').classList.toggle('on',v==='table');
+  const bc=document.getElementById('vbtnContr'); if(bc) bc.classList.toggle('on',v==='contracts');
   document.getElementById('mdwrap').style.display=(v==='list')?'':'none';
   document.getElementById('tblcard').style.display=(v==='table')?'':'none';
+  const cc=document.getElementById('contrcard'); if(cc) cc.style.display=(v==='contracts')?'':'none';
+  if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   paint();
 }
 // Sdílené filtrování (čte z ovládacích prvků aktivního pohledu)
@@ -185,7 +219,7 @@ function filteredLide(){
     && (!ft || (p.typ||'').split(' / ').includes(ft))
     && (!fk || p.kategorie===fk));
 }
-function paint(){ if(VIEW==='table') renderTable(); else render(); }
+function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else render(); }
 async function load(){
   const d=await j(API+"/app/hr/people"+(VSE?"?vse=1":""));
   const l=document.getElementById('lst');
@@ -203,16 +237,11 @@ async function load(){
   naplnPozice();
   paint();
 }
-function toggleVse(){ VSE=!VSE; load(); }
-// Deep-link: /karta-zamestnance?view=table otevře rovnou přehled „Seznam zaměstnanců" (uzel hr.seznam)
+function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contracts') loadContracts(); }
+// Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
-  if(new URLSearchParams(location.search).get('view')==='table'){
-    VIEW='table';
-    document.getElementById('vbtnTable').classList.add('on');
-    document.getElementById('vbtnList').classList.remove('on');
-    document.getElementById('mdwrap').style.display='none';
-    document.getElementById('tblcard').style.display='';
-  }
+  const v=new URLSearchParams(location.search).get('view');
+  if(v==='table' || v==='contracts'){ setView(v); }
 }catch(e){} })();
 function naplnPozice(){
   // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů
@@ -275,6 +304,38 @@ function openFromTable(uid){
   const row=document.querySelector('.prow[data-u="'+uid+'"]');
   if(row){ document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel')); row.classList.add('sel'); row.scrollIntoView({block:'center'}); }
 }
+// Pracovní smlouvy (Šárka 24.7.2026) — řádek = smlouva, klik otevře kartu
+async function loadContracts(){
+  const tb=document.getElementById('csbody');
+  const d=await j(API+'/app/hr/contracts'+(VSE?'?vse=1':''));
+  if(!d.ok){ tb.innerHTML='<tr><td colspan="9" class="empty">🔒 '+esc(d.error||'nedostupné')+'</td></tr>'; return; }
+  SMLOUVY=d.smlouvy||[]; SMLOUVY_LOADED=true;
+  renderContracts();
+}
+function renderContracts(){
+  const tb=document.getElementById('csbody'); if(!tb) return;
+  const q=((document.getElementById('csrch')||{}).value||'').toLowerCase();
+  const ft=((document.getElementById('cftyp')||{}).value||'');
+  const fk=((document.getElementById('cfkat')||{}).value||'');
+  const f=SMLOUVY.filter(r=>(r.jmeno||'').toLowerCase().includes(q)
+    && (!ft || r.typ===ft) && (!fk || r.oddeleni===fk));
+  const cc=document.getElementById('ccnt'); if(cc) cc.textContent=f.length+' smluv';
+  if(!f.length){ tb.innerHTML='<tr><td colspan="9" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  const c=(v)=> v?esc(v):'<span class="muted">—</span>';
+  tb.innerHTML=f.map(r=>'<tr onclick="openFromTable('+r.user_id+')">'+
+    '<td><span class="tnm">'+esc(r.jmeno)+'</span></td>'+
+    '<td>'+c(r.pozice)+'</td>'+
+    '<td>'+c(r.typ)+'</td>'+
+    '<td>'+c(r.zacatek)+'</td>'+
+    '<td>'+c(r.firma)+'</td>'+
+    '<td>'+c(r.oddeleni)+'</td>'+
+    '<td>'+c(r.nadrizeny)+'</td>'+
+    '<td>'+c(r.fte)+'</td>'+
+    '<td>'+c(r.denni_smena)+'</td></tr>').join('');
+}
+[['csrch','input'],['cftyp','change'],['cfkat','change']].forEach(function(x){
+  const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],renderContracts);
+});
 [['srch','input'],['fpoz','change'],['ftyp','change'],['fkat','change'],
  ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change']].forEach(function(x){
   const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],paint);

@@ -9900,7 +9900,7 @@ async def app_hr_person_work(req: Request):
             " COALESCE(jp.label, e.pozice_text), COALESCE(e.note,''), "
             " COALESCE(e.changed_by_text,''), e.changed_at, "
             " COALESCE(jp.segment,''), e.fond_mesic_h, e.uvazek_real_tyden_h, COALESCE(e.hodinovka,false), "
-            " COALESCE(e.stredisko,'') "
+            " COALESCE(e.stredisko,''), COALESCE(ae.cislo_zam,'') "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
@@ -9937,6 +9937,7 @@ async def app_hr_person_work(req: Request):
                 "doba": ("neurčitá" if not r[5] else "určitá"),
                 "velikost": ("" if velikost is None else str(velikost).replace(".", ",")),
                 "stredisko": (_STR.get(r[16], r[16]) if r[16] else ""),
+                "osobni_cislo": (r[17] or ""),
             })
         # historie změn (SCD2 – všechny verze poměru, i staré)
         hrows = s.execute(_t(

@@ -594,8 +594,8 @@ function openNew(i){
   $('d_pracbtn').disabled=false;        // u nového záznamu smí pracovníka měnit
   loadZam();                            // seznam pro výběr (async)
   $('d_zak').value=''; loadCiny(function(){fillCin(null);});
-  var t=new Date(),iso=t.getFullYear()+'-'+('0'+(t.getMonth()+1)).slice(-2)+'-'+('0'+t.getDate()).slice(-2);
-  $('d_od_d').value=iso; $('d_od_t').value=''; $('d_kon_d').value=''; $('d_kon_t').value='';
+  // Datum Začátek se NEpředvyplňuje (Peta 24.7.) — vyplní ho uživatel; Konec se dorovná.
+  $('d_od_d').value=''; $('d_od_t').value=''; $('d_kon_d').value=''; $('d_kon_t').value='';
   $('d_hod').value=''; $('d_pozn').value='';
   $('d_vpozn').value=''; $('d_pauza').value=''; $('d_req').checked=false; $('d_appr').checked=false;
   $('d_msg').className='dmsg ok'; $('d_msg').textContent='Nový záznam pro: '+((r._jm||'')+' '+(r._cz||''));
@@ -1004,6 +1004,8 @@ function init(){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     openEdit(parseInt(tr.getAttribute('data-i'),10));});
   ['d_od_d','d_od_t','d_kon_d','d_kon_t'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',recalcH);});
+  // Konec je vždy tentýž den jako Začátek (tady záznam nejde přes víc dnů, Peta 24.7.).
+  var _odd=$('d_od_d'); if(_odd)_odd.addEventListener('input',function(){if(!$('d_kon_d').disabled)$('d_kon_d').value=this.value;recalcH();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ov').classList.contains('on'))closeEdit();});
   $('ov').addEventListener('mousedown',function(e){if(e.target===$('ov'))closeEdit();});
   // Sumace + zavírání okna

@@ -277,7 +277,7 @@ const SEKCE=[
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
-  {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, protokol.",on:false},
+  {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, oblečení, protokol.",on:true,key:'majetek'},
   {ic:"🧭",t:"Onboarding",d:"Nástupní checklist a úkoly.",on:false},
   {ic:"👋",t:"Offboarding",d:"Ukončení poměru, dopočet dovolené, vrácení majetku, archivace.",on:false},
   {ic:"📚",t:"Interní předpisy",d:"Seznámení se směrnicemi.",on:false},
@@ -610,7 +610,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje'};
+    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -762,6 +762,113 @@ async function pracUdajeSave(){
     if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }
   }
   pracUdaje();
+}
+
+// Šárka 24.7.2026: Svěřený majetek (IT + oblečení + ostatní); IT napojen na hr_device.
+let MAJ_UID=null, MAJ_DATA=null, MAJ_EDIT=null;
+async function majetekUdaje(){
+  const uid=CUR_UID; if(!uid) return; MAJ_UID=uid; MAJ_EDIT=null;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/person-assets?uid='+uid);
+  if(!d.ok){ det.innerHTML='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div><div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
+  MAJ_DATA=d; renderMajetek();
+}
+function _majKatChip(k){
+  const c = k==='IT' ? '#1b2c44;color:#7fb2e8' : (k==='Oblečení' ? '#2c2140;color:#c9a9ec' : '#23262b;color:#aab4c0');
+  return '<span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:'+c+'">'+esc(k)+'</span>';
+}
+function renderMajetek(){
+  const d=MAJ_DATA, uid=MAJ_UID, det=document.getElementById('det');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  const addbtn = MAJ_EDIT===null ? ' &nbsp;·&nbsp; <a href="#" onclick="majNew();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">➕ Přidat</a>' : '';
+  let h=pheadHTML(p)+
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">💻 Svěřený majetek</span>'+
+    '<span style="display:flex;gap:6px;align-items:center">'+back+addbtn+'</span></div>';
+  if(MAJ_EDIT!==null) h+=majForm(d);
+  const A=d.assets||[];
+  if(A.length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+      '<tr>'+['Kat.','Název','Výr./inv. č.','Vel.','Ks','Předáno','Vráceno','Stav',''].map(x=>'<td style="color:#7f8ea0;padding:6px 12px;white-space:nowrap">'+x+'</td>').join('')+'</tr>'+
+      A.map(a=>{
+        const c=(v)=> v?esc(v):'<span style="color:#5d6b7c">—</span>';
+        const vrac = a.vraceno_dne ? '<span style="color:#7f8ea0">'+esc(a.vraceno_dne)+'</span>' : '<span style="color:#7fe0a0">drží</span>';
+        return '<tr style="border-top:1px solid #1e2730">'+
+          '<td style="padding:6px 12px">'+_majKatChip(a.kategorie)+'</td>'+
+          '<td style="padding:6px 12px;color:#e8eef5">'+esc(a.nazev)+(a.poznamka?'<div style="color:#7f8ea0;font-size:11px">'+esc(a.poznamka)+'</div>':'')+'</td>'+
+          '<td style="padding:6px 12px;color:#cdd6e2">'+c(a.vyrobni_cislo)+'</td>'+
+          '<td style="padding:6px 12px;color:#cdd6e2">'+c(a.velikost)+'</td>'+
+          '<td style="padding:6px 12px;color:#cdd6e2">'+(a.mnozstvi||1)+'</td>'+
+          '<td style="padding:6px 12px;color:#cdd6e2;white-space:nowrap">'+c(a.predano_dne)+'</td>'+
+          '<td style="padding:6px 12px;white-space:nowrap">'+vrac+'</td>'+
+          '<td style="padding:6px 12px;color:#cdd6e2">'+c(a.stav)+'</td>'+
+          '<td style="padding:6px 12px;white-space:nowrap">'+
+            '<a href="#" onclick="majEdit('+a.id+');return false;" style="color:#aac8ec;text-decoration:none">✏️</a> &nbsp;'+
+            '<a href="#" onclick="majDel('+a.id+');return false;" style="color:#ff8a7a;text-decoration:none">🗑️</a>'+
+          '</td>'+
+        '</tr>';
+      }).join('')+'</table>';
+  } else if(MAJ_EDIT===null){
+    h+='<div style="padding:12px 16px;color:#7f8ea0">Zatím nic svěřeného. Přidej první položku tlačítkem ➕ Přidat.</div>';
+  }
+  const IT=d.it_devices||[];
+  if(IT.length){
+    h+='<div style="padding:12px 16px 4px;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #1e2730">🖧 Zařízení evidovaná IT (síť)</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      IT.map(v=>'<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:5px 12px;color:#e8eef5">'+esc(v.name)+(v.firemni?' <span style="color:#7fb2e8;font-size:10px">firemní</span>':'')+'</td>'+
+        '<td style="padding:5px 12px;color:#7f8ea0">'+esc(v.typ||'')+'</td>'+
+        '<td style="padding:5px 12px;color:#7f8ea0">'+esc(v.mac||'')+'</td></tr>').join('')+'</table>'+
+      '<div style="font-size:11px;color:#5d6b7c;padding:4px 16px 10px">Přebráno z IT registru přítomnosti (fw.hr_device) — jen pro referenci.</div>';
+  }
+  det.innerHTML=h;
+}
+function majForm(d){
+  const a = (MAJ_EDIT && MAJ_EDIT!=='new') ? (d.assets||[]).find(x=>x.id===MAJ_EDIT)||{} : {};
+  const kats=(d.kategorie||['IT','Oblečení','Ostatní']);
+  const inp='width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit';
+  const opt=kats.map(k=>'<option value="'+esc(k)+'"'+((a.kategorie||'IT')===k?' selected':'')+'>'+esc(k)+'</option>').join('');
+  return '<div style="margin:6px 12px;padding:12px;border:1px solid #2b3a4a;border-radius:10px;background:#12181f">'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px">'+
+    '<label style="font-size:12px;color:#7f8ea0">Kategorie<select id="maj_kat" style="'+inp+'">'+opt+'</select></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Název položky<input id="maj_nazev" value="'+esc(a.nazev||'')+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Výrobní / inv. číslo<input id="maj_vc" value="'+esc(a.vyrobni_cislo||'')+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Velikost (oblečení)<input id="maj_vel" value="'+esc(a.velikost||'')+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Množství<input id="maj_mn" type="number" min="1" value="'+(a.mnozstvi||1)+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Stav<input id="maj_stav" value="'+esc(a.stav||'')+'" placeholder="předáno / vráceno" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Předáno dne<input id="maj_predano" type="date" value="'+esc(a.predano_iso||'')+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0">Vráceno dne<input id="maj_vraceno" type="date" value="'+esc(a.vraceno_iso||'')+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;grid-column:1 / -1">Poznámka<input id="maj_pozn" value="'+esc(a.poznamka||'')+'" style="'+inp+'"></label>'+
+    '</div>'+
+    '<div style="display:flex;gap:12px;align-items:center;margin-top:10px">'+
+      '<button onclick="majSave()" style="border:1px solid #3a8a4d;background:#2e6f3e;color:#eafff0;border-radius:6px;padding:6px 14px;font:inherit;font-weight:700;cursor:pointer">Uložit</button>'+
+      '<a href="#" onclick="MAJ_EDIT=null;renderMajetek();return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+      '<span id="maj_msg" style="font-size:12px;color:#7fe0a0"></span>'+
+    '</div></div>';
+}
+function majNew(){ MAJ_EDIT='new'; renderMajetek(); }
+function majEdit(id){ MAJ_EDIT=id; renderMajetek(); }
+async function majSave(){
+  const g=id=>document.getElementById(id), msg=g('maj_msg');
+  const nazev=g('maj_nazev').value.trim();
+  if(!nazev){ msg.style.color='#E0A94A'; msg.textContent='Vyplň název položky.'; return; }
+  const body={ uid:MAJ_UID, id:(MAJ_EDIT&&MAJ_EDIT!=='new')?MAJ_EDIT:null,
+    kategorie:g('maj_kat').value, nazev:nazev, vyrobni_cislo:g('maj_vc').value.trim(),
+    velikost:g('maj_vel').value.trim(), mnozstvi:parseInt(g('maj_mn').value||1),
+    stav:g('maj_stav').value.trim(), predano_dne:g('maj_predano').value||null,
+    vraceno_dne:g('maj_vraceno').value||null, poznamka:g('maj_pozn').value.trim() };
+  msg.style.color='#7f8ea0'; msg.textContent='Ukládám…';
+  const r=await fetch(API+'/app/hr/person-asset/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
+  MAJ_EDIT=null; majetekUdaje();
+}
+async function majDel(id){
+  if(!confirm('Opravdu smazat tuto položku svěřeného majetku?')) return;
+  const r=await fetch(API+'/app/hr/person-asset/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(d.ok) majetekUdaje(); else alert('Nepovedlo se: '+(d.error||''));
 }
 
 // Šárka 21.7.2026: „Skupiny a kvalifikace" (jen čtení).

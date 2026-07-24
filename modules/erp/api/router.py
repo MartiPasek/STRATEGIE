@@ -10027,6 +10027,159 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
+# ── Svěřený majetek (Šárka 24.7.2026): IT + oblečení + ostatní; IT napojen na fw.hr_device ──
+_ASSET_KAT = ["IT", "Oblečení", "Ostatní"]
+
+
+@api_router.get("/app/hr/person-assets")
+async def app_hr_person_assets(req: Request) -> JSONResponse:
+    """Svěřený majetek člověka (tenant.employee_asset) + zařízení, která už IT eviduje
+    v fw.hr_device (owner_user_id) jako read-only referenci."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+        def _d(x):
+            return x.strftime("%d.%m.%Y") if x else ""
+        arows = s.execute(_t(
+            "SELECT id, kategorie, nazev, COALESCE(vyrobni_cislo,''), COALESCE(velikost,''), "
+            " mnozstvi, predano_dne, vraceno_dne, COALESCE(stav,''), COALESCE(poznamka,''), "
+            " COALESCE(updated_by_text,''), updated_at "
+            "FROM tenant.employee_asset WHERE tenant_id=2 AND user_id=:u "
+            "ORDER BY (vraceno_dne IS NOT NULL), kategorie, nazev"), {"u": tuid}).fetchall()
+        assets = [{
+            "id": r[0], "kategorie": r[1], "nazev": r[2], "vyrobni_cislo": r[3],
+            "velikost": r[4], "mnozstvi": r[5], "predano_dne": _d(r[6]),
+            "predano_iso": (r[6].isoformat() if r[6] else ""),
+            "vraceno_dne": _d(r[7]), "vraceno_iso": (r[7].isoformat() if r[7] else ""),
+            "stav": r[8], "poznamka": r[9],
+            "zmenil": r[10], "zmeneno": (r[11].strftime("%d.%m.%Y %H:%M") if r[11] else ""),
+        } for r in arows]
+        it_devices = []
+        try:
+            drows = s.execute(_t(
+                "SELECT id, name, COALESCE(device_type,''), COALESCE(mac,''), COALESCE(note,''), "
+                " COALESCE(is_company,false) FROM fw.hr_device WHERE owner_user_id=:u ORDER BY name"),
+                {"u": tuid}).fetchall()
+            it_devices = [{"id": r[0], "name": r[1], "typ": r[2], "mac": r[3],
+                           "note": r[4], "firemni": bool(r[5])} for r in drows]
+        except Exception as _de:
+            logger.warning("[person_assets hr_device] %s", _de)
+        return JSONResponse({"ok": True, "assets": assets, "it_devices": it_devices,
+                             "kategorie": _ASSET_KAT})
+    except Exception as exc:
+        logger.exception("[hr_person_assets] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person-asset/save")
+async def app_hr_person_asset_save(req: Request) -> JSONResponse:
+    """Přidá/upraví položku svěřeného majetku. HR + rodiče. Auditováno (kdo/kdy)."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    aid = (b or {}).get("id")
+    aid = int(aid) if str(aid or "").isdigit() else None
+    tuid = int((b or {}).get("uid") or 0)
+    kat = str((b or {}).get("kategorie") or "IT").strip()
+    if kat not in _ASSET_KAT:
+        kat = "Ostatní"
+    nazev = str((b or {}).get("nazev") or "").strip()
+    vc = (str((b or {}).get("vyrobni_cislo") or "").strip() or None)
+    vel = (str((b or {}).get("velikost") or "").strip() or None)
+    try:
+        mn = int((b or {}).get("mnozstvi") or 1)
+    except Exception:
+        mn = 1
+    pozn = (str((b or {}).get("poznamka") or "").strip() or None)
+
+    def _pd(v):
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+    predano = _pd((b or {}).get("predano_dne"))
+    vraceno = _pd((b or {}).get("vraceno_dne"))
+    stav = str((b or {}).get("stav") or "").strip() or ("vráceno" if vraceno else "předáno")
+    if not tuid or not nazev:
+        return JSONResponse({"ok": False, "error": "Chybí zaměstnanec nebo název položky."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        who = _self_person_name(s, uid) or ("HR #" + str(uid))
+        if aid:
+            s.execute(_t(
+                "UPDATE tenant.employee_asset SET kategorie=:k, nazev=:n, vyrobni_cislo=:vc, "
+                " velikost=:vel, mnozstvi=:mn, predano_dne=:pd, vraceno_dne=:vd, stav=:st, "
+                " poznamka=:po, updated_by_text=:by, updated_at=now() "
+                "WHERE id=:id AND tenant_id=2"),
+                {"k": kat, "n": nazev, "vc": vc, "vel": vel, "mn": mn, "pd": predano,
+                 "vd": vraceno, "st": stav, "po": pozn, "by": who, "id": aid})
+            new_id = aid
+        else:
+            new_id = int(s.execute(_t(
+                "INSERT INTO tenant.employee_asset (tenant_id, user_id, kategorie, nazev, vyrobni_cislo, "
+                " velikost, mnozstvi, predano_dne, vraceno_dne, stav, poznamka, created_by_text, updated_by_text) "
+                "VALUES (2, :u, :k, :n, :vc, :vel, :mn, :pd, :vd, :st, :po, :by, :by) RETURNING id"),
+                {"u": tuid, "k": kat, "n": nazev, "vc": vc, "vel": vel, "mn": mn, "pd": predano,
+                 "vd": vraceno, "st": stav, "po": pozn, "by": who}).scalar())
+        s.commit()
+        return JSONResponse({"ok": True, "id": new_id})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_person_asset_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person-asset/delete")
+async def app_hr_person_asset_delete(req: Request) -> JSONResponse:
+    """Smaže položku svěřeného majetku (HR + rodiče)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    aid = int((b or {}).get("id") or 0)
+    if not aid:
+        return JSONResponse({"ok": False, "error": "Chybí id"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.employee_asset WHERE id=:id AND tenant_id=2"), {"id": aid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_person_asset_delete] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Odpovědnost: kdo kontroluje docházku / schvaluje volno (Šárka 24.7.2026) ──────
 # Fáze 1 = kontrola docházky (agenda='dochazka'); volno (Fáze 2) až po koordinaci s Jirkou.
 def _je_vedouci_daneho(s, uid, target_uid) -> bool:

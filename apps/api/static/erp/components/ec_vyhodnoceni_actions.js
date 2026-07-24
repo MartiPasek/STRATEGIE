@@ -12,8 +12,8 @@
     { code: "priprava",         label: "▶️ Připravit hodnocení", confirm: null },
     { code: "prepocet",         label: "🔄 Přepočet hodnocení", confirm: null },
     { code: "vypocet_konstant", label: "⚙️ Nastav koeficienty", confirm: null },
-    { code: "uzavrit",          label: "🔒 Uzavřít", confirm: "Uzavřít vyhodnocení a vytvořit výplatu (SuperHrubá)?" },
-    { code: "zrusit",           label: "↩️ Zrušit", confirm: "Zrušit vyhodnocení (archiv + znovuotevření)?" }
+    { code: "uzavrit",          label: "🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
+    { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokračovat?" }
   ];
 
   function _rec(inst) { return (inst && inst._spec && inst._spec.data) || {}; }

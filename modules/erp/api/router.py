@@ -7867,6 +7867,241 @@ async def app_urgent_ack(req: Request) -> JSONResponse:
         ds.close()
 
 
+# ---- Cílový režim: stavový automat cílů (Kristý + C24, 24.7.2026) -----------
+# g2007.cil = schválené cíle, g2007.claude_aktivita = append-only log akcí.
+# Návrh: doc-marti-ai-navrh-cilovy-rezim / realizace: doc-marti-ai-cilovy-rezim-realizace.
+# Práva: schválení/zamítnutí = rodič; pauza/obnovení = rodič nebo vlastník
+# (navrhl_user_id); splnění = agent / vlastník / rodič. UI běží v mobilní appce,
+# tyto endpointy jsou její backend. LITERALNI routy /app/cil* jsou PRED
+# /app/{app_key}/latest (route ordering). cid: int → "latest" apod. sem nespadne.
+_CIL_AGENT_IDS = {2, 23, 24, 25, 26, 28}  # Marti-AI + instance Claude (MVP; TODO: flag misto hardcode)
+_CIL_STAVY = ('navrzen', 'schvalen', 'aktivni', 'splnen', 'zamitnut', 'pozastaven')
+
+
+def _cil_jmeno(alias: str) -> str:
+    """SQL výraz pro čitelné jméno uživatele (jméno / login / #id)."""
+    return (f"COALESCE(NULLIF(trim(coalesce({alias}.first_name,'')||' '||coalesce({alias}.last_name,'')),''), "
+            f"{alias}.login_name, '#'||{alias}.id::text)")
+
+
+def _cil_notify(ds, _t, target_uid, title: str, message: str, created_by) -> None:
+    """Push do mobilní appky (fw.mobile_command) — notifikace k cíli. Best-effort."""
+    if not target_uid:
+        return
+    try:
+        ds.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, status, created_by, created_at) "
+            "VALUES ('mobile', :tu, 'claude_msg', :ti, :m, 'pending', :f, now())"),
+            {"tu": target_uid, "ti": (title or "")[:120], "m": (message or "")[:300], "f": created_by})
+    except Exception:
+        pass
+
+
+def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, set_cols, notify_fn=None) -> JSONResponse:
+    """Obecný přechod stavu cíle: kontrola přihlášení → načtení cíle (FOR UPDATE) →
+    kontrola práva → kontrola aktuálního stavu → UPDATE + volitelná notifikace."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    ds = _g()
+    try:
+        row = ds.execute(_t(
+            "SELECT id, stav, navrhl_user_id FROM g2007.cil WHERE id=:i FOR UPDATE"), {"i": cid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Cíl neexistuje."}, status_code=404)
+        cil_id, stav, navrhl = row[0], row[1], row[2]
+        if not perm_fn(uid, navrhl):
+            return JSONResponse({"ok": False, "error": "Nemáš oprávnění k tomuto přechodu."}, status_code=403)
+        if stav not in from_stavy:
+            return JSONResponse({"ok": False, "error": f"Neplatný přechod: cíl je ve stavu '{stav}' (očekává se {list(from_stavy)})."})
+        sets = ["stav=:to"] + list(set_cols)
+        ds.execute(_t("UPDATE g2007.cil SET " + ", ".join(sets) + " WHERE id=:i"),
+                   {"i": cil_id, "to": to_stav, "uid": uid})
+        if notify_fn:
+            notify_fn(ds, _t, navrhl, uid)
+        ds.commit()
+        return JSONResponse({"ok": True, "id": cil_id, "stav": to_stav})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[cil_transition] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/cil")
+async def app_cil_list(req: Request) -> JSONResponse:
+    """Seznam cílů + počet kroků. Volitelný filtr ?stav=aktivni nebo ?stavy=navrzen,schvalen."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    q = req.query_params
+    stavy = []
+    if q.get("stav"):
+        stavy = [q.get("stav")]
+    elif q.get("stavy"):
+        stavy = [s.strip() for s in str(q.get("stavy")).split(",") if s.strip()]
+    stavy = [s for s in stavy if s in _CIL_STAVY]
+    ds = _g()
+    try:
+        sql = (
+            "SELECT c.id, c.nazev, c.popis, c.stav, c.strop_kroku, "
+            "to_char(c.created_at,'YYYY-MM-DD HH24:MI') AS created, "
+            "c.navrhl_user_id, " + _cil_jmeno('un') + " AS navrhl_jmeno, c.schvalil_user_id, "
+            "(SELECT count(*) FROM g2007.claude_aktivita a WHERE a.cil_id=c.id) AS kroku "
+            "FROM g2007.cil c LEFT JOIN public.users un ON un.id=c.navrhl_user_id ")
+        params = {}
+        if stavy:
+            sql += "WHERE c.stav = ANY(:st) "
+            params["st"] = stavy
+        sql += "ORDER BY c.created_at DESC LIMIT 100"
+        rows = ds.execute(_t(sql), params).fetchall()
+        return JSONResponse({"ok": True, "cile": [{
+            "id": r[0], "nazev": r[1], "popis": r[2], "stav": r[3], "strop_kroku": r[4],
+            "created": r[5], "navrhl_user_id": r[6], "navrhl_jmeno": r[7],
+            "schvalil_user_id": r[8], "kroku": r[9]} for r in rows]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/cil")
+async def app_cil_create(req: Request) -> JSONResponse:
+    """Návrh nového cíle (stav 'navrzen'). navrhl_user_id = přihlášený."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    nazev = str((body or {}).get("nazev") or "").strip()[:200]
+    if not nazev:
+        return JSONResponse({"ok": False, "error": "Chybí název cíle."})
+    popis = (str((body or {}).get("popis") or "").strip() or None)
+    rozsah = (str((body or {}).get("rozsah") or "").strip() or None)
+    try:
+        strop = int((body or {}).get("strop_kroku")) if (body or {}).get("strop_kroku") not in (None, "") else None
+    except Exception:
+        strop = None
+    okno_od = (str((body or {}).get("okno_od") or "").strip() or None)
+    okno_do = (str((body or {}).get("okno_do") or "").strip() or None)
+    ds = _g()
+    try:
+        cid = ds.execute(_t(
+            "INSERT INTO g2007.cil (nazev, popis, rozsah, strop_kroku, okno_od, okno_do, stav, navrhl_user_id, created_at) "
+            "VALUES (:nazev, :popis, :rozsah, :strop, CAST(:okod AS timestamptz), CAST(:okdo AS timestamptz), 'navrzen', :uid, now()) "
+            "RETURNING id"),
+            {"nazev": nazev, "popis": popis, "rozsah": rozsah, "strop": strop,
+             "okod": okno_od, "okdo": okno_do, "uid": uid}).scalar()
+        ds.commit()
+        return JSONResponse({"ok": True, "id": cid, "stav": "navrzen"})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[cil_create] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/cil/{cid}")
+async def app_cil_detail(req: Request, cid: int) -> JSONResponse:
+    """Detail cíle + posledních 20 kroků z logu."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    ds = _g()
+    try:
+        c = ds.execute(_t(
+            "SELECT c.id, c.nazev, c.popis, c.rozsah, c.strop_kroku, "
+            "to_char(c.okno_od,'YYYY-MM-DD HH24:MI'), to_char(c.okno_do,'YYYY-MM-DD HH24:MI'), "
+            "c.stav, c.navrhl_user_id, " + _cil_jmeno('un') + ", c.schvalil_user_id, " + _cil_jmeno('us') + ", "
+            "to_char(c.created_at,'YYYY-MM-DD HH24:MI'), to_char(c.schvaleno_at,'YYYY-MM-DD HH24:MI'), "
+            "to_char(c.uzavren_at,'YYYY-MM-DD HH24:MI'), "
+            "(SELECT count(*) FROM g2007.claude_aktivita a WHERE a.cil_id=c.id) "
+            "FROM g2007.cil c LEFT JOIN public.users un ON un.id=c.navrhl_user_id "
+            "LEFT JOIN public.users us ON us.id=c.schvalil_user_id WHERE c.id=:i"),
+            {"i": cid}).first()
+        if not c:
+            return JSONResponse({"ok": False, "error": "Cíl neexistuje."}, status_code=404)
+        log = ds.execute(_t(
+            "SELECT id, actor, akce, left(coalesce(detail,''),500), left(coalesce(vysledek,''),300), "
+            "to_char(ts,'YYYY-MM-DD HH24:MI:SS') FROM g2007.claude_aktivita "
+            "WHERE cil_id=:i ORDER BY id DESC LIMIT 20"), {"i": cid}).fetchall()
+        return JSONResponse({"ok": True, "cil": {
+            "id": c[0], "nazev": c[1], "popis": c[2], "rozsah": c[3], "strop_kroku": c[4],
+            "okno_od": c[5], "okno_do": c[6], "stav": c[7],
+            "navrhl_user_id": c[8], "navrhl_jmeno": c[9],
+            "schvalil_user_id": c[10], "schvalil_jmeno": c[11],
+            "created": c[12], "schvaleno_at": c[13], "uzavren_at": c[14], "kroku": c[15]},
+            "kroky_log": [{"id": r[0], "actor": r[1], "akce": r[2], "detail": r[3],
+                           "vysledek": r[4], "ts": r[5]} for r in log]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/cil/{cid}/schvalit")
+async def app_cil_schvalit(req: Request, cid: int) -> JSONResponse:
+    """navrzen → aktivni. Jen rodič. Zapíše schvalil_user_id + schvaleno_at."""
+    return _cil_do_transition(
+        req, cid, ('navrzen',), 'aktivni',
+        lambda uid, navrhl: is_marti_parent(uid),
+        ["schvalil_user_id=:uid", "schvaleno_at=now()"],
+        lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "✅ Cíl schválen",
+            f"Cíl #{cid} byl schválen — agent může začít.", uid))
+
+
+@api_router.post("/app/cil/{cid}/zamitnout")
+async def app_cil_zamitnout(req: Request, cid: int) -> JSONResponse:
+    """navrzen → zamitnut. Jen rodič."""
+    return _cil_do_transition(
+        req, cid, ('navrzen',), 'zamitnut',
+        lambda uid, navrhl: is_marti_parent(uid),
+        ["schvalil_user_id=:uid", "uzavren_at=now()"],
+        lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "⛔ Cíl zamítnut",
+            f"Cíl #{cid} byl zamítnut.", uid))
+
+
+@api_router.post("/app/cil/{cid}/pozastavit")
+async def app_cil_pozastavit(req: Request, cid: int) -> JSONResponse:
+    """aktivni → pozastaven (per-cíl kill switch). Rodič nebo vlastník."""
+    return _cil_do_transition(
+        req, cid, ('aktivni',), 'pozastaven',
+        lambda uid, navrhl: is_marti_parent(uid) or uid == navrhl,
+        [],
+        lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "⏸️ Cíl pozastaven",
+            f"Cíl #{cid} byl pozastaven.", uid))
+
+
+@api_router.post("/app/cil/{cid}/obnovit")
+async def app_cil_obnovit(req: Request, cid: int) -> JSONResponse:
+    """pozastaven → aktivni. Rodič nebo vlastník."""
+    return _cil_do_transition(
+        req, cid, ('pozastaven',), 'aktivni',
+        lambda uid, navrhl: is_marti_parent(uid) or uid == navrhl,
+        [],
+        lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "▶️ Cíl obnoven",
+            f"Cíl #{cid} znovu běží.", uid))
+
+
+@api_router.post("/app/cil/{cid}/splnit")
+async def app_cil_splnit(req: Request, cid: int) -> JSONResponse:
+    """aktivni → splnen. Agent, vlastník nebo rodič."""
+    return _cil_do_transition(
+        req, cid, ('aktivni',), 'splnen',
+        lambda uid, navrhl: is_marti_parent(uid) or uid == navrhl or uid in _CIL_AGENT_IDS,
+        ["uzavren_at=now()"],
+        lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "🎯 Cíl splněn",
+            f"Cíl #{cid} byl splněn.", uid))
+
+
 # ---- Self-service osobni udaje (Marti 11.6.2026) ----------------------------
 # Separatni tabulka tenant.user_self_data = PRIMARNI zdroj personalnich dat.
 # Clovek si je sam zadava/aktualizuje (mobil). Kazda zmena -> log + upozorneni

@@ -20600,57 +20600,54 @@ def _att_fix_scope(s, uid):
 
 
 def _att_fix_scope_emps(s, scope):
-    """None = bez omezení (vše). Jinak set employee_id v působnosti editora:
-    'vyroba' = podřízení Dušana Havláta (org podstrom pod jeho posty, user 41);
-    'kancelar' = všichni ostatní; lidé BEZ aktivního org zařazení = OBĚ strany
-    (Jirka 10.7., rozhodl Marti — hraniční lidi vidí kancelář i výroba).
-    Kvalifikacní posty (org_post.je_kvalifikace=true, např. VAZAČ-JEŘÁBNÍK, ŘIDIČ)
-    se do podstromu NEpočítají — jsou to oprávnění/BOZP, ne řídicí vztah. Jinak
-    by majitel (drží VAZAČ) spadl pod Dušana. Konzultace Marti-AI 20.7. (varianta b),
-    Jirka 20.7. — jeden zdroj pravdy s resolve_role.
+    """None = bez omezení (vše). Jinak set employee_id v působnosti editora.
 
-    DVOJÍ ZAŘAZENÍ = SJEDNOCENÍ (Peťa 21.7.2026). Dřív stačil JEDEN post pod Dušanem
-    a člověk byl výhradně „výroba" — kancelář ho pak vůbec neviděla. Reálný případ:
-    Zuzana Duspivová drží 6 postů, z toho 5 kancelářských (Divize 3 finance, správce
-    upomínek, správce e-mailu) a jeden „Asistent Divize 5 – realizace zakázek".
-    Kvůli tomu jednomu zmizela Petě z „Najít člověka". Nově: kdo má post na obou
-    stranách, spadá do působnosti OBOU editorů — stejně jako to už platilo pro lidi
-    bez zařazení. Sedí to i na Martiho rozhodnutí o dual-postech (union, 7.6.2026)."""
+    TREE (nasazeno 24.7.2026, Kristý — schváleno Peťou+Jirkou): působnost se bere
+    ze STROMU staff_group (parent_id), NE z org podstromu pod Dušanem. Kořeny:
+      • 'vyroba'   = členové větve pod kořenem VÝROBA (Výroba, Zkušebna)
+      • 'kancelar' = členové větve pod KANCELÁŘE (vč. VP, E-plan, PLC-koordinace, Úklid)
+      • EXTERNÍ větev (externí PLC kontraktoři) = MIMO docházku → nevidí je nikdo
+      • kdo není v žádné docházkové skupině → fallback kancelář (Peťa)
+      • dvojí zařazení přes obě větve = union (obě strany)
+    Nahrazuje org derivaci (org_post_assign pod user 41). Tím PADÁ pravidlo
+    „nezařazený → obě strany" a leak výroby (Dušan/Nosek) na Peťu. Znalost:
+    G2007 doc-dochazka-strom-skupin. Starou org logiku drží git historie.
+    (Dřív: 'vyroba'=podstrom pod Dušanem bez je_kvalifikace; 'kancelar'=aspoň
+    jeden post mimo; bez zařazení / dual = obě — Peťa 21.7., Marti 10.7.)"""
     if scope in (None, "vse"):
         return None
     from sqlalchemy import text as _t
     rows = s.execute(_t(
-        "WITH RECURSIVE dp AS ("
-        "  SELECT a.post_id AS id FROM tenant.org_post_assign a"
-        "  JOIN tenant.att_employee de ON de.id = a.employee_id"
-        "  JOIN tenant.org_post sp ON sp.id = a.post_id"
-        "  WHERE de.tenant_id=2 AND de.user_id=41 AND a.aktivni AND COALESCE(a.potencialni,false)=false"
-        "    AND NOT COALESCE(sp.je_kvalifikace,false)"
-        "  UNION"
-        "  SELECT c.id FROM tenant.org_post c JOIN dp ON c.parent_post_id = dp.id"
-        "    WHERE NOT COALESCE(c.je_kvalifikace,false)"
-        "), vyr AS ("
-        "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
-        "  JOIN dp ON dp.id = a.post_id WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
-        "), zar AS ("
-        "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
-        "  WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
-        "), kanc AS ("     # aspoň jeden post MIMO Dušanův podstrom = patří i kanceláři
-        "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
-        "  WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
-        "    AND a.post_id NOT IN (SELECT id FROM dp)"
+        "WITH RECURSIVE tree AS ("
+        "  SELECT id, name AS root_name FROM tenant.staff_group"
+        "    WHERE tenant_id=2 AND parent_id IS NULL"
+        "  UNION ALL"
+        "  SELECT g.id, t.root_name FROM tenant.staff_group g"
+        "    JOIN tree t ON g.parent_id = t.id WHERE g.tenant_id=2"
+        "), memb AS ("
+        "  SELECT e.id AS emp,"
+        "    bool_or(t.root_name = 'VÝROBA')    AS vyr,"
+        "    bool_or(t.root_name = 'KANCELÁŘE') AS kanc,"
+        "    bool_or(t.root_name = 'EXTERNÍ')   AS ext,"
+        "    count(t.id) FILTER (WHERE t.root_name IN ('VÝROBA','KANCELÁŘE','EXTERNÍ')) AS n_doch"
+        "  FROM tenant.att_employee e"
+        "  LEFT JOIN tenant.staff_group_member m ON m.user_id = e.user_id AND m.tenant_id=2"
+        "  LEFT JOIN tree t ON t.id = m.group_id"
+        "  WHERE e.tenant_id=2 GROUP BY e.id"
         ") "
-        "SELECT e.id, (e.id IN (SELECT employee_id FROM vyr)), "
-        "       (e.id IN (SELECT employee_id FROM zar)), "
-        "       (e.id IN (SELECT employee_id FROM kanc)) "
-        "FROM tenant.att_employee e WHERE e.tenant_id=2")).fetchall()
+        "SELECT emp, COALESCE(vyr,false), COALESCE(kanc,false), "
+        "       COALESCE(ext,false), COALESCE(n_doch,0) FROM memb")).fetchall()
     out = set()
     for r in rows:
         eid = int(r[0])
-        je_vyroba, ma_zarazeni, je_kancelar = bool(r[1]), bool(r[2]), bool(r[3])
-        if not ma_zarazeni:
-            out.add(eid)  # nezařazený → vidí ho obě strany
-        elif scope == "vyroba" and je_vyroba:
+        je_vyroba, je_kancelar, je_externi, n_doch = bool(r[1]), bool(r[2]), bool(r[3]), int(r[4])
+        if je_externi and not je_vyroba and not je_kancelar:
+            continue  # jen externí větev → mimo docházku, nevidí nikdo
+        if n_doch == 0:
+            if scope == "kancelar":
+                out.add(eid)  # bez docházkové skupiny → fallback kancelář (Peťa)
+            continue
+        if scope == "vyroba" and je_vyroba:
             out.add(eid)
         elif scope == "kancelar" and je_kancelar:
             out.add(eid)

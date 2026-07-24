@@ -9779,6 +9779,44 @@ def _hr_generuj_ukoly(s):
     _ensure("Připravit článek na LinkedIn — týden od %s" % _d(tue), tue,
             "Připravit článek na LinkedIn. Zveřejnit v úterý nebo ve čtvrtek. Opakuje se každý týden.")
 
+    # 5) Pracovní výročí (násobek 5, od PRVNÍHO nástupu) → připravit certifikát;
+    #    u 10 let navíc +1 den dovolené (Šárka 24.7.2026).
+    def _occ(d):
+        try:
+            o = d.replace(year=today.year)
+        except ValueError:
+            o = _dt.date(today.year, 2, 28)
+        if o < today:
+            try:
+                o = d.replace(year=today.year + 1)
+            except ValueError:
+                o = _dt.date(today.year + 1, 2, 28)
+        return o
+    for jm, prvni in s.execute(_t(
+        "SELECT n.jmeno, eng.prvni FROM ("
+        "  SELECT ae.user_id, min(e.smlouva_od) prvni FROM tenant.engagement e"
+        "   JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+        "   WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL GROUP BY ae.user_id"
+        "   HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))) eng"
+        "  JOIN (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno"
+        "        FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id) n"
+        "    ON n.user_id=eng.user_id WHERE eng.prvni IS NOT NULL")).fetchall():
+        if not (jm or "").strip() or not prvni:
+            continue
+        occ = _occ(prvni)
+        yrs = occ.year - prvni.year
+        if not (0 <= (occ - today).days <= 30 and yrs >= 5 and yrs % 5 == 0):
+            continue
+        jm = jm.strip()
+        if yrs == 10:
+            _ensure("%s — 10 let ve firmě: připravit certifikát + přidat 1 den dovolené navíc" % jm, occ,
+                    "Pracovní výročí 10 let (%s). Připravit certifikát k podpisu a PŘIDAT 1 DEN DOVOLENÉ "
+                    "NAVÍC. (Automaticky z HR nástěnky.)" % _d(occ))
+        else:
+            _ensure("%s — %d let ve firmě: připravit certifikát" % (jm, yrs), occ,
+                    "Pracovní výročí %d let (%s). Připravit certifikát k podpisu a předání. "
+                    "(Automaticky z HR nástěnky.)" % (yrs, _d(occ)))
+
 
 def _hr_auto_narozeniny(s):
     """Automaticky odešle narozeninové přání každému aktivnímu zaměstnanci, který má DNES
@@ -9894,7 +9932,11 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
             "  UNION ALL SELECT 'zkusebka', n.jmeno, eng.zkusebni_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.zkusebni_do BETWEEN current_date AND current_date+30"
             "  UNION ALL SELECT 'prodlouzeni', n.jmeno, eng.smlouva_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_do BETWEEN current_date AND current_date+30"
             "  UNION ALL SELECT 'narozeniny', n.jmeno, n.birth, NULL FROM nm n WHERE n.birth IS NOT NULL AND n.user_id IN (SELECT user_id FROM eng) AND ((date_part('doy',n.birth)-date_part('doy',current_date)+366)::int%366) <= 7"
-            "  UNION ALL SELECT 'vyroci', n.jmeno, eng.smlouva_od, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od IS NOT NULL AND eng.smlouva_od < current_date-300 AND ((date_part('doy',eng.smlouva_od)-date_part('doy',current_date)+366)::int%366) <= 7"
+            "  UNION ALL SELECT 'vyroci', n.jmeno, fs.prvni, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id"
+            "   JOIN LATERAL (SELECT min(e3.smlouva_od) prvni FROM tenant.engagement e3"
+            "     JOIN tenant.att_employee ae3 ON ae3.id=e3.employee_id AND ae3.tenant_id=2"
+            "     WHERE ae3.user_id=eng.user_id AND e3.tenant_id=2) fs ON true"
+            "   WHERE fs.prvni IS NOT NULL AND fs.prvni < current_date-300 AND ((date_part('doy',fs.prvni)-date_part('doy',current_date)+366)::int%366) <= 7"
             " ) q ORDER BY dat")).fetchall()
         akt = []
         cnt = {"novy": 0, "narozeniny": 0, "vyroci": 0, "zkusebka": 0, "prodlouzeni": 0}
@@ -10127,11 +10169,13 @@ async def app_hr_jubilea(req: Request) -> JSONResponse:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
+            # Výročí = od PRVNÍHO nástupu (min přes VŠECHNY poměry), ne jen aktuální smlouvy
+            # (Šárka 24.7.2026 — Veverka: 2016 → 10 let, ne 2019 → 7). HAVING = jen aktivní.
             "WITH eng AS (SELECT ae.user_id, min(e.smlouva_od) smlouva_od"
             "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
-            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
-            "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)"
-            "  GROUP BY ae.user_id),"
+            "  WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL"
+            "  GROUP BY ae.user_id"
+            "  HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))),"
             " nm AS (SELECT user_id,"
             "  max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
             "  max(birth_date) birth FROM tenant.hr_person"
@@ -10295,10 +10339,11 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
+            # Výročí od PRVNÍHO nástupu (min přes všechny poměry), HAVING = jen aktivní (Šárka 24.7.2026).
             "WITH eng AS (SELECT ae.user_id, min(e.smlouva_od) smlouva_od"
             "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
-            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
-            "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date) GROUP BY ae.user_id),"
+            "  WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL GROUP BY ae.user_id"
+            "  HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))),"
             " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
             "  max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
             " SELECT n.user_id, n.jmeno, n.birth, eng.smlouva_od FROM nm n JOIN eng ON eng.user_id=n.user_id"

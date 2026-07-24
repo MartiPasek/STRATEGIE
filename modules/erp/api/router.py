@@ -13736,8 +13736,25 @@ def _abs_resolve(s, emp, requester_uid):
     Volá tenant.resolve_approvers (skupina → vedoucí VŽDY + zástup když je vedoucí
     nepřítomen; viz znalost G2007 doc-dochazka-schvalovani-dovolene). Prázdné → Šárka
     Novotná (13, personální); když žádá sama Šárka → Marti (1) jako poslední záchrana.
-    NIKDY nespadne na Martiho místo skupinového vedoucího. Vrací neprázdný list int."""
+    NIKDY nespadne na Martiho místo skupinového vedoucího. Vrací neprázdný list int.
+
+    Osobní VÝJIMKA (dlaždice Odpovědnost, HR/vedoucí) má přednost PŘED skupinovým
+    resolverem — Kristý 24.7.2026: „přidej výjimku PŘED logiku, resolve_approvers nepřepisuj".
+    Když je pro daného člověka aktivní výjimka agenda='volno' v tenant.att_odpovednost,
+    vrátíme určeného schvalovatele a Jirkovu PG funkci vůbec nevoláme."""
     from sqlalchemy import text as _t
+    try:
+        ovr = s.execute(_t(
+            "SELECT o.odpovedny_user_id FROM tenant.att_employee ae "
+            "JOIN tenant.att_odpovednost o ON o.user_id=ae.user_id AND o.tenant_id=2 "
+            "  AND o.agenda='volno' AND o.aktivni=true "
+            "  AND (o.platnost_do IS NULL OR o.platnost_do >= CURRENT_DATE) "
+            "WHERE ae.id=:e AND ae.tenant_id=2"), {"e": emp}).fetchall()
+        ovr = [int(r[0]) for r in ovr if r[0] is not None and int(r[0]) != int(requester_uid)]
+        if ovr:
+            return ovr
+    except Exception:
+        pass
     try:
         rows = s.execute(_t("SELECT tenant.resolve_approvers(2, :e, CURRENT_DATE)"),
                          {"e": emp}).fetchall()

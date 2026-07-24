@@ -112,6 +112,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // HR Dashboard (Šárka 24.7.2026): jádro hr.dashboard = iframe stránky
+      // /hr-dashboard. Analytické přehledy (Pinya styl); nahrazuje hr.headcount.
+      if (String(coreCode) === 'hr.dashboard') {
+        mainContent.innerHTML = '<iframe src="/hr-dashboard" title="HR Dashboard" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // HR přehled (Šárka 3.7.2026): jádro hr.prehled je záměrně „drafted" (bez
       // root gridu) — obsah dodává HR pult (Pinya styl). Mount ho MÍSTO placeholderu.
       if (String(coreCode) === 'hr.prehled'

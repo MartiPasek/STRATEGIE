@@ -1399,6 +1399,18 @@ def hr_headcount_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/hr-dashboard")
+def hr_dashboard_page():
+    """📊 HR Dashboard (Šárka 24.7.2026) — analytické HR přehledy po vzoru Pinya HR.
+    4 pohledy: Lidé ve firmě, Nástupy, Odchody a fluktuace, Kvalita dat + filtr
+    zaměstnanců. Sloučen původní „Přehled zaměstnanců a OSVČ". Zatím statická
+    čísla k datu; živý přepočet přes agregační endpoint je navazující krok."""
+    return FileResponse(os.path.join(static_dir, "hr-dashboard.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/karta-zamestnance")
 def karta_zamestnance_page():
     """🪪 Karta zaměstnance (Šárka 8.7.2026) — 360° karta v ERP (Pinya × Centrála),

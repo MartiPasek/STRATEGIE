@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Dashboard — STRATEGIE</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --navy:#0f2a4a; --navy2:#173a63; --bg:#f4f6f9; --card:#ffffff; --line:#e4e8ef;
+    --ink:#1f2a37; --muted:#6b7686; --muted2:#9aa4b2;
+    --green:#5ba829; --blue:#2f6fed; --amber:#e8a400; --pink:#d6336c; --grayd:#c4c9d4;
+    --ok:#5ba829; --warn:#e8a400; --bad:#e0453a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  /* top bar mimicking ERP */
+  .topnav{background:var(--navy);color:#fff;display:flex;align-items:center;gap:22px;padding:0 20px;height:48px;font-size:14px}
+  .topnav .logo{font-weight:800;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
+  .topnav .logo b{color:#4ea1ff}
+  .topnav a{color:#cbd6e6;text-decoration:none;padding:0 4px}
+  .topnav a.active{color:#fff;font-weight:600;border-bottom:3px solid #4ea1ff;height:48px;display:flex;align-items:center}
+  .topnav .spacer{flex:1}
+  /* page header */
+  .pagehead{display:flex;align-items:center;justify-content:space-between;padding:18px 24px 6px}
+  .pagehead h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.5px}
+  .filterbtn{background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:center;box-shadow:0 1px 2px rgba(15,42,74,.04)}
+  .filterbtn:hover{border-color:var(--blue)}
+  /* filter panel */
+  .filterpanel{display:none;margin:6px 24px 0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 8px 24px rgba(15,42,74,.10)}
+  .filterpanel.open{display:block}
+  .filternote{background:#fdf6e3;border:1px solid #f0e4b8;color:#7a6413;border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
+  .filtergrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 18px}
+  .filtergrid label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:#334}
+  .filtergrid select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe;color:var(--muted);font-size:13px}
+  /* layout */
+  .wrap{display:flex;gap:20px;padding:14px 24px 40px;align-items:flex-start}
+  .side{width:236px;flex:none;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px;position:sticky;top:14px}
+  .side button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:10px;padding:12px 12px;font-size:14.5px;font-weight:600;color:#40506a;cursor:pointer}
+  .side button .ic{font-size:17px;width:22px;text-align:center}
+  .side button:hover{background:#f1f5fb}
+  .side button.active{background:#eaf1ff;color:var(--navy)}
+  .main{flex:1;min-width:0}
+  /* cards */
+  .sectioncard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,42,74,.03)}
+  .sectioncard h2{margin:0 0 16px;font-size:20px;font-weight:800}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .kpi{border:1px solid var(--line);border-radius:12px;padding:16px 16px}
+  .kpi .lbl{font-weight:700;font-size:14px}
+  .kpi .sub{color:var(--muted);font-size:12px;margin-top:2px;min-height:16px}
+  .kpi .val{display:flex;align-items:center;gap:12px;margin-top:16px}
+  .kpi .circle{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;flex:none}
+  .kpi .num{font-size:30px;font-weight:800;line-height:1}
+  .kpi .num small{font-size:14px;font-weight:600;color:var(--muted)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .chartcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 1px 2px rgba(15,42,74,.03)}
+  .chartcard h3{margin:0 0 3px;font-size:17px;font-weight:800}
+  .chartcard p.desc{margin:0 0 14px;color:var(--muted);font-size:12.5px}
+  .chartbox{position:relative;height:280px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;vertical-align:middle;margin-left:6px}
+  .b-real{background:#e7f5e0;color:#357a12}
+  .b-part{background:#fdf1d8;color:#8a6400}
+  .b-todo{background:#f0f1f4;color:#6b7686}
+  .empty{display:flex;align-items:center;justify-content:center;height:280px;color:var(--muted2);text-align:center;flex-direction:column;gap:8px;border:1px dashed var(--line);border-radius:10px}
+  .empty .big{font-size:30px}
+  /* gauges (kvalita dat) */
+  .qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .qcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .qcard .qt{font-weight:700;font-size:13.5px;min-height:34px}
+  .qcard .qbox{position:relative;height:120px}
+  .qcard .qv{text-align:center;font-size:13px;color:var(--muted);margin-top:2px}
+  .subhead{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:6px 0 12px}
+  .hidden{display:none}
+  .note{font-size:12.5px;color:var(--muted);background:#f7f9fc;border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:8px;padding:10px 14px;margin-top:4px}
+  .footer{padding:6px 24px 30px;color:var(--muted2);font-size:12px}
+  @media(max-width:900px){.grid2,.kpis,.qgrid,.filtergrid{grid-template-columns:1fr 1fr}.wrap{flex-direction:column}.side{width:100%;position:static;display:flex;gap:6px;overflow:auto}}
+</style>
+</head>
+<body>
+
+<div class="pagehead">
+  <h1>HR Dashboard <span style="font-size:13px;font-weight:600;color:var(--muted2)">· stav k 24. 7. 2026</span></h1>
+  <button class="filterbtn" onclick="document.getElementById('fp').classList.toggle('open')">▼ Filtrovat zaměstnance</button>
+</div>
+
+<div class="filterpanel" id="fp">
+  <div class="filternote">ℹ️ Data o organizačním zařazení jsou čerpána z primárních smluv zaměstnance (<b>engagement</b>). <i>Ve prototypu jsou filtry jen náhled — v ostrém uzlu budou funkční.</i></div>
+  <div class="filtergrid">
+    <div><label>🏛️ Společnost</label><select><option>— Vybrat společnost —</option><option>EUROSOFT (ES)</option><option>EUROSOFT Centrála (EC)</option></select></div>
+    <div><label>🌐 Země</label><select><option>— Vybrat zemi —</option><option>Česko</option></select></div>
+    <div><label>🏢 Středisko</label><select><option>— Vybrat středisko —</option></select></div>
+    <div><label>📍 Místo výkonu práce</label><select><option>— Vybrat místo —</option></select></div>
+    <div><label>🗂️ Oddělení</label><select><option>— Vybrat oddělení —</option></select></div>
+    <div><label>💼 Pracovní pozice</label><select><option>— Vybrat pozici —</option></select></div>
+    <div><label>👪 Skupiny</label><select><option>— Vybrat skupiny —</option></select></div>
+    <div><label>📊 Pracovní úroveň</label><select><option>— Vybrat úroveň —</option><option>Vedení</option></select></div>
+    <div><label>📄 Typ smlouvy</label><select><option>— Vybrat typ —</option><option>HPP</option><option>OSVČ</option><option>DPP</option></select></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="side">
+    <button class="active" data-view="people"><span class="ic">👥</span> Lidé ve firmě</button>
+    <button data-view="hires"><span class="ic">🡱</span> Nástupy</button>
+    <button data-view="exits"><span class="ic">🚪</span> Odchody a fluktuace</button>
+    <button data-view="quality"><span class="ic">✅</span> Kvalita dat</button>
+  </nav>
+
+  <div class="main">
+
+    <!-- ============ LIDÉ VE FIRMĚ ============ -->
+    <section id="view-people">
+      <div class="sectioncard">
+        <h2>Aktuálně</h2>
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Celkový počet zaměstnanců</div><div class="sub">k dnešnímu dni</div>
+            <div class="val"><div class="circle" style="background:var(--green)">👥</div><div class="num">64</div></div></div>
+          <div class="kpi"><div class="lbl">V mimořádném stavu</div><div class="sub">mateřská / rodičovská · zatím ručně</div>
+            <div class="val"><div class="circle" style="background:var(--pink)">🤰</div><div class="num">1</div></div>
+            <div class="sub" style="margin-top:8px">Michelle Šafránková (mateřská)</div></div>
+          <div class="kpi"><div class="lbl">Zaměstnanci podle pohlaví</div><div class="sub">k dnešnímu dni</div>
+            <div class="val"><div class="circle" style="background:var(--blue)">♂</div><div class="num">45<small> muž</small></div>
+              <div class="circle" style="background:var(--amber)">♀</div><div class="num">19<small> žena</small></div></div></div>
+          <div class="kpi"><div class="lbl">Průměrná délka zaměstnání</div><div class="sub">za aktivní zaměstnance</div>
+            <div class="val"><div class="circle" style="background:#5aa9c9">⏱️</div><div class="num">6,4<small> roku</small></div></div></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="chartcard">
+          <h3>Vývoj celkového počtu zaměstnanců <span class="badge b-todo">připravujeme</span></h3>
+          <p class="desc">Historii stavu (měsíc/kvartál/rok) zatím nesledujeme — doplníme snímkováním stavu ke konci období.</p>
+          <div class="empty"><span class="big">📈</span><div>Časová řada stavu se začne plnit po zavedení měsíčních snímků.<br>Zatím máme jen nábor/odchody po letech (viz Nástupy).</div></div>
+        </div>
+        <div class="chartcard">
+          <h3>Rozložení podle pohlaví <span class="badge b-real">reálná data</span></h3>
+          <p class="desc">Podíl pohlaví mezi aktivními zaměstnanci (64 lidí).</p>
+          <div class="chartbox"><canvas id="c_gender"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Rozložení podle věku <span class="badge b-real">reálná data</span></h3>
+          <p class="desc">Počet zaměstnanců ve věkových kategoriích (1× chybí datum narození).</p>
+          <div class="chartbox"><canvas id="c_age"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Délka zaměstnání <span class="badge b-real">reálná data</span></h3>
+          <p class="desc">Rozložení podle počtu odpracovaných let ve firmě.</p>
+          <div class="chartbox"><canvas id="c_tenure"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Top pracovní pozice <span class="badge b-part">42 z 62 vyplněno</span></h3>
+          <p class="desc">Nejčastější pozice zaměstnanců (z pozice_text primární smlouvy). Strukturovaná „úroveň" se zatím nevyplňuje.</p>
+          <div class="chartbox"><canvas id="c_pozice"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Počet přímých podřízených <span class="badge b-todo">chybí model</span></h3>
+          <p class="desc">Vazba nadřízený→podřízený zatím není strukturovaná (job_position.nadrizenost je jen text).</p>
+          <div class="empty"><span class="big">🧑‍🤝‍🧑</span><div>Doplníme po napojení org. struktury (posty / vedoucí).</div></div>
+        </div>
+      </div>
+
+      <div class="sectioncard" style="margin-top:20px">
+        <h2>Struktura pracovních poměrů</h2>
+        <div class="note">Sloučeno z původního uzlu „Přehled zaměstnanců a OSVČ" (ten se pak ze stromu odstraní). <b>64 zaměstnanců = 80 aktivních poměrů</b> — někdo má víc poměrů (např. HPP + OSVČ), zahrnuty i poměry lidí bez HR karty. Totály sedí s <b>tenant.engagement</b>; rozpad kancelář/výroba je z <b>výročního auditu 2026</b> (pozice zatím nejsou v DB — dopočítá se automaticky, až se doplní).</div>
+        <div class="grid2">
+          <div class="chartcard">
+            <h3>Podle firmy a typu poměru <span class="badge b-real">reálná data</span></h3>
+            <p class="desc">Aktivní poměry (80): HPP 48 · DPP 2 · OSVČ 30. Sedí s tenant.engagement.</p>
+            <div class="chartbox"><canvas id="c_firmatyp"></canvas></div>
+          </div>
+          <div class="chartcard">
+            <h3>Kancelář vs. výroba (HPP, 48) <span class="badge b-part">z auditu 2026</span></h3>
+            <p class="desc">Rozdělení 48 HPP zaměstnanců: THP (kancelář) 21 · dělnické (výroba) 27.</p>
+            <div class="chartbox"><canvas id="c_kancvyr"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ NÁSTUPY ============ -->
+    <section id="view-hires" class="hidden">
+      <div class="sectioncard">
+        <h2>Aktuálně</h2>
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Nástupy za rok 2026</div><div class="sub">od začátku roku (YTD)</div>
+            <div class="val"><div class="circle" style="background:var(--green)">🡱</div><div class="num">1</div></div></div>
+          <div class="kpi"><div class="lbl">Za posledních 12 měsíců</div><div class="sub">08/2025 – 07/2026</div>
+            <div class="val"><div class="circle" style="background:var(--blue)">📅</div><div class="num">3</div></div></div>
+          <div class="kpi"><div class="lbl">Aktuálně ve zkušební době</div><div class="sub">k dnešnímu dni</div>
+            <div class="val"><div class="circle" style="background:var(--amber)">🧪</div><div class="num">1</div></div></div>
+          <div class="kpi"><div class="lbl">Nejsilnější rok náboru</div><div class="sub">od roku 2020</div>
+            <div class="val"><div class="circle" style="background:#5aa9c9">🏆</div><div class="num">2023<small> · 11</small></div></div></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="chartcard">
+          <h3>Počet nástupů v čase <span class="badge b-real">reálná data</span></h3>
+          <p class="desc">Počet nástupů po letech (datum nástupu z hr_person).</p>
+          <div class="chartbox"><canvas id="c_hires"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Struktura podle typu poměru <span class="badge b-real">reálná data</span></h3>
+          <p class="desc">Aktivní pracovní poměry (80): HPP 48 · OSVČ 30 · DPP 2. Člověk může mít víc poměrů.</p>
+          <div class="chartbox"><canvas id="c_ctype"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Podle firmy (EC / ES) <span class="badge b-real">reálná data</span></h3>
+          <p class="desc">Aktivní poměry (80) podle firmy: EUROSOFT System (ES) 46 · Control (EC) 34.</p>
+          <div class="chartbox"><canvas id="c_company"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Retence po nástupu <span class="badge b-part">málo dat</span></h3>
+          <p class="desc">Podíl setrvání po 3/6/12 měsících — vyžaduje delší historii odchodů (zatím tenká).</p>
+          <div class="empty"><span class="big">📉</span><div>Naplní se, až bude víc uzavřených pracovních poměrů v datech.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ODCHODY A FLUKTUACE ============ -->
+    <section id="view-exits" class="hidden">
+      <div class="sectioncard">
+        <h2>Aktuálně</h2>
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Odchody za rok 2026</div><div class="sub">od začátku roku (YTD)</div>
+            <div class="val"><div class="circle" style="background:var(--green)">🚪</div><div class="num">5</div></div></div>
+          <div class="kpi"><div class="lbl">Aktuálně odchází</div><div class="sub">nastavené datum odchodu po dnešku</div>
+            <div class="val"><div class="circle" style="background:#5aa9c9">🧳</div><div class="num">1</div></div></div>
+          <div class="kpi"><div class="lbl">Míra fluktuace (YTD)</div><div class="sub">odchody / průměrný stav · orientační</div>
+            <div class="val"><div class="circle" style="background:var(--amber)">%</div><div class="num">7,8<small> %</small></div></div></div>
+          <div class="kpi"><div class="lbl">Dobrovolné / nedobrovolné</div><div class="sub">důvod odchodu se zatím neeviduje</div>
+            <div class="val"><div class="circle" style="background:var(--pink)">✋</div><div class="num" style="color:var(--muted2)">—</div></div></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="chartcard">
+          <h3>Počet odchodů v čase <span class="badge b-part">neúplná historie</span></h3>
+          <p class="desc">Odchody po letech (datum odchodu). Historická data odchodů jsou zatím tenká — plná řada přijde s migrací.</p>
+          <div class="chartbox"><canvas id="c_exits"></canvas></div>
+        </div>
+        <div class="chartcard">
+          <h3>Vývoj fluktuace <span class="badge b-part">málo dat</span></h3>
+          <p class="desc">Míra odchodovosti v % v čase (měsíční / rolling 12M / YTD).</p>
+          <div class="empty"><span class="big">📊</span><div>Křivku dopočítáme, až bude víc období s odchody.</div></div>
+        </div>
+        <div class="chartcard">
+          <h3>Důvody odchodů <span class="badge b-todo">chybí číselník</span></h3>
+          <p class="desc">Důvod a dobrovolnost odchodu se zatím u lidí neeviduje.</p>
+          <div class="empty"><span class="big">📝</span><div>Přidáme pole „způsob odchodu" + „důvod" (číselník) do karty / ukončení.</div></div>
+        </div>
+        <div class="chartcard">
+          <h3>Odchody podle firemní struktury <span class="badge b-part">málo dat</span></h3>
+          <p class="desc">Top střediska / pozice podle počtu odchodů ve zvoleném období.</p>
+          <div class="empty"><span class="big">🏢</span><div>Naplní se s historií odchodů.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ KVALITA DAT ============ -->
+    <section id="view-quality" class="hidden">
+      <div class="sectioncard">
+        <h2>Kvalita dat</h2>
+        <div class="note">Ukazuje, kde chybí klíčové údaje pro přesné HR statistiky. <b>Zelená</b> = kompletní, <b>žlutá</b> = drobné mezery, <b>červená</b> = velká mezera. Báze: 64 aktivních zaměstnanců, 80 aktivních smluv.</div>
+        <div class="subhead">Osobní údaje</div>
+        <div class="qgrid">
+          <div class="qcard"><div class="qt">Chybějící pohlaví</div><div class="qbox"><canvas id="q1"></canvas></div><div class="qv">0 z 64 · 100 % vyplněno</div></div>
+          <div class="qcard"><div class="qt">Chybějící datum narození</div><div class="qbox"><canvas id="q2"></canvas></div><div class="qv">1 z 64 · 98 % vyplněno</div></div>
+          <div class="qcard"><div class="qt">Chybějící rodné číslo</div><div class="qbox"><canvas id="q3"></canvas></div><div class="qv">2 z 64 · 97 % vyplněno (user_self_data)</div></div>
+          <div class="qcard"><div class="qt">Chybějící datum nástupu</div><div class="qbox"><canvas id="q4"></canvas></div><div class="qv">1 z 64 · 98 % vyplněno</div></div>
+        </div>
+        <div class="subhead" style="margin-top:22px">Pracovní údaje (smlouvy)</div>
+        <div class="qgrid">
+          <div class="qcard"><div class="qt">Chybějící pracovní úroveň / pozice</div><div class="qbox"><canvas id="q5"></canvas></div><div class="qv">76 z 80 · 5 % vyplněno</div></div>
+          <div class="qcard"><div class="qt">Chybějící středisko</div><div class="qbox"><canvas id="q6"></canvas></div><div class="qv">0 z 80 · 100 % vyplněno</div></div>
+          <div class="qcard"><div class="qt">Chybějící typ smlouvy</div><div class="qbox"><canvas id="q7"></canvas></div><div class="qv">0 z 80 · 100 % vyplněno</div></div>
+          <div class="qcard"><div class="qt">Chybějící způsob / důvod odchodu</div><div class="qbox"><canvas id="q8"></canvas></div><div class="qv">pole zatím neexistuje</div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="footer">
+  Uzel <b>HR Dashboard</b> (strom HR &amp; LIDÉ) · vzor Pinya HR · reálná data STRATEGIE / EUROSOFT (tenant 2) k 24. 7. 2026. Čísla jsou statická k datu; živý přepočet přes endpoint je navazující krok.
+</div>
+
+<script>
+Chart.defaults.font.family='"Segoe UI",Roboto,Arial,sans-serif';
+Chart.defaults.font.size=12;
+Chart.defaults.color='#40506a';
+const C={green:'#5ba829',blue:'#2f6fed',amber:'#e8a400',pink:'#d6336c',gray:'#c4c9d4',teal:'#5aa9c9'};
+
+// value labels plugin for bar charts
+const valLabels={id:'valLabels',afterDatasetsDraw(ch){const{ctx}=ch;ch.data.datasets.forEach((ds,di)=>{const meta=ch.getDatasetMeta(di);if(meta.type!=='bar')return;meta.data.forEach((el,i)=>{const v=ds.data[i];if(v==null||v===0)return;ctx.save();ctx.fillStyle='#243b57';ctx.font='700 12px Segoe UI';ctx.textAlign='center';const horiz=ch.options.indexAxis==='y';if(horiz){ctx.textBaseline='middle';ctx.fillText(v,el.x-14,el.y);}else{ctx.textBaseline='bottom';ctx.fillText(v,el.x,el.y-4);}ctx.restore();});});}};
+
+function bar(id,labels,data,color,opts={}){new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:color,borderRadius:6,maxBarThickness:64}]},options:{indexAxis:opts.horiz?'y':'x',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:true}},scales:{x:{grid:{display:opts.horiz},beginAtZero:true,ticks:{precision:0}},y:{grid:{display:!opts.horiz},beginAtZero:true,ticks:{precision:0}}}},plugins:[valLabels]});}
+
+function donut(id,labels,data,colors){new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8,padding:14}},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.parsed}`}}}}});}
+
+function gauge(id,pct){ // pct = % vyplněno
+  const col= pct>=100?C.green : pct>=90?C.amber : C.pink;
+  new Chart(document.getElementById(id),{type:'doughnut',data:{datasets:[{data:[pct,100-pct],backgroundColor:[col,'#eef1f5'],borderWidth:0,circumference:180,rotation:270}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{display:false},tooltip:{enabled:false}}},plugins:[{id:'g'+id,afterDraw(ch){const{ctx,chartArea}=ch;ctx.save();ctx.font='800 20px Segoe UI';ctx.fillStyle=col;ctx.textAlign='center';ctx.fillText(pct+'%',(chartArea.left+chartArea.right)/2,chartArea.bottom-4);ctx.restore();}}]});}
+
+// ---- Lidé ve firmě
+donut('c_gender',['Muž','Žena'],[45,19],[C.blue,C.amber]);
+bar('c_age',['<25','25–34','35–44','45–54','55+'],[7,10,21,15,10],['#9dc0f6','#6b9ff0','#3f79ee','#2f6fed','#1f4fb8']);
+bar('c_tenure',['<1 r','1–3 r','3–5 r','5–10 r','10+ r'],[2,11,18,17,15],['#cfe0fb','#9dc0f6','#6b9ff0','#3f79ee','#2f6fed']);
+bar('c_pozice',['Elektromontér','Elektroprojektant','Ref. nákupu a logistiky','Vedoucí projektů (OZ)','Zámečník','Ostatní pozice','Neuvedeno'],[19,2,2,2,2,15,20],['#2f6fed','#2f6fed','#2f6fed','#2f6fed','#2f6fed','#9dc0f6','#c4c9d4'],{horiz:true});
+function stacked(id,labels,ds){new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:ds.map(d=>({label:d.l,data:d.v,backgroundColor:d.c,borderRadius:4,stack:'s'}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8,padding:12}},tooltip:{enabled:true}},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,ticks:{precision:0}}}}});}
+stacked('c_firmatyp',['System (ES)','Control (EC)'],[{l:'HPP',v:[33,15],c:C.blue},{l:'DPP',v:[0,2],c:C.amber},{l:'OSVČ',v:[13,17],c:C.teal}]);
+stacked('c_kancvyr',['System (ES)','Control (EC)'],[{l:'Kancelář (THP)',v:[13,8],c:C.blue},{l:'Výroba (D)',v:[20,7],c:C.green}]);
+// ---- Nástupy
+bar('c_hires',['2020','2021','2022','2023','2024','2025','2026'],[2,6,8,11,4,6,1],C.green);
+donut('c_ctype',['HPP','OSVČ','DPP'],[48,30,2],[C.blue,C.teal,C.amber]);
+donut('c_company',['EUROSOFT (ES)','Centrála (EC)'],[46,34],[C.green,C.blue]);
+// ---- Odchody
+bar('c_exits',['2026','2027*'],[5,1],C.pink);
+// ---- Kvalita dat (gauge = % vyplněno)
+gauge('q1',100);gauge('q2',98);gauge('q3',97);gauge('q4',98);
+gauge('q5',5);gauge('q6',100);gauge('q7',100);gauge('q8',0);
+
+// nav switching
+const views={people:'view-people',hires:'view-hires',exits:'view-exits',quality:'view-quality'};
+document.querySelectorAll('.side button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.side button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  Object.values(views).forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById(views[b.dataset.view]).classList.remove('hidden');
+  window.scrollTo({top:0,behavior:'smooth'});
+}));
+</script>
+</body>
+</html>

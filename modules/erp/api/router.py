@@ -21400,9 +21400,11 @@ async def att_fix_void(req: Request) -> JSONResponse:
         # Marti-AI 23.7.2026 (konzultace) + Jirka: storno docházky KASKÁDUJE do výroby.
         # Stornovaný att_entry zneplatní odpovídající řádky tenant.vyroba_work (is_active=false),
         # aby se nepočítaly v přehledu „Docházka po zakázkách" (/app/dochazka/zakazky).
-        # Vazba: user + datum + shodná minuta začátku + shodná zakázka (att_entry.project_ref);
-        # jen práce SE zakázkou (project_ref NOT NULL — storna přestávek/absencí sem nepatří).
-        # Best-effort: nesmí NIKDY shodit storno docházky → vlastní try/except.
+        # Vazba: user + datum + shodná minuta ZAČÁTKU I KONCE + shodná zakázka (att_entry.project_ref).
+        # Konec je nutný (Jirka 24.7.): bez něj match omylem chytil PLATNOU práci — fantomové
+        # storno (0,01 h odchod / 12,9 h day-end) sdílelo start s reálným úsekem (Pavel/Lucie).
+        # Musí sedět i konec = je to TÝŽ úsek. Jen práce SE zakázkou (project_ref NOT NULL —
+        # storna přestávek/absencí sem nepatří). Best-effort: nikdy nesmí shodit storno → try/except.
         try:
             s.execute(_t(
                 "UPDATE tenant.vyroba_work w SET is_active=false, att_entry_id=:i, updated_at=now() "
@@ -21411,6 +21413,7 @@ async def att_fix_void(req: Request) -> JSONResponse:
                 "WHERE e.id=:i AND w.tenant_id=:t AND w.user_id=em.user_id "
                 "  AND w.datum=e.entry_date "
                 "  AND date_trunc('minute', w.od)=date_trunc('minute', e.started_at) "
+                "  AND date_trunc('minute', w.konec) IS NOT DISTINCT FROM date_trunc('minute', e.ended_at) "
                 "  AND e.project_ref IS NOT NULL AND w.zakazka_ref=e.project_ref "
                 "  AND w.is_active=true"),
                 {"i": eid, "t": _ATT_TENANT})

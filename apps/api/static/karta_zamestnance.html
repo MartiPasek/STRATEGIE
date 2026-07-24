@@ -1016,6 +1016,17 @@ const DOC_STAV={koncept:['Koncept','#2a2410','#E0A94A'],k_podpisu:['K podpisu','
 function stavChip(st){const m=DOC_STAV[st]||DOC_STAV.platny;return '<span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
 function stavSel(id,st){return '<select onchange="dokStav('+id+',this.value)" style="border:1px solid #2b3a4a;background:#0f141a;color:#7f8ea0;border-radius:6px;padding:2px 5px;font:inherit;font-size:11px">'+Object.keys(DOC_STAV).map(k=>'<option value="'+k+'"'+(k===st?' selected':'')+'>'+esc(DOC_STAV[k][0])+'</option>').join('')+'</select>';}
 async function dokStav(id,stav){const r=await fetch(API+'/app/hr/person-doc/stav',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,stav:stav})});const d=await r.json().catch(()=>({ok:false}));if(d.ok)dokUdaje();else alert('Nepovedlo se změnit stav.');}
+// Zařazení souboru z Centrály (KZ složka) do naší taxonomie dle názvu (Šárka 24.7.2026)
+function dokClassify(name){
+  const n=(name||'').toLowerCase();
+  if(/dodatek/.test(n)) return 'dodatek';
+  if(/mzdov|vymer|výměr/.test(n)) return 'mzda';
+  if(/zapoc|zápoč|zapoctov/.test(n)) return 'zapoctovy';
+  if(/posud|lékař|lekar|prohlídk|prohlidk|zdravot/.test(n)) return 'posudek';
+  if(/diplom|certifik|osvedč|osvedc|kvalifikac|školen|skolen/.test(n)) return 'diplom';
+  if(/smlouv|dohoda|dpp|dpc|dilo/.test(n)) return 'smlouva';
+  return 'ostatni';
+}
 async function dokUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
@@ -1117,11 +1128,18 @@ async function dokAdresarLoad(uid){
       '<a href="'+API+'/app/dir/zip?sys_name=osoba_hr&id='+uid+'" style="color:#7fe0a0;text-decoration:none">⬇ Stáhnout vše</a></span></div>';
   if(!files.length){ h+='<div style="padding:8px 16px;color:#7f8ea0;font-size:12.5px">Ve složce zatím nic není.</div>'; }
   else {
-    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-      files.map(x=>'<tr style="border-top:1px solid #1e2730">'+
-        '<td style="padding:6px 16px 6px 22px;color:#e8eef5">📄 '+esc(x.name)+(x.size!=null?' <span style="color:#5d6b7c">('+sz(x.size)+')</span>':'')+'</td>'+
-        '<td style="padding:6px 10px;white-space:nowrap"><span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:#1b2c44;color:#7fb2e8">Centrála</span></td>'+
-        '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/dir/file?sys_name=osoba_hr&id='+uid+'&name='+encodeURIComponent(x.name)+'" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a></td></tr>').join('')+'</table>';
+    const ORDER=['smlouva','dodatek','mzda','zapoctovy','posudek','diplom','ostatni'];
+    const gr={}; files.forEach(x=>{const c=dokClassify(x.name);(gr[c]=gr[c]||[]).push(x);});
+    const cats=Object.keys(gr).sort((a,b)=>{const ia=ORDER.indexOf(a),ib=ORDER.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib);});
+    cats.forEach(cat=>{
+      const list=gr[cat];
+      h+='<div style="padding:7px 16px 2px 24px;color:#8fa6c4;font-weight:700;font-size:11px;letter-spacing:.02em">▸ '+esc(DOK_KAT[cat]||cat)+' <span style="color:#5d6b7c;font-weight:600">('+list.length+')</span></div>'+
+        '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+        list.map(x=>'<tr style="border-top:1px solid #1e2730">'+
+          '<td style="padding:6px 16px 6px 30px;color:#e8eef5">📄 '+esc(x.name)+(x.size!=null?' <span style="color:#5d6b7c">('+sz(x.size)+')</span>':'')+'</td>'+
+          '<td style="padding:6px 10px;white-space:nowrap"><span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:#1b2c44;color:#7fb2e8">Centrála</span></td>'+
+          '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/dir/file?sys_name=osoba_hr&id='+uid+'&name='+encodeURIComponent(x.name)+'" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a></td></tr>').join('')+'</table>';
+    });
   }
   h+='<div style="padding:8px 16px 3px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
      '<input type="file" id="dokAdrFile" style="color:#cdd6e2;font-size:12px">'+

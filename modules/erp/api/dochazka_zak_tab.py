@@ -553,3 +553,61 @@ async def dochazka_zak_tab_widths_set(req: Request) -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
+
+
+@doch_zak_tab_router.post("/app/dochazka-zak-tab/delete-usek")
+async def dochazka_zak_tab_delete_usek(req: Request) -> JSONResponse:
+    """Smaže JEDEN výrobní úsek (řádek tenant.vyroba_work, kind='W') — zneaktivní ho
+    (is_active=false) + audit do poznámky (kdo/proč). Postup dle Jirky (24.7.2026,
+    ověřeno v kódu): work_alloc NEMAZAT (osiřel by řádek), sync is_active nevrací,
+    v přehledech (Docházka new i Dušanův) je is_active filtrované → úsek zmizí, ale
+    v DB zůstane pro dohledatelnost. Vratné (is_active zpět na true). Povinný důvod."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        rid = int((body or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí id řádku"}, status_code=400)
+    reason = str((body or {}).get("reason") or "").strip()[:300]
+    if not reason:
+        return JSONResponse({"ok": False, "error": "Důvod smazání je povinný (kvůli auditu)."}, status_code=400)
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        row = s.execute(_t("SELECT is_active, source_system FROM tenant.vyroba_work "
+                           "WHERE id=:id AND tenant_id=2"), {"id": rid}).mappings().first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Úsek nenalezen."}, status_code=404)
+        if row["is_active"] is False:
+            return JSONResponse({"ok": True, "id": rid, "note": "už bylo smazané"})
+        actor = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),''),'?') "
+            "FROM public.users WHERE id=:u"), {"u": int(uid)}).scalar() or "?"
+        tag = "🗑 SMAZÁNO (" + actor + "): " + reason
+        s.execute(_t(
+            "UPDATE tenant.vyroba_work SET is_active=false, updated_at=now(), "
+            " poznamka = CASE WHEN COALESCE(poznamka,'')='' THEN :tag ELSE poznamka || ' / ' || :tag END "
+            "WHERE id=:id AND tenant_id=2 AND is_active=true"), {"id": rid, "tag": tag})
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid})
+    except Exception as exc:  # noqa: BLE001
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass

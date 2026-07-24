@@ -732,34 +732,42 @@ function ctxAction(a){
    - W (úsek na zakázce) = zatím ne (Jirkova doména work_alloc) — jen hláška.
    - C (historie z Centrály) = engine odmítá, mění se v Centrále — jen hláška.
    - pohled „Naplánovaná budoucnost" = jiné (plánované absence, řeší se s Jirkou). */
-var DEL_ROW=null;
+// DEL_KIND: 'W' = úsek na zakázce (vyroba_work → delete-usek), 'P' = docházka (att_entry → fix/void).
+var DEL_ROW=null, DEL_KIND=null;
 function smazatRow(i){
   var r=ROWS[i]; if(!r)return;
   if(OBD==='budoucnost'){
-    alert('Naplánované absence se tu zatím nemažou — jsou to řádky „Naplánované budoucnosti" (Jirkova sada) a nemají tu vlastní ID. Připravuju to s ním; zatím zruš žádost v aplikaci / v „Opravy docházky".');
+    alert('Naplánované absence se tu zatím nemažou — data „Naplánované budoucnosti" nemají ve výpisu vlastní ID. Připravujeme to s Jirkou (doplní ID + rušení celé žádosti). Zatím zruš žádost v „Žádosti o absenci".');
     return;
   }
   var k=r._kind;
   if(k==='C'){ alert('Tenhle záznam vlastní stará Centrála (historie leden–květen) — mění se v Centrále, ne tady.'); return; }
-  if(k==='W'){ alert('Úsek práce na zakázce zatím nejde smazat tady — připravuju to s Jirkou (storno engine). Zatím se dá zrušit v „Opravy docházky".'); return; }
-  if(k!=='P' && k!=='A'){ alert('Tenhle typ záznamu se tu nemaže.'); return; }
-  DEL_ROW=r;
-  var co=(k==='A')?('absence: '+esc(r.CinnostText||r.DruhCinnosti||''))
-                  :('docházka: '+esc(r.CinnostText||r.CisloZakazky||'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):''));
-  $('del_info').innerHTML='Opravdu smazat tenhle záznam?<br><b>'+esc(r.JmenoPrijmeni||'')+' · '+esc(r.DatumPripadu||r.CasZacatek||'')+'</b><br>'+co
-    +'<br><span style="opacity:.85;font-size:11px">Zruší se přes „Opravy docházky" — zapíše se audit, dotčený dostane upozornění, a jde to vrátit.</span>';
+  if(k==='A'){ alert('Absenci (dovolená/nemoc/…) tímhle tlačítkem zatím nerušíme — správné zrušení musí zrušit i celou žádost (a později odečíst z nároku). Dodělává se s Jirkou. Zatím zruš v „Žádosti o absenci" / „Opravy docházky".'); return; }
+  if(k!=='P' && k!=='W'){ alert('Tenhle typ záznamu se tu nemaže.'); return; }
+  DEL_ROW=r; DEL_KIND=k;
+  var info, co;
+  if(k==='W'){
+    co='úsek na zakázce '+esc(r.CisloZakazky||'')+(r.CinnostText?(' · '+esc(r.CinnostText)):'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'');
+    info='<br><span style="opacity:.85;font-size:11px">Úsek se označí jako smazaný (na pozadí), z přehledu zmizí. Zapíše se do poznámky kdo/proč. Jde vrátit.</span>';
+  }else{
+    co='docházka: '+esc(r.CinnostText||r.CisloZakazky||'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'');
+    info='<br><span style="opacity:.85;font-size:11px">Zruší se přes „Opravy docházky" — audit, dotčený dostane upozornění, jde vrátit.</span>';
+  }
+  $('del_info').innerHTML='Opravdu smazat tenhle záznam?<br><b>'+esc(r.JmenoPrijmeni||'')+' · '+esc(r.DatumPripadu||r.CasZacatek||'')+'</b><br>'+co+info;
   $('del_reason').value=''; $('del_msg').textContent=''; $('del_msg').className='dmsg'; $('del_ok').disabled=false;
   $('ovdel').classList.add('on');
   setTimeout(function(){try{$('del_reason').focus();}catch(e){}},30);
 }
-function closeDel(){$('ovdel').classList.remove('on');DEL_ROW=null;}
+function closeDel(){$('ovdel').classList.remove('on');DEL_ROW=null;DEL_KIND=null;}
 function delOk(){
   if(!DEL_ROW)return;
   var reason=($('del_reason').value||'').trim();
   var m=$('del_msg'),ok=$('del_ok');
   if(!reason){m.className='dmsg';m.textContent='Vyplň důvod smazání (povinné kvůli auditu).';try{$('del_reason').focus();}catch(e){}return;}
   m.className='dmsg';m.textContent='Mažu…';ok.disabled=true;
-  _postJ('/api/v1/erp/app/attendance/fix/void',{id:DEL_ROW._id,reason:reason}).then(function(res){
+  // W = výrobní úsek (zneaktivní vyroba_work); P = docházka (storno att_entry).
+  var url=(DEL_KIND==='W')?'/api/v1/erp/app/dochazka-zak-tab/delete-usek':'/api/v1/erp/app/attendance/fix/void';
+  _postJ(url,{id:DEL_ROW._id,reason:reason}).then(function(res){
     if(res.j&&res.j.ok){m.className='dmsg ok';m.textContent='Smazáno.';setTimeout(function(){closeDel();load();},450);}
     else{m.className='dmsg';m.textContent=(res.j&&res.j.error)||('Nepovedlo se smazat ('+res.s+').');ok.disabled=false;}
   }).catch(function(){m.className='dmsg';m.textContent='Nepodařilo se spojit se serverem.';ok.disabled=false;});

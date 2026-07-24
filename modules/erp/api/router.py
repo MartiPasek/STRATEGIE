@@ -10345,6 +10345,104 @@ async def app_hr_template_toggle(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/person-templates")
+async def app_hr_person_templates(req: Request) -> JSONResponse:
+    """Šablony použitelné pro konkrétního člověka (dle jeho firmy + typu poměru).
+    Popisy míst (typ='Popis místa') a šablony firmy 'EUROSOFT (obě)' se nabízejí vždy."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        prows = s.execute(_t(
+            "SELECT DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+            "  WHEN 2 THEN 'EUROSOFT - System' END, lower(COALESCE(e.engagement_type,'')) "
+            "FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "WHERE ae.user_id=:u AND e.tenant_id=2 AND e.is_current=true"), {"u": tuid}).fetchall()
+        firmy = {r[0] for r in prows if r[0]}
+        _TM = {"hpp": "HPP", "osvc": "OSVČ", "dpp": "DPP", "dpc": "DPP"}
+        typy = {_TM.get(r[1]) for r in prows if r[1] and _TM.get(r[1])}
+        trows = s.execute(_t(
+            "SELECT id, COALESCE(firma,''), COALESCE(typ,''), kod, nazev, verze "
+            "FROM tenant.hr_template WHERE tenant_id=2 AND is_active=true ORDER BY firma, typ, nazev")).fetchall()
+        out = []
+        for r in trows:
+            tfirma, ttyp = r[1], r[2]
+            firma_ok = (not tfirma) or (tfirma in firmy) or (tfirma == "EUROSOFT (obě)")
+            typ_ok = (ttyp in typy) or (ttyp in ("Popis místa", "")) or (not typy)
+            if firma_ok and typ_ok:
+                out.append({"id": r[0], "firma": tfirma, "typ": ttyp, "kod": r[3],
+                            "nazev": r[4], "verze": r[5]})
+        return JSONResponse({"ok": True, "sablony": out,
+                             "firmy": sorted(firmy), "typy": sorted([t for t in typy if t])})
+    except Exception as exc:
+        logger.exception("[hr_person_templates] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/document-generate")
+async def app_hr_document_generate(req: Request) -> JSONResponse:
+    """Vygeneruje osobní kopii šablony do spisu člověka (tenant.employee_document,
+    kategorie 'generovana'). Bezpečné — obsah šablony 1:1, HR doplní žlutá místa v kopii."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    tuid = int((b or {}).get("uid") or 0)
+    tid = int((b or {}).get("template_id") or 0)
+    if not tuid or not tid:
+        return JSONResponse({"ok": False, "error": "Chybí zaměstnanec nebo šablona."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        tpl = s.execute(_t(
+            "SELECT nazev, obsah, COALESCE(mime,'application/octet-stream'), verze "
+            "FROM tenant.hr_template WHERE id=:i AND tenant_id=2 AND is_active=true"), {"i": tid}).first()
+        if not tpl or tpl[1] is None:
+            return JSONResponse({"ok": False, "error": "Šablona nenalezena / neaktivní."}, status_code=404)
+        prijmeni = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(last_name,'')||' '||COALESCE(first_name,'')),''),"
+            " (SELECT full_name FROM tenant.att_employee ae WHERE ae.user_id=:u AND ae.tenant_id=2 LIMIT 1),"
+            " '#'||:u) FROM public.users WHERE id=:u"), {"u": tuid}).scalar() or ("#" + str(tuid))
+        dnes = _dt.date.today().strftime("%Y-%m-%d")
+        nazev = (str(tpl[0]) + " — " + str(prijmeni) + " — " + dnes + ".docx")
+        doc_id = int(s.execute(_t(
+            "INSERT INTO tenant.employee_document (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, is_active) "
+            "SELECT 2, :u, 'generovana', :n, :m, obsah, octet_length(obsah), :by, true "
+            "FROM tenant.hr_template WHERE id=:i AND tenant_id=2 RETURNING id"),
+            {"u": tuid, "n": nazev, "m": tpl[2], "by": uid, "i": tid}).scalar())
+        try:
+            s.execute(_t(
+                "INSERT INTO tenant.hr_template_log (tenant_id, template_id, akce, kdo, kdy, poznamka) "
+                "VALUES (2, :tid, 'generovan', :by, now(), :p)"),
+                {"tid": tid, "by": uid, "p": ("pro user " + str(tuid) + ", doc " + str(doc_id))})
+        except Exception:
+            pass
+        s.commit()
+        return JSONResponse({"ok": True, "doc_id": doc_id, "nazev": nazev})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_document_generate] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Odpovědnost: kdo kontroluje docházku / schvaluje volno (Šárka 24.7.2026) ──────
 # Fáze 1 = kontrola docházky (agenda='dochazka'); volno (Fáze 2) až po koordinaci s Jirkou.
 def _je_vedouci_daneho(s, uid, target_uid) -> bool:

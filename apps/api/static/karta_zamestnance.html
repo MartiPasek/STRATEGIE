@@ -1025,6 +1025,7 @@ async function dokUdaje(){
      '<input type="file" id="dokFile" style="color:#cdd6e2;font-size:12px">'+
      '<button onclick="dokUpload('+uid+')" style="border:1px solid #3a8a4d;background:#2e6f3e;color:#eafff0;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">⬆ Nahrát</button>'+
      '<span id="dokMsg" style="font-size:12px;color:#7fe0a0"></span></div>';
+  h+='<div id="dokGen" style="padding:2px 16px 10px"></div>';
   const docs=d.dokumenty||[];
   if(!docs.length){ h+='<div class="empty">Zatím žádné dokumenty.</div>'; }
   else {
@@ -1039,6 +1040,30 @@ async function dokUdaje(){
   h+='<div id="dokAdr" style="border-top:8px solid #0c1116;margin-top:8px"></div>';
   det.innerHTML=h;
   dokAdresarLoad(uid);
+  dokGenLoad(uid);
+}
+// Šárka 24.7.2026: generování dokumentu ze šablony (dle firmy + typu poměru) do spisu
+async function dokGenLoad(uid){
+  const box=document.getElementById('dokGen'); if(!box) return;
+  const d=await j(API+'/app/hr/person-templates?uid='+uid);
+  if(!d.ok || !(d.sablony||[]).length){ box.innerHTML='<div style="color:#5d6b7c;font-size:12px">Generování: pro tohoto člověka nejsou dostupné žádné aktivní šablony.</div>'; return; }
+  const opts=d.sablony.map(t=>'<option value="'+t.id+'">'+esc(t.nazev)+' ('+esc(t.firma||'—')+(t.typ?(' · '+esc(t.typ)):'')+', v'+t.verze+')</option>').join('');
+  box.innerHTML='<div style="border:1px dashed #2b3a4a;border-radius:8px;padding:10px 12px;background:#12181f">'+
+    '<div style="color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">📝 Generovat dokument ze šablony</div>'+
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+      '<select id="dokGenSel" style="border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:5px 8px;font:inherit;max-width:520px">'+opts+'</select>'+
+      '<button onclick="dokGenerate('+uid+')" style="border:1px solid #3a6aa8;background:#2e5a8f;color:#eaf2ff;border-radius:6px;padding:5px 12px;font:inherit;font-weight:700;cursor:pointer">Generovat do spisu</button>'+
+      '<span id="dokGenMsg" style="font-size:12px;color:#7fe0a0"></span></div>'+
+    '<div style="color:#7f8ea0;font-size:11px;margin-top:6px">Vytvoří osobní kopii šablony do Dokumentů. Žlutě zvýrazněná místa a volby „/" doplníš/vybereš ve staženém dokumentu.</div></div>';
+}
+async function dokGenerate(uid){
+  const sel=document.getElementById('dokGenSel'), msg=document.getElementById('dokGenMsg');
+  if(!sel||!sel.value) return;
+  msg.style.color='#7f8ea0'; msg.textContent='Generuji…';
+  const r=await fetch(API+'/app/hr/document-generate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:uid,template_id:parseInt(sel.value)})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
+  dokUdaje();
 }
 // Šárka 21.7.2026: Adresář = fyzická složka na serveru (\\...\Zamestnanci\KZ+číslo), stejný
 // mechanismus jako Pavlův CRM Adresář. Reuse /app/dir/list · file · write · zip.

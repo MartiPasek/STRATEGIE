@@ -45,12 +45,21 @@
 
 <script>
 var STAVY_LABEL={navrzen:"Návrh",schvalen:"Schválen",aktivni:"Aktivní",splnen:"Splněn",zamitnut:"Zamítnut",pozastaven:"Pozastaven"};
-var FILTRY=[["","Vše"],["navrzen","Čeká na schválení"],["aktivni","Aktivní"],["pozastaven","Pozastavené"],["splnen","Hotové"]];
+var FILTRY=[["","Vše"],["navrzen","Čeká na schválení"],["aktivni","Aktivní"],["pozastaven","Pozastavené"],["splnen","Hotové"],["zamitnut","Zamítnuté"]];
 var _filtr="";
+var _view="list";
 var app=document.getElementById("app");
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
 function toast(m){var t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.remove();},2600);}
+function _nativeB(){
+  try{ if(window.B&&typeof window.B.authedFetch==="function") return window.B; }catch(e){}
+  try{ if(window.parent&&window.parent!==window&&window.parent.B&&typeof window.parent.B.authedFetch==="function") return window.parent.B; }catch(e){}
+  return null;
+}
 async function api(method,path,body){
+  // Nativní appka: auth přes most (B.authedFetch drží token). Web: cookie (credentials include).
+  var B=_nativeB();
+  if(B){ try{ var t=B.authedFetch(method,"/api/v1/erp"+path,body?JSON.stringify(body):""); var jb=t?JSON.parse(t):{}; return {status:200,j:jb}; }catch(e){} }
   var opt={method:method,headers:{},credentials:"include"};
   if(body){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(body);}
   var r=await fetch("/api/v1/erp"+path,opt);
@@ -59,7 +68,12 @@ async function api(method,path,body){
 }
 function badge(stav){return '<span class="badge b-'+esc(stav)+'">'+esc(STAVY_LABEL[stav]||stav)+'</span>';}
 
+// Appka volá tenhle hook při „Zpět" (mobile_parts/10_core.js). Z detailu/nového cíle
+// se vrátíme na seznam (handled=true); ze seznamu vrátíme false → appka odejde ven.
+window.__onAppBack=function(){ if(_view==="detail"||_view==="new"){ renderList(); return true; } return false; };
+
 async function renderList(){
+  _view="list";
   app.innerHTML='<div class="empty">Načítám…</div>';
   var q=_filtr?("?stav="+encodeURIComponent(_filtr)):"";
   var res=await api("GET","/app/cil"+q);
@@ -84,6 +98,7 @@ async function renderList(){
 function setFiltr(f){_filtr=f;renderList();}
 
 async function detail(id){
+  _view="detail";
   app.innerHTML='<div class="empty">Načítám…</div>';
   var res=await api("GET","/app/cil/"+id);
   if(!res.j||!res.j.ok){app.innerHTML='<button class="back" onclick="renderList()">← Zpět</button><div class="empty">Cíl nenalezen.</div>';return;}
@@ -126,6 +141,7 @@ async function prechod(id,akce){
 }
 
 function formNew(){
+  _view="new";
   var h='<button class="back" onclick="renderList()">← Zpět</button><h1>＋ Nový cíl</h1>';
   h+='<div class="field"><div class="k">Název *</div><input id="f_nazev" maxlength="200" placeholder="Krátký název cíle"></div>';
   h+='<div class="field"><div class="k">Popis</div><textarea id="f_popis" rows="3" placeholder="Co se má splnit (dílčí, konkrétní)"></textarea></div>';

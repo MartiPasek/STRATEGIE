@@ -9362,6 +9362,180 @@ async def app_hr_contracts(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# Úrovně oprávnění pro „Přidat zaměstnance" (Šárka 24.7.2026). Mapování na user_tenants.role.
+_HR_CREATE_ROLES = [
+    {"value": "employee", "label": "Řadový zaměstnanec"},
+    {"value": "member", "label": "Rozšířený (člen týmu)"},
+]
+_HR_CREATE_TYPY = [
+    {"value": "hpp", "label": "HPP"},
+    {"value": "osvc", "label": "OSVČ"},
+    {"value": "dpp", "label": "DPP"},
+    {"value": "dpc", "label": "DPČ"},
+]
+
+
+@api_router.get("/app/hr/create-meta")
+async def app_hr_create_meta(req: Request) -> JSONResponse:
+    """Číselníky pro formulář Přidat zaměstnance (pozice, skupiny, posty, firmy, role, typy)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        pozice = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
+            "SELECT id, label FROM tenant.job_position WHERE tenant_id=2 AND aktivni "
+            "ORDER BY sort_order NULLS LAST, label")).fetchall()]
+        skupiny = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
+            "SELECT id, COALESCE(NULLIF(TRIM(label),''), name) FROM tenant.staff_group "
+            "WHERE tenant_id=2 AND NOT COALESCE(archived,false) ORDER BY 2")).fetchall()]
+        posty = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
+            "SELECT id, nazev FROM tenant.org_post WHERE tenant_id=2 AND aktivni ORDER BY nazev")).fetchall()]
+        return JSONResponse({"ok": True,
+                             "firmy": [{"id": 1, "label": "EUROSOFT - Control"}, {"id": 2, "label": "EUROSOFT - System"}],
+                             "role": _HR_CREATE_ROLES, "typy": _HR_CREATE_TYPY,
+                             "pozice": pozice, "skupiny": skupiny, "posty": posty})
+    except Exception as exc:
+        logger.exception("[hr_create_meta] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/employee-create")
+async def app_hr_employee_create(req: Request) -> JSONResponse:
+    """Založí nového zaměstnance ve STRATEGII (Šárka 24.7.2026, návrh 1 — nic do Centrály).
+    V JEDNÉ transakci: osoba (users) + členství (user_tenants) + docházkový záznam
+    (att_employee, auto číslo v řadě 100000+) + pracovní poměr (engagement, is_current)
+    + prázdná karta + zařazení na post + skupiny. Pak cinkne Petře (mzdy) a HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    first = str((b or {}).get("first_name") or "").strip()
+    last = str((b or {}).get("last_name") or "").strip()
+    try:
+        company_id = int((b or {}).get("company_id") or 0)
+    except Exception:
+        company_id = 0
+    role = str((b or {}).get("role") or "employee").strip()
+    if role not in {r["value"] for r in _HR_CREATE_ROLES}:
+        role = "employee"
+    show_in_org = bool((b or {}).get("show_in_org", True))
+    groups = [int(g) for g in ((b or {}).get("groups") or []) if str(g).isdigit()]
+    typ = str((b or {}).get("smlouva_typ") or "").strip().lower()
+    try:
+        uvazek = float((b or {}).get("uvazek") or 40)
+    except Exception:
+        uvazek = 40.0
+    position_id = (b or {}).get("position_id")
+    position_id = int(position_id) if str(position_id or "").isdigit() else None
+    post_id = (b or {}).get("post_id")
+    post_id = int(post_id) if str(post_id or "").isdigit() else None
+    create_login = bool((b or {}).get("create_login"))
+    email = str((b or {}).get("email") or "").strip() or None
+
+    def _d(v):
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+    nastup = _d((b or {}).get("nastup"))
+    zkusebni = _d((b or {}).get("zkusebni_do"))
+
+    # validace
+    errs = []
+    if not first: errs.append("křestní jméno")
+    if not last: errs.append("příjmení")
+    if company_id not in (1, 2): errs.append("společnost")
+    if typ not in {t["value"] for t in _HR_CREATE_TYPY}: errs.append("typ smlouvy")
+    if not nastup: errs.append("datum nástupu")
+    if create_login and not email: errs.append("firemní e-mail (kvůli přístupu)")
+    if errs:
+        return JSONResponse({"ok": False, "error": "Chybí/špatně: " + ", ".join(errs)}, status_code=400)
+
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # další volné číslo v STRATEGIE řadě (100000+, ať se nepere s Centrálou)
+        cislo = int(s.execute(_t(
+            "SELECT GREATEST(100017, COALESCE(max((cislo_zam)::int),100017))+1 "
+            "FROM tenant.att_employee WHERE tenant_id=2 AND cislo_zam ~ '^[0-9]+$'")).scalar() or 100018)
+        full = (first + " " + last).strip()
+        actor = "claude-25 (Šárka)"
+        new_uid = int(s.execute(_t(
+            "INSERT INTO public.users (first_name, last_name, status) "
+            "VALUES (:f, :l, 'active') RETURNING id"), {"f": first, "l": last}).scalar())
+        s.execute(_t(
+            "INSERT INTO public.user_tenants (user_id, tenant_id, role, membership_status) "
+            "VALUES (:u, 2, :r, :ms)"),
+            {"u": new_uid, "r": role, "ms": ("invited" if create_login else "active")})
+        rez_forma = "HPP" if typ == "hpp" else typ.upper()
+        emp_id = int(s.execute(_t(
+            "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, user_id, full_name, rez_forma) "
+            "VALUES (2, :c, :u, :fn, :rf) RETURNING id"),
+            {"c": str(cislo), "u": new_uid, "fn": full, "rf": rez_forma}).scalar())
+        poz_text = None
+        if position_id:
+            poz_text = s.execute(_t("SELECT label FROM tenant.job_position WHERE id=:i AND tenant_id=2"),
+                                 {"i": position_id}).scalar()
+        _TYPTXT = {"hpp": "HPP", "osvc": "OSVČ", "dpp": "DPP", "dpc": "DPČ"}
+        s.execute(_t(
+            "INSERT INTO tenant.engagement (tenant_id, employee_id, company_id, engagement_type, druh_text, "
+            " smlouva_od, zkusebni_do, uvazek_tyden_h, position_id, pozice_text, valid_from, is_current, "
+            " changed_by_text, changed_at, created_at) "
+            "VALUES (2, :e, :co, :et, :dt, :od, :zk, :uv, :pid, :pt, :od, true, :by, now(), now())"),
+            {"e": emp_id, "co": company_id, "et": typ, "dt": _TYPTXT.get(typ, typ.upper()),
+             "od": nastup, "zk": zkusebni, "uv": uvazek, "pid": position_id, "pt": poz_text, "by": actor})
+        # prázdná karta (nepovinné – vytvoří se i při prvním uložení karty)
+        try:
+            s.execute(_t("INSERT INTO tenant.user_self_data (tenant_id, user_id) VALUES (2, :u)"), {"u": new_uid})
+        except Exception:
+            pass
+        if show_in_org and post_id:
+            s.execute(_t(
+                "INSERT INTO tenant.org_post_assign (tenant_id, post_id, employee_id, zastupce_role, aktivni) "
+                "VALUES (2, :p, :e, 0, true)"), {"p": post_id, "e": emp_id})
+        for g in groups:
+            s.execute(_t(
+                "INSERT INTO tenant.staff_group_member (tenant_id, group_id, user_id, score) "
+                "VALUES (2, :g, :u, 0)"), {"g": g, "u": new_uid})
+        s.commit()
+
+        # notifikace: Petra (mzdy) + HR skupina/rodiče. Best-effort (nesmí shodit založení).
+        try:
+            prijemci = set(_self_hr_recipients(s))
+            petra = s.execute(_t(
+                "SELECT id FROM public.users WHERE first_name ILIKE 'Petra' AND last_name ILIKE 'Šafr%' LIMIT 1")).scalar()
+            if petra:
+                prijemci.add(int(petra))
+            titul = "Nový zaměstnanec: " + full
+            zprava = (full + " (č. " + str(cislo) + ", " + _TYPTXT.get(typ, typ.upper()) +
+                      ", nástup " + nastup.strftime("%d.%m.%Y") + ") byl založen do STRATEGIE. "
+                      "Prosím zařaď do mzdové agendy.")
+            _abs_notify(s, [p for p in prijemci if p != uid], titul, zprava)
+            s.commit()
+        except Exception as _ne:
+            logger.warning("[employee_create notify] %s", _ne)
+
+        return JSONResponse({"ok": True, "user_id": new_uid, "cislo": str(cislo), "employee_id": emp_id})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_employee_create] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Fotky zaměstnanců (Šárka 21.7.2026) ─────────────────────────────────────
 # Úložiště: tenant.employee_photo (bytea, MIMO git – nezveřejní se). Routa jen
 # pro přihlášené (foto = osobní údaj, GDPR). Vlastník vidí/nahrává svou fotku;

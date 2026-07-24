@@ -91,6 +91,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Přidat zaměstnance (Šárka 24.7.2026): jádro hr.pridat = iframe karty ve formuláři
+      // pro založení nového zaměstnance (osoba + poměr + karta + zařazení + notifikace Petře).
+      if (String(coreCode) === 'hr.pridat') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=create" title="Přidat zaměstnance" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Přehled zaměstnanců a OSVČ (Šárka 20.7.2026): jádro hr.headcount = iframe
       // stránky /hr-headcount. Jen agregovaná čísla (firma × typ × kancelář/výroba).
       if (String(coreCode) === 'hr.headcount') {

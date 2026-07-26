@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trezor hesel — STRATEGIE</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0d0d0d; color:#e0e0e0;
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         display:flex; align-items:flex-start; justify-content:center; min-height:100vh; padding:20px; }
+  .wrap { max-width:560px; width:100%; display:flex; flex-direction:column; gap:16px; }
+  .card { background:#1a1a1a; border:1px solid #2a3a4a; border-radius:14px;
+          padding:22px 24px; box-shadow:0 12px 48px rgba(0,0,0,.45); }
+  h1 { font-size:21px; color:#aac8ec; margin:0 0 6px; }
+  h2 { font-size:15px; color:#cfe0f2; margin:0 0 12px; font-weight:600; }
+  .sub { font-size:13px; color:#9fb6cc; margin:0 0 6px; line-height:1.55; }
+  label { display:block; font-size:12.5px; color:#9fb6cc; margin:13px 0 5px; }
+  input, textarea { width:100%; padding:10px 12px; border-radius:8px; background:#0d0d0d;
+          color:#e0e0e0; border:1px solid #3a4a5a; font-size:14px; font-family:inherit; }
+  input:focus, textarea:focus { outline:none; border-color:#5b87c4; }
+  .hint { font-size:11px; color:#6f8296; margin-top:4px; }
+  button { background:#2563eb; color:#fff; border:0; padding:11px 16px; border-radius:8px;
+           font-size:14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:default; }
+  button.ghost { background:transparent; border:1px solid #3a4a5a; color:#9fb6cc; }
+  button.small { padding:6px 11px; font-size:12.5px; font-weight:600; }
+  button.danger { background:#3a1414; border:1px solid #6e2c2c; color:#ffb38a; }
+  #saveBtn { width:100%; margin-top:18px; }
+  .msg { margin-top:14px; font-size:13.5px; padding:11px 13px; border-radius:8px; display:none; }
+  .ok  { background:#10301a; border:1px solid #2c6e3f; color:#a8e6bf; }
+  .err { background:#3a1414; border:1px solid #6e2c2c; color:#ffb38a; }
+  .note { font-size:12px; color:#8fb0c8; background:#11202a; border:1px solid #244;
+          border-radius:8px; padding:10px 12px; line-height:1.5; margin-top:6px; }
+  .item { border:1px solid #263644; border-radius:10px; padding:13px 14px; margin-bottom:10px; background:#141c24; }
+  .item .lbl { font-weight:700; color:#e6eefa; font-size:14.5px; }
+  .item .meta { font-size:12.5px; color:#9fb6cc; margin-top:3px; word-break:break-all; }
+  .item .meta a { color:#7fb0ee; text-decoration:none; }
+  .item .note2 { font-size:12px; color:#8296aa; margin-top:5px; white-space:pre-wrap; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .reveal { margin-top:10px; display:none; }
+  .secret { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:14px; background:#0d0d0d;
+            border:1px solid #3a4a5a; border-radius:8px; padding:9px 11px; color:#a8e6bf; word-break:break-all; }
+  .pin { width:96px; text-align:center; letter-spacing:3px; }
+  .muted { color:#6f8296; font-size:13px; }
+  .conf { font-size:12.5px; color:#ffb38a; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>🔐 Trezor hesel</h1>
+      <p class="sub">Bezpečné, <b>šifrované</b> úložiště přihlašovacích údajů. Heslo se posílá
+        přímo na server, uloží se zašifrované (Fernet) a <b>neprochází přes žádnou AI</b>.
+        Zobrazí se jen po zadání tvého <b>PINu</b> — a o každém otevření ti přijde e-mail.</p>
+      <div id="vaultWarn" class="note" style="display:none;color:#ffb38a;border-color:#6e2c2c;background:#3a1414"></div>
+
+      <h2 id="formTitle" style="margin-top:16px">➕ Přidat heslo</h2>
+      <input type="hidden" id="f_id" value="">
+      <label for="f_label">Název *</label>
+      <input id="f_label" type="text" placeholder="např. Siemens SiePortal — OCI5" autocomplete="off">
+      <label for="f_user">Uživatel / login</label>
+      <input id="f_user" type="text" autocomplete="off" placeholder="přihlašovací jméno">
+      <label for="f_url">URL</label>
+      <input id="f_url" type="text" placeholder="https://…" autocomplete="off">
+      <label for="f_secret">Heslo</label>
+      <input id="f_secret" type="password" autocomplete="new-password" placeholder="heslo / tajemství">
+      <div class="hint" id="secHint">Uloží se zašifrované. Při úpravě nech prázdné, pokud heslo neměníš.</div>
+      <label for="f_note">Poznámka</label>
+      <textarea id="f_note" rows="2" placeholder="k čemu to je, kontakt, kdy zřízeno…"></textarea>
+      <button id="saveBtn" type="button">Uložit do trezoru</button>
+      <button id="cancelBtn" type="button" class="ghost" style="width:100%;margin-top:8px;display:none">Zrušit úpravu</button>
+      <div id="msg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>🗂️ Uložená hesla</h2>
+      <div id="list"><div class="muted">Načítám…</div></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var API = '/api/v1/erp';
+  var hasPin = false, vaultReady = true;
+  var msg = document.getElementById('msg');
+  var $ = function (id) { return document.getElementById(id); };
+  function show(kind, text) { msg.className = 'msg ' + kind; msg.textContent = text; msg.style.display = 'block';
+    if (kind === 'ok') setTimeout(function(){ msg.style.display = 'none'; }, 4000); }
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, function (c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function api(path, opts) {
+    opts = opts || {}; opts.credentials = 'include';
+    opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+    return fetch(API + path, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; });
+    });
+  }
+
+  // ---- Uložit / upravit ----
+  function resetForm() {
+    $('f_id').value = ''; $('f_label').value = ''; $('f_user').value = '';
+    $('f_url').value = ''; $('f_secret').value = ''; $('f_note').value = '';
+    $('formTitle').textContent = '➕ Přidat heslo';
+    $('secHint').textContent = 'Uloží se zašifrované. Při úpravě nech prázdné, pokud heslo neměníš.';
+    $('cancelBtn').style.display = 'none';
+  }
+  $('cancelBtn').addEventListener('click', resetForm);
+
+  $('saveBtn').addEventListener('click', function () {
+    var label = $('f_label').value.trim();
+    if (!label) { show('err', 'Vyplň aspoň Název.'); return; }
+    var payload = {
+      label: label, username: $('f_user').value.trim(), url: $('f_url').value.trim(),
+      note: $('f_note').value.trim(), secret: $('f_secret').value
+    };
+    var id = $('f_id').value; if (id) payload.id = parseInt(id, 10);
+    $('saveBtn').disabled = true; $('saveBtn').textContent = 'Ukládám…';
+    api('/app/self-secret/save', { method: 'POST', body: JSON.stringify(payload) }).then(function (x) {
+      $('saveBtn').disabled = false; $('saveBtn').textContent = 'Uložit do trezoru';
+      if (x.r.ok && x.j.ok) { show('ok', '✓ Uloženo do trezoru.'); resetForm(); load(); }
+      else if (x.r.status === 401) { show('err', 'Nejsi přihlášen do STRATEGIE. Přihlas se a zkus to znovu.'); }
+      else { show('err', '✗ ' + (x.j.note || x.j.error || ('Chyba ' + x.r.status))); }
+    }).catch(function (e) {
+      $('saveBtn').disabled = false; $('saveBtn').textContent = 'Uložit do trezoru';
+      show('err', '✗ Síť: ' + (e && e.message || e));
+    });
+  });
+
+  // ---- Seznam ----
+  function load() {
+    api('/app/self-secret', { method: 'GET' }).then(function (x) {
+      if (x.r.status === 401) { $('list').innerHTML = '<div class="muted">Nejsi přihlášen do STRATEGIE.</div>'; return; }
+      if (!x.j.ok) { $('list').innerHTML = '<div class="muted">Chyba: ' + esc(x.j.error || '') + '</div>'; return; }
+      hasPin = !!x.j.has_pin; vaultReady = (x.j.vault_ready !== false);
+      var w = $('vaultWarn');
+      if (!vaultReady) { w.style.display = 'block';
+        w.textContent = 'Trezor zatím není na serveru nakonfigurovaný (chybí šifrovací klíč). Ozvi se Marti.'; }
+      else { w.style.display = 'none'; }
+      var items = x.j.polozky || [];
+      if (!items.length) { $('list').innerHTML = '<div class="muted">Zatím tu nic není. Přidej první heslo formulářem výše.</div>'; return; }
+      $('list').innerHTML = items.map(renderItem).join('');
+    }).catch(function (e) { $('list').innerHTML = '<div class="muted">Síť: ' + esc(e && e.message || e) + '</div>'; });
+  }
+
+  function renderItem(it) {
+    var url = it.url ? '<div class="meta">🔗 <a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.url) + '</a></div>' : '';
+    var user = it.username ? '<div class="meta">👤 ' + esc(it.username) + '</div>' : '';
+    var note = it.note ? '<div class="note2">' + esc(it.note) + '</div>' : '';
+    return '<div class="item" data-id="' + it.id + '">' +
+      '<div class="lbl">' + esc(it.label) + '</div>' + user + url + note +
+      '<div class="row">' +
+        '<button class="small" data-act="reveal">👁 Zobrazit heslo</button>' +
+        '<button class="small ghost" data-act="edit">✏️ Upravit</button>' +
+        '<button class="small danger" data-act="del">🗑 Smazat</button>' +
+      '</div>' +
+      '<div class="reveal" data-slot="reveal"></div>' +
+    '</div>';
+  }
+
+  // ---- Akce v seznamu (delegace; bez nativních confirm/prompt kvůli iframe) ----
+  $('list').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button'); if (!btn) return;
+    var item = ev.target.closest('.item'); if (!item) return;
+    var id = parseInt(item.getAttribute('data-id'), 10);
+    var act = btn.getAttribute('data-act');
+    var slot = item.querySelector('[data-slot="reveal"]');
+    if (act === 'edit') {
+      $('f_id').value = id;
+      $('f_label').value = item.querySelector('.lbl').textContent;
+      var u = item.querySelector('.meta'); // best-effort predvyplneni
+      $('f_secret').value = '';
+      $('formTitle').textContent = '✏️ Upravit heslo';
+      $('secHint').textContent = 'Nech prázdné, pokud heslo neměníš. Vyplň jen když ho chceš přepsat.';
+      $('cancelBtn').style.display = 'block';
+      // dotáhni ostatní pole ze serveru (username/url/note nejsou v DOM 1:1)
+      api('/app/self-secret', { method: 'GET' }).then(function (x) {
+        var f = (x.j.polozky || []).filter(function (p) { return p.id === id; })[0];
+        if (f) { $('f_user').value = f.username || ''; $('f_url').value = f.url || ''; $('f_note').value = f.note || ''; }
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    if (act === 'del') {
+      slot.style.display = 'block';
+      slot.innerHTML = '<span class="conf">Opravdu smazat?</span> ' +
+        '<button class="small danger" data-do="delyes">Ano, smazat</button> ' +
+        '<button class="small ghost" data-do="cancel">Ne</button>';
+      return;
+    }
+    if (act === 'reveal') {
+      if (!hasPin) {
+        slot.style.display = 'block';
+        slot.innerHTML = '<div class="conf">Nejdřív si nastav 4místný PIN k trezoru:</div>' +
+          '<div class="row"><input class="pin" maxlength="4" inputmode="numeric" data-fld="newpin" placeholder="PIN">' +
+          '<button class="small" data-do="setpin">Nastavit PIN</button></div>';
+        return;
+      }
+      slot.style.display = 'block';
+      slot.innerHTML = '<div class="row"><input class="pin" maxlength="4" inputmode="numeric" type="password" data-fld="pin" placeholder="PIN">' +
+        '<button class="small" data-do="revealgo">Zobrazit</button>' +
+        '<button class="small ghost" data-do="cancel">Zavřít</button></div>';
+      var pf = slot.querySelector('[data-fld="pin"]'); if (pf) pf.focus();
+      return;
+    }
+  });
+
+  // sekundární akce uvnitř reveal slotu
+  $('list').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button'); if (!b) return;
+    var doAct = b.getAttribute('data-do'); if (!doAct) return;
+    var item = ev.target.closest('.item'); var id = parseInt(item.getAttribute('data-id'), 10);
+    var slot = item.querySelector('[data-slot="reveal"]');
+    if (doAct === 'cancel') { slot.style.display = 'none'; slot.innerHTML = ''; return; }
+    if (doAct === 'delyes') {
+      b.disabled = true;
+      api('/app/self-secret/delete', { method: 'POST', body: JSON.stringify({ id: id }) }).then(function (x) {
+        if (x.r.ok && x.j.ok) { show('ok', 'Smazáno.'); load(); } else { show('err', '✗ ' + (x.j.error || 'Chyba')); }
+      });
+      return;
+    }
+    if (doAct === 'setpin') {
+      var v = (item.querySelector('[data-fld="newpin"]').value || '').trim();
+      if (!/^\d{4}$/.test(v)) { show('err', 'PIN jsou 4 číslice.'); return; }
+      b.disabled = true;
+      api('/app/pin/set', { method: 'POST', body: JSON.stringify({ pin: v }) }).then(function (x) {
+        if (x.r.ok && x.j.ok) { hasPin = true; show('ok', 'PIN nastaven. Klikni znovu na „Zobrazit heslo".'); slot.style.display = 'none'; slot.innerHTML = ''; }
+        else { b.disabled = false; show('err', '✗ ' + (x.j.note || x.j.error || 'Chyba')); }
+      });
+      return;
+    }
+    if (doAct === 'revealgo') {
+      var pin = (item.querySelector('[data-fld="pin"]').value || '').trim();
+      if (!pin) { show('err', 'Zadej PIN.'); return; }
+      b.disabled = true; b.textContent = '…';
+      api('/app/self-secret/reveal', { method: 'POST', body: JSON.stringify({ id: id, pin: pin }) }).then(function (x) {
+        b.disabled = false; b.textContent = 'Zobrazit';
+        if (x.r.ok && x.j.ok) {
+          slot.innerHTML = '<div class="secret" data-sv="1">' + esc(x.j.secret) + '</div>' +
+            '<div class="row"><button class="small" data-do="copy">Kopírovat</button>' +
+            '<button class="small ghost" data-do="cancel">Skrýt</button></div>';
+          setTimeout(function () { if (slot.querySelector('[data-sv="1"]')) { slot.style.display = 'none'; slot.innerHTML = ''; } }, 45000);
+        } else { show('err', '✗ ' + (x.j.note || x.j.error || 'PIN nesedí')); }
+      });
+      return;
+    }
+    if (doAct === 'copy') {
+      var sv = item.querySelector('[data-sv="1"]'); if (!sv) return;
+      var t = sv.textContent;
+      if (navigator.clipboard) { navigator.clipboard.writeText(t).then(function () { show('ok', 'Zkopírováno.'); }, function () {}); }
+      return;
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

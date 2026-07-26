@@ -1060,6 +1060,15 @@ def connect_mailbox_page_alias():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/trezor")
+def trezor_page():
+    """Prehledny trezor hesel (self-service). Session-gated pres /api/v1/erp/app/self-secret
+    (uid z cookie). Heslo browser->server, sifruje se Fernetem, neprochazi pres AI. C23 24.7.2026."""
+    return FileResponse(os.path.join(static_dir, "trezor.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/ai-uspora")
 def ai_uspora_page():
     """Souhrn úspor AI (co AI udělala a ušetřila). Parent-only přes API. Claude ID23 3.7.2026."""

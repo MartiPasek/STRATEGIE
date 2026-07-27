@@ -33061,6 +33061,13 @@ def dochazka_moje_ep(req: Request):
             "                         WHERE tenant_id=2 AND user_id=:uid) "
             "  AND ae.status NOT IN ('superseded','announced') "
             "  AND et.category IN ('presence','break') "
+            # „🫡 Odchod" (day_end) je v kategorii 'break', ale NENÍ přestávka — je to
+            # stav „dnes už se mnou nepočítej" a běží do 23:59. Bez tohoto vyloučení se
+            # odečítal jako pauza, takže kde někdo po odchodu ještě pracoval, ukázal
+            # mobil MENŠÍ hodiny než ERP „Opravy" (ověřeno na červenci: os. 475 8.7.
+            # −2,42 h, os. 105 22.7. −3,55 h, os. 49 14.7. −0,08 h). ERP ho vylučuje
+            # taky (dochazka-opravy.html: `if(isDE) return;`) — držíme stejnou definici.
+            "  AND et.code <> 'day_end' "
             "  AND ae.started_at IS NOT NULL AND ae.ended_at IS NOT NULL"),
             {"uid": target, "od": od, "do": do}).mappings().all()
 

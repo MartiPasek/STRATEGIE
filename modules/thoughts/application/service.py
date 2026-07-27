@@ -31,6 +31,20 @@ from modules.core.infrastructure.models_data import Thought, ThoughtEntityLink
 logger = get_logger("thoughts.service")
 
 
+# ── Neměnné jádro rodičů / adminů — ZÁCHRANNÉ LANO ────────────────────────
+# Marti 27.7.2026: „Rodič smí úplně vše; blokovat rodiče je nebezpečné —
+# mohl by z toho být fatální průšvih." is_marti_parent bylo defenzivní tak,
+# že při JAKÉMKOLI výpadku DB čtení vracelo False → rodič tiše spadl na
+# ne-rodiče napříč VŠEMI branami (whoami OK, ale Banka/VP/Neschopenky = 403).
+# Fix: (1) potvrzené core UID krátce zkratují na True BEZ DB (DB hiccup je
+# nemůže shodit), (2) u ostatních držíme last-known-good — jednou viděný
+# rodič/admin se při pozdější chybě DB nesmí překlopit na False.
+_CORE_PARENT_UIDS = frozenset({1, 6, 11})    # Marti, Zuzana, Kristýna (DB 27.7.2026)
+_CORE_ADMIN_UIDS = frozenset({1, 11, 20})    # Marti, Kristýna, Jiří (DB 27.7.2026)
+_PARENT_LKG: dict[int, bool] = {}            # last-known-good is_marti_parent
+_ADMIN_LKG: dict[int, bool] = {}             # last-known-good is_admin
+
+
 # ── Konstanty ─────────────────────────────────────────────────────────────
 
 VALID_TYPES = {"fact", "todo", "observation", "question", "goal", "experience"}
@@ -104,43 +118,57 @@ def is_marti_parent(user_id: int | None) -> bool:
     Zjisti, zda user ma rodicovskou roli. Pouziva se pro cross-tenant
     retrieval (rodic vidi vsechny tenanty) a active learning pool (Faze 4).
 
-    Defensive -- pri chybe vraci False (bezpecne: default = nemas cross-tenant pristup).
+    ZÁCHRANNÉ LANO (Marti 27.7.2026): rodiče NIKDY nesmí spadnout na False
+    kvůli transientní chybě DB. Core UID zkratujeme na True bez DB; u ostatních
+    držíme last-known-good, takže výpadek DB neshodí jednou potvrzeného rodiče.
     """
     if not user_id:
         return False
+    uid = int(user_id)
+    if uid in _CORE_PARENT_UIDS:
+        return True
     try:
         from core.database_core import get_core_session
         from modules.core.infrastructure.models_core import User
         cs = get_core_session()
         try:
-            u = cs.query(User).filter_by(id=user_id).first()
-            return bool(u and u.is_marti_parent)
+            u = cs.query(User).filter_by(id=uid).first()
+            val = bool(u and u.is_marti_parent)
+            _PARENT_LKG[uid] = val
+            return val
         finally:
             cs.close()
     except Exception as e:
         logger.warning(f"THOUGHT | is_marti_parent check failed: {e}")
-        return False
+        # DB selhalo — NEshazuj známého rodiče na False (bezpečnostní invariant)
+        return _PARENT_LKG.get(uid, False)
 
 
 def is_admin_user(user_id: int | None) -> bool:
     """Zjisti, zda user ma SYSADMIN roli (users.is_admin). Tier SPRÁVCE
     (Marti 25.6.2026): tři sysadmini Marti/Kristý/Jirka. is_admin NENÍ cross-tenant
     (na rozdíl od is_marti_parent) a NEDÁVÁ přístup k osobním/intimním datům — ta
-    zůstávají rodičovská. Defensive -- při chybě False (default = nemáš admin)."""
+    zůstávají rodičovská. ZÁCHRANNÉ LANO (27.7.): core admini zkrat na True bez DB,
+    jinak last-known-good — výpadek DB nesmí sysadmina zablokovat."""
     if not user_id:
         return False
+    uid = int(user_id)
+    if uid in _CORE_ADMIN_UIDS:
+        return True
     try:
         from core.database_core import get_core_session
         from modules.core.infrastructure.models_core import User
         cs = get_core_session()
         try:
-            u = cs.query(User).filter_by(id=user_id).first()
-            return bool(u and getattr(u, "is_admin", False))
+            u = cs.query(User).filter_by(id=uid).first()
+            val = bool(u and getattr(u, "is_admin", False))
+            _ADMIN_LKG[uid] = val
+            return val
         finally:
             cs.close()
     except Exception as e:
         logger.warning(f"THOUGHT | is_admin_user check failed: {e}")
-        return False
+        return _ADMIN_LKG.get(uid, False)
 
 
 def is_parent_or_admin(user_id: int | None) -> bool:

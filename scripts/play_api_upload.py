@@ -82,16 +82,28 @@ def upload_aab(confirmed):
                               "text": "- Nova ikona a sjednoceny vzhled.\n- Vylepsena stabilita a podpora tabletu."}],
         }]
     }).execute()
-    # 20.7.2026: API uz odmita automaticke odeslani ke kontrole
-    # ("Changes cannot be sent for review automatically") a vyzaduje
-    # changesNotSentForReview=True. Driv to bylo PRESNE NAOPAK (tenhle parametr
-    # hazel 400 "must not be set") - chovani se zmenilo, kdyz se appka dostala
-    # do zamitnuteho stavu. Odeslani ke kontrole se proto odklepne rucne
-    # v Play Console: Prehled publikovani -> Odeslat zmeny ke kontrole.
-    edits.commit(packageName=PKG, editId=edit_id,
-                 changesNotSentForReview=True).execute()
-    print(f"COMMIT OK — v{vc} je v produkcnim tracku, ale JESTE NEODESLANY.")
-    print("Dokonci v Play Console: Prehled publikovani -> Odeslat zmeny ke kontrole.")
+    # POZOR, Google tohle chovani PREPINA podle stavu appky (overeno 2x):
+    #  - 20.7.2026 (appka po zamitnuti): commit BEZ changesNotSentForReview
+    #    hazel 400 "Changes cannot be sent for review automatically" -> musel se poslat True.
+    #  - 27.7.2026 (appka uz publikovana): commit S changesNotSentForReview
+    #    hazi 400 "Changes are sent for review automatically. The query parameter
+    #    changesNotSentForReview must not be set." -> nesmi se posilat vubec.
+    # Proto to zkousime obema zpusoby misto hadani, ktery zrovna plati.
+    try:
+        edits.commit(packageName=PKG, editId=edit_id).execute()
+        auto_review = True
+    except Exception as e:
+        if "changesNotSentForReview" not in str(e):
+            raise
+        print("  (commit bez parametru odmitnut, zkousim changesNotSentForReview=True)")
+        edits.commit(packageName=PKG, editId=edit_id,
+                     changesNotSentForReview=True).execute()
+        auto_review = False
+    if auto_review:
+        print(f"COMMIT OK — v{vc} je v produkcnim tracku a ODESLAN ke kontrole.")
+    else:
+        print(f"COMMIT OK — v{vc} je v produkcnim tracku, ale JESTE NEODESLANY.")
+        print("Dokonci v Play Console: Prehled publikovani -> Odeslat zmeny ke kontrole.")
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""

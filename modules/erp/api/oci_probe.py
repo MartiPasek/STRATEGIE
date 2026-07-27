@@ -82,14 +82,25 @@ async def oci_probe(req: Request) -> JSONResponse:
             txt = txt.replace(password, "***")
         return txt
 
-    base = {"USERNAME": username, "PASSWORD": password}
+    import re as _re
+    def _vis(html):
+        if not html:
+            return ""
+        h = _re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+        h = _re.sub(r"(?s)<[^>]+>", " ", h)
+        h = _re.sub(r"\s+", " ", h).strip()
+        return _redact(h[:800])
+    def _title(html):
+        m = _re.search(r"(?is)<title[^>]*>(.*?)</title>", html or "")
+        return (m.group(1).strip()[:140] if m else "")
+    # HOOK_URL + OCI_VERSION na VSECHNY volani (OCI punch-out je typicky vyzaduje)
+    HOOK = "https://app.strategie-ai.com/oci-return"
+    common = {"USERNAME": username, "PASSWORD": password,
+              "HOOK_URL": HOOK, "OCI_VERSION": "5.0", "returntarget": "_top"}
     results = []
     for name, extra in ([("LOGIN", {})] + _OCI_ATTEMPTS):
-        params = dict(base)
-        if name == "LOGIN":
-            params.update({"HOOK_URL": "https://app.strategie-ai.com/oci-return",
-                           "OCI_VERSION": "5.0", "returntarget": "_top"})
-        else:
+        params = dict(common)
+        if name != "LOGIN":
             if not mlfb:
                 results.append({"function": name, "skipped": "chybi MLFB"})
                 continue
@@ -103,7 +114,9 @@ async def oci_probe(req: Request) -> JSONResponse:
                 "content_type": r.headers.get("content-type", ""),
                 "final_url": str(r.url),
                 "body_len": len(body),
-                "excerpt": _redact(body[:1800]),
+                "title": _title(body),
+                "text": _vis(body),
+                "excerpt": _redact(body[:800]),
             })
         except Exception as exc:
             results.append({"function": name, "error": _redact(str(exc))[:300]})

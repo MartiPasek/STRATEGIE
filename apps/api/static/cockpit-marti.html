@@ -377,9 +377,10 @@ setInterval(function(){if(!zpoll)loadZaloha();},60000);
         $('oci_msg').style.color='#7fe9b6';$('oci_msg').textContent='Hotovo · přihlašovací jméno '+(j.username||'?');
         var h='<div class="tzmut" style="margin-bottom:6px">URL: '+esc(j.url||'')+' · MLFB: '+esc(j.mlfb||'')+'</div>';
         (j.results||[]).forEach(function(x){
-          var head=esc(x.function||'?')+' — '+(x.skipped?('přeskočeno: '+esc(x.skipped)):(x.error?('CHYBA: '+esc(x.error)):('HTTP '+x.http_status+' · '+esc(x.content_type||'')+' · '+(x.body_len||0)+' B')));
+          var head=esc(x.function||'?')+' — '+(x.skipped?('přeskočeno: '+esc(x.skipped)):(x.error?('CHYBA: '+esc(x.error)):('HTTP '+x.http_status+' · '+(x.body_len||0)+' B'+(x.title?(' · '+esc(x.title)):''))));
           h+='<div style="margin:8px 0"><div style="font-weight:700;color:#5b9dff;font-size:12.5px">'+head+'</div>';
-          if(x.excerpt){h+='<pre style="white-space:pre-wrap;word-break:break-all;background:#04122b;border:1px solid #1b2740;border-radius:7px;padding:8px;font-size:11px;max-height:220px;overflow:auto;margin:4px 0 0">'+esc(x.excerpt)+'</pre>';}
+          if(x.text){h+='<div style="font-size:11.5px;color:#cfe0f2;margin:4px 0;line-height:1.45;word-break:break-word">'+esc(x.text)+'</div>';}
+          if(x.excerpt){h+='<pre style="white-space:pre-wrap;word-break:break-all;background:#04122b;border:1px solid #1b2740;border-radius:7px;padding:8px;font-size:10.5px;max-height:160px;overflow:auto;margin:4px 0 0">'+esc(x.excerpt)+'</pre>';}
           h+='</div>';
         });
         $('oci_out').innerHTML=h;

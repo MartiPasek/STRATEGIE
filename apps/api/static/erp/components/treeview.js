@@ -989,7 +989,7 @@
         }
       } else if (k === "Enter" || k === " ") {
         if (this._activeId != null && this._activeRow) {
-          const fakeEvent = { target: this._activeRow, preventDefault: () => {}, stopPropagation: () => {} };
+          const fakeEvent = { target: this._activeRow, preventDefault: () => {}, stopPropagation: () => {}, _kbd: true };
           this._onRowClick(fakeEvent);
           e.preventDefault();
         }

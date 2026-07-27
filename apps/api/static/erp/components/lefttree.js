@@ -570,39 +570,92 @@
         return;
       }
 
-      // Plain klik — clear selection, expand pokud folder, activate pokud leaf
+      // Plain klik — clear selection, expand pokud folder, visual active.
+      // ZMĚNA (Peta, 27.7.2026): otevření přehledu (openTab) se přesunulo
+      // z JEDNOHO kliku na DVOJKLIK. Jeden klik teď jen VYBÍRÁ (visual active)
+      // a rozbaluje složku; přehled se otevře až dvojklikem (_onRowDblClick)
+      // nebo klávesou Enter/Space (synthetic event nese e._kbd).
       this.clearSelection();
 
-      // Expand/collapse pokud má children (toggle existence)
+      // Expand/collapse pokud má children (toggle existence).
+      // Přeskoč JEN na 2. kliku dvojkliku (e.detail === 2), aby složka po
+      // dvojkliku nezůstala zabalená. Klávesnice (e._kbd, detail undefined)
+      // i první klik (detail 1) toggle provedou normálně.
       const childrenWrap = li.querySelector(":scope > ." + cls + "-children");
-      if (childrenWrap) {
+      if (childrenWrap && e.detail !== 2) {
         this._toggleExpanded(id);
       }
 
-      // Activate pokud má menu_node_pk (klikatelný přehled)
+      // Visual active vždy (Phase 38.4 Krok 14g-H+17, 15.5.2026 ~14:41).
       const cisloDefStr = li.dataset.cisloDef;
       if (cisloDefStr) {
         const cisloN = parseInt(cisloDefStr, 10);
         if (cisloN) {
-          // Phase 38.4 Krok 14g-H+17 (15.5.2026 ~14:41, Marti's "strom
-          // neprepina na CORE, dela jako by nic"): visual active vzdy.
           this.setActive(id);
-          // Phase 38.4 Krok 14g-H+27 (15.5.2026 ~20:00, Marti's "pri vyberu
-          // soudecku check core_id, pokud asociovany, rovnou aktivovat
-          // prehled"): drop synthetic range gate pokud node.core_id set.
-          //
-          // Logic:
-          //   - Real menu_node_pk         → openTab (existing)
-          //   - Synthetic + core_id set (asociace)        → openTab → dispatch core
-          //   - Synthetic bez core_id (no association)    → no-op (H+14)
-          const hasCoreAssociated = !!(node && node.core_id);
-          if ((cisloN > -100000 || hasCoreAssociated)
-              && typeof this.options.onActivate === "function") {
-            try { this.options.onActivate(node, e, cisloN); }
-            catch (err) { console.error("[ErpLeftPanelTree] onActivate failed:", err); }
-          }
+          // Klávesnice (Enter/Space) = ekvivalent dvojkliku → rovnou otevři.
+          if (e._kbd) this._activateRow(node, e, cisloN);
         }
       }
+    }
+
+    /**
+     * Otevře přehled přes onActivate hook (→ openTab v router.py).
+     * Volá se z DVOJKLIKU (_onRowDblClick) a z klávesnice (Enter/Space).
+     * Jeden klik NEotevírá — jen vybírá/rozbaluje (Peta, 27.7.2026).
+     *
+     * Logic (Phase 38.4 Krok 14g-H+27, 15.5.2026 ~20:00):
+     *   - Real menu_node_pk        → openTab
+     *   - Synthetic + core_id set   → openTab → dispatch core
+     *   - Synthetic bez core_id     → no-op (H+14)
+     */
+    _activateRow(node, e, cisloN) {
+      const hasCoreAssociated = !!(node && node.core_id);
+      if ((cisloN > -100000 || hasCoreAssociated)
+          && typeof this.options.onActivate === "function") {
+        try { this.options.onActivate(node, e, cisloN); }
+        catch (err) { console.error("[ErpLeftPanelTree] onActivate failed:", err); }
+      }
+    }
+
+    /**
+     * DVOJKLIK na řádek → otevře přehled (openTab). Přidáno 27.7.2026 (Peta:
+     * "melo by se to otevrit az na dvojklik", ne hned na jeden klik). Stejné
+     * guardy jako _onRowClick — ★, toggle ▶/▼, Ctrl/Cmd a disabled se ignorují.
+     */
+    _onRowDblClick(e) {
+      const cls = this.options.cssClassPrefix;
+      const row = e.target.closest("." + cls + "-row");
+      if (!row) return;
+      const li = row.parentElement;
+      if (!li || !li.classList.contains(cls + "-item")) return;
+      const id = li.dataset.id;
+      if (id == null) return;
+      const node = this._nodeIndex.get(String(id));
+      if (!node) return;
+      if (li.classList.contains(cls + "-disabled")) return;
+      // Ignoruj ★ (star), toggle ▶/▼ a Ctrl/Cmd (multi-select) — otevírá jen
+      // dvojklik na samotný řádek přehledu.
+      if (e.target.classList && e.target.classList.contains(cls + "-star")) return;
+      const targetRole = e.target.dataset && e.target.dataset.role;
+      if (targetRole === "toggle") return;
+      if (e.ctrlKey || e.metaKey) return;
+      const cisloDefStr = li.dataset.cisloDef;
+      if (!cisloDefStr) return;
+      const cisloN = parseInt(cisloDefStr, 10);
+      if (!cisloN) return;
+      // Zabraň označení textu popiskem při dvojkliku.
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      this.setActive(id);
+      this._activateRow(node, e, cisloN);
+    }
+
+    /**
+     * Naváž base handlery (click, contextmenu, klávesnice) + navíc DVOJKLIK
+     * pro otevření přehledu (27.7.2026, Peta).
+     */
+    _attachHandlers() {
+      super._attachHandlers();
+      this.rootEl.addEventListener("dblclick", (e) => this._onRowDblClick(e));
     }
 
     // ════════════════════════════════════════════════════════════════

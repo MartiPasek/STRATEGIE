@@ -48342,13 +48342,17 @@ _PLAN_DRUH_TO_CODE = {
 def _sync_plan_to_dochazka(rok: int = None) -> dict:
     """Propíše ZNÁMÉ plánované činnosti (att_planned_absence) do docházky att_entry
     (dovolená/lékař/OČR), aby je viděly mzdy ke kontrole (Marti 28.6.). Idempotentní,
-    **NEpřepisuje existující záznam dne** (jen prázdné dny; realita má přednost). source='plan_ec'."""
-    from core.database_data import get_data_session as _g
+    **NEpřepisuje existující záznam dne** (jen prázdné dny; realita má přednost). source='plan_ec'.
+
+    POZOR (27.7.2026, i28): zápis MUSÍ jít přes _att_session() (strategie_pg / role Marti-AI).
+    Role aplikace ('strategie') má na tenant.att_entry jen SELECT — přes get_data_session
+    INSERT tiše padal na 'permission denied' a chytil ho try/except o patro výš, takže se
+    od 28.6.2026 nepropsal ANI JEDEN nový plánovaný den. Stejná příčina jako commit d77daae4."""
     from sqlalchemy import text as _t
     import datetime as _dt
     if rok is None:
         rok = _dt.date.today().year
-    s = _g()
+    cm, s = _att_session()
     n = 0
     try:
         tids = {}
@@ -48385,8 +48389,11 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
             n += 1
         s.commit()
         return {"ok": True, "vlozeno": n}
+    except Exception:
+        s.rollback()
+        raise
     finally:
-        s.close()
+        cm.__exit__(None, None, None)
 
 
 def _sync_dochazka_sumaden(year: int = 2026, month=None) -> dict:
@@ -50423,7 +50430,15 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
         elif action_key == "sync_plan_nepritomnost":
             out = _sync_plan_nepritomnost()
             status = "done"
-            result = "plán nepřítomností: %s naplánovaných dní (z %s v Centrále)" % (out.get("upserted"), out.get("rows"))
+            # Výsledek 2. kroku (propis do docházky) hlásíme VŽDY — dřív se schoval
+            # v out["propis"] a nikdo ho nečetl, takže měsíc tiše nepropisoval (i28 27.7.2026).
+            _pp = out.get("propis") or {}
+            if _pp.get("ok"):
+                _ppt = "propis do docházky: %s nových dní" % _pp.get("vlozeno")
+            else:
+                _ppt = "POZOR: propis do docházky SELHAL (%s)" % str(_pp.get("error"))[:120]
+            result = ("plán nepřítomností: %s naplánovaných dní (z %s v Centrále); %s"
+                      % (out.get("upserted"), out.get("rows"), _ppt))
         elif action_key == "sync_vyroba_plan":
             out = _sync_vyroba_plan_from_ec()
             status = "done"

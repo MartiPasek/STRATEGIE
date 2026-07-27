@@ -28034,6 +28034,34 @@ def _maybe_sync_ec_dochazka():
         _sync_vyroba_work_app(days=3)
     except Exception as e:
         logger.warning("[vyroba_work_app_sync] %s", e)
+    try:
+        # Self-completing firma_id (Marti Pašek 26.7.: „doplnit firma_id chybí"; att_entry =
+        # zdroj pravdy). Nové/chybějící řádky dostanou firmu z engagementu DLE DATA (nejvyšší
+        # valid_from <= entry_date → historicky správná firma i po přechodu EC↔ES). Marti-AI
+        # msg 11289: JEN chybějící (firma_id IS NULL), nepřepisovat historii (engagement se
+        # zpětně nemění). EXISTS guard = permanentně-NULL řádky (bez poměru) neřešíme opakovaně;
+        # až Šárka doplní poměr chybějícím lidem, jejich NULL se doplní automaticky příštím během.
+        from core.database_data import get_data_session as _gfs
+        from sqlalchemy import text as _tf
+        _fs = _gfs()
+        try:
+            _fs.execute(_tf(
+                "UPDATE tenant.att_entry ae SET firma_id = ("
+                "  SELECT g.company_id FROM tenant.engagement g "
+                "  WHERE g.tenant_id=ae.tenant_id AND g.employee_id=ae.employee_id "
+                "    AND g.valid_from IS NOT NULL AND g.valid_from <= ae.entry_date "
+                "    AND g.company_id IS NOT NULL "
+                "  ORDER BY g.valid_from DESC, g.is_current DESC LIMIT 1) "
+                "WHERE ae.tenant_id=:t AND ae.firma_id IS NULL "
+                "  AND EXISTS (SELECT 1 FROM tenant.engagement g2 WHERE g2.tenant_id=ae.tenant_id "
+                "              AND g2.employee_id=ae.employee_id AND g2.valid_from IS NOT NULL "
+                "              AND g2.valid_from <= ae.entry_date AND g2.company_id IS NOT NULL)"),
+                {"t": _ATT_TENANT})
+            _fs.commit()
+        finally:
+            _fs.close()
+    except Exception as e:
+        logger.warning("[att_firma_id_fill] %s", e)
 
 
 def _do_att_action(payload, uid, decision):

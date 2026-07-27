@@ -22890,18 +22890,28 @@ async def att_fix_void(req: Request) -> JSONResponse:
         # storno (0,01 h odchod / 12,9 h day-end) sdílelo start s reálným úsekem (Pavel/Lucie).
         # Musí sedět i konec = je to TÝŽ úsek. Jen práce SE zakázkou (project_ref NOT NULL —
         # storna přestávek/absencí sem nepatří). Best-effort: nikdy nesmí shodit storno → try/except.
+        # Krok 5 HYBRID (Jirka + Marti Pasek + Marti-AI 27.7.2026, "jeden zdroj pravdy"):
+        # NEJDRIV spolehliva kaskada pres pevnou vazbu att_entry_id. Fallback na minutovy
+        # match JEN kdyz pres vazbu neprosel ZADNY radek (updated==0) — ne "kdyz je vazba NULL"
+        # (kdyby vazba byla, ale radek uz neaktivni/smazany, fallback nesmi omylem stornovat jiny).
+        # Bez regrese: kde vazba chybi (app/editovatelne), chova se to presne jako dosud.
         try:
-            s.execute(_t(
-                "UPDATE tenant.vyroba_work w SET is_active=false, att_entry_id=:i, updated_at=now() "
-                "FROM tenant.att_entry e "
-                "JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=:t "
-                "WHERE e.id=:i AND w.tenant_id=:t AND w.user_id=em.user_id "
-                "  AND w.datum=e.entry_date "
-                "  AND date_trunc('minute', w.od)=date_trunc('minute', e.started_at) "
-                "  AND date_trunc('minute', w.konec) IS NOT DISTINCT FROM date_trunc('minute', e.ended_at) "
-                "  AND e.project_ref IS NOT NULL AND w.zakazka_ref=e.project_ref "
-                "  AND w.is_active=true"),
+            _rlink = s.execute(_t(
+                "UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
+                "WHERE tenant_id=:t AND att_entry_id=:i AND is_active=true"),
                 {"i": eid, "t": _ATT_TENANT})
+            if (_rlink.rowcount or 0) == 0:
+                s.execute(_t(
+                    "UPDATE tenant.vyroba_work w SET is_active=false, att_entry_id=:i, updated_at=now() "
+                    "FROM tenant.att_entry e "
+                    "JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=:t "
+                    "WHERE e.id=:i AND w.tenant_id=:t AND w.user_id=em.user_id "
+                    "  AND w.datum=e.entry_date "
+                    "  AND date_trunc('minute', w.od)=date_trunc('minute', e.started_at) "
+                    "  AND date_trunc('minute', w.konec) IS NOT DISTINCT FROM date_trunc('minute', e.ended_at) "
+                    "  AND e.project_ref IS NOT NULL AND w.zakazka_ref=e.project_ref "
+                    "  AND w.is_active=true"),
+                    {"i": eid, "t": _ATT_TENANT})
         except Exception:
             pass
         # Peťa 22.7.2026: po stornu anomálii NEVYŘEŠOVAT — ať zůstane ve frontě zeleně

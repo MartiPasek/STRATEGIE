@@ -4,61 +4,68 @@
 
 # Storno dochazky kaskaduje do vyroba_work (prehled "Dochazka po zakazkach")
 
-> oblast: `dochazka` - Claude-28 (Jirka) 23.7.2026, zadal Dusan, konzultace Marti-AI (schvalil i Peta).
+> oblast: `dochazka` - Claude-28 (Jirka) 23.7.2026, oprava 24.7.2026. Zadal Dusan, konzultace Marti-AI, podnet na chybu Petra (dekujeme!).
 
-## Problem
-Prehled "Dochazka po zakazkach" (stranka strategie-ai.com/dochazka-zakazky, endpoint
+## ⚠️ POUCENI (cti prvni, plati OBECNE, ne jen tady)
+Tenhle prehled pracuje s daty, ktera rozhoduji o MZDACH a FAKTURACI zakazek.
+23.7. jsem (Claude) udelal chybu: paroval jsem vyroba_work <-> stornovany att_entry
+jen na CASTECNY klic (user + datum + minuta ZACATKU + zakazka). Fantomovy stornovany
+zaznam (0,01 h odchod / 12,9 h day-end) sdilel start s REALNOU praci ve stejnou minutu
+na stejne zakazce -> match omylem skryl PLATNOU odvedenou praci (Pavel Kilberger 2x
+1,74+3,66 h, Lucie Jakesova 0,32 h). Odhalila Petra pri kontrole, 24.7. opraveno.
+**LEKCE: u financnich dat NIKDY nematchuj na castecny klic. Vzdy na PLNOU identitu
+zaznamu (zacatek I konec, ne jen zacatek). Radeji nezaradit nez zaradit spatne.**
+
+## Problem (puvodni)
+Prehled "Dochazka po zakazkach" (strategie-ai.com/dochazka-zakazky, endpoint
 `GET /app/dochazka/zakazky` v router.py; cte `tenant.vyroba_work`, scita hodiny) pocital
-i STORNOVANE zaznamy. Storno se totiz dela v Opravach dochazky (`att_fix_void`) POUZE na
-`att_entry` (status='superseded', is_active=false, poznamka "STORNO", audit att_audit action='void'),
+i STORNOVANE zaznamy. Storno se dela v Opravach dochazky (`att_fix_void`) POUZE na
+`att_entry` (status='superseded', is_active=false, note "STORNO", audit att_audit action='void'),
 ale NEsahalo na vyrobni vrstvu. Tri paralelni vrstvy BEZ FK:
   work_alloc --(_sync_vyroba_work_app, source_id=work_alloc.id)--> vyroba_work --> prehled
-  att_entry  (dochazka) = tady zije storno
-Priklad: Dusan 12.7. VR10628 0,01h zustaval v prehledu, i kdyz att_entry byl stornovany.
+  att_entry (dochazka) = tady zije storno
 
-## Jak SPRAVNE detekovat storno (overeno na datech 23.7.)
+## Detekce storna (spravne, overeno)
 - Storno = **`tenant.att_audit` action='void'** (zdroj pravdy, append-only).
-- == `att_entry.status='superseded' AND note LIKE '%STORNO%'` (obe 44 za cervenec).
-- POZOR: `status='superseded'` samo NESTACI - je to i EDITACE (poznamka "DOPLNENO"),
-  tech bylo 112 celkem. Editace vylucovat NESMIS. Filtruj na void audit, ne na superseded.
+- == `att_entry.status='superseded' AND note LIKE '%STORNO%'`.
+- POZOR: `status='superseded'` SAMO NESTACI - je to i EDITACE (note "DOPLNENO"), tu vylucovat NESMIS.
 
 ## Reseni (architektura Marti-AI: kaskada pri stornu, ne read-time filtr)
-Marti-AI verdikt (konzultace 23.7., msg 11165): kaskada pri stornu > read-time heuristika;
-detekce pres att_audit void; pridat vazbu; neni to rozpor se separaci doD x vyroba
-(je to datova integrita pres event, jako storno faktury -> storno radku).
-
-Kroky (vse hotovo + nasazeno, commit 84f27209):
+Vse nasazeno. Commit 84f27209 (23.7. zaklad) + **67218366 (24.7. oprava matche)**.
 1. **DDL** `tenant.vyroba_work`: `is_active boolean NOT NULL DEFAULT true` + `att_entry_id bigint NULL`.
-   (FK constraint na att_entry ZAMERNE vynechan - att_entry se nikdy nemaze, jen superseduje,
-    tak ON DELETE nema smysl a FK by zbytecne zamykal obri att_entry. att_entry_id = logicky odkaz.)
-2. **Backfill** existujicich storn: `UPDATE vyroba_work SET is_active=false, att_entry_id=e.id`
-   match user_id + datum + shodna MINUTA zacatku (date_trunc) + shodna zakazka
-   (att_entry.project_ref = vyroba_work.zakazka_ref) + att_audit void. 4 radky (vc. Dusana).
-3. **Kaskada** v `att_fix_void` (router.py ~21240): po stornu att_entry hned
-   `UPDATE vyroba_work SET is_active=false, att_entry_id=:eid` stejnym matchem.
+   (FK na att_entry zamerne vynechan - att_entry se nemaze, jen superseduje; att_entry_id = logicky odkaz.)
+2. **Kaskada** v `att_fix_void` (router.py ~21406): po stornu att_entry hned
+   `UPDATE vyroba_work SET is_active=false, att_entry_id=:eid` s PLNYM matchem (viz nize).
    BEST-EFFORT (vlastni try/except - nesmi NIKDY shodit storno dochazky).
-4. **Filtr** v endpointu `/app/dochazka/zakazky`: `wh` ma navic `AND w.is_active`.
+3. **Filtr** v endpointu `/app/dochazka/zakazky`: `wh` ma navic `AND w.is_active`.
 
-## Klicove: proc STRIKTNI shoda zakazky v matchi
-Match jen user+datum+minuta by chybne spojil storno PRESTAVKY/ABSENCE (project_ref NULL)
-s nesouvisejici praci ve stejnou minutu. Proto vyzaduj `e.project_ref = w.zakazka_ref`
-(jen storno PRACE se zakazkou). Kdo ma project_ref NULL se nechyta - spravne
-(neni to storno prace na te zakazce). Radeji under-match nez skryt platnou praci.
+## ✅ SPRAVNY MATCH (po oprave 24.7. - TENTO pouzivej)
+vyroba_work w <-> stornovany att_entry e, VSECHNY podminky:
+- `em.user_id = w.user_id` (pres att_employee), `e.entry_date = w.datum`
+- `date_trunc('minute', w.od)  = date_trunc('minute', e.started_at)`   (zacatek)
+- `date_trunc('minute', w.konec) IS NOT DISTINCT FROM date_trunc('minute', e.ended_at)`  (KONEC! - klic opravy; NOT DISTINCT zvladne i oba NULL u otevrenych useku)
+- `e.project_ref IS NOT NULL AND w.zakazka_ref = e.project_ref`  (jen prace SE zakazkou)
+- `EXISTS (SELECT 1 FROM att_audit a WHERE a.entry_id=e.id AND a.action='void')`  (zdroj pravdy)
+Proc zacatek I konec: fantom (0,01 h, start=konec) NIKDY nesedne na realny usek (start<konec).
+Proc striktni zakazka: bez ni by storno prestavky/absence (project_ref NULL) skrylo praci ve stejnou minutu.
 
-## Co NEBYLO zmeneno (dulezite)
-- Petin prehled "Dochazka new" (uzel 189, jadro dochazka.centrala, data_set
-  `dochazka.zakazky_vse_list`) NEDOTCEN - na pokyn Jirky. Ten data_set is_active NEfiltruje,
-  takze Docházka new stale ukazuje i storna. Kdyby to Peta chtela taky, staci pridat
-  `AND is_active` do jeho data_setu (mechanismus uz existuje). Peta se stornem-exkluzi souhlasila.
-- V ERP se ZAMERNE NEdelal novy uzel s touhle strankou ve Vyrobe (Jirka to zrusil).
+## Co NEBYLO zmeneno
+- Petin "Dochazka new" (uzel 189, data_set `dochazka.zakazky_vse_list`) NEDOTCEN (pokyn Jirky).
+  Data_set is_active nefiltruje -> stale ukazuje i storna. Az Peta bude chtit, prida `AND is_active`
+  do sveho data_setu (mechanismus + spravny is_active uz existuji).
+- V ERP se ZAMERNE NEdelal novy uzel te stranky ve Vyrobe (Jirka zrusil).
 
-## Overeni
-Zivě: Dusan Havlat na /dochazka-zakazky = 9 radku (byl 10), radek 12.7. VR10628 0,01 pryc.
-fw.api_version current git_sha = 84f27209 (nasazeno). Deploy log hlasil "push selhal" ale
-byl to jen zavod (ref uz byl na commitu) - vzdy overuj fw.api_version, ne deploy log.
+## Overeni (24.7.)
+Po oprave je is_active=false jen u 1 radku (Dusan 12674, spravne storno). Pavel (13311,13316)
+a Lucie (13369) vraceny na is_active=true. Zprisneny match za 60 dni vraci jen Dusana.
+Cloud git_sha = 67218366 (fw.api_version). VZDY overuj deploy pres fw.api_version, ne deploy log.
 
-## TODO (nedodelano zamerne)
-- `_sync_vyroba_work_app/_ec` zatim att_entry_id NEvyplnuje pri beznem syncu (jen kaskada
-  storna ho vyplni pro dotcene radky). Plne FK doplneni v syncu = odlozeno (korelace
-  work_alloc<->att_entry je taky heuristika). Kaskada pri stornu (rare event) staci.
+## Gotchy mostu (z teto session)
+- `@@EMAIL` i write pres most se muze ZDVOJIT (retry) - vznikly 2 stejne outbox radky -> 2 emaily.
+  Po @@EMAIL HNED zkontroluj public.email_outbox a pripadny duplikat zrus (rychle, nez se odesle).
+- `@@G2007ADD` / write vraci neutralni navratovku (0 radku/sloupcu) i kdyz probehlo - overuj ctenim.
+
+## TODO
+- `_sync_vyroba_work_app/_ec` att_entry_id pri beznem syncu NEvyplnuje (jen kaskada storna).
+  Plne FK v syncu odlozeno (korelace work_alloc<->att_entry je taky heuristika).
 

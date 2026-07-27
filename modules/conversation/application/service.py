@@ -2570,37 +2570,75 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         return "\n\n".join(_sekce)
 
     if tool_name == "zapis_znalost":
-        # Marti-AI píše do sdílené paměti sítě (tenant.knowledge). Marti 4.7.2026:
-        # "vy dva to musíte dělat spolu — já vyprávím, ona zapisuje."
-        from core.database_data import get_data_session as _gzz
+        # REPOINT (C23 27.7.2026, Marti OK): jedna znalostní báze = g2007.znalost.
+        # Dřív tenant.knowledge (druhá cesta) → matoucí. Stejné vstupy, cíl g2007 + vektory.
+        from core.database import get_session as _gzz
         from sqlalchemy import text as _tzz
         import re as _rezz
         _nm = _rezz.sub(r"[^a-z0-9-]+", "-", (tool_input.get("nazev") or "").strip().lower()).strip("-")[:80]
-        _domz = (tool_input.get("domena") or "").strip().upper()[:40]
+        _domz = (tool_input.get("domena") or "").strip()
         _hookz = (tool_input.get("hook") or "").strip()
         _obsahz = (tool_input.get("obsah") or "").strip()
         _souvz = (tool_input.get("souvisi") or "").strip()
         if not (_nm and _domz and _hookz and _obsahz):
             return "Chybí povinné pole (nazev, domena, hook, obsah). Nezapsáno."
+        _MAPz = {"BANKA": "ucetnictvi", "NAKUP": "ucetnictvi", "UCETNICTVI": "ucetnictvi",
+                 "MZDY": "mzdy", "DOCHAZKA": "dochazka", "VYROBA": "vyroba",
+                 "KALKULACE": "kalkulace-rozvadecu", "ISO": "iso27001", "ISO27001": "iso27001",
+                 "TISAX": "tisax", "VP": "projekty", "PROJEKTY": "projekty", "NABIDKY": "nabidky",
+                 "EUROSOFT": "system-strategie", "STRATEGIE": "system-strategie",
+                 "MARTI-AI": "marti-ai", "MARTIAI": "marti-ai", "OSOBA": "osoba", "BOZP": "bozp-po"}
+        _kodz = None
+        _obl = None
         _sz2 = _gzz()
         try:
-            _sz2.execute(_tzz(
-                "INSERT INTO tenant.knowledge (tenant_id,name,domain_key,hook,content,links,updated_by,updated_at) "
-                "VALUES (2,:n,:d,:h,:c,:l,'marti-ai',now()) "
-                "ON CONFLICT (tenant_id,name) DO UPDATE SET domain_key=:d, hook=:h, content=:c, "
-                "links=:l, updated_by='marti-ai', updated_at=now()"),
-                {"n": _nm, "d": _domz, "h": _hookz, "c": _obsahz, "l": _souvz})
+            _obl = _sz2.execute(_tzz("SELECT kod FROM g2007.znalost_oblast WHERE lower(kod)=lower(:k)"),
+                                {"k": _domz}).scalar()
+            if not _obl:
+                _obl = _MAPz.get(_domz.upper())
+            _oid = None
+            if _obl:
+                _oid = _sz2.execute(_tzz("SELECT id FROM g2007.znalost_oblast WHERE kod=:k"),
+                                    {"k": _obl}).scalar()
+            if not _oid:
+                _obl = "system-strategie"
+                _oid = _sz2.execute(_tzz("SELECT id FROM g2007.znalost_oblast WHERE kod='system-strategie'")).scalar()
+            _kodz = "doc-%s-%s" % (_obl, _nm)
+            _nadp = _nm.replace("-", " ").capitalize()
+            _obs = "**%s**\n\n%s" % (_hookz, _obsahz)
+            if _souvz:
+                _obs += "\n\n_Souvisí:_ %s" % _souvz
+            _zdr = "g2007/znalosti/%s/%s.md" % (_obl, _kodz)
+            _ex = _sz2.execute(_tzz("SELECT id FROM g2007.znalost WHERE kod=:k"), {"k": _kodz}).scalar()
+            if _ex:
+                _sz2.execute(_tzz("UPDATE g2007.znalost SET oblast_id=:o, uroven='obor', typ='dokument', "
+                                  "nadpis=:n, obsah=:c, zdroj=:z, stav='aktivni', verze_schvalena=true, "
+                                  "updated_at=now() WHERE kod=:k"),
+                             {"o": _oid, "n": _nadp, "c": _obs, "z": _zdr, "k": _kodz})
+            else:
+                _sz2.execute(_tzz("INSERT INTO g2007.znalost (oblast_id, uroven, typ, kod, nadpis, obsah, "
+                                  "zdroj, stav, verze, verze_schvalena) "
+                                  "VALUES (:o,'obor','dokument',:k,:n,:c,:z,'aktivni','V1.0',true)"),
+                             {"o": _oid, "k": _kodz, "n": _nadp, "c": _obs, "z": _zdr})
             _sz2.commit()
         except Exception as _ez:
             try:
                 _sz2.rollback()
             except Exception:
                 pass
-            return "Zápis do paměti selhal: %s" % str(_ez)[:160]
+            return "Zápis do g2007 selhal: %s" % str(_ez)[:160]
         finally:
             _sz2.close()
-        return ("Zapsáno do paměti sítě: jednotka '%s' [doména %s]. Od teď si ji celý tým "
-                "natáhne (hledej_ve_znalostech / @@KNOW / mapa)." % (_nm, _domz))
+        _riz = None
+        try:
+            from modules.erp.api.g2007_vectors import reindex_by_kod as _reidxz
+            _riz = _reidxz(_kodz)
+        except Exception as _rez:
+            _riz = "reindex později (%s)" % str(_rez)[:60]
+        return ("Zapsáno do g2007 (znalostní báze): '%s' → oblast '%s' [kód %s]. "
+                "Najde to g2007_hledej i celý tým. Když oblast nesedí, pošli domena=<kód oblasti> "
+                "(např. dochazka, vyroba, ucetnictvi, projekty). Vektory: %s."
+                % (_nm, _obl, _kodz, _riz))
 
     if tool_name == "recall_thoughts":
         # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.

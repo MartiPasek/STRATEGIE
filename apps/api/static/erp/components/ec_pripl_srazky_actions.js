@@ -22,6 +22,18 @@
    * rizika: PrenesDoMezd, prescasove konto, kontroly integrity Centraly).
    * Kod nechavame kompletni — staci prepnout ENABLED na true. */
   var ENABLED = false;
+
+  /* 🔒 ZAMEK NA CTENI (Claude-28 / Jirka, 27.7.2026).
+   * Ze stejneho duvodu jako vypnuta tlacitka: `ec.pripl_srazky` je zive
+   * jednosmerne zrcadlo Centraly. Formular byl doted plne editovatelny vcetne
+   * tlacitka OK — uzivatel mohl prepsat castku/schvaleni, ulozilo by se to JEN
+   * k nam a nejblizsi hodinovy sync by to prepsal zpet (a do mezd by se to
+   * nikdy nedostalo). Proto pole zamykame a OK schovavame; Storno/zavrit
+   * zustava. Vypnout = READ_ONLY na false (az bude rozhodnuty smer dat). */
+  var READ_ONLY = true;
+  var LOCK_NOTE = "🔒 Jen ke čtení — data se každou hodinu načítají z Centrály. "
+                + "Schvaluje a vyplácí se dál v Centrále (Helios počítá mzdu z jejích dat).";
+
   var ACTIONS = [
     { code: "pripl_schvalit", mode: 1, label: "✅ Schválit", confirm: null },
     { code: "pripl_schvalit", mode: 2, label: "↩️ Zrušit schválení", confirm: "Zrušit schválení tohoto příplatku/srážky?" },
@@ -81,6 +93,42 @@
     host.insertBefore(bar, host.firstChild);
   }
 
+  /* Zamkne jadro na cteni: pole disabled, OK schovane, nahore informacni pruh.
+   * Vse defenzivne — kdyz se struktura shellu zmeni, jen se nic nestane. */
+  function _lock(inst) {
+    if (!READ_ONLY) return;
+    if (_coreCode(inst) !== CORE_CODE) return;
+    var shell = inst._shell || {};
+    var host = shell.body;
+    if (!host) return;
+
+    var els = host.querySelectorAll("input, textarea, select, button");
+    for (var i = 0; i < els.length; i++) {
+      try { els[i].disabled = true; } catch (e) {}
+      try { els[i].setAttribute("readonly", "readonly"); } catch (e) {}
+    }
+
+    if (shell.dialog) {
+      var footer = shell.dialog.querySelector(".erp-modal-footer");
+      if (footer) {
+        var btns = footer.querySelectorAll("button");
+        for (var j = 0; j < btns.length; j++) {
+          var t = (btns[j].textContent || "").trim();
+          if (/^\s*(✓\s*)?OK\s*$/i.test(t)) { btns[j].style.display = "none"; }
+        }
+      }
+    }
+
+    if (!host.querySelector(".ec-pripl-rolock")) {
+      var bar = document.createElement("div");
+      bar.className = "ec-pripl-rolock";
+      bar.textContent = LOCK_NOTE;
+      bar.style.cssText = "padding:7px 10px;margin:0 0 10px 0;background:#fff7ed;"
+        + "border:1px solid #fed7aa;border-radius:8px;color:#7c2d12;font-size:12.5px;line-height:1.35;";
+      host.insertBefore(bar, host.firstChild);
+    }
+  }
+
   function _install() {
     var F = global.DesignFwForm;
     if (!F || !F.prototype || F.prototype.__ecPriplWrapped) return !!(F && F.prototype && F.prototype.__ecPriplWrapped);
@@ -89,6 +137,7 @@
     F.prototype._render = function () {
       var r = origRender.apply(this, arguments);
       try { _inject(this); } catch (e) { if (global.console) global.console.error("[ec-pripl-actions]", e); }
+      try { _lock(this); } catch (e2) { if (global.console) global.console.error("[ec-pripl-rolock]", e2); }
       return r;
     };
     F.prototype.__ecPriplWrapped = true;

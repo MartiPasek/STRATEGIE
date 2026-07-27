@@ -5361,6 +5361,7 @@ TOOLS = [
                 "cmd": {"type": "string"},
                 "shell": {"type": "string"},
                 "incident": {"type": "boolean"},
+                "target": {"type": "string", "description": "Volitelné: hostname jiného boxu NAŠÍ domény (remote přes PSRemoting). Prázdné = lokální pražský app server. Mimo allowlist = 🔴 blok."},
             },
             "required": ["cmd"],
         },

@@ -10080,6 +10080,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 cmd=tool_input.get("cmd", ""),
                 shell=tool_input.get("shell", "powershell"),
                 incident=bool(tool_input.get("incident")),
+                target=tool_input.get("target", ""),
                 actor="Marti-AI",
             )
             return _json_sx.dumps(_res_sx, ensure_ascii=False)

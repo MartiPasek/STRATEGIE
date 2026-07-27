@@ -23,21 +23,32 @@ logger = logging.getLogger("conversation")
 _TIMEOUT_S = int(os.getenv("STRATEGIE_EXEC_TIMEOUT_S", "300"))
 _OUT_CAP = int(os.getenv("STRATEGIE_EXEC_OUT_CAP", "32768"))
 _FLAG = "strategie_exec_enabled"
+_FLAG_TARGETS = "strategie_exec_targets"  # comma-list povolených remote boxů (naše doména)
 
 
-def _enabled() -> bool:
+def _setting(klic: str) -> str:
     try:
         from core.database import get_session
         from sqlalchemy import text as _t
         sg = get_session()
         try:
-            h = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic=:k"),
-                           {"k": _FLAG}).scalar()
-            return str(h).strip().lower() == "on"
+            return str(sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic=:k"),
+                                  {"k": klic}).scalar() or "")
         finally:
             sg.close()
     except Exception:
-        return False
+        return ""
+
+
+def _enabled() -> bool:
+    return _setting(_FLAG).strip().lower() == "on"
+
+
+def _allowed_targets() -> set:
+    """Povolené remote boxy (naše tří-serverová doména). Prázdné = jen lokální exec.
+    Nastavuje se přes g2007.nastaveni strategie_exec_targets = 'hostA,hostB'."""
+    raw = _setting(_FLAG_TARGETS)
+    return {t.strip().lower() for t in raw.split(",") if t.strip()}
 
 
 def _argv(shell: str, cmd: str):
@@ -51,12 +62,12 @@ def _argv(shell: str, cmd: str):
     return None
 
 
-def _audit_ops(cmd, tier, status, rc, out, err, actor) -> None:
+def _audit_ops(cmd, tier, status, rc, out, err, actor, host="praha-app") -> None:
     """Best-effort audit do fw.ops_request (viditelné rodičům v UI). Nikdy nesmí shodit."""
     try:
         from core.database import get_session
         from sqlalchemy import text as _t
-        params = {"tier": tier, "rc": rc, "host": "praha-app"}
+        params = {"tier": tier, "rc": rc, "host": host}
         res = (str(out or "") + (" | ERR:" + str(err) if err else ""))[:1000]
         sg = get_session()
         try:
@@ -74,25 +85,39 @@ def _audit_ops(cmd, tier, status, rc, out, err, actor) -> None:
 
 
 def strategie_exec(cmd: str = "", shell: str = "powershell", incident: bool = False,
-                   actor: str = "Marti-AI", **_extra: Any) -> dict[str, Any]:
-    """Raw příkaz na pražském app serveru pod cílem. Viz spec doc-marti-ai-eurosoft-exec-spec."""
+                   target: str = "", actor: str = "Marti-AI", **_extra: Any) -> dict[str, Any]:
+    """Raw příkaz na pražském app serveru (lokálně) NEBO na povoleném remote boxu naší
+    domény přes PSRemoting (target=hostname). Viz spec doc-marti-ai-eurosoft-exec-spec."""
     cmd = (cmd or "").strip()
     if not cmd:
         return {"ok": False, "error": "empty_cmd"}
     if not _enabled():
         return {"ok": False, "error": "exec_disabled",
                 "hint": "g2007.nastaveni strategie_exec_enabled='on'"}
+    target = (target or "").strip()
+    host = target or "praha-app"
+    # Tvrdé „nikdy": target mimo naši doménu (allowlist) = 🔴 blok.
+    if target and target.lower() not in _allowed_targets():
+        _audit_ops(cmd, "red", "blocked:out_of_domain", None, "",
+                   f"target '{target}' mimo doménu", actor, host)
+        return {"ok": False, "error": "red_out_of_domain", "tier": "red",
+                "hint": f"target '{target}' není v povolené doméně (g2007 strategie_exec_targets)"}
     tier, why = _guard.exec_tier(cmd)
     inc = bool(incident)
     if tier == "red":
-        _audit_ops(cmd, "red", "blocked:red_never", None, "", why, actor)
+        _audit_ops(cmd, "red", "blocked:red_never", None, "", why, actor, host)
         return {"ok": False, "error": "red_never", "tier": "red", "hint": why}
     if tier == "yellow" and not inc:
-        _audit_ops(cmd, "yellow", "blocked:needs_approval", None, "", why, actor)
+        _audit_ops(cmd, "yellow", "blocked:needs_approval", None, "", why, actor, host)
         return {"ok": False, "error": "needs_approval", "tier": "yellow", "hint": why,
                 "note": "jeden banner = jeden konkrétní příkaz; schválení expiruje ~15 min"}
     eff = "yellow_incident" if (tier == "yellow" and inc) else "green"
-    argv = _argv(shell, cmd)
+    if target:
+        # Remote přes PSRemoting (integrovaná auth účtu služby — žádná plaintext hesla).
+        _wrap = "Invoke-Command -ComputerName '%s' -ScriptBlock { %s }" % (target, cmd)
+        argv = _argv("powershell", _wrap)
+    else:
+        argv = _argv(shell, cmd)
     if argv is None:
         return {"ok": False, "error": "bad_shell", "hint": "shell: powershell|cmd|bash"}
     t0 = time.time()
@@ -107,6 +132,6 @@ def strategie_exec(cmd: str = "", shell: str = "powershell", incident: bool = Fa
     except Exception as e:
         out, err, rc = "", f"{type(e).__name__}: {str(e)[:300]}", -1
     ms = int((time.time() - t0) * 1000)
-    _audit_ops(cmd, eff, ("done" if rc == 0 else "fail"), rc, out, err, actor)
-    return {"ok": rc == 0, "tier": eff, "incident": inc, "shell": shell,
+    _audit_ops(cmd, eff, ("done" if rc == 0 else "fail"), rc, out, err, actor, host)
+    return {"ok": rc == 0, "tier": eff, "incident": inc, "shell": shell, "target": target,
             "rc": rc, "out": out, "err": err, "ms": ms}

@@ -126,9 +126,14 @@ def _parse_roots(raw: str) -> list[Path]:
     return out
 
 
+# C23 27.7.2026: DR logy jen pro CTENI, fixne v kodu (nezavisle na NSSM env) -
+# aby sel 30.11 diagnostikovat autonomne z Coworku/STRATEGIE bez RDP. RW beze zmeny.
+_DR_RO_EXTRA = r"D:\STRATEGIE_IN;D:\STRATEGIE_ARCHIVE;C:\scripts"
+
 def _allow_roots() -> tuple[list[Path], list[Path]]:
-    """(rw_roots, ro_roots) z env (MCP_FS_RW_ROOTS / MCP_FS_RO_ROOTS)."""
-    return _parse_roots(settings.fs_rw_roots), _parse_roots(settings.fs_ro_roots)
+    """(rw_roots, ro_roots) z env (MCP_FS_RW_ROOTS / MCP_FS_RO_ROOTS) + fixni DR RO logy."""
+    ro = _parse_roots(settings.fs_ro_roots) + _parse_roots(_DR_RO_EXTRA)
+    return _parse_roots(settings.fs_rw_roots), ro
 
 
 def _under(path: Path, root: Path) -> bool:

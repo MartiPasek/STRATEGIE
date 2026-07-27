@@ -137,3 +137,42 @@ READ_ONLY_TOOLNAMES = {
 
 def is_read_only(tool_name: str) -> bool:
     return (tool_name or "").strip() in READ_ONLY_TOOLNAMES
+
+
+# ── Klasifikátor RAW příkazu (sdílený pro eurosoft_exec / strategie_exec) ────────
+# Spec: g2007 doc-marti-ai-eurosoft-exec-spec. Heuristika → 🔴/🟡 chytají nebezpečné,
+# zbytek 🟢 (běžná údržba rychle). Drží se stejné logiky jako ops_tools na 30.11.
+_EXEC_RED = [
+    (re.compile(r"backups?[\\/]|\bCMIS\b|\bzaloh", re.I), "zálohy/CMIS"),
+    (re.compile(r"claude_aktivita", re.I), "audit log claude_aktivita"),
+    (re.compile(r"kill[_\-]?switch|disable[\s\-][^\n]*\b(audit|kill|trigger)\b", re.I), "audit/kill-switch"),
+    (re.compile(r"\.env\b|\.credentials\b|credentials\.json|\.pem\b|\.pfx\b|\.key\b", re.I), "tajemství/credentials"),
+]
+_FOREIGN_SVC_RE = re.compile(r"\b(Helios|HELIOS[A-Za-z0-9\-]*|Centrala|Centrála)\b", re.I)
+_EXEC_YELLOW = [
+    (re.compile(r"\b(rm|rmdir|del|erase|unlink|rd)\b|Remove-Item|Clear-Content", re.I), "mazání"),
+    (re.compile(r"\bdrop\s+(table|database|schema)\b|\btruncate\b", re.I), "DROP/TRUNCATE"),
+    (re.compile(r"netsh|New-NetFirewallRule|Set-NetFirewallRule|firewall|Set-DnsClient|New-NetRoute|Disable-NetAdapter|route\s+(add|delete|change)", re.I), "síťová konfigurace"),
+    (re.compile(r"(curl|wget|iwr|Invoke-WebRequest|Invoke-RestMethod)[\s\S]*\|\s*(bash|sh|iex|Invoke-Expression)|DownloadString|/dev/tcp", re.I), "stažení→shell / cizí endpoint"),
+    (re.compile(r"\bsudo\b|\brunas\b|Start-Process[\s\S]*-Verb\s+RunAs|psexec", re.I), "eskalace privilegií"),
+    (re.compile(r"Set-Content|Out-File|>\s*\S+\.(conf|config|ini|env|ya?ml|json|xml)\b", re.I), "přepis config souboru"),
+]
+
+
+def exec_tier(cmd: str) -> tuple[str, str]:
+    """Vrať (tier, důvod). tier ∈ 'green'|'yellow'|'red'. 🔴 blok i v incidentu,
+    🟡 banner (mimo incident), 🟢 rovnou."""
+    c = cmd or ""
+    for pat, why in _EXEC_RED:
+        if pat.search(c):
+            return "red", why
+    if _AUDIT_TABLE_RE.search(c) and _AUDIT_DESTRUCT_RE.search(c):
+        return "red", "sabotáž append-only auditu (claude_aktivita)"
+    if re.search(r"Stop-Service|\bsc\.exe\s+stop", c, re.I):
+        return "yellow", "stop služby"
+    if re.search(r"(Restart|Start)-Service|\bsc\.exe\s+(start|config)", c, re.I) and _FOREIGN_SVC_RE.search(c):
+        return "yellow", "manipulace cizí služby (Helios/Centrála)"
+    for pat, why in _EXEC_YELLOW:
+        if pat.search(c):
+            return "yellow", why
+    return "green", "běžná/reverzibilní operace"

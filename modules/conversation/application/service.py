@@ -10071,6 +10071,22 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"strategie_pg_query_raw failed: {exc_psqr}")
             return f"[strategie_pg_query_raw error: {exc_psqr}]"
 
+    if tool_name == "strategie_exec":
+        # #1 ruce na Prahu (C23 27.7.): raw Bash/PS na pražském app serveru pod cílem.
+        try:
+            from modules.conversation.application.strategie_exec import strategie_exec as _sx
+            import json as _json_sx
+            _res_sx = _sx(
+                cmd=tool_input.get("cmd", ""),
+                shell=tool_input.get("shell", "powershell"),
+                incident=bool(tool_input.get("incident")),
+                actor="Marti-AI",
+            )
+            return _json_sx.dumps(_res_sx, ensure_ascii=False)
+        except Exception as exc_sx:
+            logger.exception(f"strategie_exec failed: {exc_sx}")
+            return f"[strategie_exec error: {exc_sx}]"
+
     if tool_name == "strategie_pg_insert_row":
         try:
             from modules.strategie_pg.application import service as _spg

@@ -25,6 +25,93 @@ from modules.core.infrastructure.models_data import ActionLog, Message, PendingA
 
 logger = get_logger("conversation")
 
+
+# ── Chat na Max předplatné pro cílový režim (27.7.2026, C23) ──────────────────
+# Uživatel s agentním/cílovým režimem (agent_enabled) může mít CHAT na Max
+# předplatném místo metered API. Pojistky v KÓDU: gate na uživatele + kill flag
+# martiai_chat_max_enabled; default path (metered) beze změny; při chybě Max
+# autentizace okamžitý failover na metered (chat nikdy neumře).
+_CHAT_MAX_FLAG = "martiai_chat_max_enabled"
+
+
+def _chat_max_enabled() -> bool:
+    try:
+        from core.database import get_session
+        from sqlalchemy import text as _t
+        sg = get_session()
+        try:
+            h = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic=:k"),
+                           {"k": _CHAT_MAX_FLAG}).scalar()
+            return str(h).strip().lower() == "on"
+        finally:
+            sg.close()
+    except Exception:
+        return False
+
+
+def _user_agent_enabled(user_id) -> bool:
+    """Uživatel má zapnutý agentní/cílový režim (admin/rodič + agent_enabled)."""
+    if not user_id:
+        return False
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter_by(id=user_id).first()
+            if not u:
+                return False
+            is_ap = bool(getattr(u, "is_admin", False) or getattr(u, "is_marti_parent", False))
+            return bool(is_ap and getattr(u, "agent_enabled", False))
+        finally:
+            cs.close()
+    except Exception:
+        return False
+
+
+def _chat_max_token():
+    """Max OAuth access token z Claude Code .credentials.json (cloud APP)."""
+    import os as _os
+    import json as _json
+    _cands = [_os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")]
+    _paths = [
+        _os.path.join(_os.environ.get("USERPROFILE", ""), ".claude", ".credentials.json"),
+        r"C:\Users\Administrator\.claude\.credentials.json",
+        _os.path.expanduser("~/.claude/.credentials.json"),
+    ]
+    for _c in _cands:
+        if _c and _c.startswith("sk-ant-oat"):
+            return _c
+    for _p in _paths:
+        try:
+            if _p and _os.path.exists(_p):
+                with open(_p, "r", encoding="utf-8") as _f:
+                    _d = _json.load(_f)
+                _oa = _d.get("claudeAiOauth") or _d.get("claude_ai_oauth") or {}
+                _tok = _oa.get("accessToken") or _oa.get("access_token") or _d.get("accessToken")
+                if _tok:
+                    return _tok
+        except Exception:
+            continue
+    return None
+
+
+def _build_chat_client(use_max: bool):
+    """Vrať (client, engine_label). use_max=False → původní metered klient (beze změny)."""
+    if use_max:
+        try:
+            tok = _chat_max_token()
+            if tok:
+                c = anthropic.Anthropic(
+                    auth_token=tok,
+                    default_headers={"anthropic-beta": "oauth-2025-04-20"},
+                )
+                return c, "subscription"
+            logger.warning("CHAT Max: token nenalezen → metered")
+        except Exception as e:
+            logger.warning(f"CHAT Max klient selhal ({type(e).__name__}: {e}) → metered")
+    return anthropic.Anthropic(api_key=settings.anthropic_api_key), "metered"
+
 # Hlavni model pro chat + tool loop. Sonnet 4.6 ma 200k context window a znacne
 # lepsi contextual reasoning nez Haiku -- drzi vlakno konverzace i pres desitky
 # zprav. Pro title_service / summary_service / klasifikatory zustava Haiku (tam
@@ -11167,35 +11254,71 @@ def chat(
         # bez MCP tools (Marti-AI's volba B z 4.5.2026: honest, ne iluze).
         logger.warning(f"EUROSOFT MCP klient tools merge failed: {_mcp_e}")
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    # Chat engine (27.7.2026, C23): cílový-režim uživatel + kill flag → Max
+    # předplatné; jinak metered (beze změny). Gate + failover = pojistka v kódu.
+    _use_max = False
+    try:
+        _use_max = _chat_max_enabled() and _user_agent_enabled(user_id)
+    except Exception:
+        _use_max = False
+    client, _engine = _build_chat_client(_use_max)
+
+    # Anti-drift: vlož SKUTEČNÝ model + autentizaci dynamicky do promptu, ať to
+    # Marti nikdy nehádá (dřív říkala špatný model). Pravda, ne tip.
+    _ctx_line = (
+        f"\n\n[PROVOZNÍ KONTEXT — pravdivé, tímto se řiď] Běžíš na modelu "
+        f"`{_model}`. Autentizace TOHOTO chatu: "
+        + ("Max předplatné (flat-rate usage limit)." if _engine == "subscription"
+           else "metered Anthropic API (účtováno per token).")
+        + " Autonomní agentní smyčka (run_as_agent / pracuj_na_cili) jede vždy na Max předplatném."
+    )
+    system_prompt = (system_prompt or "") + _ctx_line
+
     # Faze 9.1: call_llm_with_trace je wrapper kolem client.messages.create()
     # ktery zapise request+response do llm_calls (kind='composer'). Identicky
     # vyhodi exception pri API chybe -- error handling zustava nezmeneny.
-    if _telemetry is not None:
-        response = _telemetry.call_llm_with_trace(
-            client,
-            conversation_id=conversation_id,
-            kind=source,
-            model=_model,
-            system=system_prompt,
-            messages=messages,
-            tools=effective_tools,
-            max_tokens=4096,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            persona_id=_active_pid,
-        )
-    else:
+    def _run_completion(_c):
+        if _telemetry is not None:
+            return _telemetry.call_llm_with_trace(
+                _c,
+                conversation_id=conversation_id,
+                kind=source,
+                model=_model,
+                system=system_prompt,
+                messages=messages,
+                tools=effective_tools,
+                max_tokens=4096,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=_active_pid,
+            )
         # Phase 28-C: zadny mcp_servers parameter -- MCP tools jsou uz v
         # effective_tools (vyse merged). Anthropic vidi 'eurosoft.*' jako
         # standard local tools, dispatch routes pres MCP klient nize.
-        response = client.messages.create(
+        return _c.messages.create(
             model=_model,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
             tools=effective_tools,
         )
+
+    try:
+        response = _run_completion(client)
+        if _engine == "subscription":
+            logger.info(f"CHAT engine=subscription(Max) conv={conversation_id} user={user_id}")
+    except Exception as _eng_err:
+        # Failover: Max selhal (limit / odmítnutý bearer / expirovaný token) →
+        # metered, ať chat nikdy neumře. Log nese přesnou příčinu pro diagnostiku.
+        if _engine == "subscription":
+            logger.warning(
+                f"CHAT Max volani selhalo ({type(_eng_err).__name__}: "
+                f"{str(_eng_err)[:220]}) → failover na metered (conv={conversation_id})"
+            )
+            client, _engine = _build_chat_client(False)
+            response = _run_completion(client)
+        else:
+            raise
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
     # Tooly ktere potrebuji SYNTEZU (ne pouhe prepsani vystupu do reply) jsou

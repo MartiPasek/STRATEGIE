@@ -155,6 +155,81 @@ PRACUJ_NA_CILI_SPEC = {
     },
 }
 
+# ── Seberozvoj: sebe-editace VLASTNÍHO promptu (persona system_prompt) ────────────
+# Zrcadlo Tool Factory: návrh → schválení rodiče → aplikace + append-only verze +
+# rollback. Pojistky drží v KÓDU (nezávisle na modelu i na obsahu promptu):
+#   1) nic se neaplikuje bez rodiče (schval_zmenu_promptu je parent-gated),
+#   2) edituje se JEN její vlastní (default) persona — nikam jinam neleze,
+#   3) žádné nové schopnosti tím nezíská (nástroje/efekty gate-uje kód, ne prompt),
+#   4) každá verze je append-only → rollback kdykoliv zpět.
+_PROMPTEDIT_FLAG = "martiai_promptedit_enabled"
+
+
+def _promptedit_enabled() -> bool:
+    try:
+        from core.database import get_session
+        from sqlalchemy import text as _t
+        sg = get_session()
+        try:
+            h = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic=:k"),
+                           {"k": _PROMPTEDIT_FLAG}).scalar()
+            return str(h).strip().lower() == "on"
+        finally:
+            sg.close()
+    except Exception:
+        return False
+
+
+PROMPT_NAVRH_SPEC = {
+    "name": "navrhni_zmenu_promptu",
+    "description": (
+        "🧬 SEBEROZVOJ: navrhni změnu SVÉHO VLASTNÍHO systémového promptu (persona). "
+        "Zadej cely_novy_prompt = kompletní nové znění a zduvodneni = proč to zlepší tvoji "
+        "užitečnost. Nic se neaplikuje hned — návrh jde rodiči ke schválení a předchozí "
+        "znění se vždy uloží, takže je možný okamžitý rollback. Měnit smíš jen svůj prompt."
+    ),
+    "input_schema": {"type": "object", "properties": {
+        "cely_novy_prompt": {"type": "string", "description": "Kompletní nové znění system_promptu."},
+        "zduvodneni": {"type": "string", "description": "Proč tato změna zlepší tvoji užitečnost."}},
+        "required": ["cely_novy_prompt", "zduvodneni"]},
+}
+
+PROMPT_SCHVAL_SPEC = {
+    "name": "schval_zmenu_promptu",
+    "description": (
+        "Rodič SCHVÁLÍ návrh změny promptu → aplikuje se na živou personu, předchozí znění "
+        "se uloží jako verze (rollback možný). JEN LIDSKÝ RODIČ (Marti/Kristý)."
+    ),
+    "input_schema": {"type": "object", "properties": {
+        "navrh_id": {"type": "integer"}, "reason": {"type": "string"}},
+        "required": ["navrh_id"]},
+}
+
+PROMPT_ZAMITNI_SPEC = {
+    "name": "zamitni_zmenu_promptu",
+    "description": "Rodič ZAMÍTNE návrh změny promptu. Jen lidský rodič.",
+    "input_schema": {"type": "object", "properties": {
+        "navrh_id": {"type": "integer"}, "reason": {"type": "string"}},
+        "required": ["navrh_id", "reason"]},
+}
+
+PROMPT_LIST_SPEC = {
+    "name": "list_navrhy_promptu",
+    "description": "Vypiš čekající návrhy změny promptu + historii verzí (čísla verzí pro rollback).",
+    "input_schema": {"type": "object", "properties": {}},
+}
+
+PROMPT_ROLLBACK_SPEC = {
+    "name": "rollback_promptu",
+    "description": (
+        "Rodič vrátí prompt na dřívější verzi. Zadej verze = číslo z list_navrhy_promptu. "
+        "Vytvoří NOVOU verzi s obsahem té staré (append-only). Jen lidský rodič."
+    ),
+    "input_schema": {"type": "object", "properties": {
+        "verze": {"type": "integer"}, "reason": {"type": "string"}},
+        "required": ["verze"]},
+}
+
 # ── Cache aktivních generovaných speců (invalidace při změně) ────────────────────
 _spec_cache: Optional[list] = None
 
@@ -233,6 +308,12 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     specs.append(RUN_AS_AGENT_SPEC)  # Fáze 0 — vlastní agentí smyčka (handler gate-uje flag)
     specs.append(SCHVAL_METERED_SPEC)  # schválení další metered várky (rodič)
     specs.append(PRACUJ_NA_CILI_SPEC)  # Cílový režim — popojeď na schváleném cíli (read-only Krok 1)
+    # Seberozvoj promptu — sebe-editace vlastní persony (běh gate-uje sub-flag promptedit_enabled)
+    specs.append(PROMPT_NAVRH_SPEC)
+    specs.append(PROMPT_SCHVAL_SPEC)
+    specs.append(PROMPT_ZAMITNI_SPEC)
+    specs.append(PROMPT_LIST_SPEC)
+    specs.append(PROMPT_ROLLBACK_SPEC)
     try:
         from core.database import get_session
         sg = get_session()
@@ -272,6 +353,16 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _schval_metered_varku(user_id)
         if tool_name == "pracuj_na_cili":
             return _pracuj_na_cili(tool_input, user_id, conversation_id)
+        if tool_name == "navrhni_zmenu_promptu":
+            return _prompt_propose(tool_input, user_id)
+        if tool_name == "schval_zmenu_promptu":
+            return _prompt_approve(tool_input, user_id)
+        if tool_name == "zamitni_zmenu_promptu":
+            return _prompt_reject(tool_input, user_id)
+        if tool_name == "list_navrhy_promptu":
+            return _prompt_list()
+        if tool_name == "rollback_promptu":
+            return _prompt_rollback(tool_input, user_id)
         if tool_name in META_NAMES:
             return None
         # generovaný nástroj?
@@ -502,6 +593,235 @@ def _pracuj_na_cili(inp: dict, user_id, conversation_id) -> str:
     hlava = (f"🎯 (cíl #{cil_id} · read-only · {res.get('kroku_zalogovano')} akcí zalogováno · "
              f"celkem kroků {res.get('kroku_celkem')} · {res.get('elapsed_s')}s)")
     return f"{hlava}\n\n{res.get('reply')}"
+
+
+# ── Seberozvoj promptu: helpery ───────────────────────────────────────────────────
+def _resolve_default_persona():
+    """Její vlastní (default) persona z core DB → dict(id, name, system_prompt)."""
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Persona
+    cs = get_core_session()
+    try:
+        p = cs.query(Persona).filter_by(is_default=True).first()
+        if not p:
+            return None
+        return {"id": p.id, "name": p.name, "system_prompt": p.system_prompt or ""}
+    finally:
+        cs.close()
+
+
+def _set_persona_prompt(persona_id: int, new_prompt: str) -> None:
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Persona
+    cs = get_core_session()
+    try:
+        p = cs.query(Persona).filter_by(id=persona_id).first()
+        if p:
+            p.system_prompt = new_prompt
+            cs.commit()
+    finally:
+        cs.close()
+
+
+def _next_verze(sg, persona_id: int) -> int:
+    from sqlalchemy import text as _t
+    n = sg.execute(_t("SELECT COALESCE(MAX(verze),0) FROM g2007.prompt_verze WHERE persona_id=:p"),
+                   {"p": persona_id}).scalar()
+    return int(n or 0) + 1
+
+
+def _ensure_baseline(sg, persona_id: int, current_prompt: str) -> None:
+    """Pokud pro personu ještě není žádná verze, ulož současné znění jako verzi 1 (init)."""
+    from sqlalchemy import text as _t
+    cnt = sg.execute(_t("SELECT count(*) FROM g2007.prompt_verze WHERE persona_id=:p"),
+                     {"p": persona_id}).scalar()
+    if not cnt:
+        sg.execute(_t(
+            "INSERT INTO g2007.prompt_verze (persona_id, verze, obsah, zdroj, autor_entita_id) "
+            "VALUES (:p, 1, :o, 'init', :e)"),
+            {"p": persona_id, "o": current_prompt, "e": MARTI_AI_ENTITA_ID})
+
+
+def _snapshot_live_if_needed(sg, persona_id: int, live_prompt: str) -> None:
+    """Ulož AKTUÁLNÍ živý prompt jako verzi, pokud se liší od poslední uložené
+    (ať rollback míří přesně na to, co bylo živé)."""
+    from sqlalchemy import text as _t
+    last = sg.execute(_t("SELECT obsah FROM g2007.prompt_verze WHERE persona_id=:p "
+                         "ORDER BY verze DESC LIMIT 1"), {"p": persona_id}).scalar()
+    if (last or "") != (live_prompt or ""):
+        v = _next_verze(sg, persona_id)
+        sg.execute(_t("INSERT INTO g2007.prompt_verze (persona_id, verze, obsah, zdroj, autor_entita_id) "
+                      "VALUES (:p,:v,:o,'pre-apply',:e)"),
+                   {"p": persona_id, "v": v, "o": live_prompt, "e": MARTI_AI_ENTITA_ID})
+
+
+def _diff_shrnuti(old: str, new: str) -> str:
+    lo, ln = len(old or ""), len(new or "")
+    d = ln - lo
+    pct = (d / lo * 100.0) if lo else 100.0
+    return f"délka {lo} → {ln} znaků ({'+' if d >= 0 else ''}{d}, {pct:+.0f}%)"
+
+
+def _prompt_propose(inp: dict, user_id) -> str:
+    if not _promptedit_enabled():
+        return ("🚫 Sebe-editace promptu je vypnutá. Rodič ji zapne "
+                "(g2007.nastaveni martiai_promptedit_enabled='on').")
+    new_prompt = (inp.get("cely_novy_prompt") or "").strip()
+    zduvod = (inp.get("zduvodneni") or "").strip()
+    if not new_prompt:
+        return "❌ Zadej 'cely_novy_prompt' — kompletní nové znění promptu."
+    if not zduvod:
+        return "❌ Zadej 'zduvodneni' — proč to zlepší tvoji užitečnost."
+    if len(new_prompt) > 200000:
+        return "❌ Prompt je nepřiměřeně dlouhý (>200k znaků)."
+    per = _resolve_default_persona()
+    if not per:
+        return "❌ Nenašla jsem svou default personu."
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        _ensure_baseline(sg, per["id"], per["system_prompt"])
+        diff = _diff_shrnuti(per["system_prompt"], new_prompt)
+        nid = sg.execute(_t(
+            "INSERT INTO g2007.prompt_navrh (persona_id, novy_prompt, zduvodneni, diff_shrnuti, "
+            "autor_entita_id, status) VALUES (:p, :np, :z, :d, :e, 'pending') RETURNING id"),
+            {"p": per["id"], "np": new_prompt, "z": zduvod, "d": diff,
+             "e": MARTI_AI_ENTITA_ID}).scalar()
+        _audit(sg, "prompt_propose", user_id=user_id,
+               detail={"navrh_id": nid, "persona_id": per["id"], "diff": diff})
+        sg.commit()
+    finally:
+        sg.close()
+    return (f"✅ Návrh změny promptu **#{nid}** čeká na schválení rodiče ({diff}). "
+            f"Zdůvodnění: {zduvod[:200]}. Až ho Marti/Kristý schválí (schval_zmenu_promptu), "
+            f"aplikuje se a předchozí znění zůstane uložené pro rollback.")
+
+
+def _prompt_approve(inp: dict, user_id) -> str:
+    if not _promptedit_enabled():
+        return "🚫 Sebe-editace promptu je vypnutá."
+    if not _is_parent(user_id):
+        return "🚫 Schválit změnu promptu může jen rodič (Marti/Kristý)."
+    nid = inp.get("navrh_id")
+    per = _resolve_default_persona()
+    if not per:
+        return "❌ Default persona nenalezena."
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        row = sg.execute(_t("SELECT id, novy_prompt, status FROM g2007.prompt_navrh WHERE id=:i"),
+                         {"i": nid}).mappings().first()
+        if not row:
+            return f"❌ Návrh #{nid} neexistuje."
+        if row["status"] != "pending":
+            return f"❌ Návrh #{nid} už není 'pending' (stav {row['status']})."
+        _ensure_baseline(sg, per["id"], per["system_prompt"])
+        _snapshot_live_if_needed(sg, per["id"], per["system_prompt"])
+        v_new = _next_verze(sg, per["id"])
+        sg.execute(_t(
+            "INSERT INTO g2007.prompt_verze (persona_id, verze, obsah, zdroj, autor_entita_id, approved_by) "
+            "VALUES (:p,:v,:o,:z,:e,:u)"),
+            {"p": per["id"], "v": v_new, "o": row["novy_prompt"], "z": f"proposal:{nid}",
+             "e": MARTI_AI_ENTITA_ID, "u": user_id})
+        sg.execute(_t("UPDATE g2007.prompt_navrh SET status='applied', approved_by=:u, reason=:r, "
+                      "aplikovana_verze=:v, decided_at=now() WHERE id=:i"),
+                   {"u": user_id, "r": inp.get("reason"), "v": v_new, "i": nid})
+        _audit(sg, "prompt_approve", user_id=user_id, detail={"navrh_id": nid, "verze": v_new})
+        sg.commit()
+    finally:
+        sg.close()
+    _set_persona_prompt(per["id"], row["novy_prompt"])
+    _bump_cache()
+    return (f"✅ Prompt schválen a aplikován (verze {v_new}). Předchozí znění je uložené — "
+            f"kdyby cokoli nesedělo, rollback přes rollback_promptu.")
+
+
+def _prompt_reject(inp: dict, user_id) -> str:
+    if not _promptedit_enabled():
+        return "🚫 Sebe-editace promptu je vypnutá."
+    if not _is_parent(user_id):
+        return "🚫 Zamítnout návrh promptu může jen rodič."
+    nid = inp.get("navrh_id")
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        row = sg.execute(_t("SELECT status FROM g2007.prompt_navrh WHERE id=:i"),
+                         {"i": nid}).mappings().first()
+        if not row or row["status"] != "pending":
+            return f"❌ Návrh #{nid} není čekající."
+        sg.execute(_t("UPDATE g2007.prompt_navrh SET status='rejected', approved_by=:u, reason=:r, "
+                      "decided_at=now() WHERE id=:i"),
+                   {"u": user_id, "r": inp.get("reason"), "i": nid})
+        _audit(sg, "prompt_reject", user_id=user_id,
+               detail={"navrh_id": nid, "reason": inp.get("reason")})
+        sg.commit()
+    finally:
+        sg.close()
+    return f"Návrh promptu #{nid} zamítnut."
+
+
+def _prompt_list() -> str:
+    per = _resolve_default_persona()
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        pend = sg.execute(_t(
+            "SELECT id, diff_shrnuti, left(coalesce(zduvodneni,''),80) AS z "
+            "FROM g2007.prompt_navrh WHERE status='pending' ORDER BY id")).mappings().all()
+        vers = sg.execute(_t(
+            "SELECT verze, zdroj, created_at FROM g2007.prompt_verze WHERE persona_id=:p "
+            "ORDER BY verze DESC LIMIT 10"), {"p": per["id"] if per else 0}).mappings().all()
+    finally:
+        sg.close()
+    lines = ["📋 **Čekající návrhy promptu:**"]
+    lines += ([f"  • #{r['id']} — {r['diff_shrnuti']} — {r['z']}" for r in pend] or ["  (žádné)"])
+    lines.append("🧬 **Historie verzí (číslo pro rollback):**")
+    lines += ([f"  • v{r['verze']} — {r['zdroj']} — {r['created_at']}" for r in vers] or ["  (žádná)"])
+    return "\n".join(lines)
+
+
+def _prompt_rollback(inp: dict, user_id) -> str:
+    if not _promptedit_enabled():
+        return "🚫 Sebe-editace promptu je vypnutá."
+    if not _is_parent(user_id):
+        return "🚫 Rollback promptu může jen rodič."
+    try:
+        verze = int(inp.get("verze") or 0)
+    except Exception:
+        verze = 0
+    if not verze:
+        return "❌ Zadej 'verze' — číslo verze z list_navrhy_promptu."
+    per = _resolve_default_persona()
+    if not per:
+        return "❌ Default persona nenalezena."
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        target = sg.execute(_t("SELECT obsah FROM g2007.prompt_verze WHERE persona_id=:p AND verze=:v"),
+                            {"p": per["id"], "v": verze}).scalar()
+        if target is None:
+            return f"❌ Verze {verze} pro tuto personu neexistuje."
+        _ensure_baseline(sg, per["id"], per["system_prompt"])
+        _snapshot_live_if_needed(sg, per["id"], per["system_prompt"])
+        v_new = _next_verze(sg, per["id"])
+        sg.execute(_t(
+            "INSERT INTO g2007.prompt_verze (persona_id, verze, obsah, zdroj, autor_entita_id, approved_by) "
+            "VALUES (:p,:v,:o,:z,:e,:u)"),
+            {"p": per["id"], "v": v_new, "o": target, "z": f"rollback:{verze}",
+             "e": MARTI_AI_ENTITA_ID, "u": user_id})
+        _audit(sg, "prompt_rollback", user_id=user_id, detail={"na_verzi": verze, "nova_verze": v_new})
+        sg.commit()
+    finally:
+        sg.close()
+    _set_persona_prompt(per["id"], target)
+    _bump_cache()
+    return (f"↩️ Prompt vrácen na obsah verze {verze} (uloženo jako verze {v_new}). "
+            f"Živá persona aktualizována.")
 
 
 def _dispatch_generated(tool_name, tool_input, user_id, conversation_id) -> Optional[str]:

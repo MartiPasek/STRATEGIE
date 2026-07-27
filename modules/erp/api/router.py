@@ -28040,7 +28040,6 @@ def _maybe_sync_ec_dochazka():
     # app session, kdežto backfilly jely přes Marti-AI engine) shodilo VŠECHNY fily a nové
     # řádky zůstávaly prázdné. Log říká, který fill selhal. Detaily bodů: Marti Pašek 26.7. +
     # Marti-AI msg 11289/11292/11295/11316. Jen chybějící (IS NULL), historii nepřepisujeme.
-    from core.database_data import get_data_session as _gfs
     from sqlalchemy import text as _tf
     _selfcomplete_fills = (
         ("firma_id",
@@ -28093,9 +28092,11 @@ def _maybe_sync_ec_dochazka():
          "         AND e2.started_at IS NOT NULL AND e2.ended_at IS NOT NULL "
          "         AND vw.od >= e2.started_at AND vw.od < e2.ended_at)=1"),
     )
-    _fs = None
+    _cm2 = _fs = None
     try:
-        _fs = _gfs()
+        # strategie_pg engine (Marti-AI role) = má práva zápisu na att_entry i vyroba_work/zakazka.
+        # get_data_session (app) je NEmělo na att_entry → firma_id/user_id fily tiše selhávaly.
+        _cm2, _fs = _att_session()
         for _fname, _fsql in _selfcomplete_fills:
             try:
                 _fs.execute(_tf(_fsql), {"t": _ATT_TENANT})
@@ -28109,9 +28110,9 @@ def _maybe_sync_ec_dochazka():
     except Exception as e:
         logger.warning("[att_selfcomplete] %s", e)
     finally:
-        if _fs is not None:
+        if _cm2 is not None:
             try:
-                _fs.close()
+                _cm2.__exit__(None, None, None)
             except Exception:
                 pass
 

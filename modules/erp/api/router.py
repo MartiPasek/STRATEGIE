@@ -32828,11 +32828,21 @@ def dochazka_zakazky_ep(req: Request):
         if src in ("app", "centrala1"):
             wh += " AND w.source_system = :src"
             params["src"] = src
+        # Mobil interim (Jirka + Marti-AI 27.7.2026, DOCASNE do Q4 prestavby): me=1 => jen
+        # prihlaseny uzivatel. Mobil pak ukazuje "Prace po zakazkach" ze STEJNEHO zdroje
+        # (vyroba_work) a stejnym dotazem jako ERP prehled -> sedi 1:1. Sekce v mobilu je
+        # oznacena jako orientacni (NE mzdovy podklad). PO Q4 PRESTAVBE sjednotit na JEDEN
+        # zdroj pravdy (att_entry) a tuhle docasnou dvoji-sekci zrusit.
+        if (req.query_params.get("me") or "").strip() in ("1", "true", "ano") and uid:
+            wh += " AND w.user_id = :meuid"
+            params["meuid"] = int(uid)
         rows = s.execute(_t("""
             SELECT COALESCE(u.first_name||' '||u.last_name,'?') jmeno, w.user_id, w.cislo_zam,
                    to_char(w.datum,'YYYY-MM-DD') datum_iso, to_char(w.datum,'DD.MM.YYYY') den,
                    COALESCE(w.source_system,'?') src, trim(w.zakazka_ref) zak,
                    COALESCE(z."Nazev",'') nazev, ROUND(COALESCE(w.hodiny,0)::numeric,2) hod,
+                   to_char(w.od,'HH24:MI') od_t, to_char(w.konec,'HH24:MI') kon_t,
+                   (SELECT vc.name FROM tenant.vyroba_cinnost vc WHERE vc.id=w.cinnost_id) cinnost,
                    (SELECT string_agg(DISTINCT e.status, ',') FROM tenant.att_entry e
                       JOIN tenant.att_employee ae ON ae.id=e.employee_id
                      WHERE ae.user_id=w.user_id AND e.tenant_id=2 AND e.entry_date=w.datum) stav

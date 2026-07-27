@@ -107,7 +107,7 @@ NONCE_KEEP = 8                                        # kolik nonce kopií na ba
 # (glob CLAUDE_OUT__*.txt). CLAUDE2_* má jiný prefix → žádná kolize s nonce kopiemi.
 # Rozšíření: env CLAUDE_EXTRA_LANES="2,3". Watcher obsluhuje lanes serializovaně
 # (žádný file-clobber; souběžný BĚH dotazů se neřeší — write drží smyčku jako dnes).
-_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2").split(",") if s.strip()]
+_EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2,3").split(",") if s.strip()]
 LANES = [""] + _EXTRA_LANES
 
 

@@ -48318,10 +48318,18 @@ def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dic
             n += 1
         s.commit()
         out = {"ok": True, "rows": len(rows), "upserted": n}
-        try:  # propis známých plánovaných činností do docházky (ke kontrole v mzdách)
-            out["propis"] = _sync_plan_to_dochazka()
+        # 2. krok: propis do docházky. Výsledek MUSÍ být vidět v hlášení jobu — dřív se
+        # schoval jen v out["propis"] (dict → plánovač bere jen čísla, takže ho ignoroval)
+        # a job hlásil "ok", i když měsíc nepropsal ani jeden den (i28 27.7.2026).
+        try:
+            _p = _sync_plan_to_dochazka()
+            out["propis"] = _p
+            out["propsano"] = int(_p.get("vlozeno") or 0)
         except Exception as _pe:
             out["propis"] = {"ok": False, "error": str(_pe)[:200]}
+            out["ok"] = False
+            out["_msg"] = ("naplánováno %s dní, ale PROPIS DO DOCHÁZKY SELHAL: %s"
+                           % (n, str(_pe)[:200]))
         return out
     except Exception:
         s.rollback()

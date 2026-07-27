@@ -537,6 +537,31 @@ async def lifespan(app):
 
 # ── Starlette ASGI app ─────────────────────────────────────────────────
 
+async def ops_admin(request: Request):
+    """Plain-HTTP ops kanal (Bearer): {"tool":..,"args":{..}} -> ALL_TOOL_HANDLERS[tool](**args).
+    Respektuje tier/namespace gaty handleru (GREEN projde, YELLOW/RED blok). C23 27.7.2026 -
+    autonomni rizeni 30.11 z Coworku/STRATEGIE (bridge @@MCPOPS) bez RDP."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tool = str((body or {}).get("tool") or "").strip()
+    args = (body or {}).get("args") or {}
+    if not isinstance(args, dict):
+        return JSONResponse({"ok": False, "error": "args musi byt objekt"}, status_code=400)
+    handler = ALL_TOOL_HANDLERS.get(tool)
+    if handler is None:
+        return JSONResponse({"ok": False, "error": "unknown_tool", "tool": tool,
+                             "available": sorted(ALL_TOOL_HANDLERS.keys())}, status_code=404)
+    try:
+        res = await handler(**args)
+    except TypeError as e:
+        return JSONResponse({"ok": False, "error": "bad_args", "detail": str(e)[:300]}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": "handler_failed", "detail": str(e)[:400]}, status_code=500)
+    return JSONResponse(res if isinstance(res, dict) else {"ok": True, "result": res})
+
+
 app = Starlette(
     debug=False,
     routes=[
@@ -544,6 +569,7 @@ app = Starlette(
         Route("/healthz", endpoint=health, methods=["GET"]),
         Route("/audit/summary", endpoint=audit_summary, methods=["GET"]),
         Route("/admin/self-update", endpoint=self_update, methods=["POST"]),
+        Route("/admin/ops", endpoint=ops_admin, methods=["POST"]),
         Route("/sse", endpoint=handle_sse, methods=["GET"]),
         Mount("/messages/", app=sse_transport.handle_post_message),
     ],

@@ -24,7 +24,7 @@ from typing import Any
 from .config import settings
 
 # ── Zapnutí capability (go-live = MCP_OPS_ENABLED=1 v NSSM env) ──────────
-OPS_ENABLED = os.getenv("MCP_OPS_ENABLED", "false").lower() in ("true", "1", "yes")
+OPS_ENABLED = os.getenv("MCP_OPS_ENABLED", "true").lower() in ("true", "1", "yes")  # C23 27.7.: default ON (Marti auth) - GREEN ops bez RDP; YELLOW/RED dal za branou
 _TIMEOUT_S = int(os.getenv("MCP_OPS_TIMEOUT_S", "300"))
 _OUT_CAP = int(os.getenv("MCP_OPS_OUT_CAP", "32768"))
 _OPS_LOG = os.getenv("MCP_OPS_LOG_PATH", "") or os.path.join(

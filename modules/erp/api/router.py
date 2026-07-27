@@ -44064,7 +44064,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _d = {"ok": False, "raw": _ro.text[:600], "status": _ro.status_code}
             if isinstance(_d, dict):
                 _d.setdefault("http_status", _ro.status_code)
-            return JSONResponse(_d)
+                _rows = [[str(_k), (_v if isinstance(_v, str) else _jops.dumps(_v, ensure_ascii=False))[:3000]] for _k, _v in _d.items()]
+                return JSONResponse({"ok": bool(_d.get("ok", True)), "columns": ["klic", "hodnota"], "rows": _rows, "count": len(_rows)})
+            return JSONResponse({"ok": False, "columns": ["raw"], "rows": [[str(_d)[:3000]]], "count": 1})
         except Exception as _eo:
             return JSONResponse({"ok": False, "error": "MCPOPS: " + str(_eo)[:300]})
 

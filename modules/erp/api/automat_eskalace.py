@@ -135,9 +135,16 @@ def _check_backup_freshness(sg):
     return "ok", "Záloha čerstvá: %s (%s dnů)." % (newest, stari), 1, ctx
 
 
+def _check_smoke_eskalace(sg):
+    """RIZENY TEST zebriku — vzdy 'chyba' (umela). Automat smoke_eskalace; po testu deaktivuj."""
+    return ("chyba", "SMOKE TEST zebriku — umela chyba (zadny realny problem).",
+            0, "Rizeny test eskalace. Haiku ma odpovedet [VERDIKT: VYRESENO].")
+
+
 WATCHERS = {
     "check_service_down": _check_service_down,
     "check_backup_freshness": _check_backup_freshness,
+    "smoke_eskalace": _check_smoke_eskalace,
 }
 
 

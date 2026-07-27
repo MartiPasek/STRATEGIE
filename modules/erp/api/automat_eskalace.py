@@ -115,17 +115,20 @@ def _check_service_down(sg):
 
 
 def _check_backup_freshness(sg):
-    """Nejnovější datovaný dump v D:/STRATEGIE (pg_ls_dir, bez exec). Starý = problém."""
+    """Nejnovější dump v D:/STRATEGIE přes g2007.backup_freshness() (SECURITY DEFINER;\n    app role nema pg_read_server_files). Bez exec. Starý = problém."""
     from sqlalchemy import text as T
-    row = sg.execute(T(
-        "SELECT max(d) AS newest, (CURRENT_DATE - max(d::date)) AS stari "
-        "FROM pg_ls_dir('D:/STRATEGIE') d WHERE d ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'"
-    )).mappings().first()
+    try:
+        row = sg.execute(T(
+            "SELECT newest, stari FROM g2007.backup_freshness()"
+        )).mappings().first()
+    except Exception as e:  # noqa: BLE001  (watcher nesmi shodit runner)
+        return ("ok", "Backup probe nedostupny (%s) - bez poplachu." % type(e).__name__,
+                0, str(e)[:200])
     newest = row["newest"] if row else None
     stari = row["stari"] if row else None
     if newest is None:
         return ("chyba", "Žádný datovaný dump v D:/STRATEGIE.", 0,
-                "pg_ls_dir bez datovaných složek")
+                "backup_freshness bez datovaných složek")
     ctx = "nejnovější dump: %s (stáří %s dnů)" % (newest, stari)
     if stari is not None and stari > _BACKUP_STALE_DNU:
         return "chyba", "Záloha zastaralá: %s (%s dnů)" % (newest, stari), 1, ctx

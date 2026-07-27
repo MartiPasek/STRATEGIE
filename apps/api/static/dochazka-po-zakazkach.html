@@ -79,6 +79,10 @@
   .dlg{background:#141b28;border:1px solid #2a3546;border-radius:10px;margin-top:4vh;width:min(700px,95vw);max-height:92vh;display:flex;flex-direction:column;box-shadow:0 14px 44px rgba(0,0,0,.55)}
   .dlg h3{margin:0;padding:10px 14px;background:#1c2636;border-bottom:1px solid #2a3546;font-size:14px;display:flex;align-items:center;gap:8px}
   .dlg .bd{padding:14px;overflow:auto}
+  /* Sumace = nemodální posuvné okno: dá se odsunout stranou a přitom pracovat se seznamem (Peťa 27.7.) */
+  #ovsum{background:transparent;pointer-events:none;justify-content:flex-end}
+  #ovsum .dlg{pointer-events:auto;margin-top:8vh;margin-right:2vw;width:min(560px,92vw)}
+  #ovsum .dlg h3{cursor:move;user-select:none}
   .fg{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
   .fld{display:flex;flex-direction:column;gap:3px}
   .fld.full{grid-column:1 / -1}
@@ -1062,6 +1066,15 @@ function init(){
   $('ov').addEventListener('mousedown',function(e){if(e.target===$('ov'))closeEdit();});
   // Sumace + zavírání okna
   $('ovsum').addEventListener('mousedown',function(e){if(e.target===$('ovsum'))closeSum();});
+  // Sumace = posuvné okno: chytni za horní lištu a odsuň stranou (Peťa 27.7.)
+  (function(){var dlg=$('ovsum').querySelector('.dlg'),hd=dlg&&dlg.querySelector('h3');if(!hd)return;
+    var ax=0,ay=0,sx=0,sy=0,drag=false;
+    hd.addEventListener('mousedown',function(e){drag=true;sx=e.clientX;sy=e.clientY;e.preventDefault();
+      document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
+    function mv(e){if(drag)dlg.style.transform='translate('+(ax+e.clientX-sx)+'px,'+(ay+e.clientY-sy)+'px)';}
+    function up(e){if(!drag)return;drag=false;ax+=e.clientX-sx;ay+=e.clientY-sy;
+      document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}
+  })();
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('ovsum').classList.contains('on'))closeSum();});
   // Import okno — zavření klikem mimo / Esc
   $('ovimp').addEventListener('mousedown',function(e){if(e.target===$('ovimp'))closeImport();});

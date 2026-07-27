@@ -48,3 +48,12 @@ Napojení postavené a otestované na reálném dílu (`6ES7214-1AG40-0XB0` → 
 
 **TODO:** napojit na kalkulace/nabídky (dle MLFB / RegCis auto-dotáhnout lhůtu+cenu); zvážit krátkou cache + QUANTITYCHECK pro přesný sklad.
 
+## 📌 STAV k 27.7.2026 (C23)
+- **Modul HOTOVÝ a otestovaný naostro.** Přihlašovací údaje bezpečně v trezoru (cockpit → 🔐 Trezor hesel), OCI lookup panel v cockpitu (`🔌 Siemens — dostupnost, termín a cena dílu`): zadáš MLFB → cena + dodací lhůta + popis (+ varianty). Endpoint `/app/oci/lookup`.
+- **Poděkování Evě Jelínkové (Siemens) odesláno 27.7.2026** — potvrzeno, že OCI5 funguje, že jsme na naší straně připravili modul k napojení na naše nabídky, a že ho v průběhu příštích týdnů začneme využívat.
+- **Napojení na kalkulace/nabídky = ZATÍM NE (Marti 27.7.).** Nejsme ready — čeká na další práci s **Kristý a Eliškou**. Modul je hotový a stojí připravený; integraci (auto-dotažení lhůty+ceny dle MLFB do kalkulací/nabídek) pustíme, až bude hotová příprava na straně kalkulací/nabídek.
+- **⚠️ Dvě RŮZNÉ osoby u Siemens — NEZAMĚŇOVAT (podobná jména):**
+  - **Marti Pašek** — `m.pasek@eurosoft.com` — **jednatel** EUROSOFTu (zakladatel STRATEGIE).
+  - **Martin Pašek** — `martin.pasek@eurosoft.com` — **vedoucí projektu** EUROSOFTu, komunikuje se Siemens. Jiná osoba.
+
+

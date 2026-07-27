@@ -27746,14 +27746,19 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
                 "cinnost_id=(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin), "
                 "datum=:d, od=:z, konec=:k, hodiny=:h, cislo_zam=:cz, "
                 "user_id=(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1), "
+                # Krok 3 (Jirka + Marti Pasek 27.7.2026, "jeden zdroj pravdy"): vazba na att_entry
+                # pres shodne EC id (source_system='centrala1' + source_id). COALESCE = NIKDY neprepise
+                # uz vyplnenou vazbu na NULL (kdyby att_entry docasne chybel, drz stavajici).
+                "att_entry_id=COALESCE((SELECT ae.id FROM tenant.att_entry ae WHERE ae.tenant_id=:t AND ae.source_system='centrala1' AND ae.source_id=:sid LIMIT 1), att_entry_id), "
                 "updated_at=now() "
                 "WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
             if (res.rowcount or 0) == 0:
                 sess.execute(_t(
                     "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
-                    "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
+                    "zakazka_ref,cinnost_id,hodiny,source_system,source_id,att_entry_id,created_at,updated_at) "
                     "VALUES (:t,(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1),"
-                    ":cz,:d,:z,:k,:zak,(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin),:h,'centrala1',:sid,now(),now())"), p)
+                    ":cz,:d,:z,:k,:zak,(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin),:h,'centrala1',:sid,"
+                    "(SELECT ae.id FROM tenant.att_entry ae WHERE ae.tenant_id=:t AND ae.source_system='centrala1' AND ae.source_id=:sid LIMIT 1),now(),now())"), p)
                 ins += 1
             else:
                 upd += 1

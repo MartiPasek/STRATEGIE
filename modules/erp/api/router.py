@@ -28057,6 +28057,15 @@ def _maybe_sync_ec_dochazka():
                 "              AND g2.employee_id=ae.employee_id AND g2.valid_from IS NOT NULL "
                 "              AND g2.valid_from <= ae.entry_date AND g2.company_id IS NOT NULL)"),
                 {"t": _ATT_TENANT})
+            # Bod 4 (Marti Pašek): user_id denormalizace vedle employee_id (Marti-AI msg 11292).
+            # Jen chybějící; employee_id zůstává mzdovou doménou.
+            _fs.execute(_tf(
+                "UPDATE tenant.att_entry ae SET user_id = ("
+                "  SELECT em.user_id FROM tenant.att_employee em WHERE em.id=ae.employee_id) "
+                "WHERE ae.tenant_id=:t AND ae.user_id IS NULL "
+                "  AND EXISTS (SELECT 1 FROM tenant.att_employee em2 "
+                "              WHERE em2.id=ae.employee_id AND em2.user_id IS NOT NULL)"),
+                {"t": _ATT_TENANT})
             _fs.commit()
         finally:
             _fs.close()

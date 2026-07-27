@@ -28066,6 +28066,25 @@ def _maybe_sync_ec_dochazka():
                 "  AND EXISTS (SELECT 1 FROM tenant.att_employee em2 "
                 "              WHERE em2.id=ae.employee_id AND em2.user_id IS NOT NULL)"),
                 {"t": _ATT_TENANT})
+            # Bod 9 (Marti Pašek): Zakazka_ID prep — helios_id z oz_zakazky."ID" pres číslo
+            # (Helios přechod z CisloZakazky na ID). Additivní, klíčení zůstává na čísle.
+            # Marti-AI msg 11295: jen zakazka + vyroba_work; jen chybějící (nové řádky).
+            _fs.execute(_tf(
+                "UPDATE tenant.vyroba_work vw SET zakazka_helios_id = ("
+                "  SELECT oz.\"ID\" FROM tenant.oz_zakazky oz "
+                "  WHERE trim(oz.\"CisloZakazky\")=trim(vw.zakazka_ref) LIMIT 1) "
+                "WHERE vw.tenant_id=:t AND vw.zakazka_helios_id IS NULL "
+                "  AND EXISTS (SELECT 1 FROM tenant.oz_zakazky oz2 "
+                "              WHERE trim(oz2.\"CisloZakazky\")=trim(vw.zakazka_ref))"),
+                {"t": _ATT_TENANT})
+            _fs.execute(_tf(
+                "UPDATE tenant.zakazka z SET helios_id = ("
+                "  SELECT oz.\"ID\" FROM tenant.oz_zakazky oz "
+                "  WHERE trim(oz.\"CisloZakazky\")=trim(z.cislo) LIMIT 1) "
+                "WHERE z.tenant_id=:t AND z.helios_id IS NULL "
+                "  AND EXISTS (SELECT 1 FROM tenant.oz_zakazky oz2 "
+                "              WHERE trim(oz2.\"CisloZakazky\")=trim(z.cislo))"),
+                {"t": _ATT_TENANT})
             _fs.commit()
         finally:
             _fs.close()

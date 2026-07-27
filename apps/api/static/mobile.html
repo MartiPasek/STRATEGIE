@@ -9387,6 +9387,7 @@ setTimeout(function(){
     app.innerHTML=topbar("🎯 Cíle", true);
     app.appendChild(_cilBack());
     var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div id="cilKill"></div>'));
     var nb=el('<button class="green full" style="margin:0 0 10px;">＋ Nový cíl</button>');
     nb.addEventListener("click",function(){ go("cil_new"); });
     p.appendChild(nb);
@@ -9402,6 +9403,14 @@ setTimeout(function(){
     app.appendChild(p);
     var q=_cilFiltr?("?stav="+encodeURIComponent(_cilFiltr)):"";
     api("GET","/api/v1/erp/app/cil"+q,"").then(function(j){
+      var kb=document.getElementById("cilKill");
+      if(kb){ kb.innerHTML="";
+        if(j&&j.kill){ kb.appendChild(el('<div style="background:#4a1518;border:1px solid #7a2a2f;color:#ffb3b3;border-radius:12px;padding:11px 14px;margin-bottom:10px;font-weight:600;">⛔ Cílový režim je globálně pozastaven (kill switch). Aktivace a obnovení cílů jsou zablokované.</div>')); }
+        var _kon=!!(j&&j.kill);
+        var tgl=el('<button style="width:100%;margin:0 0 10px;border:0;border-radius:12px;padding:12px;font-size:15px;font-weight:700;color:#fff;background:'+(_kon?"#3fbf6b":"#ef6a6a")+';">'+(_kon?"▶️ Obnovit celý režim":"⛔ Pozastavit celý režim (kill switch)")+'</button>');
+        tgl.addEventListener("click",function(){ if(!_kon && !confirm("Pozastavit CELÝ Cílový režim? Zablokuje to aktivaci i obnovení všech cílů.")) return; tgl.disabled=true; api("POST","/api/v1/erp/app/cil/"+(_kon?"unkill":"kill"),{}).then(function(r){ if(r&&r.ok){ cil(); } else { tgl.disabled=false; alert((r&&r.error)||"Chyba"); } }); });
+        kb.appendChild(tgl);
+      }
       var box=document.getElementById("cilList"); if(!box)return; box.innerHTML="";
       if(!j||!j.ok){ box.appendChild(el('<div class="hint" style="color:#fc8;">'+esc((j&&j.error)||"Nepodařilo se načíst cíle.")+'</div>')); return; }
       var cile=j.cile||[];
@@ -9428,6 +9437,7 @@ setTimeout(function(){
       function fld(k,v){ return v?('<div style="margin:8px 0;"><div style="color:var(--mut);font-size:12px;">'+esc(k)+'</div><div>'+esc(v)+'</div></div>'):""; }
       var h='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div style="font-weight:700;font-size:18px;">'+esc(c.nazev)+'</div>'+_cilBadge(c.stav)+'</div>';
       h+='<div style="color:var(--mut);font-size:12.5px;margin:4px 0 10px;">#'+c.id+' · navrhl '+esc(c.navrhl_jmeno||("#"+c.navrhl_user_id))+' · '+esc(c.created||"")+'</div>';
+      if(c.stav==="pozastaven" && c.pozastaveno_duvod) h+='<div style="background:#3a2f12;border:1px solid #6e5326;color:#f0d98a;border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:13px;">⏸️ Pozastaveno — '+esc(c.pozastaveno_duvod)+'</div>';
       h+=fld("Popis",c.popis)+fld("Rozsah (čeho se smí dotknout)",c.rozsah);
       h+='<div style="margin:8px 0;"><div style="color:var(--mut);font-size:12px;">Strop kroků</div><div>'+(c.strop_kroku!=null?c.strop_kroku:"—")+' · zatím '+(c.kroku||0)+' kroků</div></div>';
       if(c.okno_od||c.okno_do) h+=fld("Časové okno",(c.okno_od||"—")+" → "+(c.okno_do||"—"));

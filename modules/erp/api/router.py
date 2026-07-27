@@ -7897,9 +7897,42 @@ def _cil_notify(ds, _t, target_uid, title: str, message: str, created_by) -> Non
         pass
 
 
-def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, set_cols, notify_fn=None) -> JSONResponse:
+def _cil_kill_on(ds, _t) -> bool:
+    """Globální kill switch Cílového režimu (g2007.nastaveni.cilovy_rezim_kill='on')."""
+    try:
+        v = ds.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic='cilovy_rezim_kill'")).scalar()
+        return str(v or "").strip().lower() == "on"
+    except Exception:
+        return False
+
+
+def _cil_set_kill(req: "Request", on: bool) -> JSONResponse:
+    """Přepne globální kill switch. Jen rodič (is_marti_parent)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "Kill switch smí přepnout jen rodič."}, status_code=403)
+    ds = _g()
+    try:
+        ds.execute(_t("UPDATE g2007.nastaveni SET hodnota=:h, updated_at=now() WHERE klic='cilovy_rezim_kill'"),
+                   {"h": ("on" if on else "off")})
+        ds.commit()
+        return JSONResponse({"ok": True, "kill": on})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[cil_kill] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, set_cols, notify_fn=None, block_if_kill: bool = False) -> JSONResponse:
     """Obecný přechod stavu cíle: kontrola přihlášení → načtení cíle (FOR UPDATE) →
-    kontrola práva → kontrola aktuálního stavu → UPDATE + volitelná notifikace."""
+    kontrola práva → kontrola aktuálního stavu → UPDATE + volitelná notifikace.
+    block_if_kill=True → přechod se odmítne, když je zapnutý globální kill switch."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
@@ -7907,6 +7940,8 @@ def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, s
         return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
     ds = _g()
     try:
+        if block_if_kill and _cil_kill_on(ds, _t):
+            return JSONResponse({"ok": False, "error": "Cílový režim je globálně pozastaven (kill switch). Nejdřív ho vypni."})
         row = ds.execute(_t(
             "SELECT id, stav, navrhl_user_id FROM g2007.cil WHERE id=:i FOR UPDATE"), {"i": cid}).first()
         if not row:
@@ -7960,7 +7995,7 @@ async def app_cil_list(req: Request) -> JSONResponse:
             params["st"] = stavy
         sql += "ORDER BY c.created_at DESC LIMIT 100"
         rows = ds.execute(_t(sql), params).fetchall()
-        return JSONResponse({"ok": True, "cile": [{
+        return JSONResponse({"ok": True, "kill": _cil_kill_on(ds, _t), "cile": [{
             "id": r[0], "nazev": r[1], "popis": r[2], "stav": r[3], "strop_kroku": r[4],
             "created": r[5], "navrhl_user_id": r[6], "navrhl_jmeno": r[7],
             "schvalil_user_id": r[8], "kroku": r[9]} for r in rows]})
@@ -8009,6 +8044,19 @@ async def app_cil_create(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/app/cil/kill")
+async def app_cil_kill(req: Request) -> JSONResponse:
+    """Globální kill switch ON — pozastaví celý Cílový režim (blokuje aktivaci/obnovení
+    cílů; budoucí exekutor nejede). Jen rodič. LITERALNI route PRED /app/cil/{cid}."""
+    return _cil_set_kill(req, True)
+
+
+@api_router.post("/app/cil/unkill")
+async def app_cil_unkill(req: Request) -> JSONResponse:
+    """Globální kill switch OFF — Cílový režim znovu povolen. Jen rodič."""
+    return _cil_set_kill(req, False)
+
+
 @api_router.get("/app/cil/{cid}")
 async def app_cil_detail(req: Request, cid: int) -> JSONResponse:
     """Detail cíle + posledních 20 kroků z logu."""
@@ -8024,7 +8072,7 @@ async def app_cil_detail(req: Request, cid: int) -> JSONResponse:
             "to_char(c.okno_od,'YYYY-MM-DD HH24:MI'), to_char(c.okno_do,'YYYY-MM-DD HH24:MI'), "
             "c.stav, c.navrhl_user_id, " + _cil_jmeno('un') + ", c.schvalil_user_id, " + _cil_jmeno('us') + ", "
             "to_char(c.created_at,'YYYY-MM-DD HH24:MI'), to_char(c.schvaleno_at,'YYYY-MM-DD HH24:MI'), "
-            "to_char(c.uzavren_at,'YYYY-MM-DD HH24:MI'), "
+            "to_char(c.uzavren_at,'YYYY-MM-DD HH24:MI'), c.pozastaveno_duvod, "
             "(SELECT count(*) FROM g2007.claude_aktivita a WHERE a.cil_id=c.id) "
             "FROM g2007.cil c LEFT JOIN public.users un ON un.id=c.navrhl_user_id "
             "LEFT JOIN public.users us ON us.id=c.schvalil_user_id WHERE c.id=:i"),
@@ -8040,7 +8088,8 @@ async def app_cil_detail(req: Request, cid: int) -> JSONResponse:
             "okno_od": c[5], "okno_do": c[6], "stav": c[7],
             "navrhl_user_id": c[8], "navrhl_jmeno": c[9],
             "schvalil_user_id": c[10], "schvalil_jmeno": c[11],
-            "created": c[12], "schvaleno_at": c[13], "uzavren_at": c[14], "kroku": c[15]},
+            "created": c[12], "schvaleno_at": c[13], "uzavren_at": c[14],
+            "pozastaveno_duvod": c[15], "kroku": c[16]},
             "kroky_log": [{"id": r[0], "actor": r[1], "akce": r[2], "detail": r[3],
                            "vysledek": r[4], "ts": r[5]} for r in log]})
     finally:
@@ -8053,9 +8102,10 @@ async def app_cil_schvalit(req: Request, cid: int) -> JSONResponse:
     return _cil_do_transition(
         req, cid, ('navrzen',), 'aktivni',
         lambda uid, navrhl: is_marti_parent(uid),
-        ["schvalil_user_id=:uid", "schvaleno_at=now()"],
+        ["schvalil_user_id=:uid", "schvaleno_at=now()", "pozastaveno_duvod=NULL"],
         lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "✅ Cíl schválen",
-            f"Cíl #{cid} byl schválen — agent může začít.", uid))
+            f"Cíl #{cid} byl schválen — agent může začít.", uid),
+        block_if_kill=True)
 
 
 @api_router.post("/app/cil/{cid}/zamitnout")
@@ -8075,7 +8125,7 @@ async def app_cil_pozastavit(req: Request, cid: int) -> JSONResponse:
     return _cil_do_transition(
         req, cid, ('aktivni',), 'pozastaven',
         lambda uid, navrhl: is_marti_parent(uid) or uid == navrhl,
-        [],
+        ["pozastaveno_duvod='ručně (rodič/vlastník)'"],
         lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "⏸️ Cíl pozastaven",
             f"Cíl #{cid} byl pozastaven.", uid))
 
@@ -8086,9 +8136,10 @@ async def app_cil_obnovit(req: Request, cid: int) -> JSONResponse:
     return _cil_do_transition(
         req, cid, ('pozastaven',), 'aktivni',
         lambda uid, navrhl: is_marti_parent(uid) or uid == navrhl,
-        [],
+        ["pozastaveno_duvod=NULL"],
         lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "▶️ Cíl obnoven",
-            f"Cíl #{cid} znovu běží.", uid))
+            f"Cíl #{cid} znovu běží.", uid),
+        block_if_kill=True)
 
 
 @api_router.post("/app/cil/{cid}/splnit")

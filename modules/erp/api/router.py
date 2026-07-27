@@ -28085,6 +28085,29 @@ def _maybe_sync_ec_dochazka():
                 "  AND EXISTS (SELECT 1 FROM tenant.oz_zakazky oz2 "
                 "              WHERE trim(oz2.\"CisloZakazky\")=trim(z.cislo))"),
                 {"t": _ATT_TENANT})
+            # Bod 1 (Marti Pašek „při vzniku rozpadu vyplnit att_entry_id"): app vyroba_work
+            # bez linku → přítomnostní att_entry směna, která ČASOVĚ OBSAHUJE úsek
+            # (od >= started_at AND od < ended_at). JEN jednoznačné (přesně 1 obsahující směna).
+            # Marti-AI msg 11316. Centrála se linkuje přes source_id jinde; tady jen 'app'.
+            _fs.execute(_tf(
+                "UPDATE tenant.vyroba_work vw SET att_entry_id = ("
+                "  SELECT e.id FROM tenant.att_entry e "
+                "  JOIN tenant.att_entry_type et ON et.id=e.entry_type_id AND et.category='presence' "
+                "  WHERE e.tenant_id=:t AND e.employee_id=("
+                "        SELECT em.id FROM tenant.att_employee em WHERE em.tenant_id=:t AND em.user_id=vw.user_id LIMIT 1) "
+                "    AND e.entry_date=vw.datum AND COALESCE(e.status,'') NOT IN ('superseded','announced') "
+                "    AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
+                "    AND vw.od >= e.started_at AND vw.od < e.ended_at LIMIT 1) "
+                "WHERE vw.tenant_id=:t AND vw.att_entry_id IS NULL AND vw.is_active "
+                "  AND COALESCE(vw.source_system,'')='app' AND vw.od IS NOT NULL "
+                "  AND (SELECT COUNT(*) FROM tenant.att_entry e2 "
+                "       JOIN tenant.att_entry_type et2 ON et2.id=e2.entry_type_id AND et2.category='presence' "
+                "       WHERE e2.tenant_id=:t AND e2.employee_id=("
+                "             SELECT em.id FROM tenant.att_employee em WHERE em.tenant_id=:t AND em.user_id=vw.user_id LIMIT 1) "
+                "         AND e2.entry_date=vw.datum AND COALESCE(e2.status,'') NOT IN ('superseded','announced') "
+                "         AND e2.started_at IS NOT NULL AND e2.ended_at IS NOT NULL "
+                "         AND vw.od >= e2.started_at AND vw.od < e2.ended_at)=1"),
+                {"t": _ATT_TENANT})
             _fs.commit()
         finally:
             _fs.close()

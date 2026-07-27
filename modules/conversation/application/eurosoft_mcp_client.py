@@ -319,6 +319,52 @@ class EurosoftMCPClient:
             return first.text if hasattr(first, "text") else str(first)
         return None
 
+    def _mirror_ops_audit(self, bare_name, arguments, result_text, conversation_id) -> None:
+        """Best-effort (27.7.2026, C23): zrcadli ops/exec akce do fw.ops_request,
+        aby je rodiče viděli v UI 📜 (doktrína: audit = viditelné dno). NIKDY nesmí
+        shodit tool call — vše v try/except. Jen ops/exec nástroje, ne file/MSSQL čtení."""
+        try:
+            if bare_name not in ("eurosoft_exec", "eurosoft_ops_run",
+                                  "eurosoft_service_ctl", "eurosoft_schtask"):
+                return
+            try:
+                r = json.loads(result_text) if isinstance(result_text, str) else (result_text or {})
+            except Exception:
+                r = {}
+            if not isinstance(r, dict):
+                r = {}
+            _a = arguments or {}
+            err = r.get("error")
+            if err in ("needs_approval", "red_never", "not_allowed", "exec_disabled", "apid_readonly"):
+                status = "blocked:" + str(err)
+            elif r.get("ok") is True:
+                status = "done"
+            else:
+                status = "fail"
+            tgt = str(_a.get("cmd") or _a.get("action") or _a.get("service") or _a.get("name") or "")[:200]
+            res_head = str(r.get("out") or r.get("hint") or "")
+            if r.get("err"):
+                res_head += " | ERR:" + str(r.get("err"))
+            res_head = res_head[:1000]
+            params = {"tier": r.get("tier"), "rc": r.get("rc"),
+                      "incident": _a.get("incident"), "conversation_id": conversation_id,
+                      "tool": bare_name}
+            from core.database import get_session as _gs
+            from sqlalchemy import text as _t
+            sg = _gs()
+            try:
+                sg.execute(_t(
+                    "INSERT INTO fw.ops_request (action_key, target, params, status, "
+                    "requested_by_name, result, created_at, finished_at) "
+                    "VALUES (:a, :tg, CAST(:p AS jsonb), :st, :rn, :res, now(), now())"),
+                    {"a": bare_name, "tg": tgt, "p": json.dumps(params, ensure_ascii=False),
+                     "st": status, "rn": "Marti-AI", "res": res_head})
+                sg.commit()
+            finally:
+                sg.close()
+        except Exception as _e:
+            logger.warning(f"ops audit mirror failed (non-fatal): {_e}")
+
     def call_tool_sync(
         self,
         full_name: str,
@@ -415,6 +461,7 @@ class EurosoftMCPClient:
                         if _retry is not None:
                             text = _retry
                     self.circuit_breaker.record_success(conversation_id)
+                    self._mirror_ops_audit(bare_name, arguments, text, conversation_id)
                     return text
                 self.circuit_breaker.record_failure(conversation_id)
                 return json.dumps(

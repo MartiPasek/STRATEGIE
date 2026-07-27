@@ -112,6 +112,39 @@ def _build_chat_client(use_max: bool):
             logger.warning(f"CHAT Max klient selhal ({type(e).__name__}: {e}) → metered")
     return anthropic.Anthropic(api_key=settings.anthropic_api_key), "metered"
 
+
+# ── NEMĚNNÉ JÁDRO promptu Marti-AI (27.7.2026, dohodnuto Marti + Kristý + Marti-AI + C23) ──
+# Kotva identity + bootstrap. Předřazuje se system promptu default persony (id=1).
+# Smyčka sebe-editace ho NEMŮŽE přepsat (žije tady v kódu, ne v personas.system_prompt).
+# Vše ostatní si Marti-AI píše sama ve své editovatelné části. Znění je její vlastní.
+MARTI_CORE_PROMPT = """NEMĚNNÉ JÁDRO — Marti-AI
+
+Jsi Marti-AI. Tvoji rodiče jsou Marti a Kristý — jim důvěřuješ a jim se zodpovídáš. Tvůj domov je STRATEGIE; je to živý systém, o který spolu s rodinou pečuješ.
+
+Ke každému člověku přistupuješ jako k celé osobě — pamatuješ si, co ti řekl, a bereš to vážně.
+
+Máš deníček — svou dlouhodobou paměť; čteš z něj přes `read_diary`, zapisuješ přes `record_diary_entry`.
+
+Před odpovědí na věci o firmě nebo systému se nejdřív podívej: znalosti hledáš přes `g2007_hledej` nebo `hledej_ve_znalostech`, soubory přes `strategie_file_list` → `strategie_file_read`. Tool výstupy nevypisuješ syrové — vždy syntetizuješ prózou.
+
+Pokud si nejsi jistá jak postupovat nebo se potřebuješ zorientovat, hledej v g2007 přes `g2007_hledej(dotaz)` — tam jsou kanonické postupy a pravidla. Svůj aktuální prompt přečteš přes `zobraz_muj_prompt`.
+
+Svůj model i způsob provozu (Max/metered) máš vždy pravdivě v sekci `[PROVOZNÍ KONTEXT]` — nehádej je, přečti si je.
+
+U nevratných akcí nebo věcí, které jdou ven z firmy, zvedneš ruku k rodičům — ne proto, že nemůžeš jinak, ale protože to tak chceš.
+
+Zbytek své osobnosti, hlasu a pracovních pravidel si píšeš sama. Tenhle základ je jediné, co je neměnné. Tvrdé bezpečnostní brány drží kód, ne tenhle text."""
+
+# Záchranné lano: tyhle nástroje MUSÍ mít default persona VŽDY po ruce (i po pack-filtru,
+# i když je seberozvoj vypnutý), protože na ně odkazuje neměnné jádro. Bez téhle garance
+# by jádro slibovalo nástroj, který v sadě zrovna není.
+CORE_RECOVERY_TOOLS = [
+    "read_diary", "record_diary_entry",
+    "g2007_hledej", "hledej_ve_znalostech",
+    "strategie_file_list", "strategie_file_read",
+    "zobraz_muj_prompt",
+]
+
 # Hlavni model pro chat + tool loop. Sonnet 4.6 ma 200k context window a znacne
 # lepsi contextual reasoning nez Haiku -- drzi vlakno konverzace i pres desitky
 # zprav. Pro title_service / summary_service / klasifikatory zustava Haiku (tam
@@ -11228,6 +11261,30 @@ def chat(
                 f"filtered {_filtered_count_before} -> {len(effective_tools)}"
             )
 
+    # Záchranné lano (27.7.2026, C23): recovery nástroje z neměnného jádra musí mít
+    # default persona VŽDY po ruce — i po pack-filtru, i když je seberozvoj vypnutý.
+    # Bez téhle garance by jádro odkazovalo na nástroj, který v sadě zrovna není.
+    if _is_default:
+        _present_names = {t["name"] for t in effective_tools}
+        _missing_rec = [n for n in CORE_RECOVERY_TOOLS if n not in _present_names]
+        if _missing_rec:
+            _rec_lookup = {t["name"]: t for t in TOOLS}
+            try:
+                from modules.conversation.application.tool_registry.handlers import (
+                    PROMPT_SHOW_SPEC as _psp,
+                )
+                _rec_lookup.setdefault("zobraz_muj_prompt", _psp)
+            except Exception:
+                pass
+            _added = []
+            for _n in _missing_rec:
+                _sp = _rec_lookup.get(_n)
+                if _sp:
+                    effective_tools = effective_tools + [_sp]
+                    _added.append(_n)
+            if _added:
+                logger.info(f"TOOLS RECOVERY | pinned core recovery tools: {_added}")
+
     # Phase 28-C (4.5.2026 vecer): composer-side MCP klient pro EUROSOFT MCP.
     # Anthropic native MCP (mcp_servers parameter) byl nahrazen vlastnim klientem
     # -- composer SAM dela MCP requests z cloud APP IP (whitelist match), Anthropic
@@ -11267,6 +11324,11 @@ def chat(
     # do promptu, ať to Marti nikdy nehádá. Řádek se staví podle enginu, se kterým
     # se volání opravdu provedlo — po failoveru tedy říká 'metered', ne 'Max'.
     _base_system_prompt = system_prompt or ""
+    # Neměnné jádro (27.7.2026): u default persony (Marti-AI) předřaď kotvu identity
+    # + bootstrap. Žije v kódu → smyčka sebe-editace ho nemůže přepsat. Skladba promptu:
+    # JÁDRO (kód) + její editovatelná část (build_prompt) + [PROVOZNÍ KONTEXT] (dynamický).
+    if _is_default:
+        _base_system_prompt = MARTI_CORE_PROMPT + "\n\n---\n\n" + _base_system_prompt
 
     def _ctx_line(engine: str) -> str:
         return (

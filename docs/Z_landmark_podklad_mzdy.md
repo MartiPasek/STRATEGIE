@@ -112,3 +112,45 @@ Modul **`modules/erp/api/landmark_report.py`** (registrace v `apps/api/main.py`)
 - Ověřeno 22.7.: ruční běh za 6/2026 → mail s přílohou `Podklad_Landmark_2026_06.xlsx` dorazil
   do Nákupu, EC 4 779,33 / ES 13 140,53 bez DPH (sedí na výpočet 9,06 %).
 - **Sazba 9,06 % je v modulu konstanta `RATE`** — kdyby Landmark změnil smlouvu, upravit tam.
+
+## Přesné vzorce Landmark (oficiální metodika, 27. 7. 2026)
+
+Landmark poslal metodický Excel (heslem chráněný, heslo „pasek") se dvěma vzorovými lidmi a
+popisem vzorců. **Potvrzuje a zpřesňuje** vše výše — hlavně zaokrouhlování a korekci.
+
+Vstupy: `C` = sazba za oděv / směnu (109/279), `D` = HO sazba/hod (43), `E` = HO hodiny,
+`F` = základní OSOH, `G` = fond měsíce (hod), `H` = odpracované hodiny, `I` = odpracované dny.
+
+| Sl. | Veličina | Vzorec | Pozn. |
+|---|---|---|---|
+| J | **OBL měsíc** | `MROUND(I*C; 1)` | dny × sazba/směna, **zaokr. na celé Kč** |
+| K | **HO měsíc** | `MROUND(H/G*E; 0,5) * D` | HO hodiny redukované docházkou → **zaokr. na 0,5 hodiny** → × 43 |
+| L | Podíl docházky | `H/G` | koeficient 0–1 (odprac. hod / fond) |
+| M | OSOH po redukci docházkou | `L*F` | osobní ohodnocení zkrácené docházkou |
+| O | OSOH FINAL (na VP) | `M − J − K` | redukované OSOH mínus OBL a HO |
+| N | OSOH do mzdového SW | `O/L` | zpětný přepočet (systém pak zase krátí docházkou) |
+| P | **Korekce OSOH do SW** | `N − F`  ( = **−(J+K)/L** ) | o kolik upravit základní OSOH v systému |
+
+**Klíčové poznatky:**
+
+- **Zaokrouhlení OBL** = celé Kč. **Zaokrouhlení HO** = zaokrouhlují se **HODINY na 0,5**, teprve
+  pak × 43 → proto částka HO může končit na „,50" (43 × 0,5 h = 21,50).
+- **Korekce = −(OBL + HO) / podíl docházky.** Je v absolutní hodnotě **větší** než prostý součet
+  OBL+HO, protože se „nahrubovává" zpět vydělením koeficientem docházky (mzdový systém osobní
+  ohodnocení sám krátí docházkou, korekce to musí předkompenzovat).
+- **Volno** vstupuje jen přes docházku: nižší `H` (odpracované hodiny) → nižší `L` → menší HO
+  i menší redukované OSOH; OBL se krátí přes odpracované **dny** `I`.
+- Kdo nemá HO, sloupce D/E/K jsou prázdné.
+
+**Kontrola na vzorových lidech Landmarku:**
+
+- Artim (ES): I=18,5 × C=279 = 5 161,5 → J=**5 162**; K=0; L=148/168=0,881; O=0,881×7500−5162=1 445;
+  P = 1 445/0,881 − 7500 = **−5 859,73**  ( = −5162/0,881 ). Sedí na náš dřívější „List pro import".
+- Dvořáková (ES): J = MROUND(20,5×109;1)=**2 235**; K = MROUND(123/126×36;0,5)×43 = 35,0×43 = **1 505**;
+  P = **−3 831,22**.
+
+**Vazba na naši automatiku (`landmark_report.py`):** faktura = 9,06 % × (OBL+HO); bereme složky
+794 (OBL) a 795 (HO) z `payslip_item`. Náš systém drží HO na **celé Kč**, kdežto Landmark na
+**půlkoruny** (hodiny na 0,5) → rozdíl max pár desetihaléřů/os., na faktuře pár Kč, zanedbatelné.
+Kdyby bylo potřeba pixel-přesně: dopočítat HO jako `MROUND(H/G*E;0,5)*43` místo čtení
+zaokrouhleného `payslip_item.koruny`.

@@ -1025,7 +1025,7 @@ function init(){
   $('tabs').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     var o=b.getAttribute('data-o'); if(o===OBD)return;
     [].forEach.call($('tabs').children,function(x){x.classList.remove('on');});b.classList.add('on');
-    OBD=o;setCols();hlavicka();load();});
+    OBD=o;FIL={};setCols();hlavicka();load();});  // přepnutí režimu = zrušit filtr (Peťa 27.7.)
   // dokreslování po částech při scrollu ke spodku
   var _tw=document.querySelector('.tw');
   if(_tw)_tw.addEventListener('scroll',function(){if(_tw.scrollTop+_tw.clientHeight>_tw.scrollHeight-500)appendChunk();});

@@ -81,6 +81,7 @@
         sec("🏛️ ŘÍZENÍ & SYSTÉM"); gg=grp();
         gg.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
         gg.appendChild(appCell("🎯","Cíle",0,function(){go("cil");}));
+        gg.appendChild(appCell("🟡","Ke schválení",0,function(){go("exec_approval");}));
         gg.appendChild(appCell("⚙️","Ops akce",0,function(){go("ops");}));
         gg.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
         gg.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));

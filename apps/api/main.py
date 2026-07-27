@@ -48,6 +48,7 @@ from modules.erp.api.dr_ops import drops_router  # DR: streaming přenos dumpu P
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
 from modules.erp.api.g2007_vectors import g2007_vec_router  # G2007 vektorizace — sémantické hledání nad znalostmi (17.7.2026)
 from modules.erp.api.automat import automat_router  # G2007 automaty — exekutor + Haiku eskalace + monitoring (18.7.2026)
+from modules.erp.api.exec_approval_router import exec_approval_router  # 🟡 Zluty banner — schvalovani rizikoveho eurosoft_exec (#3, 27.7.2026)
 from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
 from modules.erp.api.dochazka_zak_tab import doch_zak_tab_router  # Docházka po zakázkách — data pro vlastní stránku (22.7.2026, Peta)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
@@ -919,6 +920,7 @@ app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí po
 app.include_router(jmhz_router)  # JMHZ (ČSSZ hlášení) — generace z Heliosu + ověření na tlačítku (12.7.2026)
 app.include_router(g2007_vec_router)  # G2007 vektorizace — index + sémantické hledání nad znalostní bází (17.7.2026)
 app.include_router(automat_router)  # G2007 automaty — runtime (run) + monitoring (18.7.2026)
+app.include_router(exec_approval_router)  # 🟡 Zluty banner — schvalovaci tok eurosoft_exec (#3)
 app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
 app.include_router(hr_spis_router)  # Osobní spis zaměstnance — HR pohled + zaměstnanecký self-service
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)

@@ -96,11 +96,19 @@ def _act_run_script(a: dict) -> list[str]:
     return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", full]
 
 
+def _act_dr_restore(a: dict) -> list[str]:
+    # C23 27.7.: rizena DR obnova standby on-demand - spusti nasazeny dr_pull_restore.ps1
+    # (stop API -> pg_terminate -w -> pg_restore --clean -> re-granty -> start API). GREEN.
+    return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            r"C:\scripts\dr_pull_restore.ps1"]
+
+
 _OPS_ACTIONS = {
     "pg_dump":    {"tier": GREEN,  "build": _act_pg_dump,    "desc": "pg_dump data_db → allowed backup dir"},
     "pg_status":  {"tier": GREEN,  "build": lambda a: [_pg_bin("pg_isready.exe"), "-h", "localhost"], "desc": "pg_isready"},
     "pg_restore": {"tier": YELLOW, "build": _act_pg_restore, "desc": "pg_restore dumpu do data_db (banner)"},
     "run_script": {"tier": YELLOW, "build": _act_run_script, "desc": "spustí povolený DR .ps1 (banner)"},
+    "dr_restore": {"tier": GREEN, "build": _act_dr_restore, "desc": "rizena DR obnova standby (dr_pull_restore.ps1)"},
 }
 
 

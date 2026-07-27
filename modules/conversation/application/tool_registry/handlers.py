@@ -141,6 +141,20 @@ SCHVAL_METERED_SPEC = {
     "input_schema": {"type": "object", "properties": {}},
 }
 
+PRACUJ_NA_CILI_SPEC = {
+    "name": "pracuj_na_cili",
+    "description": (
+        "🎯 CÍLOVÝ REŽIM (Krok 1, read-only): popojeď na SCHVÁLENÉM cíli. Zadej 'cil_id' "
+        "cíle ve stavu 'aktivni' — proběhnu ho read-only agentí smyčkou a KAŽDOU akci zaloguju "
+        "do claude_aktivita. Bez per-akčního schvalování (brána byla u schválení cíle)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"cil_id": {"type": "integer", "description": "ID schváleného cíle (g2007.cil, stav 'aktivni')."}},
+        "required": ["cil_id"],
+    },
+}
+
 # ── Cache aktivních generovaných speců (invalidace při změně) ────────────────────
 _spec_cache: Optional[list] = None
 
@@ -218,6 +232,7 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     specs = list(V1_META_SPECS)
     specs.append(RUN_AS_AGENT_SPEC)  # Fáze 0 — vlastní agentí smyčka (handler gate-uje flag)
     specs.append(SCHVAL_METERED_SPEC)  # schválení další metered várky (rodič)
+    specs.append(PRACUJ_NA_CILI_SPEC)  # Cílový režim — popojeď na schváleném cíli (read-only Krok 1)
     try:
         from core.database import get_session
         sg = get_session()
@@ -255,6 +270,8 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _run_as_agent(tool_input, user_id, conversation_id)
         if tool_name == "schval_metered_varku":
             return _schval_metered_varku(user_id)
+        if tool_name == "pracuj_na_cili":
+            return _pracuj_na_cili(tool_input, user_id, conversation_id)
         if tool_name in META_NAMES:
             return None
         # generovaný nástroj?
@@ -466,6 +483,25 @@ def _schval_metered_varku(user_id) -> str:
     finally:
         sg.close()
     return f"✅ Schvaleno. Metered rozpocet agenta dnes rozsiren na {n2} varek (~{int(n2*1000)} Kc). Agent muze dal jet na metered API."
+
+
+def _pracuj_na_cili(inp: dict, user_id, conversation_id) -> str:
+    # Cilovy rezim Krok 1 (read-only): popojed na schvalenem cili, loguj do claude_aktivita.
+    if not _agent_allowed(user_id):
+        return "❌ Cílový režim je zatím jen pro admina/rodiče se zapnutým agentním režimem."
+    try:
+        cil_id = int(inp.get("cil_id") or inp.get("cil") or 0)
+    except Exception:
+        cil_id = 0
+    if not cil_id:
+        return "❌ Zadej 'cil_id' schváleného cíle (stav 'aktivni')."
+    from modules.conversation.application import martiai_agent_service as MA
+    res = MA.run_cil(cil_id, requested_by_user_id=user_id, conversation_id=conversation_id)
+    if not res.get("ok"):
+        return f"❌ Cíl #{cil_id} neproběhl: {res.get('error')} ({res.get('reason')})"
+    hlava = (f"🎯 (cíl #{cil_id} · read-only · {res.get('kroku_zalogovano')} akcí zalogováno · "
+             f"celkem kroků {res.get('kroku_celkem')} · {res.get('elapsed_s')}s)")
+    return f"{hlava}\n\n{res.get('reply')}"
 
 
 def _dispatch_generated(tool_name, tool_input, user_id, conversation_id) -> Optional[str]:

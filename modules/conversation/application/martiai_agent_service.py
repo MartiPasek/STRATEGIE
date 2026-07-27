@@ -208,7 +208,7 @@ async def _run(goal: str, conversation_id: Optional[int], metered: bool = False)
         "ok": bool(reply), "reply": reply or "[agent nevrátil finální text]",
         "input_tokens": in_tok, "output_tokens": out_tok,
         "cost_usd": cost_usd, "cost_czk": round(cost_usd * USD_TO_CZK, 2),
-        "cli": cli, "auth": auth_label,
+        "cli": cli, "auth": auth_label, "actions": _extract_tool_actions(messages),
     }
 
 
@@ -313,4 +313,129 @@ def run_goal(goal: str, requested_by_user_id: Optional[int] = None,
     if result.get("cost_czk", 0) > PER_RUN_CZK_CAP:
         result["over_per_run_cap"] = True
     _audit_run(requested_by_user_id, goal, result)
+    return result
+
+
+# ── Cílový režim — MOTOR (Krok 1 read-only): schválený cíl → běh → log do claude_aktivita ──
+def _extract_tool_actions(messages: list) -> list:
+    import json as _j
+    out = []
+    for msg in messages:
+        content = getattr(msg, "content", None)
+        if not content or not isinstance(content, list):
+            continue
+        for block in content:
+            if type(block).__name__ == "ToolUseBlock":
+                name = getattr(block, "name", "?")
+                inp = getattr(block, "input", None)
+                try:
+                    detail = _j.dumps(inp, ensure_ascii=False)[:600] if inp is not None else ""
+                except Exception:
+                    detail = str(inp)[:600]
+                out.append({"akce": str(name), "detail": detail})
+    return out
+
+
+def _load_cil(cil_id: int):
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        r = sg.execute(_t(
+            "SELECT id, nazev, popis, rozsah, strop_kroku, okno_od, okno_do, stav "
+            "FROM g2007.cil WHERE id=:i"), {"i": cil_id}).mappings().first()
+        return dict(r) if r else None
+    finally:
+        sg.close()
+
+
+def _cil_steps(cil_id: int) -> int:
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        v = sg.execute(_t("SELECT count(*) FROM g2007.claude_aktivita WHERE cil_id=:i"), {"i": cil_id}).scalar()
+        return int(v or 0)
+    finally:
+        sg.close()
+
+
+def _log_aktivita(cil_id: int, actor: str, akce: str, detail: str, vysledek: str) -> None:
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        sg.execute(_t(
+            "INSERT INTO g2007.claude_aktivita (cil_id, actor, akce, detail, vysledek) "
+            "VALUES (:c, :a, :k, :d, :v)"),
+            {"c": cil_id, "a": (actor or "")[:60], "k": (akce or "")[:120],
+             "d": (detail or "")[:4000], "v": (vysledek or "")[:2000]})
+        sg.commit()
+    finally:
+        sg.close()
+
+
+def run_cil(cil_id: int, requested_by_user_id=None, conversation_id=None) -> dict:
+    """MOTOR Cílového režimu (Krok 1 = READ-ONLY): schválený cíl (stav 'aktivni') se
+    proběhne read-only agentí smyčkou a KAŽDÁ akce se zaloguje do g2007.claude_aktivita.
+    Bez per-akčního banneru — brána byla u schválení cíle. Trigger: chat Marti-AI."""
+    actor = "Marti-AI"
+    if not _enabled():
+        return {"ok": False, "error": "martiai_agent vypnutý (kill flag)", "reason": "disabled"}
+    cil = _load_cil(cil_id)
+    if not cil:
+        return {"ok": False, "error": f"cíl #{cil_id} neexistuje", "reason": "cil_not_found"}
+    if cil["stav"] != "aktivni":
+        return {"ok": False, "error": f"cíl #{cil_id} není 'aktivni' (je '{cil['stav']}')", "reason": "cil_not_active"}
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    if cil.get("okno_od") and now < cil["okno_od"]:
+        return {"ok": False, "error": "cíl je před svým časovým oknem", "reason": "cil_before_window"}
+    if cil.get("okno_do") and now > cil["okno_do"]:
+        return {"ok": False, "error": "cíl je po svém časovém okně", "reason": "cil_after_window"}
+    steps = _cil_steps(cil_id)
+    strop = cil.get("strop_kroku") or 0
+    if strop and steps >= strop:
+        _log_aktivita(cil_id, actor, "jistic", f"strop_kroku {strop} dosazen (kroku={steps})", "POZASTAVENO - rozhodnuti cloveka")
+        _notify(f"⚠ Cíl #{cil_id} dosáhl stropu kroků ({steps}/{strop})",
+                f"Cil: {cil['nazev']}\nAgent zastavil - potrebuje rozhodnuti (zvysit strop / uzavrit / rozdelit).")
+        return {"ok": False, "error": f"strop kroků dosažen ({steps}/{strop})", "reason": "cil_step_cap", "steps": steps}
+
+    goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). FÁZE READ-ONLY — jen zkoumej a diagnostikuj, NIC nezapisuj.
+
+CÍL: {cil['nazev']}
+POPIS: {cil.get('popis') or '—'}
+ROZSAH (čeho se smíš dotknout): {cil.get('rozsah') or '—'}
+
+Prozkoumej repo/data v rozsahu a vrať jasné shrnutí: co jsi zjistil, co je hotové, co zbývá a jaký je další konkrétní krok. (Zápisy/ruce přijdou až v Kroku 2.)"""
+
+    import anyio
+    t0 = time.monotonic()
+    try:
+        result = anyio.run(_run, goal_prompt, conversation_id, False)
+    except ImportError as e:
+        return {"ok": False, "error": f"Agent SDK/anyio není: {e}", "reason": "sdk_missing"}
+    except Exception as e:
+        logger.exception(f"MARTIAI_AGENT run_cil failed: {e}")
+        result = {"ok": False, "error": f"{type(e).__name__}: {e}", "reason": "run_failed"}
+    result["elapsed_s"] = round(time.monotonic() - t0, 1)
+
+    logged = 0
+    for a in (result.get("actions") or []):
+        try:
+            _log_aktivita(cil_id, actor, a.get("akce", "?"), a.get("detail", ""), "ok")
+            logged += 1
+        except Exception:
+            pass
+    try:
+        _log_aktivita(cil_id, actor, "agent_shrnuti", f"[{result.get('auth')}] cil #{cil_id}",
+                      (result.get("reply") or result.get("error") or "")[:2000])
+        logged += 1
+    except Exception:
+        pass
+
+    _audit_run(requested_by_user_id, f"[cil #{cil_id}] {cil['nazev']}", result)
+    result["cil_id"] = cil_id
+    result["kroku_zalogovano"] = logged
+    result["kroku_celkem"] = _cil_steps(cil_id)
     return result

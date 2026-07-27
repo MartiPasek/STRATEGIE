@@ -44038,6 +44038,36 @@ async def diag_sql(req: Request) -> JSONResponse:
     # musí být JEDNOU nasazen ručně, aby existoval — pak už vše přes tohle.)
     #   @@MCPUPDATE            → pull + copy + restart služby
     #   @@MCPUPDATE NORESTART  → jen pull + copy (kód dosedne až příští restart)
+    # Autonomni ops kanal na 30.11 (Claude C23 27.7.2026, Marti auth): zavola libovolny
+    # EUROSOFT-MCP tool pres plain-HTTP /admin/ops (Bearer). Respektuje tier/namespace gaty MCP.
+    #   @@MCPOPS {"tool":"eurosoft_schtask","args":{"name":"STRATEGIE-DR-PullRestore","op":"query"}}
+    if sql.upper().startswith("@@MCPOPS"):
+        import json as _jops
+        import requests as _rqops
+        from core.config import settings as _csops
+        _raw = sql[len("@@MCPOPS"):].strip()
+        try:
+            _pl = _jops.loads(_raw) if _raw else {}
+        except Exception as _eo:
+            return JSONResponse({"ok": False, "error": "@@MCPOPS <json {tool,args}>: " + str(_eo)[:150]})
+        _b = (_csops.eurosoft_mcp_url or "").rstrip("/")
+        if _b.endswith("/sse"):
+            _b = _b[:-4]
+        if not _b:
+            return JSONResponse({"ok": False, "error": "eurosoft_mcp_url neni nastaveno"})
+        try:
+            _ro = _rqops.post(_b + "/admin/ops", json=_pl,
+                              headers={"Authorization": "Bearer %s" % _csops.eurosoft_mcp_api_key}, timeout=180)
+            try:
+                _d = _ro.json()
+            except Exception:
+                _d = {"ok": False, "raw": _ro.text[:600], "status": _ro.status_code}
+            if isinstance(_d, dict):
+                _d.setdefault("http_status", _ro.status_code)
+            return JSONResponse(_d)
+        except Exception as _eo:
+            return JSONResponse({"ok": False, "error": "MCPOPS: " + str(_eo)[:300]})
+
     if sql.upper().startswith("@@MCPUPDATE"):
         _tail = sql[len("@@MCPUPDATE"):].strip().lower()
         _restart = "0" if _tail in ("norestart", "no-restart", "pull") else "1"

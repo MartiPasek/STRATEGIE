@@ -45758,11 +45758,18 @@ def _sync_priplatky_from_ec() -> dict:
         raise RuntimeError("EUROSOFT MCP nedostupné")
 
     # EC typ příplatku/srážky → náš kód wage_component_type
+    # ⚠️ Co tu NENÍ, se do wage_movement NEDOSTANE (níž `if mt is None: skipped`), a protože
+    # mzda se počítá z wage_movement, ten řádek pak nikomu nedojde. Ověřeno 27. 7. 2026 (C28):
+    # typ 23 „Odměna garant" (ReakceMzdy=true, MS 651) tady chyběl → řádek 19917 (Marek Honal,
+    # 7/2026, 250 Kč) propadal. Doplněno + mapování garant_odmena→HELIOS 651.
+    # Zbylé typy v datech 2026 bez mapy jsou ZÁMĚRNĚ mimo mzdu (ReakceMzdy=false, OSVČ větev):
+    # 42 „OSVČ – korekce neodpracovaných hodin", 43 „Telefonní tarif OSVČ".
     TYP_MAP = {
         37: "nahrada_obleceni", 40: "korekce_os_ohod", 38: "nahrada_home_office",
         4: "srazka_telefon", 36: "odmeny_vp", 7: "jednorazova_odmena", 47: "cestovne",
         44: "odmena_garant_ctvrt", 9: "proplaceni_vernostni", 13: "prispevek_novy_prac",
         32: "odstupne", 5: "premie_proskoleni", 20: "fakturace_zaklad",
+        23: "garant_odmena",
     }
 
     def rows_of(sql):

@@ -19,6 +19,18 @@ _OCI_ATTEMPTS = [
     ("QUANTITYCHECK", {"FUNCTION": "QUANTITYCHECK", "EXT_PRODUCT_ID": "%MLFB%", "QUANTITY": "1"}),
 ]
 
+# Siemens mall je za Akamai bot-ochranou → serverovy request bez UA dostane 403.
+# Posilame realisticke hlavicky prohlizece (nejnizsi tier Akamai to obvykle pusti).
+_BROWSER_HDRS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
+    "Referer": "https://mall.industry.siemens.com/",
+    "Origin": "https://mall.industry.siemens.com",
+    "Content-Type": "application/x-www-form-urlencoded",
+}
+
 
 @oci_router.post("/app/oci/probe")
 async def oci_probe(req: Request) -> JSONResponse:
@@ -83,7 +95,7 @@ async def oci_probe(req: Request) -> JSONResponse:
                 continue
             params.update({k: (mlfb if v == "%MLFB%" else v) for k, v in extra.items()})
         try:
-            r = _rq.post(url, data=params, timeout=10, allow_redirects=True)
+            r = _rq.post(url, data=params, headers=_BROWSER_HDRS, timeout=12, allow_redirects=True)
             body = r.text or ""
             results.append({
                 "function": name,

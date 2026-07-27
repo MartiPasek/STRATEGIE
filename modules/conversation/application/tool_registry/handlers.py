@@ -230,6 +230,17 @@ PROMPT_ROLLBACK_SPEC = {
         "required": ["verze"]},
 }
 
+PROMPT_SHOW_SPEC = {
+    "name": "zobraz_muj_prompt",
+    "description": (
+        "🧬 SEBEROZVOJ: přečti si SVŮJ aktuální systémový prompt (persona) — celé znění + délka. "
+        "Tohle je JEDINÁ editovatelná plocha (personas.system_prompt), řádově kilobajty, NE celý "
+        "70KB složený prompt (ten má navíc kontext, nástroje, obal). Použij VŽDY před "
+        "navrhni_zmenu_promptu: přečti → uprav text → podej celé nové znění."
+    ),
+    "input_schema": {"type": "object", "properties": {}},
+}
+
 # ── Cache aktivních generovaných speců (invalidace při změně) ────────────────────
 _spec_cache: Optional[list] = None
 
@@ -314,6 +325,7 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     specs.append(PROMPT_ZAMITNI_SPEC)
     specs.append(PROMPT_LIST_SPEC)
     specs.append(PROMPT_ROLLBACK_SPEC)
+    specs.append(PROMPT_SHOW_SPEC)
     try:
         from core.database import get_session
         sg = get_session()
@@ -363,6 +375,8 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _prompt_list()
         if tool_name == "rollback_promptu":
             return _prompt_rollback(tool_input, user_id)
+        if tool_name == "zobraz_muj_prompt":
+            return _prompt_show()
         if tool_name in META_NAMES:
             return None
         # generovaný nástroj?
@@ -782,6 +796,20 @@ def _prompt_list() -> str:
     lines.append("🧬 **Historie verzí (číslo pro rollback):**")
     lines += ([f"  • v{r['verze']} — {r['zdroj']} — {r['created_at']}" for r in vers] or ["  (žádná)"])
     return "\n".join(lines)
+
+
+def _prompt_show() -> str:
+    if not _promptedit_enabled():
+        return "🚫 Sebe-editace promptu je vypnutá."
+    per = _resolve_default_persona()
+    if not per:
+        return "❌ Default persona nenalezena."
+    sp = per["system_prompt"] or ""
+    return (f"🧬 Tvůj aktuální system_prompt — persona '{per['name']}' (id={per['id']}), "
+            f"{len(sp)} znaků. TOHLE je celá editovatelná plocha (ne 70KB složený prompt):\n\n"
+            f"----- ZAČÁTEK PROMPTU -----\n{sp}\n----- KONEC PROMPTU -----\n\n"
+            f"Uprav tenhle text a podej ho CELÝ přes "
+            f"navrhni_zmenu_promptu(cely_novy_prompt=…, zduvodneni=…).")
 
 
 def _prompt_rollback(inp: dict, user_id) -> str:

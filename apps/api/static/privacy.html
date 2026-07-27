@@ -98,8 +98,20 @@
       hlasových zpráv, které se převádějí na text (služba Whisper).</li>
 </ul>
 <p>
-  Spolu s dotazem může být asistentovi předán <strong>pracovní kontext z platformy</strong>
-  (například údaje o docházce nebo zakázkách), pokud je potřebný k zodpovězení dotazu.
+  Spolu s dotazem předáváme asistentovi <strong>pracovní kontext nutný k zodpovězení dotazu</strong>.
+  Ten může zahrnovat:
+</p>
+<ul>
+  <li><strong>Identifikaci přihlášeného uživatele</strong> — jméno, pracovní e-mail a organizaci,
+      ve které je přihlášen.</li>
+  <li><strong>Poznámky a dřívější kontext o uživateli</strong>, které si asistent v rámci
+      platformy uchovává, aby na dotaz navázal.</li>
+  <li><strong>Výsledky pracovních dotazů</strong> — například údaje o docházce, zakázkách nebo
+      kontaktech, pokud si je asistent k zodpovězení dotazu vyžádá.</li>
+</ul>
+<p>
+  Tato data tedy <strong>nemusí pocházet jen z toho, co uživatel sám do chatu napíše</strong> —
+  část kontextu doplňuje systém automaticky.
 </p>
 <div class="box">
   <strong>Vstupy se nepoužívají k trénování AI modelů.</strong> Anthropic ve svých
@@ -108,6 +120,12 @@
   výjimkou je situace, kdy uživatel sám odešle zpětnou vazbu nebo trénování výslovně
   povolí. Zpracování probíhá na serverech poskytovatelů v USA.
 </div>
+<p>
+  <strong>Doba uchování u poskytovatelů AI</strong> se řídí jejich vlastními podmínkami; aktuální
+  znění je dostupné přímo u nich —
+  <a href="https://www.anthropic.com/legal/privacy">zásady společnosti Anthropic</a> a
+  <a href="https://openai.com/policies/privacy-policy">zásady společnosti OpenAI</a>.
+</p>
 <p>
   <strong>Funkci AI asistenta lze nepoužívat</strong> — ostatní části aplikace
   (docházka, zakázky, kontakty, dokumenty) fungují i bez ní a bez předávání dat

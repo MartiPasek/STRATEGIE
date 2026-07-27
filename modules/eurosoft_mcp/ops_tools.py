@@ -96,6 +96,11 @@ def _act_run_script(a: dict) -> list[str]:
     return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", full]
 
 
+def _act_dr_task_run(a: dict) -> list[str]:
+    # C23 27.7.: spusti nocni DR task jako SYSTEM (test SYSTEM kontextu vs MCP-sluzba).
+    return ["schtasks.exe", "/run", "/tn", "STRATEGIE-DR-PullRestore"]
+
+
 def _act_net_test(a: dict) -> list[str]:
     # C23 27.7.: diagnostika dostupnosti Prahy z 30.11 (DNS + TCP443 + HTTP). GREEN, jen cte.
     _h = str((a or {}).get("host") or "strategie-ai.com")
@@ -121,6 +126,7 @@ _OPS_ACTIONS = {
     "run_script": {"tier": YELLOW, "build": _act_run_script, "desc": "spustí povolený DR .ps1 (banner)"},
     "dr_restore": {"tier": GREEN, "build": _act_dr_restore, "desc": "rizena DR obnova standby (dr_pull_restore.ps1)"},
     "net_test": {"tier": GREEN, "build": _act_net_test, "desc": "diag dostupnosti Prahy z 30.11 (DNS/TCP/HTTP)"},
+    "dr_task_run": {"tier": GREEN, "build": _act_dr_task_run, "desc": "spusti scheduled task STRATEGIE-DR-PullRestore jako SYSTEM"},
 }
 
 

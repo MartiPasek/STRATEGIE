@@ -44041,6 +44041,35 @@ async def diag_sql(req: Request) -> JSONResponse:
     # Autonomni ops kanal na 30.11 (Claude C23 27.7.2026, Marti auth): zavola libovolny
     # EUROSOFT-MCP tool pres plain-HTTP /admin/ops (Bearer). Respektuje tier/namespace gaty MCP.
     #   @@MCPOPS {"tool":"eurosoft_schtask","args":{"name":"STRATEGIE-DR-PullRestore","op":"query"}}
+    # Praha-side diag uloziste DR dumpu (Claude C23 27.7.): stat _DUMP/_TMP s TVRDYM timeoutem
+    # (v threadu), aby to neodhalilo hang tak, ze zablokuje request. Ukaze, jestli visi FS nebo je dump OK.
+    if sql.upper().startswith("@@DRDIAG"):
+        import os as _osd, shutil as _shd
+        import concurrent.futures as _cfd
+        try:
+            from modules.erp.api import dr_ops as _drx
+        except Exception as _ed:
+            return JSONResponse({"ok": False, "error": "import dr_ops: " + str(_ed)[:200]})
+        def _timed(fn, to=5):
+            try:
+                with _cfd.ThreadPoolExecutor(max_workers=1) as _ex:
+                    return str(_ex.submit(fn).result(timeout=to))
+            except _cfd.TimeoutError:
+                return "HANG(>%ss)" % to
+            except Exception as _e:
+                return "ERR:" + str(_e)[:120]
+        _rows = [
+            ["_TMP", str(getattr(_drx, "_TMP", "?"))],
+            ["_DUMP", str(getattr(_drx, "_DUMP", "?"))],
+            ["dump_exists", _timed(lambda: _osd.path.isfile(_drx._DUMP))],
+            ["dump_size", _timed(lambda: _osd.stat(_drx._DUMP).st_size)],
+            ["dump_mtime_utc", _timed(lambda: __import__("datetime").datetime.utcfromtimestamp(_osd.stat(_drx._DUMP).st_mtime).isoformat())],
+            ["tmp_listdir", _timed(lambda: ", ".join(_osd.listdir(_drx._TMP))[:400])],
+            ["disk_free_gb", _timed(lambda: round(_shd.disk_usage(_drx._TMP).free/1e9, 1))],
+            ["meta_read", _timed(lambda: str(_drx._read_meta())[:300])],
+        ]
+        return JSONResponse({"ok": True, "columns": ["klic", "hodnota"], "rows": _rows, "count": len(_rows)})
+
     if sql.upper().startswith("@@MCPOPS"):
         import json as _jops
         import requests as _rqops

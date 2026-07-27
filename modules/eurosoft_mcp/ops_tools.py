@@ -96,6 +96,17 @@ def _act_run_script(a: dict) -> list[str]:
     return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", full]
 
 
+def _act_net_test(a: dict) -> list[str]:
+    # C23 27.7.: diagnostika dostupnosti Prahy z 30.11 (DNS + TCP443 + HTTP). GREEN, jen cte.
+    _h = str((a or {}).get("host") or "strategie-ai.com")
+    _ps = ("$ErrorActionPreference='Continue'; $h='%s';"
+           "'DNS:'; try{ (Resolve-DnsName $h -Type A -EA Stop | Select-Object -Expand IPAddress) -join ',' }catch{ $_.Exception.Message };"
+           "'TCP443:'; try{ (Test-NetConnection $h -Port 443 -WarningAction SilentlyContinue).TcpTestSucceeded }catch{ $_.Exception.Message };"
+           "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;"
+           "'HTTP:'; try{ (Invoke-WebRequest (\"https://$h/api/v1/ops/dr/meta\") -TimeoutSec 12 -UseBasicParsing).StatusCode }catch{ $_.Exception.Message }") % _h
+    return ["powershell.exe", "-NoProfile", "-Command", _ps]
+
+
 def _act_dr_restore(a: dict) -> list[str]:
     # C23 27.7.: rizena DR obnova standby on-demand - spusti nasazeny dr_pull_restore.ps1
     # (stop API -> pg_terminate -w -> pg_restore --clean -> re-granty -> start API). GREEN.
@@ -109,6 +120,7 @@ _OPS_ACTIONS = {
     "pg_restore": {"tier": YELLOW, "build": _act_pg_restore, "desc": "pg_restore dumpu do data_db (banner)"},
     "run_script": {"tier": YELLOW, "build": _act_run_script, "desc": "spustí povolený DR .ps1 (banner)"},
     "dr_restore": {"tier": GREEN, "build": _act_dr_restore, "desc": "rizena DR obnova standby (dr_pull_restore.ps1)"},
+    "net_test": {"tier": GREEN, "build": _act_net_test, "desc": "diag dostupnosti Prahy z 30.11 (DNS/TCP/HTTP)"},
 }
 
 

@@ -662,6 +662,14 @@ setTimeout(function(){
       });
       // žádné notifikace → wrap zůstane prázdný (neviditelný)
     });
+    // #3 zluty banner: pocet cekajicich schvaleni prikazu serveru (parent-only;
+    // endpoint vrati 0 pro ne-rodice). Karta navrch = clovek vidi z Home, ze neco ceka.
+    api("GET","/api/v1/erp/app/exec_approval/count","").then(function(j){
+      var n=(j&&j.count)||0; var box2=document.getElementById("homeNotifsWrap"); if(!box2||!n)return;
+      var ec=el('<div class="homenotif" style="background:rgba(232,177,58,.14);border-color:#e8b13a99;"><div class="ic">\uD83D\uDFE1</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">'+n+' '+(n===1?"prikaz ke schvaleni":(n>=2&&n<=4?"prikazy ke schvaleni":"prikazu ke schvaleni"))+'</div><div style="color:var(--mut);font-size:12px;">Rizikovy prikaz serveru ceka na tvuj palec</div></div><div class="chev">&#8250;</div></div>');
+      ec.addEventListener("click",function(){ go("exec_approval"); });
+      box2.insertBefore(ec, box2.firstChild);
+    }).catch(function(){});
   }
 
   // ───── TELEFON ─────

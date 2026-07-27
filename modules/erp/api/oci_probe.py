@@ -93,6 +93,17 @@ async def oci_probe(req: Request) -> JSONResponse:
     def _title(html):
         m = _re.search(r"(?is)<title[^>]*>(.*?)</title>", html or "")
         return (m.group(1).strip()[:140] if m else "")
+    import html as _html
+    def _oci_fields(htmlstr):
+        out = {}
+        if not htmlstr:
+            return out
+        # <input ... name="NEW_ITEM-X" ... value="Y"> i obracene poradi atributu
+        for m in _re.finditer(r'(?is)<input\b[^>]*?\bname=["\'](NEW_ITEM-[^"\']+)["\'][^>]*?\bvalue=["\']([^"\']*)["\']', htmlstr):
+            out[m.group(1)] = _html.unescape(m.group(2))
+        for m in _re.finditer(r'(?is)<input\b[^>]*?\bvalue=["\']([^"\']*)["\'][^>]*?\bname=["\'](NEW_ITEM-[^"\']+)["\']', htmlstr):
+            out.setdefault(m.group(2), _html.unescape(m.group(1)))
+        return out
     # HOOK_URL + OCI_VERSION na VSECHNY volani (OCI punch-out je typicky vyzaduje)
     HOOK = "https://app.strategie-ai.com/oci-return"
     common = {"USERNAME": username, "PASSWORD": password,
@@ -116,6 +127,7 @@ async def oci_probe(req: Request) -> JSONResponse:
                 "body_len": len(body),
                 "title": _title(body),
                 "text": _vis(body),
+                "oci_fields": _oci_fields(body),
                 "excerpt": _redact(body[:800]),
             })
         except Exception as exc:

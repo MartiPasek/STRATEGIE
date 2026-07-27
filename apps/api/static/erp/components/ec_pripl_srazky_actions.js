@@ -102,10 +102,12 @@
     var host = shell.body;
     if (!host) return;
 
-    var els = host.querySelectorAll("input, textarea, select, button");
+    /* POZOR: zamykame JEN vstupni pole, NE tlacitka — Storno je take <button>
+     * uvnitr .erp-modal-body (.erp-design-grid), takze plosne disabled by
+     * uzivateli zavrelo cestu ven (overeno 27.7.2026, hned opraveno). */
+    var els = host.querySelectorAll("input, textarea, select");
     for (var i = 0; i < els.length; i++) {
       try { els[i].disabled = true; } catch (e) {}
-      try { els[i].setAttribute("readonly", "readonly"); } catch (e) {}
     }
 
     /* OK (ulozit) schovat. Pozor: tlacitka NEJSOU v .erp-modal-footer, ale

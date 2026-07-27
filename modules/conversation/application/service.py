@@ -11263,28 +11263,32 @@ def chat(
         _use_max = False
     client, _engine = _build_chat_client(_use_max)
 
-    # Anti-drift: vlož SKUTEČNÝ model + autentizaci dynamicky do promptu, ať to
-    # Marti nikdy nehádá (dřív říkala špatný model). Pravda, ne tip.
-    _ctx_line = (
-        f"\n\n[PROVOZNÍ KONTEXT — pravdivé, tímto se řiď] Běžíš na modelu "
-        f"`{_model}`. Autentizace TOHOTO chatu: "
-        + ("Max předplatné (flat-rate usage limit)." if _engine == "subscription"
-           else "metered Anthropic API (účtováno per token).")
-        + " Autonomní agentní smyčka (run_as_agent / pracuj_na_cili) jede vždy na Max předplatném."
-    )
-    system_prompt = (system_prompt or "") + _ctx_line
+    # Anti-drift: vkládej SKUTEČNÝ model + REÁLNĚ použitou autentizaci dynamicky
+    # do promptu, ať to Marti nikdy nehádá. Řádek se staví podle enginu, se kterým
+    # se volání opravdu provedlo — po failoveru tedy říká 'metered', ne 'Max'.
+    _base_system_prompt = system_prompt or ""
+
+    def _ctx_line(engine: str) -> str:
+        return (
+            f"\n\n[PROVOZNÍ KONTEXT — pravdivé, tímto se řiď] Běžíš na modelu "
+            f"`{_model}`. Autentizace TOHOTO chatu: "
+            + ("Max předplatné (flat-rate usage limit)." if engine == "subscription"
+               else "metered Anthropic API (účtováno per token).")
+            + " Autonomní agentní smyčka (run_as_agent / pracuj_na_cili) jede vždy na Max předplatném."
+        )
 
     # Faze 9.1: call_llm_with_trace je wrapper kolem client.messages.create()
     # ktery zapise request+response do llm_calls (kind='composer'). Identicky
     # vyhodi exception pri API chybe -- error handling zustava nezmeneny.
-    def _run_completion(_c):
+    def _run_completion(_c, engine: str):
+        _sys = _base_system_prompt + _ctx_line(engine)
         if _telemetry is not None:
             return _telemetry.call_llm_with_trace(
                 _c,
                 conversation_id=conversation_id,
                 kind=source,
                 model=_model,
-                system=system_prompt,
+                system=_sys,
                 messages=messages,
                 tools=effective_tools,
                 max_tokens=4096,
@@ -11298,13 +11302,13 @@ def chat(
         return _c.messages.create(
             model=_model,
             max_tokens=4096,
-            system=system_prompt,
+            system=_sys,
             messages=messages,
             tools=effective_tools,
         )
 
     try:
-        response = _run_completion(client)
+        response = _run_completion(client, _engine)
         if _engine == "subscription":
             logger.info(f"CHAT engine=subscription(Max) conv={conversation_id} user={user_id}")
     except Exception as _eng_err:
@@ -11316,9 +11320,13 @@ def chat(
                 f"{str(_eng_err)[:220]}) → failover na metered (conv={conversation_id})"
             )
             client, _engine = _build_chat_client(False)
-            response = _run_completion(client)
+            response = _run_completion(client, _engine)
         else:
             raise
+
+    # Srovnej system_prompt na SKUTEČNĚ použitý engine, ať i následná kola
+    # tool-loopu (synth volání níže, sdílí system_prompt + client) říkají pravdu.
+    system_prompt = _base_system_prompt + _ctx_line(_engine)
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
     # Tooly ktere potrebuji SYNTEZU (ne pouhe prepsani vystupu do reply) jsou

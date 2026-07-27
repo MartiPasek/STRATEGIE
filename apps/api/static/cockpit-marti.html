@@ -93,12 +93,14 @@
   <div id="tz_list" style="margin-top:12px"><div class="tzmut">Načítám…</div></div>
 </div>
 
-<div class="lbl">🔌 Siemens OCI — test dostupnosti (MLFB)</div>
+<div class="lbl">🔌 Siemens — dostupnost, termín a cena dílu (OCI)</div>
 <div class="trez">
-  <div class="trezhint">Empirický test: server přečte přihlašovací údaje z trezoru a zavolá SiePortal OCI na zadané MLFB (LOGIN / BACKGROUND_SEARCH / VALIDATE / QUANTITYCHECK) a ukáže <b>syrové odpovědi</b> — abychom viděli, co jejich endpoint umí. <b>Heslo se nikdy nezobrazí.</b> Může trvat ~30 s.</div>
+  <div class="trezhint">Zadej <b>MLFB</b> dílu Siemens → z Industry Mall (OCI, přihlášení z trezoru) se živě načte <b>cena</b>, <b>dodací lhůta</b> a popis. Server volá katalog sám; heslo se nikde nezobrazí.</div>
   <input id="oci_mlfb" placeholder="MLFB dílu (např. 6ES7214-1AG40-0XB0)" autocomplete="off">
-  <div class="tzrow"><button id="oci_go" class="tzbtn" type="button">Otestovat OCI</button><span id="oci_msg" class="tzmsg"></span></div>
+  <div class="tzrow"><button id="oci_lookup" class="tzbtn" type="button">Zjistit dostupnost a cenu</button><button id="oci_go" class="tzbtn ghost" type="button">🔧 syrový test</button><span id="oci_msg" class="tzmsg"></span></div>
+  <div id="oci_res" style="margin-top:10px"></div>
   <div id="oci_out" style="margin-top:10px"></div>
+</div>
 </div>
 
 
@@ -363,29 +365,65 @@ setInterval(function(){if(!zpoll)loadZaloha();},60000);
 <script>
 (function(){
   var $=function(i){return document.getElementById(i);};
-  var go=$('oci_go'); if(!go) return;
+  var look=$('oci_lookup'); if(!look) return;
   function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
-  go.addEventListener('click',function(){
+  function setMsg(k,t){var m=$('oci_msg');m.style.color=(k==='ok'?'#7fe9b6':(k==='wait'?'#8094b3':'#ffb38a'));m.textContent=t;}
+  function lt(v){if(v===''||v==null)return '?';var n=parseInt(v,10);if(isNaN(n))return esc(String(v));var d=(n===1?'den':(n>=2&&n<=4?'dny':'dní'));return n+' '+d;}
+  function price(x){if(x.price==null)return '—';return Number(x.price).toFixed(2).replace('.',',')+' '+esc(x.currency||'');}
+  look.addEventListener('click',function(){
     var mlfb=($('oci_mlfb').value||'').trim();
-    if(!mlfb){$('oci_msg').style.color='#ffb38a';$('oci_msg').textContent='Zadej MLFB.';return;}
-    go.disabled=true;$('oci_msg').style.color='#8094b3';$('oci_msg').textContent='Volám Siemens OCI… (~30 s)';$('oci_out').innerHTML='';
+    if(!mlfb){setMsg('err','Zadej MLFB.');return;}
+    look.disabled=true;setMsg('wait','Načítám z Industry Mall…');$('oci_res').innerHTML='';$('oci_out').innerHTML='';
+    fetch('/api/v1/erp/app/oci/lookup',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({mlfb:mlfb})})
+      .then(function(r){return r.json().catch(function(){return {};});})
+      .then(function(j){
+        look.disabled=false;
+        if(!j.ok){setMsg('err','✗ '+(j.note||j.error||'chyba'));return;}
+        if(!j.count){setMsg('err','Nic nenalezeno pro '+esc(mlfb)+'.');return;}
+        setMsg('ok','Nalezeno '+j.count+' položek.');
+        var h='';var e=j.exact;
+        if(e){
+          h+='<div style="background:#0e2136;border:1px solid #2c6e3f;border-radius:9px;padding:11px 13px">';
+          h+='<div style="font-weight:800;color:#e8eef9;font-size:14px">'+esc(e.description||e.mlfb)+'</div>';
+          h+='<div style="font-size:12px;color:#8094b3;margin:2px 0 8px">MLFB '+esc(e.mlfb)+'</div>';
+          h+='<div style="display:flex;gap:22px;flex-wrap:wrap">';
+          h+='<div><div style="font-size:11px;color:#8094b3">Dodací lhůta</div><div style="font-size:17px;font-weight:800;color:#34d399">'+lt(e.leadtime_days)+'</div></div>';
+          h+='<div><div style="font-size:11px;color:#8094b3">Cena</div><div style="font-size:17px;font-weight:800;color:#5b9dff">'+price(e)+'</div></div>';
+          if(e.unit){h+='<div><div style="font-size:11px;color:#8094b3">MJ</div><div style="font-size:17px;color:#cfe0f2">'+esc(e.unit)+'</div></div>';}
+          h+='</div>';
+          if(e.longtext){h+='<div style="font-size:11.5px;color:#9fb6cc;margin-top:8px;line-height:1.45">'+esc(e.longtext)+'</div>';}
+          h+='</div>';
+        } else {
+          h+='<div class="tzmut" style="margin-bottom:6px">Přesná shoda MLFB nenalezena — nejbližší výsledky:</div>';
+        }
+        var others=(j.items||[]).filter(function(x){return !e || x.mlfb!==e.mlfb;});
+        if(others.length){
+          h+='<div style="margin-top:10px;font-size:12px;color:#8094b3">Varianty / související ('+others.length+'):</div>';
+          others.forEach(function(x){
+            h+='<div style="border-bottom:1px solid #1b2740;padding:6px 0;font-size:12px"><b style="color:#cfe0f2">'+esc(x.mlfb)+'</b> — '+esc(x.description||'')+' · <span style="color:#34d399">'+lt(x.leadtime_days)+'</span> · <span style="color:#5b9dff">'+price(x)+'</span></div>';
+          });
+        }
+        $('oci_res').innerHTML=h;
+      }).catch(function(ex){look.disabled=false;setMsg('err','Síť: '+(ex&&ex.message||ex));});
+  });
+  var go=$('oci_go');
+  if(go) go.addEventListener('click',function(){
+    var mlfb=($('oci_mlfb').value||'').trim(); if(!mlfb){setMsg('err','Zadej MLFB.');return;}
+    go.disabled=true;setMsg('wait','Syrový OCI test… (~30 s)');$('oci_out').innerHTML='';$('oci_res').innerHTML='';
     fetch('/api/v1/erp/app/oci/probe',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({mlfb:mlfb})})
       .then(function(r){return r.json().catch(function(){return {};});})
       .then(function(j){
         go.disabled=false;
-        if(!j.ok){$('oci_msg').style.color='#ffb38a';$('oci_msg').textContent='✗ '+(j.note||j.error||'chyba');return;}
-        $('oci_msg').style.color='#7fe9b6';$('oci_msg').textContent='Hotovo · přihlašovací jméno '+(j.username||'?');
-        var h='<div class="tzmut" style="margin-bottom:6px">URL: '+esc(j.url||'')+' · MLFB: '+esc(j.mlfb||'')+'</div>';
+        if(!j.ok){setMsg('err','✗ '+(j.note||j.error||'chyba'));return;}
+        setMsg('ok','Hotovo (debug).');var h='';
         (j.results||[]).forEach(function(x){
-          var head=esc(x.function||'?')+' — '+(x.skipped?('přeskočeno: '+esc(x.skipped)):(x.error?('CHYBA: '+esc(x.error)):('HTTP '+x.http_status+' · '+(x.body_len||0)+' B'+(x.title?(' · '+esc(x.title)):''))));
-          h+='<div style="margin:8px 0"><div style="font-weight:700;color:#5b9dff;font-size:12.5px">'+head+'</div>';
-          if(x.text){h+='<div style="font-size:11.5px;color:#cfe0f2;margin:4px 0;line-height:1.45;word-break:break-word">'+esc(x.text)+'</div>';}
-          if(x.oci_fields){var ks=Object.keys(x.oci_fields);if(ks.length){h+='<div style="margin:5px 0;background:#0e2136;border:1px solid #2c6e3f;border-radius:7px;padding:8px"><div style="color:#7fe9b6;font-weight:700;font-size:11.5px;margin-bottom:4px">✅ OCI pole ('+ks.length+'):</div>';ks.forEach(function(k){h+='<div style="font-size:11.5px;color:#cfe0f2"><b>'+esc(k)+'</b> = '+esc(String(x.oci_fields[k]))+'</div>';});h+='</div>';}}
-          if(x.excerpt){h+='<pre style="white-space:pre-wrap;word-break:break-all;background:#04122b;border:1px solid #1b2740;border-radius:7px;padding:8px;font-size:10.5px;max-height:160px;overflow:auto;margin:4px 0 0">'+esc(x.excerpt)+'</pre>';}
+          var head=esc(x.function||'?')+' — '+(x.skipped?'přeskočeno':(x.error?('CHYBA: '+esc(x.error)):('HTTP '+x.http_status+' · '+(x.body_len||0)+' B'+(x.title?(' · '+esc(x.title)):''))));
+          h+='<div style="margin:6px 0"><div style="font-weight:700;color:#5b9dff;font-size:12px">'+head+'</div>';
+          if(x.oci_fields){var ks=Object.keys(x.oci_fields);if(ks.length)h+='<div style="font-size:11px;color:#7fe9b6">OCI pole: '+ks.length+'</div>';}
           h+='</div>';
         });
         $('oci_out').innerHTML=h;
-      }).catch(function(e){go.disabled=false;$('oci_msg').style.color='#ffb38a';$('oci_msg').textContent='Síť: '+(e&&e.message||e);});
+      }).catch(function(ex){go.disabled=false;setMsg('err','Síť: '+(ex&&ex.message||ex));});
   });
 })();
 </script>

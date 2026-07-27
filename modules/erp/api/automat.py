@@ -93,6 +93,13 @@ _CHECKS = {
     "check_legacy_errors": _check_legacy_errors,
 }
 
+# Infra watchery (#4, C23) — registrují se z automat_eskalace, jádro netknuté.
+try:
+    from modules.erp.api.automat_eskalace import WATCHERS as _WATCHERS
+    _CHECKS.update(_WATCHERS)
+except Exception as _e:  # noqa: BLE001
+    _log.warning("automat: watchery se nenacetly: %s", _e)
+
 
 def _escalate_haiku(agent_prompt, kod, zprava, context):
     """Zavolá Haiku s per-automat promptem (system) + kontextem selhání. Vrací text."""
@@ -127,13 +134,20 @@ def _run_work(kod, from_sched=False):
         vysledek, zprava, rows, context = check(sg)
         prev = a["last_status"]
         eskalovano_na, eskalace_vysledek = None, None
-        # Eskaluj při problému. Ze scheduleru JEN při změně stavu (ne spam Haiku u trvalé
+        # Eskaluj při problému. Ze scheduleru JEN při změně stavu (ne spam u trvalé
         # známé chyby); ruční spuštění eskaluje vždy (chceš vidět diagnózu).
         if vysledek != "ok" and (not from_sched or vysledek != prev):
-            eskalovano_na = a["eskalace_agent"] or "haiku"
-            _log.warning("AUTOMAT %s -> %s; eskalace na %s (from_sched=%s, prev=%s)",
-                         kod, vysledek, eskalovano_na, from_sched, prev)
-            eskalace_vysledek = _escalate_haiku(a["agent_prompt"], kod, zprava, context)
+            _log.warning("AUTOMAT %s -> %s; eskalace (from_sched=%s, prev=%s)",
+                         kod, vysledek, from_sched, prev)
+            try:
+                from modules.erp.api.automat_eskalace import escalovat as _escalovat
+                eskalovano_na, eskalace_vysledek = _escalovat(
+                    kod=kod, vysledek=vysledek, zprava=zprava, context=context,
+                    agent_prompt=a["agent_prompt"], sg=sg, from_sched=from_sched)
+            except Exception as _ee:  # noqa: BLE001
+                _log.exception("AUTOMAT %s eskalacni zebrik selhal, fallback Haiku", kod)
+                eskalovano_na = a["eskalace_agent"] or "haiku"
+                eskalace_vysledek = _escalate_haiku(a["agent_prompt"], kod, zprava, context)
         trvani = int((time.time() - t0) * 1000)
         rid = sg.execute(T(
             "INSERT INTO g2007.automat_run (automat_kod, spusteno, dokonceno, vysledek, zprava, "

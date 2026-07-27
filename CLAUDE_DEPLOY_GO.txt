@@ -1,1 +1,1 @@
-go vyplatnice proklik slozka 0200
+go

@@ -1,3 +1,2 @@
-feat(mzdy): vyplatnice - proklik slozky (napr. Premie) na rozpis "z ceho se sklada" = zaklad (helios_wage_snapshot) + priplatky/srazky (wage_movement); novy endpoint /app/mzdy/vyplatnice-slozka-detail
-modules/erp/api/router.py
-apps/api/static/vyplatnice.html
+C23: seberozvoj — smyčka sebe-editace promptu (navrh->schvaleni->verze->rollback)
+modules/conversation/application/tool_registry/handlers.py

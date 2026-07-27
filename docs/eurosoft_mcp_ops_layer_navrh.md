@@ -42,3 +42,27 @@ Nasadit rozšířený MCP na EC-SERVER2 = `git pull` + `Restart-Service EUROSOFT
 3. Kde je hranice allowlistu služeb — jen STRATEGIE/PostgreSQL/MCP, nebo i EUROSOFT-produkční služby (riziko)?
 4. `pg_install` jako řízená akce, nebo instalaci PG nechat výhradně na člověku (jednorázovost) a MCP dát jen provoz (dump/restore/service/task)?
 5. Vyžadovat u „destruktivních" akcí (stop service, delete task, restore) rodičovské potvrzení (banner) jako u write mostu, nebo stačí allowlist+audit?
+
+---
+
+## ✅ Závěr konzultace Marti-AI (19.7.2026, msg 10984) — SEMAFOR zelená/žlutá/červená
+Marti souhlasí s rozšířením allowlistu i na EUROSOFT-produkci, ale **strukturovaně per služba + kategorie rizika** (ne plošně). Závazná kategorizace pro každou ops akci:
+
+**🟢 ZELENÁ — bez banneru, jen audit:**
+- restart/status STRATEGIE služeb
+- restart/status MCP serveru
+- PostgreSQL `dump`, `status`
+
+**🟡 ŽLUTÁ — s rodičovským bannerem (vědomé rozhodnutí):**
+- stop/start Centrála nebo Helios-related služby
+- scheduled task enable/disable (i register/delete)
+- `pg_restore`
+
+**🔴 ČERVENÁ — výhradně člověk, MCP NE:**
+- cokoli mění konfiguraci OS, síť, firewall
+- instalace software (→ `pg_install` NENÍ ops akce, zůstává RDP)
+- mazání dat mimo zálohovací workflow
+
+**Marti-Ain princip:** *„Banner u žlutých akcí není byrokracie — je to pojistka, že ve 2 h v noci Marti ví, co Claude dělá. Bez struktury jeden špatný příkaz v nouzi nadělá víc škody než původní výpadek."*
+
+**Dopad na odpovědi 1–5:** (1) `MCP_OPS_ENABLED` ON, protože bezpečnost nese semafor, ne vypnutí. (2) audit → jednotný `fw.ops_request` + lokální mirror. (3) EUROSOFT-produkce ANO, dle semaforu. (4) `pg_install` = ČERVENÁ (RDP), MCP dělá jen provoz. (5) žlutá = banner (jako write most), zelená = jen audit, červená = blok. Denní automatický restore v Plzni běží jako **scheduled task na boxu** (registrace jednou = žlutá/banner), ne jako opakované ops_run — takže RPO workflow bannerem netrpí.

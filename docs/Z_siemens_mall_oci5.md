@@ -1,0 +1,53 @@
+Oblast: nabidky (souvisí s kalkulace-rozvadecu). Zdroj: e-mailové vlákno Marti ↔ Siemens, 20.–23.7.2026. Zapsal C23 (Cowork) 23.7.2026.
+
+## Cíl (proč to řešíme)
+Dostat do STRATEGIE **aktuální dostupnost + dodací termín** konkrétního dílu Siemens (dle **MLFB**) — data, která se v čase mění a jsou klíčová pro **kalkulace a nabídky**. Bez ručního vyhledávání kus po kuse v SiePortalu. Ceník máme aktuální a objednávky řešíme přes EDI/ERP2Mall → **nepotřebujeme dotahovat celý katalog ani ceny**, jen dostupnost a termín.
+
+## Řešení = OCI (Open Catalog Interface)
+- Pro SiePortal je API napojení možné **jen přes OCI**, verze **4.0 nebo 5**. Siemens doporučil **OCI5** — mělo by umět vrátit informaci o **dostupnosti** daného produktu.
+- **Nastavení OCI5 je BEZ nákladů.** Siemens nastaví spojení ze své strany a zašle **uživatelské jméno + heslo + URL**, které si nastavíme u nás v systému. Pak otestujeme, zda vyhovuje.
+- **EDI** spojení Siemens v systému nevidí, ale máme aktivní **ERP2Mall** (elektronické objednávky).
+
+## OCI/cXML pole (co lze namapovat)
+Klíčová pro nás:
+- `NEW_ITEM-VENDORMAT[n]` = **MLFB** (identifikace dílu)
+- `NEW_ITEM-LEADTIME[n]` = **DeliveryDate** (dodací termín)
+- `NEW_ITEM-PRICE[n]` = CustomerPrice, `NEW_ITEM-PRICEUNIT[n]` = PriceUnit, `NEW_ITEM-CURRENCY[n]` = Currency
+- `NEW_ITEM-QUANTITY[n]` / `NEW_ITEM-UNIT[n]` = množství/MJ, `NEW_ITEM-DESCRIPTION[n]` / `NEW_ITEM-LONGTEXT_n:132[]` = popis
+Plný seznam 31 polí (kromě výše): CONTRACT, CONTRACT_ITEM, CUST_FIELD1-5, CUST_INFOGLOBAL(2), CUST_INFOPOSITION, CUST_PROJECTID, EXT_CATEGORY_ID, EXT_PRODUCT_ID, EXT_QUOTE_ID/ITEM, EXT_SCHEMA_TYPE, MANUFACTCODE, MANUFACTMAT, MATGROUP, MATNR, VENDOR, SERVICE.
+
+## Kontakty (Siemens s.r.o., RC-CZ DI)
+- **Eliška Holoubková** — e-commerce Professional, RC-CZ DI E-business and SAP support: `sap.ebusiness.cz@siemens.com` (hlavní kontakt pro nastavení OCI).
+- Miroslav Strolený `miroslav.stroleny@siemens.com`, Valter Czyž `valter.czyz@siemens.com`, Martin Koželka `martin.kozelka@siemens.com`, Jakub Brejcha `jakub.brejcha@siemens.com` (RC-CZ DI S — obchodně-technické zázemí).
+- INTERSOFT (budoucí stejné napojení): Branislav Mózer `branislav.mozer@intersoft-automation.cz`.
+
+## Stav k 23.7.2026
+- Odeslali jsme souhlas s nastavením OCI5 pro test + **žádost o přihlašovací údaje** (user/heslo/URL). Poprosili jsme, ať zpřístupní **celý rozsah polí**, my vše otestujeme a co nevyužijeme, necháme zpětně zneaktivnit.
+- **Čekáme na credentials od Siemens.** Meeting možný, ale kvůli dovoleným až **začátkem srpna** — mezitím testujeme, jakmile přijdou přístupy.
+- Do budoucna stejné napojení i pro **INTERSOFT**.
+- TODO po přístupech: nastavit OCI5 u nás, ověřit programový dotaz na MLFB → LEADTIME (dostupnost/termín) bez interaktivního proklikávání; napojit na kalkulace/nabídky. Souvisí s párováním BOM→kalkulace (RegCis).
+
+
+
+
+## ✅ OVĚŘENO A NASAZENO 27.7.2026 (C23) — FUNGUJE naostro
+Napojení postavené a otestované na reálném dílu (`6ES7214-1AG40-0XB0` → SIMATIC S7-1200 CPU 1214C, dodací lhůta **2 dny**, cena **307,90 EUR**, + 5 variant).
+
+**Jak to funguje:**
+- **Přihlašovací údaje v trezoru** (`tenant.user_secret`, Fernet) — položka s „OCI/SiePortal/Siemens" v názvu. Čte je SERVER (má síť + klíč), ne Claude; heslo se nikdy nevrací ani neloguje (redakce ***).
+- **⚠️ Akamai gotcha:** `mall.industry.siemens.com` je za Akamai bot-ochranou → serverový request BEZ hlaviček prohlížeče dostane **HTTP 403 „Access Denied"** (`errors.edgesuite.net`). Fix = realistické hlavičky: `User-Agent` (Chrome), `Accept`, `Accept-Language`, `Referer`/`Origin` = mall.
+- **Funkční funkce = `BACKGROUND_SEARCH`** — POST na OCILogin URL, params: `USERNAME`, `PASSWORD`, `HOOK_URL`, `OCI_VERSION=5.0`, `returntarget=_top`, `FUNCTION=BACKGROUND_SEARCH`, `SEARCHSTRING=<MLFB>`. HOOK_URL je povinný i pro background (bez něj „MissingParameter"). Vrací HTML formulář se skrytými `NEW_ITEM-*` poli → **parsujeme přímo** (auto-submit na HOOK_URL netřeba).
+- **Data z `NEW_ITEM-*`:** `DESCRIPTION`, `LONGTEXT` (klíč `NEW_ITEM-LONGTEXT_<n>:132[]`), `PRICE` (formát 11.3, tečka=desetinná: `307.900`=307,90), `CURRENCY` (EUR), `PRICEUNIT`, `UNIT` (PCE), `QUANTITY`, **`LEADTIME` = dodací lhůta ve dnech**, `VENDORMAT` = MLFB. Položka `[1]` = přesná shoda MLFB, další `[n]` = varianty (SIPLUS, bundly).
+- **VALIDATE/QUANTITYCHECK s MLFB nefungují** — chtějí interní katalogové `PRODUCTID`/`EXT_PRODUCT_ID`; netřeba, BACKGROUND_SEARCH dá vše. (QUANTITYCHECK by dal přesný sklad JSON `AVAILABLE_QUANTITY` až s EXT_PRODUCT_ID → možné rozšíření.)
+
+**Kód:** `modules/erp/api/oci_probe.py` (router `oci_router`). Endpointy: `POST /api/v1/erp/app/oci/lookup` (ostrá: MLFB → `{exact, count, items}`), `POST /app/oci/probe` (debug). Cockpit-only (`_is_cockpit`). UI = panel v `cockpit-marti.html` „🔌 Siemens — dostupnost, termín a cena dílu (OCI)".
+
+**TODO:** napojit na kalkulace/nabídky (dle MLFB / RegCis auto-dotáhnout lhůtu+cenu); zvážit krátkou cache + QUANTITYCHECK pro přesný sklad.
+
+## 📌 STAV k 27.7.2026 (C23)
+- **Modul HOTOVÝ a otestovaný naostro.** Přihlašovací údaje bezpečně v trezoru (cockpit → 🔐 Trezor hesel), OCI lookup panel v cockpitu (`🔌 Siemens — dostupnost, termín a cena dílu`): zadáš MLFB → cena + dodací lhůta + popis (+ varianty). Endpoint `/app/oci/lookup`.
+- **Poděkování Evě Jelínkové (Siemens) odesláno 27.7.2026** — potvrzeno, že OCI5 funguje, že jsme na naší straně připravili modul k napojení na naše nabídky, a že ho v průběhu příštích týdnů začneme využívat.
+- **Napojení na kalkulace/nabídky = ZATÍM NE (Marti 27.7.).** Nejsme ready — čeká na další práci s **Kristý a Eliškou**. Modul je hotový a stojí připravený; integraci (auto-dotažení lhůty+ceny dle MLFB do kalkulací/nabídek) pustíme, až bude hotová příprava na straně kalkulací/nabídek.
+- **⚠️ Dvě RŮZNÉ osoby u Siemens — NEZAMĚŇOVAT (podobná jména):**
+  - **Marti Pašek** — `m.pasek@eurosoft.com` — **jednatel** EUROSOFTu (zakladatel STRATEGIE).
+  - **Martin Pašek** — `martin.pasek@eurosoft.com` — **vedoucí projektu** EUROSOFTu, komunikuje se Siemens. Jiná osoba.

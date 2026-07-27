@@ -32915,17 +32915,55 @@ def dochazka_moje_ep(req: Request):
             p = str(iso).split("-")
             return (p[2] + "." + p[1] + "." + p[0]) if len(p) == 3 else str(iso)
 
-        # 1) Přítomnost (docházka) per den = att_day_summary.cas_celkem (čistý denní
-        #    součet; att_entry NEsčítat — má překryvná pole work/nenarokova).
-        pres = s.execute(_t(
-            "SELECT to_char(ds.datum,'YYYY-MM-DD') d, "
-            "       ROUND(COALESCE(ds.cas_celkem,0)::numeric,2) h "
-            "FROM tenant.att_day_summary ds "
-            "WHERE ds.user_id=:uid AND ds.tenant_id=2 AND COALESCE(ds.cas_celkem,0)>0 "
-            "  AND ds.datum>=:od AND ds.datum<=:do"),
+        # 1) PŘÍTOMNOST (mzdové hodiny) per den = z tenant.att_entry, počítané STEJNĚ
+        #    jako ERP „Opravy": sloučení překryvů presence intervalů (duplicity, které
+        #    by prostý součet zdvojil — např. 2× stejná směna → 16 h místo 8 h) minus
+        #    přestávky uvnitř práce. Marti Pašek 26.7.2026: att_entry = jediný zdroj
+        #    pravdy pro hodiny; att_day_summary je mimo, NEpoužívat.
+        iv = s.execute(_t(
+            "SELECT to_char(ae.entry_date,'YYYY-MM-DD') d, et.category cat, "
+            "       EXTRACT(EPOCH FROM ae.started_at) s, EXTRACT(EPOCH FROM ae.ended_at) e "
+            "FROM tenant.att_entry ae JOIN tenant.att_entry_type et ON et.id=ae.entry_type_id "
+            "WHERE ae.tenant_id=2 AND ae.entry_date>=:od AND ae.entry_date<=:do "
+            "  AND ae.employee_id IN (SELECT id FROM tenant.att_employee "
+            "                         WHERE tenant_id=2 AND user_id=:uid) "
+            "  AND ae.status NOT IN ('superseded','announced') "
+            "  AND et.category IN ('presence','break') "
+            "  AND ae.started_at IS NOT NULL AND ae.ended_at IS NOT NULL"),
             {"uid": target, "od": od, "do": do}).mappings().all()
 
-        # 2) Zakázkové segmenty (rozpad) per den z vyroba_work
+        def _merge(ivs):
+            ivs = sorted(ivs)
+            merged = []
+            for a, b in ivs:
+                if merged and a <= merged[-1][1]:
+                    if b > merged[-1][1]:
+                        merged[-1][1] = b
+                else:
+                    merged.append([a, b])
+            return merged
+
+        pres_by_day, brk_by_day = {}, {}
+        for r in iv:
+            si, ei = r["s"], r["e"]
+            if si is None or ei is None or ei <= si:
+                continue
+            bucket = pres_by_day if r["cat"] == "presence" else brk_by_day
+            bucket.setdefault(r["d"], []).append((float(si), float(ei)))
+
+        payroll = {}  # d -> mzdové hodiny (float)
+        for d, ivs in pres_by_day.items():
+            merged = _merge(ivs)
+            sec = sum(b - a for a, b in merged)
+            inside = 0.0
+            for bs, be in brk_by_day.get(d, []):
+                for ps, pe in merged:
+                    o = min(be, pe) - max(bs, ps)
+                    if o > 0:
+                        inside += o
+            payroll[d] = round(max(0.0, sec - inside) / 3600.0, 2)
+
+        # 2) Zakázkové segmenty (rozpad, detail) per den z vyroba_work
         zak = s.execute(_t("""
             SELECT to_char(w.datum,'YYYY-MM-DD') datum_iso,
                    COALESCE(w.source_system,'?') src, trim(w.zakazka_ref) zak,
@@ -32937,24 +32975,28 @@ def dochazka_moje_ep(req: Request):
             ORDER BY w.datum DESC, zak"""), {"uid": target, "od": od, "do": do}).mappings().all()
 
         days = {}
-        for p in pres:
-            d = p["d"]
-            days[d] = {"datum_iso": d, "den": _dlabel(d),
-                       "presence": float(p["h"] or 0), "zakazky": []}
+        for d, h in payroll.items():
+            days[d] = {"datum_iso": d, "den": _dlabel(d), "presence": h, "zakazky": []}
         for r in zak:
             d = r["datum_iso"]
             g = days.setdefault(d, {"datum_iso": d, "den": _dlabel(d),
                                     "presence": 0.0, "zakazky": []})
             g["zakazky"].append({"zak": r["zak"] or "—", "nazev": r["nazev"],
                                  "src": r["src"], "hod": float(r["hod"] or 0)})
-        # Univerzálně: zbytek přítomnosti bez zakázky = Režie (i pro lidi bez zakázek)
+        # Hlavička dne = mzdové hodiny (att_entry). Dopočet „Nepřiřazený čas" =
+        # mzdové hodiny − součet zakázek → řádky + nepřiřazený čas = hlavička (sedí).
         for d, g in days.items():
             zh = round(sum(z["hod"] for z in g["zakazky"]), 2)
-            rez = round(g["presence"] - zh, 2)
-            if rez > 0.05:
-                g["zakazky"].append({"zak": "REŽIE", "nazev": "Režie (bez zakázky)",
-                                     "src": "rezie", "hod": rez})
-            g["hod"] = round(g["presence"] if g["presence"] > 0 else zh, 2)
+            p = round(g["presence"], 2)
+            if p + 0.05 >= zh:
+                g["hod"] = round(p if p > 0 else zh, 2)
+                rez = round(p - zh, 2)
+                if rez > 0.05:
+                    g["zakazky"].append({"zak": "REŽIE", "nazev": "Nepřiřazený čas",
+                                         "src": "rezie", "hod": rez})
+            else:
+                # vzácně: rozpad práce převyšuje přítomnost → drž konzistenci řádků
+                g["hod"] = zh
             g.pop("presence", None)
         out = sorted(days.values(), key=lambda x: x["datum_iso"], reverse=True)
         total = round(sum(g["hod"] for g in out), 1)

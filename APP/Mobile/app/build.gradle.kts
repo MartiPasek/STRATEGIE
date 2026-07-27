@@ -80,9 +80,17 @@ android {
             // auto-update napříč verzemi). Jinak fallback na debug podpis.
             signingConfig = if (keystorePropsFile.exists())
                 signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            // R8 ZAPNUTY (Jirka 27.7.2026) — doporuceni Google Play u vydani 1.74
+            // ("Optimalizaci R8 muzete zlepsit pamet a vykon aplikace").
+            // ⚠️ Keep pravidla pro JS most (@JavascriptInterface, 33 metod) jsou
+            // v app/proguard-rules.pro — BEZ NICH SE APPKA ROZBIJE. Nemazat.
             optimization {
-                enable = false
+                enable = true
             }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             // Nativni debug symboly do AAB (Play doporuceni u buildu s nativnim
             // kodem z knihoven) - lepsi analyza padu/ANR v produkci. Projevi se
             // az pri pristim buildu (soucasny interni v73 ho jeste nema). Jirka 29.6.

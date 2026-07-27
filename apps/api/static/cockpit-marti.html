@@ -93,6 +93,15 @@
   <div id="tz_list" style="margin-top:12px"><div class="tzmut">Načítám…</div></div>
 </div>
 
+<div class="lbl">🔌 Siemens OCI — test dostupnosti (MLFB)</div>
+<div class="trez">
+  <div class="trezhint">Empirický test: server přečte přihlašovací údaje z trezoru a zavolá SiePortal OCI na zadané MLFB (LOGIN / BACKGROUND_SEARCH / VALIDATE / QUANTITYCHECK) a ukáže <b>syrové odpovědi</b> — abychom viděli, co jejich endpoint umí. <b>Heslo se nikdy nezobrazí.</b> Může trvat ~30 s.</div>
+  <input id="oci_mlfb" placeholder="MLFB dílu (např. 6ES7214-1AG40-0XB0)" autocomplete="off">
+  <div class="tzrow"><button id="oci_go" class="tzbtn" type="button">Otestovat OCI</button><span id="oci_msg" class="tzmsg"></span></div>
+  <div id="oci_out" style="margin-top:10px"></div>
+</div>
+
+
 
 <div class="lbl" id="zaloha-lbl">🟩 Záloha (blue‑green API B)</div>
 <div class="cards" id="zaloha"><div class="c"><div class="ds">Načítám…</div></div></div>
@@ -348,6 +357,34 @@ setInterval(function(){if(!zpoll)loadZaloha();},60000);
     if(d==='cp'){var sv=it.querySelector('[data-sv]');if(sv&&navigator.clipboard){navigator.clipboard.writeText(sv.textContent).then(function(){msg('ok','Zkopírováno.');},function(){});}return;}
   });
   load();
+})();
+</script>
+
+<script>
+(function(){
+  var $=function(i){return document.getElementById(i);};
+  var go=$('oci_go'); if(!go) return;
+  function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  go.addEventListener('click',function(){
+    var mlfb=($('oci_mlfb').value||'').trim();
+    if(!mlfb){$('oci_msg').style.color='#ffb38a';$('oci_msg').textContent='Zadej MLFB.';return;}
+    go.disabled=true;$('oci_msg').style.color='#8094b3';$('oci_msg').textContent='Volám Siemens OCI… (~30 s)';$('oci_out').innerHTML='';
+    fetch('/api/v1/erp/app/oci/probe',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({mlfb:mlfb})})
+      .then(function(r){return r.json().catch(function(){return {};});})
+      .then(function(j){
+        go.disabled=false;
+        if(!j.ok){$('oci_msg').style.color='#ffb38a';$('oci_msg').textContent='✗ '+(j.note||j.error||'chyba');return;}
+        $('oci_msg').style.color='#7fe9b6';$('oci_msg').textContent='Hotovo · přihlašovací jméno '+(j.username||'?');
+        var h='<div class="tzmut" style="margin-bottom:6px">URL: '+esc(j.url||'')+' · MLFB: '+esc(j.mlfb||'')+'</div>';
+        (j.results||[]).forEach(function(x){
+          var head=esc(x.function||'?')+' — '+(x.skipped?('přeskočeno: '+esc(x.skipped)):(x.error?('CHYBA: '+esc(x.error)):('HTTP '+x.http_status+' · '+esc(x.content_type||'')+' · '+(x.body_len||0)+' B')));
+          h+='<div style="margin:8px 0"><div style="font-weight:700;color:#5b9dff;font-size:12.5px">'+head+'</div>';
+          if(x.excerpt){h+='<pre style="white-space:pre-wrap;word-break:break-all;background:#04122b;border:1px solid #1b2740;border-radius:7px;padding:8px;font-size:11px;max-height:220px;overflow:auto;margin:4px 0 0">'+esc(x.excerpt)+'</pre>';}
+          h+='</div>';
+        });
+        $('oci_out').innerHTML=h;
+      }).catch(function(e){go.disabled=false;$('oci_msg').style.color='#ffb38a';$('oci_msg').textContent='Síť: '+(e&&e.message||e);});
+  });
 })();
 </script>
 

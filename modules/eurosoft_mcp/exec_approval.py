@@ -316,7 +316,13 @@ def approve_and_execute(aid: int, parent_uid: int) -> dict:
         if client is None:
             err_txt = "MCP klient není dostupný (feature flag off)"
         else:
-            raw = client.call_tool_sync("eurosoft_exec",
+            # POZOR na jméno: ops nástroje jsou na MCP serveru registrované už s
+            # prefixem ("eurosoft_exec" v ALL_TOOL_HANDLERS), a klient get_tools()
+            # přidává "eurosoft_" ještě jednou → agent je volá jako DVOJPREFIXOVANÉ
+            # "eurosoft_eurosoft_exec"; call_tool_sync pak strhne jeden prefix a MCP
+            # dostane správné "eurosoft_exec". Kdybych volal "eurosoft_exec", strhne
+            # se na "exec" → unknown_tool. Voláme tedy stejně jako agent.
+            raw = client.call_tool_sync("eurosoft_eurosoft_exec",
                                         {"cmd": cmd, "shell": shell or "powershell", "incident": True},
                                         conversation_id=conv, timeout_s=_EXEC_TIMEOUT_S)
             try:

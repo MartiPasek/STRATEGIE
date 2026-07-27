@@ -1128,6 +1128,40 @@ def vp_vez_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/app/diag/parent-check")
+def diag_parent_check(request: Request):
+    """DOČASNÁ diagnostika (C23 27.7.2026): vrátí pro AKTUÁLNÍ request přesně
+    to, co brány vidí — která instance obsluhuje (primary/secondary), jestli běží
+    fix, a uid + is_marti_parent + capability. Odstranit po vyřešení práv Marti."""
+    from fastapi.responses import JSONResponse
+    try:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        is_secondary = ("prev" in base.lower()) or (os.environ.get("STRATEGIE_DR_STANDBY", "").strip() == "1")
+        try:
+            from modules.erp.api.router import _uid_from_token_or_cookie, _has_capability
+            uid = _uid_from_token_or_cookie(request)
+        except Exception as e_resolve:
+            return JSONResponse({"ok": False, "stage": "resolve", "err": repr(e_resolve),
+                                 "instance": "secondary/prev" if is_secondary else "primary",
+                                 "build": "diag-2989277d2"})
+        from modules.thoughts.application.service import (
+            is_marti_parent, is_admin_user, _CORE_PARENT_UIDS)
+        return JSONResponse({
+            "ok": True,
+            "build": "diag-2989277d2",
+            "instance": "secondary/prev" if is_secondary else "primary",
+            "repo_base": base,
+            "uid": uid,
+            "is_marti_parent": (bool(is_marti_parent(uid)) if uid else None),
+            "is_admin": (bool(is_admin_user(uid)) if uid else None),
+            "cap_neschopenky_read": (bool(_has_capability(uid, "neschopenky", "read")) if uid else None),
+            "core_floor_ma_fix": (1 in _CORE_PARENT_UIDS),
+        })
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"ok": False, "stage": "outer", "err": repr(e)})
+
+
 @app.get("/domeny")
 def domeny_page():
     """Review doménového prostředí (domain_env) pro lidi — vidět, porovnat s realitou, ladit.

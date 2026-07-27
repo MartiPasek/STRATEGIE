@@ -336,6 +336,23 @@
   }
 
   /**
+   * Jirka 27.7.2026: sloupce, které jsou sice čísla, ale NEJSOU množství —
+   * rok a osobní/typová čísla. Oddělovač tisíců z nich dělá nesmysl
+   * ("Rok 2026" → "2 026", "Číslo dostane 9005" → "9 005"). Zjištěno na
+   * modulu Mzdy → Příplatky a srážky, platí ale pro každý grid.
+   * Zůstávají numeric (řazení i filtr), mění se jen zobrazení.
+   */
+  function _looksLikePlainNumberName(name) {
+    if (!name) return false;
+    const lower = String(name).toLowerCase().trim();
+    // "Rok", "Rok proplacení", "Year" — jako samostatné slovo
+    if (/(^|[^a-z0-9])(rok|year)([^a-z0-9]|$)/.test(lower)) return true;
+    // "Číslo ...", "Cislo zam", "Č. typu" — číslo jako identifikátor
+    if (/^(č\.|c\.|číslo|cislo)([^a-z0-9]|$)/.test(lower)) return true;
+    return false;
+  }
+
+  /**
    * B+10: case-insensitive value extraction (Centrála rows mohou mít
    * keys v různém case než column metadata).
    */
@@ -629,7 +646,10 @@
         // Pokud sample je všechny integers (Cislo, Poradi, ID-like),
         // decimals=0. Jinak 2.
         const decimals = _detectNumericPrecision(c, rows);
-        def.valueFormatter = (params) => _formatNumberCS(params.value, decimals);
+        // Rok / osobní čísla bez oddělovače tisíců (Jirka 27.7.2026)
+        def.valueFormatter = _looksLikePlainNumberName(c)
+          ? (params) => (params.value == null || params.value === "" ? "" : String(params.value))
+          : (params) => _formatNumberCS(params.value, decimals);
         // B+10 (6.5.2026): conditional formatting — záporná = červená,
         // nula = dim. AG Grid cellClassRules vyhodnocuje per-cell.
         // B+10+ (6.5.2026): heuristics opt-in jen když options.heuristicsEnabled.

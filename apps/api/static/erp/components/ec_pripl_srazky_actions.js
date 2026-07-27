@@ -108,14 +108,14 @@
       try { els[i].setAttribute("readonly", "readonly"); } catch (e) {}
     }
 
+    /* OK (ulozit) schovat. Pozor: tlacitka NEJSOU v .erp-modal-footer, ale
+     * v .erp-design-grid uvnitr dialogu (overeno v prohlizeci 27.7.2026),
+     * proto hledame v celem dialogu. Storno/zavrit zustava. */
     if (shell.dialog) {
-      var footer = shell.dialog.querySelector(".erp-modal-footer");
-      if (footer) {
-        var btns = footer.querySelectorAll("button");
-        for (var j = 0; j < btns.length; j++) {
-          var t = (btns[j].textContent || "").trim();
-          if (/^\s*(✓\s*)?OK\s*$/i.test(t)) { btns[j].style.display = "none"; }
-        }
+      var btns = shell.dialog.querySelectorAll("button");
+      for (var j = 0; j < btns.length; j++) {
+        var t = (btns[j].textContent || "").replace(/\s+/g, " ").trim();
+        if (/^(✓\s*)?OK$/i.test(t)) { btns[j].style.display = "none"; }
       }
     }
 

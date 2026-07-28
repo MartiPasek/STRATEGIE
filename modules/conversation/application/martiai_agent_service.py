@@ -529,6 +529,7 @@ Prozkoumej repo/data v rozsahu a vrať jasné shrnutí: co jsi zjistil, co je ho
 
     _audit_run(requested_by_user_id, f"[cil #{cil_id}] {cil['nazev']}", result)
     result["cil_id"] = cil_id
+    result["rezim"] = "ruce" if _extra_tools else "read-only"
     result["kroku_zalogovano"] = logged
     result["kroku_celkem"] = _cil_steps(cil_id)
     return result

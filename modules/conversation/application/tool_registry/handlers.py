@@ -144,9 +144,11 @@ SCHVAL_METERED_SPEC = {
 PRACUJ_NA_CILI_SPEC = {
     "name": "pracuj_na_cili",
     "description": (
-        "🎯 CÍLOVÝ REŽIM (Krok 1, read-only): popojeď na SCHVÁLENÉM cíli. Zadej 'cil_id' "
-        "cíle ve stavu 'aktivni' — proběhnu ho read-only agentí smyčkou a KAŽDOU akci zaloguju "
-        "do claude_aktivita. Bez per-akčního schvalování (brána byla u schválení cíle)."
+        "🎯 CÍLOVÝ REŽIM (autonomní smyčka): popojeď SÁM/SAMA na SCHVÁLENÉM cíli — proběhnu "
+        "mnoho kroků bez postrkování člověka a KAŽDOU akci zaloguju do claude_aktivita. Zadej "
+        "'cil_id' cíle ve stavu 'aktivni'. Když je zapnutý flag cil_ruce_enabled, máš v této "
+        "smyčce RUCE (praha_exec/plzen_exec) pod bránou 🟢/🟡/🔴 — na schváleném cíli reálně "
+        "JEDNÁŠ na serverech, ne jen čteš. Bez per-akčního schvalování (brána byla u cíle)."
     ),
     "input_schema": {
         "type": "object",
@@ -612,7 +614,7 @@ def _pracuj_na_cili(inp: dict, user_id, conversation_id) -> str:
     res = MA.run_cil(cil_id, requested_by_user_id=user_id, conversation_id=conversation_id)
     if not res.get("ok"):
         return f"❌ Cíl #{cil_id} neproběhl: {res.get('error')} ({res.get('reason')})"
-    hlava = (f"🎯 (cíl #{cil_id} · read-only · {res.get('kroku_zalogovano')} akcí zalogováno · "
+    hlava = (f"🎯 (cíl #{cil_id} · režim {res.get('rezim','?')} · {res.get('kroku_zalogovano')} akcí zalogováno · "
              f"celkem kroků {res.get('kroku_celkem')} · {res.get('elapsed_s')}s)")
     return f"{hlava}\n\n{res.get('reply')}"
 

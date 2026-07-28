@@ -420,6 +420,8 @@ _AGENT_EXTRA_TOOLS = [
     "g2007_hledej", "hledej_ve_znalostech", "read_diary", "recall_thoughts", "search_documents",
     # PAMET (governed write, guard=allow)
     "zapis_znalost", "record_diary_entry", "record_thought",
+    # SEBE-STAVBA NASTROJU (create=navrh+selftest; aktivaci schvaluje rodic pres approve_tool)
+    "create_tool", "list_tool_proposals",
 ]
 
 

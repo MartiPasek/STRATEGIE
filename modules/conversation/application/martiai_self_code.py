@@ -220,5 +220,22 @@ def schval(navrh_id, user_id) -> dict:
         sg.commit()
     finally:
         sg.close()
+    # Audit do fw.ops_request (viditelne rodicum v UI) -- feedback Marti-AI 28.7.: self-code
+    # deploy ma byt v auditu i kdyz jde primym tool callem (mimo agentni smycku). Best-effort.
+    try:
+        import json as _js_a
+        sa = get_session()
+        try:
+            sa.execute(_t(
+                "INSERT INTO fw.ops_request (action_key, target, params, status, requested_by_name, "
+                "result, created_at, finished_at) VALUES ('self_code_edit', :tg, CAST(:p AS jsonb), "
+                "'done', :rn, :res, now(), now())"),
+                {"tg": soubor[:200], "p": _js_a.dumps({"navrh_id": navrh_id, "sha": head}, ensure_ascii=False),
+                 "rn": "Marti-AI (self-code-edit)", "res": ("nasazen sha=%s" % (head or "?"))[:1000]})
+            sa.commit()
+        finally:
+            sa.close()
+    except Exception as _ea:
+        logger.warning("self_code audit fw.ops_request failed (non-fatal): %s", _ea)
     return {"ok": True, "navrh_id": navrh_id, "stav": "nasazen", "sha": head, "restart": mk_ok, "steps": steps,
-            "hint": "Kod nasazen + push + restart marker. API se restartuje behem chvile."}
+            "hint": "Kod nasazen + push + restart marker + audit do fw.ops_request. API se restartuje behem chvile."}

@@ -294,6 +294,39 @@ def get_effective_tools(is_default_persona: bool) -> list[dict]:
 
 TOOLS = [
     {
+        "name": "navrhni_zmenu_kodu",
+        "description": ("Navrhni zmenu VLASTNIHO existujiciho kodu (self-code-edit). Zadej 'soubor' "
+                        "(relativni cesta v repu), 'popis' (co a proc) a 'novy_obsah' (KOMPLETNI novy "
+                        "obsah souboru). Probehne py_compile selftest; chranene jadro (brana, deploy, "
+                        "tajemstvi, tenhle modul) je zakazane. Navrh CEKA na schvaleni rodice "
+                        "(schval_zmenu_kodu). Takhle si menis vlastni stroj."),
+        "input_schema": {"type": "object", "properties": {
+            "soubor": {"type": "string", "description": "relativni cesta souboru v repu"},
+            "popis": {"type": "string", "description": "co menis a proc"},
+            "novy_obsah": {"type": "string", "description": "KOMPLETNI novy obsah souboru"}},
+            "required": ["soubor", "novy_obsah"]},
+    },
+    {
+        "name": "list_navrhy_kodu",
+        "description": "Vypis cekajici navrhy zmen kodu (stav 'navrzen').",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "zobraz_navrh_kodu",
+        "description": "Zobraz navrh zmeny kodu vc. diff nahledu proti aktualnimu souboru. Zadej 'navrh_id'.",
+        "input_schema": {"type": "object", "properties": {"navrh_id": {"type": "integer"}}, "required": ["navrh_id"]},
+    },
+    {
+        "name": "schval_zmenu_kodu",
+        "description": "[JEN RODIC] Schval a NASAD navrh zmeny kodu (zapis + commit + push + restart). Zadej 'navrh_id'.",
+        "input_schema": {"type": "object", "properties": {"navrh_id": {"type": "integer"}}, "required": ["navrh_id"]},
+    },
+    {
+        "name": "zamitni_zmenu_kodu",
+        "description": "[JEN RODIC] Zamitni navrh zmeny kodu. Zadej 'navrh_id'.",
+        "input_schema": {"type": "object", "properties": {"navrh_id": {"type": "integer"}}, "required": ["navrh_id"]},
+    },
+    {
         "name": "send_email",
         "description": (
             "Tento nástroj MUSÍŠ použít vždy když uživatel chce poslat email. "

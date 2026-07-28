@@ -77,6 +77,7 @@ _ALLOW_WRITE_TOOLNAMES = {
     "create_tool",                   # Tool Factory: self-test + propose, aktivace rodič
     "record_diary_entry", "record_thought", "update_thought",
     "add_conversation_note", "zapis_znalost",
+    "navrhni_zmenu_kodu",
 }
 
 
@@ -132,6 +133,7 @@ READ_ONLY_TOOLNAMES = {
     "strategie_pg_describe_table", "strategie_pg_list_tables", "strategie_pg_list_schemas",
     "g2007_hledej", "hledej_ve_znalostech", "read_diary", "recall_thoughts",
     "search_documents", "web_search", "web_fetch", "zobraz_muj_prompt",
+    "list_navrhy_kodu", "zobraz_navrh_kodu",
 }
 
 

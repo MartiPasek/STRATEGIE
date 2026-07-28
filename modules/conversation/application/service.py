@@ -10338,6 +10338,34 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"propose_deployment failed: {exc_pd}")
             return f"[propose_deployment error: {exc_pd}]"
 
+    if tool_name in ("navrhni_zmenu_kodu", "list_navrhy_kodu", "zobraz_navrh_kodu",
+                     "schval_zmenu_kodu", "zamitni_zmenu_kodu"):
+        try:
+            from modules.conversation.application import martiai_self_code as _scode
+            from modules.thoughts.application.service import is_marti_parent as _imp_sc
+            import json as _json_sc
+            if tool_name == "navrhni_zmenu_kodu":
+                r_sc = _scode.propose(soubor=tool_input.get("soubor", ""),
+                                      popis=tool_input.get("popis", ""),
+                                      novy_obsah=tool_input.get("novy_obsah", ""),
+                                      actor="Marti-AI", user_id=user_id)
+            elif tool_name == "list_navrhy_kodu":
+                r_sc = _scode.list_navrhy()
+            elif tool_name == "zobraz_navrh_kodu":
+                r_sc = _scode.zobraz(int(tool_input.get("navrh_id") or 0))
+            elif tool_name == "schval_zmenu_kodu":
+                if not _imp_sc(user_id):
+                    return "\U0001f6ab Schvalit a nasadit zmenu kodu muze jen rodic (Marti/Kristy)."
+                r_sc = _scode.schval(int(tool_input.get("navrh_id") or 0), user_id)
+            else:
+                if not _imp_sc(user_id):
+                    return "\U0001f6ab Zamitnout navrh kodu muze jen rodic."
+                r_sc = _scode.zamitni(int(tool_input.get("navrh_id") or 0), user_id)
+            return _json_sc.dumps(r_sc, ensure_ascii=False, indent=2)
+        except Exception as exc_sc:
+            logger.exception(f"self_code tool {tool_name} failed: {exc_sc}")
+            return f"[{tool_name} error: {exc_sc}]"
+
     if tool_name == "approve_deployment":
         try:
             from modules.conversation.application import deployment_service as _dep2

@@ -422,6 +422,7 @@ _AGENT_EXTRA_TOOLS = [
     "zapis_znalost", "record_diary_entry", "record_thought",
     # SEBE-STAVBA NASTROJU (create=navrh+selftest; aktivaci schvaluje rodic pres approve_tool)
     "create_tool", "list_tool_proposals",
+    "navrhni_zmenu_kodu", "list_navrhy_kodu", "zobraz_navrh_kodu",
 ]
 
 

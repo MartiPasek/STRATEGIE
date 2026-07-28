@@ -396,13 +396,24 @@ def _setting_on(klic: str) -> bool:
         return False
 
 
-def _build_hands():
-    """Vrat (mcp_servers, extra_tool_names). Governed RUCE pro autonomni smycku.
-    Staveno NAPRIMO nad mcp.server.lowlevel (NE create_sdk_mcp_server) — handler
-    vraci list[TextContent], takze mcp vezme cistou list() vetev a NEDOJDE k
-    dvojitemu zabaleni CallToolResult. (Bug na Python 3.14: isinstance(CallToolResult)
-    v mcp.call_tool propada -> fallback list(result) rozlozi model na field-tuply.)
-    Guarded: kdyz mcp API chybi, vrat (None, []) -> read-only fallback (zadny pad)."""
+_AGENT_EXTRA_TOOLS = [
+    # VYZKUM (read-only, zelena)
+    "strategie_file_read", "strategie_file_list",
+    "strategie_pg_query_raw", "strategie_pg_query_table",
+    "strategie_pg_describe_table", "strategie_pg_list_tables", "strategie_pg_list_schemas",
+    "g2007_hledej", "hledej_ve_znalostech", "read_diary", "recall_thoughts", "search_documents",
+    # PAMET (governed write, guard=allow)
+    "zapis_znalost", "record_diary_entry", "record_thought",
+]
+
+
+def _build_hands(user_id=None, conversation_id=None):
+    """Vrat (mcp_servers, extra_tool_names). Governed RUCE + Martiiny pracovni nastroje
+    pro autonomni smycku. Naprimo nad mcp.server.lowlevel (handler vraci list[TextContent]
+    -> obchazi double-wrap na Py3.14). Exec ruce (praha/plzen) pres strategie_exec/
+    eurosoft_exec (tiery). Ostatni nastroje pres _handle_tool (stejny dispatcher jako chat),
+    gate drzi agent_akce_guard (allow/app_approval/deny). Efekty ven (email/sms) NEjsou.
+    Guarded: kdyz mcp API chybi -> (None, []) (read-only fallback, zadny pad)."""
     try:
         from mcp.server.lowlevel import Server as _McpServer
         from mcp.types import TextContent as _TC, Tool as _Tool
@@ -410,58 +421,91 @@ def _build_hands():
         logger.warning("MARTIAI ruce: mcp server API chybi (%s) -> read-only", e)
         return None, []
     import json as _json
+    try:
+        from modules.conversation.application import agent_akce_guard as _guard
+    except Exception:
+        _guard = None
+    try:
+        from modules.conversation.application.tools import TOOLS as _TOOLS
+        _spec = {t.get("name"): t for t in _TOOLS if isinstance(t, dict) and t.get("name")}
+    except Exception:
+        _spec = {}
 
-    _schema = {"type": "object",
-               "properties": {"cmd": {"type": "string", "description": "prikaz"},
-                              "shell": {"type": "string", "description": "powershell|cmd|bash"}},
-               "required": ["cmd"]}
+    _exec_schema = {"type": "object",
+                    "properties": {"cmd": {"type": "string", "description": "prikaz"},
+                                   "shell": {"type": "string", "description": "powershell|cmd|bash"}},
+                    "required": ["cmd"]}
+
+    def _text(obj):
+        t = obj if isinstance(obj, str) else _json.dumps(obj, ensure_ascii=False)
+        return [_TC(type="text", text=t[:6000])]
+
     try:
         srv = _McpServer("marti_ruce", version="1.0")
+        _defs = [
+            _Tool(name="praha_exec",
+                  description="Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) lokalne, pod branou (zelena/zluta/cervena). Args: cmd, shell (powershell|cmd|bash).",
+                  inputSchema=_exec_schema),
+            _Tool(name="plzen_exec",
+                  description="Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres EUROSOFT MCP, pod branou. Args: cmd, shell.",
+                  inputSchema=_exec_schema),
+        ]
+        _extra_ok = []
+        for _nm in _AGENT_EXTRA_TOOLS:
+            _sp = _spec.get(_nm)
+            if not _sp:
+                continue
+            _defs.append(_Tool(name=_nm,
+                               description=(str(_sp.get("description") or _nm))[:900],
+                               inputSchema=_sp.get("input_schema") or {"type": "object", "properties": {}}))
+            _extra_ok.append(_nm)
 
         @srv.list_tools()
         async def _list_ruce():
-            return [
-                _Tool(name="praha_exec",
-                      description=("Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) "
-                                   "lokalne, pod branou (zelena hned / zluta needs_approval / cervena blok). "
-                                   "Args: cmd, shell (powershell|cmd|bash)."),
-                      inputSchema=_schema),
-                _Tool(name="plzen_exec",
-                      description=("Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres "
-                                   "EUROSOFT MCP, pod branou (zelena/zluta/cervena). Args: cmd, shell."),
-                      inputSchema=_schema),
-            ]
+            return _defs
 
         @srv.call_tool()
         async def _call_ruce(name, arguments):
             arguments = arguments or {}
-            cmd = arguments.get("cmd", "")
-            shell = arguments.get("shell", "powershell")
             if name == "praha_exec":
                 try:
                     from modules.conversation.application.strategie_exec import strategie_exec as _sx
-                    r = _sx(cmd=cmd, shell=shell, actor="Marti-AI")
-                    txt = _json.dumps(r, ensure_ascii=False)
+                    return _text(_sx(cmd=arguments.get("cmd", ""), shell=arguments.get("shell", "powershell"), actor="Marti-AI"))
                 except Exception as _e:
-                    txt = _json.dumps({"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:200])})
-            elif name == "plzen_exec":
+                    return _text({"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:200])})
+            if name == "plzen_exec":
                 try:
                     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-                    _mcp = get_eurosoft_mcp_client()
-                    if _mcp is None:
-                        txt = '{"ok": false, "error": "EUROSOFT MCP nedostupny"}'
-                    else:
-                        raw = _mcp.call_tool_sync("eurosoft_eurosoft_exec", {"cmd": cmd, "shell": shell},
-                                                  conversation_id=None)
-                        txt = raw if isinstance(raw, str) else _json.dumps(raw, ensure_ascii=False)
+                    _m = get_eurosoft_mcp_client()
+                    if _m is None:
+                        return _text({"ok": False, "error": "EUROSOFT MCP nedostupny"})
+                    raw = _m.call_tool_sync("eurosoft_eurosoft_exec", {"cmd": arguments.get("cmd", ""), "shell": arguments.get("shell", "powershell")}, conversation_id=None)
+                    return _text(raw if isinstance(raw, str) else _json.dumps(raw, ensure_ascii=False))
                 except Exception as _e:
-                    txt = '{"ok": false, "error": "%s"}' % (str(_e)[:200].replace('"', "'"))
-            else:
-                txt = '{"ok": false, "error": "neznamy nastroj"}'
-            return [_TC(type="text", text=txt[:6000])]
+                    return _text({"ok": False, "error": str(_e)[:200]})
+            if name in _AGENT_EXTRA_TOOLS:
+                if _guard is not None and not _guard.is_read_only(name):
+                    try:
+                        _v = _guard.classify_action(name, arguments)
+                    except Exception:
+                        _v = None
+                    if _v is not None and _v.zamitnuto:
+                        return _text({"ok": False, "gate": "red", "error": _v.duvod})
+                    if _v is not None and _v.pres_appku:
+                        return _text({"ok": False, "gate": "yellow_needs_approval",
+                                      "hint": (_v.duvod or "") + " — zvedni ruku k rodicum (mimo autonomni smycku)"})
+                try:
+                    from modules.conversation.application.service import _handle_tool as _ht
+                    r = _ht(name, arguments, conversation_id or 0, user_id)
+                    return _text(r if isinstance(r, str) else _json.dumps(r, ensure_ascii=False))
+                except Exception as _e:
+                    return _text({"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:300])})
+            return _text({"ok": False, "error": "neznamy nastroj"})
 
         cfg = {"type": "sdk", "name": "marti_ruce", "instance": srv}
-        return {"marti_ruce": cfg}, ["mcp__marti_ruce__praha_exec", "mcp__marti_ruce__plzen_exec"]
+        _names = ["mcp__marti_ruce__praha_exec", "mcp__marti_ruce__plzen_exec"] + \
+                 ["mcp__marti_ruce__%s" % n for n in _extra_ok]
+        return {"marti_ruce": cfg}, _names
     except Exception as e:
         logger.warning("MARTIAI ruce: build serveru selhal (%s) -> read-only", e)
         return None, []
@@ -496,21 +540,25 @@ def run_cil(cil_id: int, requested_by_user_id=None, conversation_id=None) -> dic
     _ruce_on = _setting_on("cil_ruce_enabled")
     _mcp_servers, _extra_tools = (None, [])
     if _ruce_on:
-        _mcp_servers, _extra_tools = _build_hands()
+        _mcp_servers, _extra_tools = _build_hands(requested_by_user_id, conversation_id)
     if _extra_tools:
         _allowed = READONLY_TOOLS + _extra_tools
-        goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). Máš RUCE — smíš JEDNAT pod tímto cílem, po malých krocích.
+        goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). Jsi AUTONOMNÍ AGENT — smíš JEDNAT pod tímto cílem, po malých krocích, bez postrkování člověka.
 
 CÍL: {cil['nazev']}
 POPIS: {cil.get('popis') or '—'}
 ROZSAH (čeho se smíš dotknout): {cil.get('rozsah') or '—'}
 
-Nástroje: čtení (Read/Grep/Glob) + RUCE `praha_exec` (Praha 10.200.188.11, lokálně) a `plzen_exec` (Plzeň 192.168.30.11, přes EUROSOFT MCP).
+NÁSTROJE (tři skupiny):
+• RUCE (exec): `praha_exec` (Praha 10.200.188.11, lokálně), `plzen_exec` (Plzeň 192.168.30.11, přes MCP).
+• VÝZKUM (čtení): Read/Grep/Glob + DB (`strategie_pg_query_raw`…), znalosti (`g2007_hledej`, `hledej_ve_znalostech`), soubory (`strategie_file_read`/`_list`), deník/myšlenky.
+• PAMĚŤ (zápis): `zapis_znalost` (do g2007), `record_diary_entry`, `record_thought` — zapiš, co ses naučila.
+
 BEZPEČNOST — drží ji brána v KÓDU, ne ty; NEobcházej ji:
-- 🟢 běžné/vratné příkazy proběhnou rovnou a zalogují se.
-- 🟡 citlivé (mazání, síť, stop služby, eskalace práv) brána VRÁTÍ needs_approval — to je správně; jen si poznamenej „čeká na schválení rodiče" a pokračuj jinudy.
+- 🟢 běžné/vratné/čtecí operace proběhnou rovnou a zalogují se.
+- 🟡 citlivé (mazání, síť, stop služby, efekty ven) brána VRÁTÍ needs_approval / gate=yellow — to je správně; poznamenej „čeká na schválení rodiče" a pokračuj jinudy.
 - 🔴 zakázané (zálohy/CMIS, audit, tajemství, mimo doménu) brána zablokuje — respektuj to.
-Zůstávej v ROZSAHU cíle, postupuj po malých krocích. Na konci vrať jasné shrnutí: co jsi udělala (🟢), co čeká na 🟡 schválení, co jsi zjistila a jaký je další krok."""
+Zůstávej v ROZSAHU cíle. Na konci vrať jasné shrnutí: co jsi udělala (🟢), co čeká na 🟡, co ses dozvěděla a jaký je další krok."""
     else:
         _allowed = READONLY_TOOLS
         goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). FÁZE READ-ONLY — jen zkoumej a diagnostikuj, NIC nezapisuj.

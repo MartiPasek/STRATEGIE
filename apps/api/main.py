@@ -874,6 +874,65 @@ async def request_id_middleware(request: Request, call_next):
         pass
     return response
 
+
+@app.middleware("http")
+async def _diag_nesch_capture(request: Request, call_next):
+    """DOČASNÝ záchyt (C23 27.7.2026): u každého requestu na 'neschopenky' zapíše
+    do fw.diag_nesch, koho server reálně vidí (uid + is_marti_parent + capability),
+    jak je autentizovaný (Bearer/cookie) a status. Odstranit po vyřešení práv Marti."""
+    response = await call_next(request)
+    try:
+        p = request.url.path or ""
+        if "neschopenk" in p.lower():
+            import os as _os_d
+            uid = None
+            is_par = None
+            has_cap = None
+            try:
+                from modules.erp.api.router import _uid_from_token_or_cookie, _has_capability
+                from modules.thoughts.application.service import is_marti_parent
+                try:
+                    uid = _uid_from_token_or_cookie(request)
+                except Exception:
+                    uid = None
+                if uid:
+                    try:
+                        is_par = bool(is_marti_parent(uid))
+                    except Exception:
+                        is_par = None
+                    try:
+                        has_cap = bool(_has_capability(uid, "neschopenky", "read"))
+                    except Exception:
+                        has_cap = None
+            except Exception:
+                pass
+            auth_hdr = bool(request.headers.get("authorization"))
+            cookie_uid = request.cookies.get("user_id")
+            apiver = (request.headers.get("x-api-version") or request.headers.get("x-strategie-api")
+                      or request.headers.get("x-api-ver") or "")
+            base = _os_d.path.basename(_os_d.path.dirname(_os_d.path.dirname(_os_d.path.dirname(_os_d.path.abspath(__file__)))))
+            ua = (request.headers.get("user-agent") or "")[:200]
+            try:
+                from core.database_data import get_data_session as _gds_d
+                from sqlalchemy import text as _t_d
+                s = _gds_d()
+                try:
+                    s.execute(_t_d(
+                        "INSERT INTO fw.diag_nesch(path,status,uid_resolved,is_parent,has_cap,auth_hdr,cookie_uid,apiver,instance,ua) "
+                        "VALUES(:p,:st,:u,:ip,:hc,:a,:c,:v,:i,:ua)"),
+                        {"p": p, "st": int(getattr(response, "status_code", 0) or 0), "u": uid,
+                         "ip": is_par, "hc": has_cap, "a": auth_hdr, "c": cookie_uid,
+                         "v": apiver, "i": base, "ua": ua})
+                    s.commit()
+                finally:
+                    s.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return response
+
+
 # Trusted hosts -- ochrana proti Host header attack. V production tam musi
 # byt jen app.strategie-system.com. V dev puštíme localhost varianty.
 # Hodnoty z env var APP_TRUSTED_HOSTS (comma-separated).

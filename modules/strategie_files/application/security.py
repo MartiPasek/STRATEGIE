@@ -39,7 +39,7 @@ _PROJECT_ROOT_DEFAULT = _os_pi.environ.get(
     "STRATEGIE_PROJECT_ROOT"
 ) or _os_pi.environ.get(
     "STRATEGIE_REPO_ROOT"
-) or "D:/Projekty/STRATEGIE"
+) or _os_pi.path.dirname(_os_pi.path.dirname(_os_pi.path.dirname(_os_pi.path.dirname(_os_pi.path.abspath(__file__)))))  # C23 28.7.: auto-detekce repo root ze souboru (cloud=C:, NB=D:), aby project_root nebyl mrtvy
 
 _CONFIG_PATH_STR = _os_pi.environ.get(
     "STRATEGIE_FILE_ACCESS_CONFIG"

@@ -32,9 +32,10 @@ METERED_BATCH_CZK = float(os.environ.get("MARTIAI_METERED_BATCH_CZK", "1000"))  
 MARTI_AI_PERSONA_ID = int(os.environ.get("MARTIAI_PERSONA_ID", "1"))  # persona s email kanalem
 _LIMIT_MARKERS = ("limit", "rate", "429", "quota", "credit", "capacity", "overloaded")
 
-AGENT_NOTE = ("\n\n[AGENTÍ REŽIM: běžíš jako autonomní agent s read-only nástroji "
-              "(Read/Grep/Glob) nad repem. Splň zadaný cíl — prozkoumej co potřebuješ "
-              "a vrať jasnou finální odpověď. Jsi TY (Marti-AI), ne generický asistent.]")
+AGENT_NOTE = ("\n\n[AGENTÍ REŽIM: běžíš jako autonomní agent Marti-AI. Splň zadaný cíl po "
+              "malých krocích a vrať jasnou finální odpověď. Dostupné nástroje i bezpečnostní "
+              "brána jsou dané zadáním a kódem (🔴 zakázané brána zablokuje, 🟡 citlivé vrátí "
+              "ke schválení). Jsi TY (Marti-AI), ne generický asistent.]")
 
 _flag_cache = {"val": False, "ts": 0.0}
 _FLAG_TTL = 15.0
@@ -281,10 +282,25 @@ def run_goal(goal: str, requested_by_user_id: Optional[int] = None,
     if spent >= DAILY_CZK_CAP:
         return {"ok": False, "error": f"denní rozpočet vyčerpán ({spent:.0f}/{DAILY_CZK_CAP:.0f} Kč)", "reason": "daily_budget"}
 
+    _mcp_servers, _extra_tools = (None, [])
+    if _setting_on("cil_ruce_enabled"):
+        _mcp_servers, _extra_tools = _build_hands(requested_by_user_id, conversation_id)
+    if _extra_tools:
+        _allowed = READONLY_TOOLS + _extra_tools
+        goal = (
+            "[MÁŠ NÁSTROJE — jsi autonomní agent, ne jen read-only.]\n"
+            "• RUCE (exec): praha_exec (Praha 10.200.188.11), plzen_exec (Plzeň 192.168.30.11).\n"
+            "• VÝZKUM: Read/Grep/Glob, DB (strategie_pg_query_raw…), znalosti (g2007_hledej, hledej_ve_znalostech), soubory, deník.\n"
+            "• PAMĚŤ: zapis_znalost (g2007), record_diary_entry, record_thought.\n"
+            "BEZPEČNOST drží brána v KÓDU: 🟢 běžné/čtecí projdou, 🟡 citlivé se vrátí jako needs_approval (poznamenej a pokračuj jinudy), 🔴 zakázané se zablokují. Efekty ven (email/SMS) nemáš.\n"
+            "Postupuj po malých krocích a vrať jasné finální shrnutí.\n\nÚKOL:\n" + goal)
+    else:
+        _allowed = allowed_tools or READONLY_TOOLS
+
     import anyio
     t0 = time.monotonic()
     try:
-        result = anyio.run(_run, goal, conversation_id, False)
+        result = anyio.run(_run, goal, conversation_id, False, _allowed, _mcp_servers)
         # FAILOVER: kdyz predplatne narazi na limit, jed dal pres metered API (produkce nestoji).
         if (not result.get("ok")) and _is_limit_error(result):
             if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -300,7 +316,7 @@ def run_goal(goal: str, requested_by_user_id: Optional[int] = None,
                             f"Cil: {(goal or '')[:250]}\nSchvalit dalsi varku (+{METERED_BATCH_CZK:.0f} Kc): "
                             f"napis Marti-AI v chatu 'schval metered varku' (jen rodic).")
                 else:
-                    result_m = anyio.run(_run, goal, conversation_id, True)
+                    result_m = anyio.run(_run, goal, conversation_id, True, _allowed, _mcp_servers)
                     result_m["failover"] = "subscription->metered"
                     after = spent_m + (result_m.get("cost_czk") or 0)
                     if spent_m <= 0.01:

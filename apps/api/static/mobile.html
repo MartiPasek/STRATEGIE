@@ -10114,7 +10114,13 @@ setTimeout(function(){
     var btn=document.createElement('button');
     btn.textContent='Přihlásit se →';
     btn.style.cssText='background:#fff;color:#7c2d12;border:0;border-radius:8px;padding:7px 11px;font-weight:800;font-size:12.5px;cursor:pointer;white-space:nowrap;';
-    btn.addEventListener('click',function(){ location.href='/api/v1/auth/exit-demo?next=/mobile'; });
+    btn.addEventListener('click',function(){
+      btn.disabled=true; btn.textContent='Odhlašuji…';   // vizuální odezva = klik chytil
+      var done=function(){ try{ location.replace(location.pathname+'?fresh='+Date.now()); }catch(e){ try{location.reload();}catch(_e){} } };
+      try{
+        fetch('/api/v1/auth/exit-demo?next=/mobile',{credentials:'same-origin'}).then(done,done);
+      }catch(e){ done(); }
+    });
     b.appendChild(t); b.appendChild(btn);
     document.body.appendChild(b);
     try{ document.body.style.paddingTop=((parseInt(getComputedStyle(document.body).paddingTop,10)||0)+42)+'px'; }catch(e){ document.body.style.paddingTop='42px'; }

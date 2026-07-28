@@ -455,6 +455,39 @@ def api_info() -> dict:
     }
 
 
+@app.get("/api/v1/session-mode")
+def session_mode(request: Request):
+    """Zda aktuální session běží v DEMO režimu (Marti 27.7.2026) — pro banner
+    „Běžíš v DEMO režimu" v appce. Detekce podle skutečně resolvnutého uživatele
+    (login_name='demo'), takže chytne i staré zaseknuté demo session bez markeru."""
+    from fastapi.responses import JSONResponse
+    try:
+        from modules.erp.api.router import _uid_from_token_or_cookie
+        try:
+            uid = _uid_from_token_or_cookie(request)
+        except Exception:
+            uid = None
+        is_demo = False
+        name = None
+        if uid:
+            from core.database_data import get_data_session as _gds_sm
+            from sqlalchemy import text as _t_sm
+            s = _gds_sm()
+            try:
+                row = s.execute(_t_sm(
+                    "SELECT login_name, COALESCE(NULLIF(TRIM(first_name),''),login_name) "
+                    "FROM public.users WHERE id=:u"), {"u": uid}).first()
+                if row:
+                    is_demo = (str(row[0] or "").lower() == "demo")
+                    name = row[1]
+            finally:
+                s.close()
+        return JSONResponse({"ok": True, "uid": uid, "is_demo": is_demo, "name": name})
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"ok": False, "error": repr(e)})
+
+
 @app.get("/api/v1/health")
 def api_health_liveness() -> dict:
     """Phase HA-1: raw liveness probe pro Caddy load balancer.

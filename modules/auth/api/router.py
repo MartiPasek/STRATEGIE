@@ -938,8 +938,51 @@ def demo_login(req: Request, next: str = "/mobile"):
     # Sanitize next: jen interni relativni cesta "/..." (anti open-redirect)
     dest = next if (isinstance(next, str) and next.startswith("/") and not next.startswith("//")) else "/mobile"
     resp = RedirectResponse(url=dest, status_code=303)
-    _set_auth_cookies(resp, uid, tenant_id)
-    logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest}")
+
+    # BEZPEČNÉ DEMO (Marti 27.7.2026: „na to klikne každý a zasekne se").
+    # Původně demo volalo _set_auth_cookies -> user_id cookie na 30 DNÍ + stg_active
+    # handoff -> kdokoli (i přihlášený rodič) klikl na „Vyzkoušet ukázku" a zůstal
+    # tiše zaseknutý jako Demo (104), navíc se demo mohlo přes handoff propsat i do
+    # Bearer/shared_active. Tři pojistky:
+    #  (1) NEPŘEPISUJ reálné přihlášení — když už je zařízení přihlášené jako
+    #      skutečný (ne-demo) uživatel, demo nespouštěj, jen jdi na /mobile.
+    #  (2) SESSION-scoped cookies (bez max_age) — zavření appky/prohlížeče ukončí
+    #      demo; nikdy neuvázne natrvalo.
+    #  (3) ŽÁDNÝ stg_active handoff — demo nesmí přepnout Bearer/shared_active.
+    # + JS-čitelný marker stg_demo=1 pro banner „Běžíš v DEMO režimu".
+    try:
+        from modules.erp.api.router import _uid_from_token_or_cookie as _ruid_demo
+        _cur = _ruid_demo(req)
+    except Exception:
+        _cur = None
+    if _cur and int(_cur) != int(uid):
+        # už přihlášený skutečný uživatel → demo NEspouštět
+        logger.info(f"DEMO_LOGIN skipped (already logged in as uid={_cur}) dest={dest}")
+        return resp
+
+    _sc = settings.cookie_secure
+    _ss = settings.cookie_samesite
+    resp.set_cookie(key="user_id", value=str(uid), httponly=True, secure=_sc, samesite=_ss)
+    resp.set_cookie(key="tenant_id", value=str(tenant_id or ""), httponly=True, secure=_sc, samesite=_ss)
+    resp.set_cookie(key="stg_demo", value="1", httponly=False, secure=_sc, samesite=_ss)
+    logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest} (session-scoped, no handoff)")
+    return resp
+
+
+@router.get("/exit-demo", include_in_schema=False)
+def exit_demo(next: str = "/mobile"):
+    """Jednoklikový únik z DEMO režimu (Marti 27.7.2026): smaže auth cookies
+    (i staré 30denní z původního demo-login) a pošle na /mobile → guest welcome
+    s přihlášením. Řeší zaseknuté uživatele, co uvízli jako Demo (104)."""
+    from fastapi.responses import RedirectResponse
+    dest = next if (isinstance(next, str) and next.startswith("/") and not next.startswith("//")) else "/mobile"
+    resp = RedirectResponse(url=dest, status_code=303)
+    for _ck in ("user_id", "tenant_id", "stg_demo", "stg_pin_skip", "stg_active", "imp_token"):
+        try:
+            resp.delete_cookie(_ck)
+        except Exception:
+            pass
+    logger.info(f"EXIT_DEMO cookies cleared dest={dest}")
     return resp
 
 

@@ -10100,5 +10100,35 @@ setTimeout(function(){
   setInterval(_verTick, 30000); setTimeout(_verTick, 1200);
 })();
 </script>
+<script>
+/* DEMO banner (C23 27.7.2026): jasné upozornění „Běžíš v DEMO režimu" + jednoklikový
+   únik (/exit-demo smaže cookies → login). Řeší zaseknuté demo session. */
+(function(){
+  function show(){
+    if(document.getElementById('stgDemoBar')) return;
+    var b=document.createElement('div');
+    b.id='stgDemoBar';
+    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:100000;background:#b45309;color:#fff;font:600 13px/1.35 system-ui,-apple-system,sans-serif;padding:9px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(0,0,0,.4);';
+    var t=document.createElement('span'); t.style.cssText='flex:1;';
+    t.innerHTML='⚠ Běžíš v <b>DEMO režimu</b> — ukázková data, ne tvoje firma.';
+    var btn=document.createElement('button');
+    btn.textContent='Přihlásit se →';
+    btn.style.cssText='background:#fff;color:#7c2d12;border:0;border-radius:8px;padding:7px 11px;font-weight:800;font-size:12.5px;cursor:pointer;white-space:nowrap;';
+    btn.addEventListener('click',function(){ location.href='/api/v1/auth/exit-demo?next=/mobile'; });
+    b.appendChild(t); b.appendChild(btn);
+    document.body.appendChild(b);
+    try{ document.body.style.paddingTop=((parseInt(getComputedStyle(document.body).paddingTop,10)||0)+42)+'px'; }catch(e){ document.body.style.paddingTop='42px'; }
+  }
+  function check(){
+    try{
+      fetch('/api/v1/session-mode',{credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){ if(j&&j.ok&&j.is_demo) show(); })
+        .catch(function(){});
+    }catch(e){}
+  }
+  if(document.readyState!=='loading') check(); else document.addEventListener('DOMContentLoaded',check);
+})();
+</script>
 </body>
 </html>

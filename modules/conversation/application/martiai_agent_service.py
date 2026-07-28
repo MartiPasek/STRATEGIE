@@ -397,54 +397,73 @@ def _setting_on(klic: str) -> bool:
 
 
 def _build_hands():
-    """Vrat (mcp_servers, extra_tool_names). Governed RUCE pro autonomni smycku:
-    in-process SDK MCP tooly praha_exec/plzen_exec, ktere volaji strategie_exec /
-    eurosoft_exec (tiery zelena/zluta/cervena + audit + banner). Guarded: kdyz SDK
-    neumi in-process MCP, vrat (None, []) -> smycka zustane read-only (zadny pad)."""
+    """Vrat (mcp_servers, extra_tool_names). Governed RUCE pro autonomni smycku.
+    Staveno NAPRIMO nad mcp.server.lowlevel (NE create_sdk_mcp_server) — handler
+    vraci list[TextContent], takze mcp vezme cistou list() vetev a NEDOJDE k
+    dvojitemu zabaleni CallToolResult. (Bug na Python 3.14: isinstance(CallToolResult)
+    v mcp.call_tool propada -> fallback list(result) rozlozi model na field-tuply.)
+    Guarded: kdyz mcp API chybi, vrat (None, []) -> read-only fallback (zadny pad)."""
     try:
-        from claude_agent_sdk import tool as _sdk_tool, create_sdk_mcp_server as _mk_srv
+        from mcp.server.lowlevel import Server as _McpServer
+        from mcp.types import TextContent as _TC, Tool as _Tool
     except Exception as e:
-        logger.warning("MARTIAI ruce: SDK neumi in-process MCP (%s) -> read-only", e)
+        logger.warning("MARTIAI ruce: mcp server API chybi (%s) -> read-only", e)
         return None, []
     import json as _json
 
-    @_sdk_tool("praha_exec",
-               "Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) lokalne, "
-               "pod bezpecnostni branou (zelena hned / zluta needs_approval / cervena blok). "
-               "Args: cmd (prikaz), shell (powershell|cmd|bash).",
-               {"cmd": str, "shell": str})
-    async def _praha_exec_tool(args):
-        try:
-            from modules.conversation.application.strategie_exec import strategie_exec as _sx
-            r = _sx(cmd=args.get("cmd", ""), shell=args.get("shell", "powershell"), actor="Marti-AI")
-        except Exception as _e:
-            r = {"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:200])}
-        return {"content": [{"type": "text", "text": _json.dumps(r, ensure_ascii=False)[:6000]}]}
-
-    @_sdk_tool("plzen_exec",
-               "Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres EUROSOFT MCP, "
-               "pod branou (zelena/zluta/cervena). Args: cmd, shell (powershell|cmd|bash).",
-               {"cmd": str, "shell": str})
-    async def _plzen_exec_tool(args):
-        try:
-            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-            mcp = get_eurosoft_mcp_client()
-            if mcp is None:
-                txt = '{"ok": false, "error": "EUROSOFT MCP nedostupny"}'
-            else:
-                raw = mcp.call_tool_sync("eurosoft_eurosoft_exec",
-                                         {"cmd": args.get("cmd", ""), "shell": args.get("shell", "powershell")},
-                                         conversation_id=None)
-                txt = raw if isinstance(raw, str) else _json.dumps(raw, ensure_ascii=False)
-        except Exception as _e:
-            txt = '{"ok": false, "error": "%s"}' % (str(_e)[:200].replace('"', "'"))
-        return {"content": [{"type": "text", "text": txt[:6000]}]}
-
+    _schema = {"type": "object",
+               "properties": {"cmd": {"type": "string", "description": "prikaz"},
+                              "shell": {"type": "string", "description": "powershell|cmd|bash"}},
+               "required": ["cmd"]}
     try:
-        srv = _mk_srv("marti_ruce", "1.0", tools=[_praha_exec_tool, _plzen_exec_tool])
-        return {"marti_ruce": srv}, ["mcp__marti_ruce__praha_exec", "mcp__marti_ruce__plzen_exec"]
+        srv = _McpServer("marti_ruce", version="1.0")
+
+        @srv.list_tools()
+        async def _list_ruce():
+            return [
+                _Tool(name="praha_exec",
+                      description=("Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) "
+                                   "lokalne, pod branou (zelena hned / zluta needs_approval / cervena blok). "
+                                   "Args: cmd, shell (powershell|cmd|bash)."),
+                      inputSchema=_schema),
+                _Tool(name="plzen_exec",
+                      description=("Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres "
+                                   "EUROSOFT MCP, pod branou (zelena/zluta/cervena). Args: cmd, shell."),
+                      inputSchema=_schema),
+            ]
+
+        @srv.call_tool()
+        async def _call_ruce(name, arguments):
+            arguments = arguments or {}
+            cmd = arguments.get("cmd", "")
+            shell = arguments.get("shell", "powershell")
+            if name == "praha_exec":
+                try:
+                    from modules.conversation.application.strategie_exec import strategie_exec as _sx
+                    r = _sx(cmd=cmd, shell=shell, actor="Marti-AI")
+                    txt = _json.dumps(r, ensure_ascii=False)
+                except Exception as _e:
+                    txt = _json.dumps({"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:200])})
+            elif name == "plzen_exec":
+                try:
+                    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                    _mcp = get_eurosoft_mcp_client()
+                    if _mcp is None:
+                        txt = '{"ok": false, "error": "EUROSOFT MCP nedostupny"}'
+                    else:
+                        raw = _mcp.call_tool_sync("eurosoft_eurosoft_exec", {"cmd": cmd, "shell": shell},
+                                                  conversation_id=None)
+                        txt = raw if isinstance(raw, str) else _json.dumps(raw, ensure_ascii=False)
+                except Exception as _e:
+                    txt = '{"ok": false, "error": "%s"}' % (str(_e)[:200].replace('"', "'"))
+            else:
+                txt = '{"ok": false, "error": "neznamy nastroj"}'
+            return [_TC(type="text", text=txt[:6000])]
+
+        cfg = {"type": "sdk", "name": "marti_ruce", "instance": srv}
+        return {"marti_ruce": cfg}, ["mcp__marti_ruce__praha_exec", "mcp__marti_ruce__plzen_exec"]
     except Exception as e:
-        logger.warning("MARTIAI ruce: create_sdk_mcp_server selhal (%s) -> read-only", e)
+        logger.warning("MARTIAI ruce: build serveru selhal (%s) -> read-only", e)
         return None, []
 
 

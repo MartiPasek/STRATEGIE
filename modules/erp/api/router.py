@@ -115,7 +115,7 @@ def _active_imp_target(parent_uid):
         try:
             r = s.execute(_t(
                 "SELECT target_user_id FROM fw.impersonation_log "
-                "WHERE parent_user_id = :p AND ended_at IS NULL "
+                "WHERE parent_user_id = :p AND ended_at IS NULL AND started_at > now() - interval '8 hours' "
                 "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
             return (int(r) if r is not None else None)
         finally:
@@ -184,11 +184,11 @@ def _resolve_uid_raw(req: Request) -> int:
                     if uid is not None:
                         _ov = s.execute(_sql_tok(
                             "SELECT user_id FROM tenant.shared_active "
-                            "WHERE token_hash = :h"), {"h": th}).scalar()
+                            "WHERE token_hash = :h ORDER BY set_at DESC LIMIT 1"), {"h": th}).scalar()
                         if _ov is None:
                             _tgt = s.execute(_sql_tok(
                                 "SELECT target_user_id FROM fw.impersonation_log "
-                                "WHERE parent_user_id = :p AND ended_at IS NULL "
+                                "WHERE parent_user_id = :p AND ended_at IS NULL AND started_at > now() - interval '8 hours' "
                                 "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
                 finally:
                     cm.__exit__(None, None, None)

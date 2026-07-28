@@ -156,7 +156,7 @@ def _build_options(OptClass, kwargs: dict):
         return OptClass(**minimal)
 
 
-async def _run(goal: str, conversation_id: Optional[int], metered: bool = False) -> dict:
+async def _run(goal: str, conversation_id: Optional[int], metered: bool = False, allowed_tools=None, mcp_servers=None) -> dict:
     from claude_agent_sdk import query, ClaudeAgentOptions
     from modules.conversation.application.claude_agent_service import (
         _extract_reply_text, _extract_cost_usd, _extract_tokens,
@@ -186,14 +186,21 @@ async def _run(goal: str, conversation_id: Optional[int], metered: bool = False)
     system = (sp + AGENT_NOTE) if sp else AGENT_NOTE.strip()
 
     # POSTAVENO NAPŘÍMO (jako fungující interaktivní test) — žádný filtr, ať cli_path projde
-    options = ClaudeAgentOptions(
+    _opt_base = dict(
         model=DEFAULT_MODEL,
         cwd=REPO_ROOT,
-        allowed_tools=READONLY_TOOLS,
+        allowed_tools=(allowed_tools or READONLY_TOOLS),
         system_prompt=system,
         cli_path=cli,
         env=sub_env,
     )
+    if mcp_servers:
+        _opt_base["mcp_servers"] = mcp_servers
+    try:
+        options = ClaudeAgentOptions(**_opt_base)
+    except TypeError:
+        _opt_base.pop("mcp_servers", None)
+        options = ClaudeAgentOptions(**_opt_base)
 
     messages = []
     try:
@@ -375,6 +382,72 @@ def _log_aktivita(cil_id: int, actor: str, akce: str, detail: str, vysledek: str
         sg.close()
 
 
+def _setting_on(klic: str) -> bool:
+    try:
+        from core.database import get_session
+        from sqlalchemy import text as _t
+        sg = get_session()
+        try:
+            h = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic=:k"), {"k": klic}).scalar()
+            return str(h or "").strip().lower() == "on"
+        finally:
+            sg.close()
+    except Exception:
+        return False
+
+
+def _build_hands():
+    """Vrat (mcp_servers, extra_tool_names). Governed RUCE pro autonomni smycku:
+    in-process SDK MCP tooly praha_exec/plzen_exec, ktere volaji strategie_exec /
+    eurosoft_exec (tiery zelena/zluta/cervena + audit + banner). Guarded: kdyz SDK
+    neumi in-process MCP, vrat (None, []) -> smycka zustane read-only (zadny pad)."""
+    try:
+        from claude_agent_sdk import tool as _sdk_tool, create_sdk_mcp_server as _mk_srv
+    except Exception as e:
+        logger.warning("MARTIAI ruce: SDK neumi in-process MCP (%s) -> read-only", e)
+        return None, []
+    import json as _json
+
+    @_sdk_tool("praha_exec",
+               "Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) lokalne, "
+               "pod bezpecnostni branou (zelena hned / zluta needs_approval / cervena blok). "
+               "Args: cmd (prikaz), shell (powershell|cmd|bash).",
+               {"cmd": str, "shell": str})
+    async def _praha_exec_tool(args):
+        try:
+            from modules.conversation.application.strategie_exec import strategie_exec as _sx
+            r = _sx(cmd=args.get("cmd", ""), shell=args.get("shell", "powershell"), actor="Marti-AI")
+        except Exception as _e:
+            r = {"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:200])}
+        return {"content": [{"type": "text", "text": _json.dumps(r, ensure_ascii=False)[:6000]}]}
+
+    @_sdk_tool("plzen_exec",
+               "Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres EUROSOFT MCP, "
+               "pod branou (zelena/zluta/cervena). Args: cmd, shell (powershell|cmd|bash).",
+               {"cmd": str, "shell": str})
+    async def _plzen_exec_tool(args):
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                txt = '{"ok": false, "error": "EUROSOFT MCP nedostupny"}'
+            else:
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_exec",
+                                         {"cmd": args.get("cmd", ""), "shell": args.get("shell", "powershell")},
+                                         conversation_id=None)
+                txt = raw if isinstance(raw, str) else _json.dumps(raw, ensure_ascii=False)
+        except Exception as _e:
+            txt = '{"ok": false, "error": "%s"}' % (str(_e)[:200].replace('"', "'"))
+        return {"content": [{"type": "text", "text": txt[:6000]}]}
+
+    try:
+        srv = _mk_srv("marti_ruce", "1.0", tools=[_praha_exec_tool, _plzen_exec_tool])
+        return {"marti_ruce": srv}, ["mcp__marti_ruce__praha_exec", "mcp__marti_ruce__plzen_exec"]
+    except Exception as e:
+        logger.warning("MARTIAI ruce: create_sdk_mcp_server selhal (%s) -> read-only", e)
+        return None, []
+
+
 def run_cil(cil_id: int, requested_by_user_id=None, conversation_id=None) -> dict:
     """MOTOR Cílového režimu (Krok 1 = READ-ONLY): schválený cíl (stav 'aktivni') se
     proběhne read-only agentí smyčkou a KAŽDÁ akce se zaloguje do g2007.claude_aktivita.
@@ -401,18 +474,38 @@ def run_cil(cil_id: int, requested_by_user_id=None, conversation_id=None) -> dic
                 f"Cil: {cil['nazev']}\nAgent zastavil - potrebuje rozhodnuti (zvysit strop / uzavrit / rozdelit).")
         return {"ok": False, "error": f"strop kroků dosažen ({steps}/{strop})", "reason": "cil_step_cap", "steps": steps}
 
-    goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). FÁZE READ-ONLY — jen zkoumej a diagnostikuj, NIC nezapisuj.
+    _ruce_on = _setting_on("cil_ruce_enabled")
+    _mcp_servers, _extra_tools = (None, [])
+    if _ruce_on:
+        _mcp_servers, _extra_tools = _build_hands()
+    if _extra_tools:
+        _allowed = READONLY_TOOLS + _extra_tools
+        goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). Máš RUCE — smíš JEDNAT pod tímto cílem, po malých krocích.
 
 CÍL: {cil['nazev']}
 POPIS: {cil.get('popis') or '—'}
 ROZSAH (čeho se smíš dotknout): {cil.get('rozsah') or '—'}
 
-Prozkoumej repo/data v rozsahu a vrať jasné shrnutí: co jsi zjistil, co je hotové, co zbývá a jaký je další konkrétní krok. (Zápisy/ruce přijdou až v Kroku 2.)"""
+Nástroje: čtení (Read/Grep/Glob) + RUCE `praha_exec` (Praha 10.200.188.11, lokálně) a `plzen_exec` (Plzeň 192.168.30.11, přes EUROSOFT MCP).
+BEZPEČNOST — drží ji brána v KÓDU, ne ty; NEobcházej ji:
+- 🟢 běžné/vratné příkazy proběhnou rovnou a zalogují se.
+- 🟡 citlivé (mazání, síť, stop služby, eskalace práv) brána VRÁTÍ needs_approval — to je správně; jen si poznamenej „čeká na schválení rodiče" a pokračuj jinudy.
+- 🔴 zakázané (zálohy/CMIS, audit, tajemství, mimo doménu) brána zablokuje — respektuj to.
+Zůstávej v ROZSAHU cíle, postupuj po malých krocích. Na konci vrať jasné shrnutí: co jsi udělala (🟢), co čeká na 🟡 schválení, co jsi zjistila a jaký je další krok."""
+    else:
+        _allowed = READONLY_TOOLS
+        goal_prompt = f"""Pracuješ na SCHVÁLENÉM cíli Cílového režimu (#{cil_id}). FÁZE READ-ONLY — jen zkoumej a diagnostikuj, NIC nezapisuj.
+
+CÍL: {cil['nazev']}
+POPIS: {cil.get('popis') or '—'}
+ROZSAH (čeho se smíš dotknout): {cil.get('rozsah') or '—'}
+
+Prozkoumej repo/data v rozsahu a vrať jasné shrnutí: co jsi zjistil, co je hotové, co zbývá a jaký je další konkrétní krok. (Ruce zapneš flagem cil_ruce_enabled='on'.)"""
 
     import anyio
     t0 = time.monotonic()
     try:
-        result = anyio.run(_run, goal_prompt, conversation_id, False)
+        result = anyio.run(_run, goal_prompt, conversation_id, False, _allowed, _mcp_servers)
     except ImportError as e:
         return {"ok": False, "error": f"Agent SDK/anyio není: {e}", "reason": "sdk_missing"}
     except Exception as e:

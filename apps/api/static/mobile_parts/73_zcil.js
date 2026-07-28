@@ -67,6 +67,7 @@
       var h='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div style="font-weight:700;font-size:18px;">'+esc(c.nazev)+'</div>'+_cilBadge(c.stav)+'</div>';
       h+='<div style="color:var(--mut);font-size:12.5px;margin:4px 0 10px;">#'+c.id+' · navrhl '+esc(c.navrhl_jmeno||("#"+c.navrhl_user_id))+' · '+esc(c.created||"")+'</div>';
       if(c.stav==="pozastaven" && c.pozastaveno_duvod) h+='<div style="background:#3a2f12;border:1px solid #6e5326;color:#f0d98a;border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:13px;">⏸️ Pozastaveno — '+esc(c.pozastaveno_duvod)+'</div>';
+      if(c.stav==="zamitnut" && c.zamitnuti_duvod) h+='<div style="background:#2a1416;border:1px solid #7a2a2f;color:#ffb3b3;border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:13px;">⛔ Zamítnuto — '+esc(c.zamitnuti_duvod)+'</div>';
       h+=fld("Popis",c.popis)+fld("Rozsah (čeho se smí dotknout)",c.rozsah);
       h+='<div style="margin:8px 0;"><div style="color:var(--mut);font-size:12px;">Strop kroků</div><div>'+(c.strop_kroku!=null?c.strop_kroku:"—")+' · zatím '+(c.kroku||0)+' kroků</div></div>';
       if(c.okno_od||c.okno_do) h+=fld("Časové okno",(c.okno_od||"—")+" → "+(c.okno_do||"—"));
@@ -79,7 +80,25 @@
         b.addEventListener("click",function(){ b.disabled=true; api("POST","/api/v1/erp/app/cil/"+_cilId+"/"+akce,{}).then(function(r){ if(r&&r.ok){ cil_detail(); } else { b.disabled=false; alert((r&&r.error)||"Chyba přechodu."); } }).catch(function(){ b.disabled=false; alert("Chyba spojení."); }); });
         return b;
       }
-      if(c.stav==="navrzen"){ btns.appendChild(actBtn("✅ Schválit","#3fbf6b",false,"schvalit")); btns.appendChild(actBtn("⛔ Zamítnout","#ef6a6a",false,"zamitnout")); }
+      if(c.stav==="navrzen"){
+        btns.appendChild(actBtn("✅ Schválit","#3fbf6b",false,"schvalit"));
+        var bZam=el('<button style="flex:1;min-width:120px;margin:0;border:0;border-radius:12px;padding:13px;font-size:15px;font-weight:700;color:#fff;background:#ef6a6a;">⛔ Zamítnout</button>');
+        bZam.addEventListener("click",function(){
+          if(document.getElementById("zamBox")) return;
+          var box=el('<div id="zamBox" style="margin-top:10px;background:#2a1416;border:1px solid #7a2a2f;border-radius:12px;padding:12px;"></div>');
+          box.appendChild(el('<div style="color:#ffb3b3;font-size:13px;margin-bottom:6px;">Důvod zamítnutí (nepovinný):</div>'));
+          var ta=el('<textarea id="zamDuvod" rows="2" style="width:100%;"></textarea>');
+          box.appendChild(ta);
+          var rr=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+          var okb=el('<button style="flex:1;border:0;border-radius:12px;padding:12px;font-weight:700;color:#fff;background:#ef6a6a;">Potvrdit zamítnutí</button>');
+          var nob=el('<button style="flex:1;border-radius:12px;padding:12px;font-weight:700;color:var(--tx);background:var(--surf);border:1px solid var(--bord);">Zrušit</button>');
+          okb.addEventListener("click",function(){ okb.disabled=true; api("POST","/api/v1/erp/app/cil/"+_cilId+"/zamitnout",{duvod:ta.value}).then(function(r){ if(r&&r.ok){ cil_detail(); } else { okb.disabled=false; alert((r&&r.error)||"Chyba"); } }).catch(function(){ okb.disabled=false; alert("Chyba spojení."); }); });
+          nob.addEventListener("click",function(){ box.remove(); });
+          rr.appendChild(okb); rr.appendChild(nob); box.appendChild(rr);
+          p.appendChild(box);
+        });
+        btns.appendChild(bZam);
+      }
       else if(c.stav==="aktivni"){ btns.appendChild(actBtn("⏸️ Pozastavit","#e8b13a",true,"pozastavit")); btns.appendChild(actBtn("🎯 Splnit","#3fbf6b",false,"splnit")); }
       else if(c.stav==="pozastaven"){ btns.appendChild(actBtn("▶️ Obnovit","#4f9dff",false,"obnovit")); }
       else { btns.appendChild(el('<div class="hint">Cíl je uzavřen — žádné další přechody.</div>')); }

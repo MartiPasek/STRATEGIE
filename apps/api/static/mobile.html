@@ -9446,6 +9446,7 @@ setTimeout(function(){
       var h='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div style="font-weight:700;font-size:18px;">'+esc(c.nazev)+'</div>'+_cilBadge(c.stav)+'</div>';
       h+='<div style="color:var(--mut);font-size:12.5px;margin:4px 0 10px;">#'+c.id+' · navrhl '+esc(c.navrhl_jmeno||("#"+c.navrhl_user_id))+' · '+esc(c.created||"")+'</div>';
       if(c.stav==="pozastaven" && c.pozastaveno_duvod) h+='<div style="background:#3a2f12;border:1px solid #6e5326;color:#f0d98a;border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:13px;">⏸️ Pozastaveno — '+esc(c.pozastaveno_duvod)+'</div>';
+      if(c.stav==="zamitnut" && c.zamitnuti_duvod) h+='<div style="background:#2a1416;border:1px solid #7a2a2f;color:#ffb3b3;border-radius:10px;padding:9px 12px;margin:0 0 8px;font-size:13px;">⛔ Zamítnuto — '+esc(c.zamitnuti_duvod)+'</div>';
       h+=fld("Popis",c.popis)+fld("Rozsah (čeho se smí dotknout)",c.rozsah);
       h+='<div style="margin:8px 0;"><div style="color:var(--mut);font-size:12px;">Strop kroků</div><div>'+(c.strop_kroku!=null?c.strop_kroku:"—")+' · zatím '+(c.kroku||0)+' kroků</div></div>';
       if(c.okno_od||c.okno_do) h+=fld("Časové okno",(c.okno_od||"—")+" → "+(c.okno_do||"—"));
@@ -9458,7 +9459,25 @@ setTimeout(function(){
         b.addEventListener("click",function(){ b.disabled=true; api("POST","/api/v1/erp/app/cil/"+_cilId+"/"+akce,{}).then(function(r){ if(r&&r.ok){ cil_detail(); } else { b.disabled=false; alert((r&&r.error)||"Chyba přechodu."); } }).catch(function(){ b.disabled=false; alert("Chyba spojení."); }); });
         return b;
       }
-      if(c.stav==="navrzen"){ btns.appendChild(actBtn("✅ Schválit","#3fbf6b",false,"schvalit")); btns.appendChild(actBtn("⛔ Zamítnout","#ef6a6a",false,"zamitnout")); }
+      if(c.stav==="navrzen"){
+        btns.appendChild(actBtn("✅ Schválit","#3fbf6b",false,"schvalit"));
+        var bZam=el('<button style="flex:1;min-width:120px;margin:0;border:0;border-radius:12px;padding:13px;font-size:15px;font-weight:700;color:#fff;background:#ef6a6a;">⛔ Zamítnout</button>');
+        bZam.addEventListener("click",function(){
+          if(document.getElementById("zamBox")) return;
+          var box=el('<div id="zamBox" style="margin-top:10px;background:#2a1416;border:1px solid #7a2a2f;border-radius:12px;padding:12px;"></div>');
+          box.appendChild(el('<div style="color:#ffb3b3;font-size:13px;margin-bottom:6px;">Důvod zamítnutí (nepovinný):</div>'));
+          var ta=el('<textarea id="zamDuvod" rows="2" style="width:100%;"></textarea>');
+          box.appendChild(ta);
+          var rr=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+          var okb=el('<button style="flex:1;border:0;border-radius:12px;padding:12px;font-weight:700;color:#fff;background:#ef6a6a;">Potvrdit zamítnutí</button>');
+          var nob=el('<button style="flex:1;border-radius:12px;padding:12px;font-weight:700;color:var(--tx);background:var(--surf);border:1px solid var(--bord);">Zrušit</button>');
+          okb.addEventListener("click",function(){ okb.disabled=true; api("POST","/api/v1/erp/app/cil/"+_cilId+"/zamitnout",{duvod:ta.value}).then(function(r){ if(r&&r.ok){ cil_detail(); } else { okb.disabled=false; alert((r&&r.error)||"Chyba"); } }).catch(function(){ okb.disabled=false; alert("Chyba spojení."); }); });
+          nob.addEventListener("click",function(){ box.remove(); });
+          rr.appendChild(okb); rr.appendChild(nob); box.appendChild(rr);
+          p.appendChild(box);
+        });
+        btns.appendChild(bZam);
+      }
       else if(c.stav==="aktivni"){ btns.appendChild(actBtn("⏸️ Pozastavit","#e8b13a",true,"pozastavit")); btns.appendChild(actBtn("🎯 Splnit","#3fbf6b",false,"splnit")); }
       else if(c.stav==="pozastaven"){ btns.appendChild(actBtn("▶️ Obnovit","#4f9dff",false,"obnovit")); }
       else { btns.appendChild(el('<div class="hint">Cíl je uzavřen — žádné další přechody.</div>')); }
@@ -10098,57 +10117,6 @@ setTimeout(function(){
     }catch(e){}
   }
   setInterval(_verTick, 30000); setTimeout(_verTick, 1200);
-})();
-</script>
-<script>
-/* KONTROLA STAVU SESSION (C23 27.7.2026, Marti: „tvář appky vs. realita nás dostane").
-   Appka zobrazuje identitu z nativního tokenu, ale API jede přes cookie session — když
-   se rozejdou, tváří se přihlášeně, ale reálně je odhlášeno / v demu. Tenhle proužek
-   ověří SKUTEČNÝ stav (cookie) a jasně ho ukáže na main + dá funkční akci.
-     • zelené nic  = reálně přihlášen
-     • oranžové    = DEMO režim (ukázková data)  → únik + login
-     • červené     = session neplatná / odhlášen (i když appka tvrdí opak) → login */
-(function(){
-  function bar(id, bg, html, label, onClick){
-    var ex=document.getElementById(id); if(ex) return;
-    ['stgSessOK','stgDemoBar','stgSessBad'].forEach(function(x){ var e=document.getElementById(x); if(e&&e.id!==id){ e.remove(); } });
-    var b=document.createElement('div'); b.id=id;
-    b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:100000;background:'+bg+';color:#fff;font:600 13px/1.35 system-ui,-apple-system,sans-serif;padding:9px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(0,0,0,.4);';
-    var t=document.createElement('span'); t.style.cssText='flex:1;'; t.innerHTML=html;
-    b.appendChild(t);
-    if(label){
-      var btn=document.createElement('button'); btn.textContent=label;
-      btn.style.cssText='background:#fff;color:#111;border:0;border-radius:8px;padding:7px 11px;font-weight:800;font-size:12.5px;cursor:pointer;white-space:nowrap;';
-      btn.addEventListener('click',function(){ onClick(btn); });
-      b.appendChild(btn);
-    }
-    document.body.appendChild(b);
-    try{ document.body.style.paddingTop=((parseInt(getComputedStyle(document.body).paddingTop,10)||0)+42)+'px'; }catch(e){ document.body.style.paddingTop='42px'; }
-  }
-  function goLogin(){ try{ location.href='/api/v1/auth/sms-login?next=/mobile'; }catch(e){} }
-  function exitDemo(btn){
-    if(btn){ btn.disabled=true; btn.textContent='Odhlašuji…'; }
-    var done=function(){ try{ location.replace(location.pathname+'?fresh='+Date.now()); }catch(e){ try{location.reload();}catch(_e){} } };
-    try{ fetch('/api/v1/auth/exit-demo?next=/mobile',{credentials:'same-origin'}).then(done,done); }catch(e){ done(); }
-  }
-  function check(){
-    try{
-      fetch('/api/v1/session-mode',{credentials:'same-origin'})
-        .then(function(r){ return r.json(); })
-        .then(function(j){
-          j=j||{};
-          if(j.ok && j.is_demo){
-            bar('stgDemoBar','#b45309','⚠ Běžíš v <b>DEMO režimu</b> — ukázková data, ne tvoje firma.','Přihlásit se →', exitDemo);
-          } else if(!j.ok || !j.uid){
-            // appka se může tvářit přihlášeně (nativní token), ale cookie session je mrtvá
-            bar('stgSessBad','#b91c1c','⚠ <b>Nejsi přihlášen</b> — session appky je neplatná (i když se tváří jinak). Data se nenačtou.','Přihlásit se →', function(){ goLogin(); });
-          }
-          // reálně přihlášený uživatel → žádný proužek
-        }).catch(function(){});
-    }catch(e){}
-  }
-  if(document.readyState!=='loading') check(); else document.addEventListener('DOMContentLoaded',check);
-  setInterval(check, 60000);
 })();
 </script>
 </body>

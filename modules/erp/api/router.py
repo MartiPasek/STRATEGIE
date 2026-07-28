@@ -7929,7 +7929,7 @@ def _cil_set_kill(req: "Request", on: bool) -> JSONResponse:
         ds.close()
 
 
-def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, set_cols, notify_fn=None, block_if_kill: bool = False) -> JSONResponse:
+def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, set_cols, notify_fn=None, block_if_kill: bool = False, extra_params: dict = None) -> JSONResponse:
     """Obecný přechod stavu cíle: kontrola přihlášení → načtení cíle (FOR UPDATE) →
     kontrola práva → kontrola aktuálního stavu → UPDATE + volitelná notifikace.
     block_if_kill=True → přechod se odmítne, když je zapnutý globální kill switch."""
@@ -7952,8 +7952,10 @@ def _cil_do_transition(req: "Request", cid: int, from_stavy, to_stav, perm_fn, s
         if stav not in from_stavy:
             return JSONResponse({"ok": False, "error": f"Neplatný přechod: cíl je ve stavu '{stav}' (očekává se {list(from_stavy)})."})
         sets = ["stav=:to"] + list(set_cols)
-        ds.execute(_t("UPDATE g2007.cil SET " + ", ".join(sets) + " WHERE id=:i"),
-                   {"i": cil_id, "to": to_stav, "uid": uid})
+        _params = {"i": cil_id, "to": to_stav, "uid": uid}
+        if extra_params:
+            _params.update(extra_params)
+        ds.execute(_t("UPDATE g2007.cil SET " + ", ".join(sets) + " WHERE id=:i"), _params)
         if notify_fn:
             notify_fn(ds, _t, navrhl, uid)
         ds.commit()
@@ -8072,7 +8074,7 @@ async def app_cil_detail(req: Request, cid: int) -> JSONResponse:
             "to_char(c.okno_od,'YYYY-MM-DD HH24:MI'), to_char(c.okno_do,'YYYY-MM-DD HH24:MI'), "
             "c.stav, c.navrhl_user_id, " + _cil_jmeno('un') + ", c.schvalil_user_id, " + _cil_jmeno('us') + ", "
             "to_char(c.created_at,'YYYY-MM-DD HH24:MI'), to_char(c.schvaleno_at,'YYYY-MM-DD HH24:MI'), "
-            "to_char(c.uzavren_at,'YYYY-MM-DD HH24:MI'), c.pozastaveno_duvod, "
+            "to_char(c.uzavren_at,'YYYY-MM-DD HH24:MI'), c.pozastaveno_duvod, c.zamitnuti_duvod, "
             "(SELECT count(*) FROM g2007.claude_aktivita a WHERE a.cil_id=c.id) "
             "FROM g2007.cil c LEFT JOIN public.users un ON un.id=c.navrhl_user_id "
             "LEFT JOIN public.users us ON us.id=c.schvalil_user_id WHERE c.id=:i"),
@@ -8089,7 +8091,7 @@ async def app_cil_detail(req: Request, cid: int) -> JSONResponse:
             "navrhl_user_id": c[8], "navrhl_jmeno": c[9],
             "schvalil_user_id": c[10], "schvalil_jmeno": c[11],
             "created": c[12], "schvaleno_at": c[13], "uzavren_at": c[14],
-            "pozastaveno_duvod": c[15], "kroku": c[16]},
+            "pozastaveno_duvod": c[15], "zamitnuti_duvod": c[16], "kroku": c[17]},
             "kroky_log": [{"id": r[0], "actor": r[1], "akce": r[2], "detail": r[3],
                            "vysledek": r[4], "ts": r[5]} for r in log]})
     finally:
@@ -8110,13 +8112,19 @@ async def app_cil_schvalit(req: Request, cid: int) -> JSONResponse:
 
 @api_router.post("/app/cil/{cid}/zamitnout")
 async def app_cil_zamitnout(req: Request, cid: int) -> JSONResponse:
-    """navrzen → zamitnut. Jen rodič."""
+    """navrzen → zamitnut. Jen rodič. Volitelný důvod v body {duvod} → zamitnuti_duvod."""
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    duvod = (str((body or {}).get("duvod") or "").strip()[:500] or None)
     return _cil_do_transition(
         req, cid, ('navrzen',), 'zamitnut',
         lambda uid, navrhl: is_marti_parent(uid),
-        ["schvalil_user_id=:uid", "uzavren_at=now()"],
+        ["schvalil_user_id=:uid", "uzavren_at=now()", "zamitnuti_duvod=:zduvod"],
         lambda ds, _t, navrhl, uid: _cil_notify(ds, _t, navrhl, "⛔ Cíl zamítnut",
-            f"Cíl #{cid} byl zamítnut.", uid))
+            f"Cíl #{cid} byl zamítnut." + (" Důvod: " + duvod if duvod else ""), uid),
+        extra_params={"zduvod": duvod})
 
 
 @api_router.post("/app/cil/{cid}/pozastavit")

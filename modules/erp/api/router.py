@@ -42992,6 +42992,15 @@ async def diag_sql(req: Request) -> JSONResponse:
         _app = _sync_vyroba_work_app(frm=_frm, to=_to)
         return JSONResponse({"ok": bool(_ec.get("ok") and _app.get("ok")), "ec": _ec, "app": _app})
 
+    #   @@DOCHRESYNC <od> <do>  → wipe + re-import EC_Dochazka → att_entry za rozsah (opravená
+    #   klasifikace absencí DruhCinnosti). Naše app záznamy (source_system!=centrala1) zůstanou. Kristý 29.7.2026
+    if sql.upper().startswith("@@DOCHRESYNC"):
+        parts = sql.split()
+        _frm = parts[1] if len(parts) > 1 else None
+        _to = parts[2] if len(parts) > 2 else None
+        _r = _sync_ec_dochazka_recent(frm=_frm, to=_to, wipe=True)
+        return JSONResponse(_r)
+
     #   @@ORIENT <doména>  → načte doménové prostředí (identita+znalosti+tooly) z tenant.domain_env
     #   do session Clauda. Sdílené s Marti-AI GO režimem. Bez argumentu = obecná + seznam domén.
     if sql.upper().startswith("@@ORIENT"):

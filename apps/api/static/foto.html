@@ -60,7 +60,8 @@
   </div>
   <div style="margin-top:10px" class="row">
     <button class="btn" id="load">Načíst záběry</button>
-    <button class="btn ghost" id="refresh" style="flex:.5">↻</button>
+    <button class="btn ghost" id="evalall" style="flex:.9">⚖︎ Vyhodnotit vše</button>
+    <button class="btn ghost" id="refresh" style="flex:.4">↻</button>
   </div>
 
   <div class="cov" id="covrow" style="display:none">
@@ -183,13 +184,34 @@ function takePhoto(z, file){
         var zak=document.getElementById("zak").value.trim();
         return j("POST",API+"/attach",{predmet_typ:CURPT,predmet_ref:zak,sablona_kod:CURKOD,
                  zaber_id:z.id, media_id:m.id, jmeno_souboru:(file.name||""), ucel:z.skupina, ucel_detail:z.nazev})
-          .then(function(a){ if(a&&a.ok){ toast("Uloženo ✓"); loadZabery(); } else { toast("Attach chyba: "+((a&&a.error)||"?")); } });
+          .then(function(a){
+            if(!a||!a.ok){ toast("Attach chyba: "+((a&&a.error)||"?")); return; }
+            toast("Uloženo, hodnotím…", 12000);
+            return j("POST",API+"/vyhodnotit",{foto_id:a.foto_id}).then(function(v){
+              if(v&&v.ok){ toast(v.verdikt==="prefotit" ? "⚠ Přefotit: "+((v.poznamka||"nízká kvalita").split("|")[0]) : ("✓ "+v.znamka+" "+(v.celkem!=null?v.celkem.toFixed(1):""))); }
+              else { toast("Uloženo. Hodnocení selhalo: "+((v&&v.error)||"?")); }
+              loadZabery();
+            });
+          });
       }).catch(function(e){ toast("Chyba: "+e); });
   });
 }
 
+function evalAll(){
+  var todo=SADA.filter(function(f){ return !f.znamka && f.verdikt!=="prefotit"; });
+  if(!todo.length){ toast("Není co vyhodnotit."); return; }
+  var i=0;
+  function next(){
+    if(i>=todo.length){ toast("Hotovo — vyhodnoceno "+todo.length); loadZabery(); return; }
+    var f=todo[i++]; toast("Hodnotím "+i+"/"+todo.length+"…", 15000);
+    j("POST",API+"/vyhodnotit",{foto_id:f.id}).then(next).catch(next);
+  }
+  next();
+}
+
 document.getElementById("load").onclick=loadZabery;
 document.getElementById("refresh").onclick=loadZabery;
+document.getElementById("evalall").onclick=evalAll;
 loadSablony();
 </script>
 </body>

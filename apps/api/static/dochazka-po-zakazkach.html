@@ -827,7 +827,7 @@ function ctxAction(a){
   if(a==='excel'){exportExcel();return;}
   if(a==='import'){openImport();return;}
   if(a==='tisk'){printView();return;}
-  if(a==='smazat'){ if(CTX_ROW!=null)smazatRow(CTX_ROW); return; }
+  if(a==='smazat'){ smazat(); return; }
   var nazvy={params:'Nastav parametry hromadné'};
   alert('„'+(nazvy[a]||a)+'" — připravujeme v dalším kroku. 🙂');
 }
@@ -970,45 +970,95 @@ function renderImp(j,committed){
    - W (úsek na zakázce) = zatím ne (Jirkova doména work_alloc) — jen hláška.
    - C (historie z Centrály) = engine odmítá, mění se v Centrále — jen hláška.
    - pohled „Naplánovaná budoucnost" = jiné (plánované absence, řeší se s Jirkou). */
-// DEL_KIND: 'W' = úsek na zakázce (vyroba_work → delete-usek), 'P' = docházka (att_entry → fix/void).
-var DEL_ROW=null, DEL_KIND=null;
-function smazatRow(i){
-  var r=ROWS[i]; if(!r)return;
+// DEL_ROWS: pole řádků k smazání (víc označených NEBO jeden pod kurzorem).
+// Každý řádek se maže svým endpointem dle typu: 'W' = úsek na zakázce
+// (vyroba_work → delete-usek), 'P' = docházka (att_entry → fix/void).
+var DEL_ROWS=[];
+// Smazat z kontextového menu: přednostně VŠECHNY označené (•), jinak řádek pod kurzorem.
+function smazat(){
+  var idxs=[]; for(var k in SELSET){ if(SELSET[k]) idxs.push(parseInt(k,10)); }
+  if(!idxs.length){ if(CTX_ROW!=null) idxs=[CTX_ROW]; }
+  if(!idxs.length){ alert('Není co smazat — označ řádky (Ctrl/Shift klik) nebo klikni pravým na řádek.'); return; }
+  openDel(idxs);
+}
+function openDel(idxs){
   if(OBD==='budoucnost'){
     alert('Naplánované absence se tu zatím nemažou — data „Naplánované budoucnosti" nemají ve výpisu vlastní ID. Připravujeme to s Jirkou (doplní ID + rušení celé žádosti). Zatím zruš žádost v „Žádosti o absenci".');
     return;
   }
-  var k=r._kind;
-  if(k==='C'){ alert('Tenhle záznam vlastní stará Centrála (historie leden–květen) — mění se v Centrále, ne tady.'); return; }
-  if(k==='A'){ alert('Absenci (dovolená/nemoc/…) tímhle tlačítkem zatím nerušíme — správné zrušení musí zrušit i celou žádost (a později odečíst z nároku). Dodělává se s Jirkou. Zatím zruš v „Žádosti o absenci" / „Opravy docházky".'); return; }
-  if(k!=='P' && k!=='W'){ alert('Tenhle typ záznamu se tu nemaže.'); return; }
-  DEL_ROW=r; DEL_KIND=k;
-  var info, co;
-  if(k==='W'){
-    co='úsek na zakázce '+esc(r.CisloZakazky||'')+(r.CinnostText?(' · '+esc(r.CinnostText)):'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'');
-    info='<br><span style="opacity:.85;font-size:11px">Úsek se označí jako smazaný (na pozadí), z přehledu zmizí. Zapíše se do poznámky kdo/proč. Jde vrátit.</span>';
-  }else{
-    co='docházka: '+esc(r.CinnostText||r.CisloZakazky||'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'');
-    info='<br><span style="opacity:.85;font-size:11px">Zruší se přes „Opravy docházky" — audit, dotčený dostane upozornění, jde vrátit.</span>';
+  // Roztřídit na mazatelné (P/W) a přeskočené (C/A/jiné) s důvodem.
+  var del=[], skip={c:0,a:0,jine:0};
+  idxs.forEach(function(i){var r=ROWS[i]; if(!r)return; var k=r._kind;
+    if(k==='P'||k==='W') del.push(r);
+    else if(k==='C') skip.c++;
+    else if(k==='A') skip.a++;
+    else skip.jine++;
+  });
+  var skipMsg='';
+  if(skip.c) skipMsg+='<br><span style="color:#e6c67f;font-size:11px">'+skip.c+'× historie z Centrály — nemaže se tady (mění se v Centrále).</span>';
+  if(skip.a) skipMsg+='<br><span style="color:#e6c67f;font-size:11px">'+skip.a+'× absence — ruš přes „Žádosti o absenci" / „Opravy docházky".</span>';
+  if(skip.jine) skipMsg+='<br><span style="color:#e6c67f;font-size:11px">'+skip.jine+'× typ, který se tu nemaže.</span>';
+  if(!del.length){
+    alert('Z označených se nedá smazat žádný záznam.\n\n'
+      +(skip.c?('• '+skip.c+'× historie z Centrály (mění se v Centrále)\n'):'')
+      +(skip.a?('• '+skip.a+'× absence (ruš přes Žádosti o absenci / Opravy docházky)\n'):'')
+      +(skip.jine?('• '+skip.jine+'× typ, který se tu nemaže\n'):''));
+    return;
   }
-  $('del_info').innerHTML='Opravdu smazat tenhle záznam?<br><b>'+esc(r.JmenoPrijmeni||'')+' · '+esc(r.DatumPripadu||r.CasZacatek||'')+'</b><br>'+co+info;
+  DEL_ROWS=del;
+  var head, info;
+  if(del.length===1){
+    var r=del[0], k=r._kind, co;
+    if(k==='W'){
+      co='úsek na zakázce '+esc(r.CisloZakazky||'')+(r.CinnostText?(' · '+esc(r.CinnostText)):'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'');
+      info='<br><span style="opacity:.85;font-size:11px">Úsek se označí jako smazaný (na pozadí), z přehledu zmizí. Zapíše se do poznámky kdo/proč. Jde vrátit.</span>';
+    }else{
+      co='docházka: '+esc(r.CinnostText||r.CisloZakazky||'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'');
+      info='<br><span style="opacity:.85;font-size:11px">Zruší se přes „Opravy docházky" — audit, dotčený dostane upozornění, jde vrátit.</span>';
+    }
+    head='Opravdu smazat tenhle záznam?<br><b>'+esc(r.JmenoPrijmeni||'')+' · '+esc(r.DatumPripadu||r.CasZacatek||'')+'</b><br>'+co+info;
+  }else{
+    // Náhled prvních pár řádků, ať je jasné, co maže.
+    var nahled=del.slice(0,6).map(function(r){
+      return '<div style="opacity:.9;font-size:11.5px">• '+esc(r.JmenoPrijmeni||'')+' · '+esc(r.DatumPripadu||r.CasZacatek||'')+' · '+esc(r.CinnostText||r.CisloZakazky||'')+(r.CasCelkem!=null&&r.CasCelkem!==''?(' · '+esc(r.CasCelkem)+' h'):'')+'</div>';
+    }).join('')+(del.length>6?('<div class="muted" style="font-size:11px">… a další '+(del.length-6)+'</div>'):'');
+    head='Opravdu smazat <b>'+del.length+' označených záznamů</b>?'+nahled
+      +'<br><span style="opacity:.85;font-size:11px">Maže se po jednom (audit, dotčení dostanou upozornění). Jde vrátit.</span>';
+  }
+  $('del_info').innerHTML=head+skipMsg;
   $('del_reason').value=''; $('del_msg').textContent=''; $('del_msg').className='dmsg'; $('del_ok').disabled=false;
+  $('del_ok').textContent=(del.length>1)?('Smazat ('+del.length+')'):'Smazat';
   $('ovdel').classList.add('on');
   setTimeout(function(){try{$('del_reason').focus();}catch(e){}},30);
 }
-function closeDel(){$('ovdel').classList.remove('on');DEL_ROW=null;DEL_KIND=null;}
+function closeDel(){$('ovdel').classList.remove('on');DEL_ROWS=[];}
 function delOk(){
-  if(!DEL_ROW)return;
+  if(!DEL_ROWS.length)return;
   var reason=($('del_reason').value||'').trim();
   var m=$('del_msg'),ok=$('del_ok');
   if(!reason){m.className='dmsg';m.textContent='Vyplň důvod smazání (povinné kvůli auditu).';try{$('del_reason').focus();}catch(e){}return;}
-  m.className='dmsg';m.textContent='Mažu…';ok.disabled=true;
-  // W = výrobní úsek (zneaktivní vyroba_work); P = docházka (storno att_entry).
-  var url=(DEL_KIND==='W')?'/api/v1/erp/app/dochazka-zak-tab/delete-usek':'/api/v1/erp/app/attendance/fix/void';
-  _postJ(url,{id:DEL_ROW._id,reason:reason}).then(function(res){
-    if(res.j&&res.j.ok){m.className='dmsg ok';m.textContent='Smazáno.';setTimeout(function(){closeDel();load();},450);}
-    else{m.className='dmsg';m.textContent=(res.j&&res.j.error)||('Nepovedlo se smazat ('+res.s+').');ok.disabled=false;}
-  }).catch(function(){m.className='dmsg';m.textContent='Nepodařilo se spojit se serverem.';ok.disabled=false;});
+  var total=DEL_ROWS.length, done=0, okc=0, fails=[];
+  ok.disabled=true;
+  function step(idx){
+    if(idx>=total){ finish(); return; }
+    var r=DEL_ROWS[idx];
+    m.className='dmsg';m.textContent='Mažu… ('+(idx+1)+'/'+total+')';
+    var url=(r._kind==='W')?'/api/v1/erp/app/dochazka-zak-tab/delete-usek':'/api/v1/erp/app/attendance/fix/void';
+    _postJ(url,{id:r._id,reason:reason}).then(function(res){
+      done++; if(res.j&&res.j.ok) okc++; else fails.push((r.JmenoPrijmeni||'?')+': '+((res.j&&res.j.error)||('chyba '+res.s)));
+      step(idx+1);
+    }).catch(function(){ done++; fails.push((r.JmenoPrijmeni||'?')+': spojení'); step(idx+1); });
+  }
+  function finish(){
+    if(!fails.length){
+      m.className='dmsg ok';m.textContent=(total>1?('Smazáno ('+okc+').'):'Smazáno.');
+      setTimeout(function(){closeDel();load();},550);
+    }else{
+      m.className='dmsg';m.textContent='Hotovo: smazáno '+okc+' z '+total+'. Nepovedlo se '+fails.length+' — '+fails[0]+(fails.length>1?' …':'');
+      setTimeout(function(){closeDel();load();},2200);
+    }
+  }
+  step(0);
 }
 
 function init(){

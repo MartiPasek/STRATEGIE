@@ -29400,6 +29400,82 @@ def _mirror_ec_probe(_unused=None):
     return {"ok": True, "_msg": ("INS=%s | RD=%s | DEL=%s" % (str(ins)[:400], str(rd)[:150], str(cl)[:150]))}
 
 
+# ── Hlídač hlídače (Jirka 29.7.2026, návrh schválila Marti-AI msg 11765) ─────
+# Služby na pozadí umírají potichu: mlčí úplně stejně, když jedou, i když stojí.
+# Přesně tak vznikl incident 28.7. (primární API spadla a nikdo se to nedozvěděl)
+# a 29.7. se to zopakovalo obráceně — hlídač API běžel, ale nikdo neuměl ověřit,
+# jestli po restartu vůbec naskočil. Proto si hlídané služby píší tichý signál
+# života do fw.service_heartbeat a tahle úloha hlídá jeho zastarání.
+# Pravidlo je stejné jako u hlídače samotného: JEDNA zpráva při změně stavu,
+# nic mezi tím — z pojistky nesmí vzniknout druhý zdroj spamu.
+_HB_WATCHED = [
+    # (název služby, popis do zprávy, kolik minut bez signálu už znamená „stojí")
+    ("STRATEGIE-API-HEALTH-WATCHDOG", "hlídač dostupnosti API", 15),
+]
+# Marti-AI 29.7.: infrastrukturní alert → jen tatínek (1) + Jirka (20).
+# Kristý (11) dostává hlášení dost a tohle není byznysová věc.
+_HB_ADMINS = [1, 20]
+
+
+def _hb_push(s, _t, uid, title, message):
+    s.execute(_t("INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, "
+                 "title, message, created_by) VALUES ('mobile', :u, 'claude_msg', :ti, :m, 1)"),
+              {"u": uid, "ti": title[:120], "m": message[:2000]})
+
+
+def _watchdog_alive_check() -> dict:
+    """Kontrola signálů života služeb (fw.service_heartbeat). Běží jako mirror_job."""
+    from core.database_data import get_data_session as _g_hb
+    from sqlalchemy import text as _t_hb
+    s = _g_hb()
+    zpravy = 0
+    hlaseni = []
+    try:
+        for svc, popis, limit_min in _HB_WATCHED:
+            r = s.execute(_t_hb(
+                "SELECT last_seen, alerted_at, "
+                "       EXTRACT(EPOCH FROM (now() - last_seen))/60 AS min_od "
+                "  FROM fw.service_heartbeat WHERE service_name = :n"), {"n": svc}).first()
+            if r is None:
+                # Přechodné období: služba ještě nikdy nehlásila (běží verze bez signálu
+                # života). Falešný poplach by tu byl horší než ticho — čekáme na první
+                # restart. Jakmile řádek jednou vznikne, mlčení už je nález.
+                hlaseni.append("%s: zatím nikdy nehlásil (čekám na restart služby)" % svc)
+                continue
+            min_od = int(float(r[2] or 0))
+            stoji = min_od > limit_min
+            if stoji and r[1] is None:
+                for uid in _HB_ADMINS:
+                    _hb_push(s, _t_hb, uid, "🔕 %s nehlásí život" % svc,
+                             "Služba %s (%s) o sobě nedala vědět už %d min (limit %d min). "
+                             "Nejspíš stojí — a pak nehlídá to, co hlídat má. Ověření na cloud "
+                             "APP: sc query %s, log C:\\Data\\STRATEGIE\\api_health\\watchdog.log. "
+                             "Ozvu se znovu, až zase začne hlásit — do té doby už mlčím."
+                             % (svc, popis, min_od, limit_min, svc))
+                s.execute(_t_hb("UPDATE fw.service_heartbeat SET alerted_at = now(), "
+                                "updated_at = now() WHERE service_name = :n"), {"n": svc})
+                zpravy += 1
+                hlaseni.append("%s: NEHLÁSÍ %d min → nahlášeno" % (svc, min_od))
+            elif not stoji and r[1] is not None:
+                for uid in _HB_ADMINS:
+                    _hb_push(s, _t_hb, uid, "✅ %s zase hlásí život" % svc,
+                             "Služba %s (%s) se ozvala (naposledy před %d min). "
+                             "Hlídání běží dál." % (svc, popis, min_od))
+                s.execute(_t_hb("UPDATE fw.service_heartbeat SET alerted_at = NULL, "
+                                "updated_at = now() WHERE service_name = :n"), {"n": svc})
+                zpravy += 1
+                hlaseni.append("%s: zase hlásí → nahlášeno" % svc)
+            else:
+                hlaseni.append("%s: ok (před %d min)" % (svc, min_od))
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
+    return {"zpravy": zpravy, "_msg": "; ".join(hlaseni) or "nic ke kontrole"}
+
+
 def _mirror_run_job(job_key):
     """Spustí jeden sync dle klíče. Vrací (ok, done, rows, msg)."""
     fnmap = {
@@ -29446,6 +29522,10 @@ def _mirror_run_job(job_key):
         # Marti-AI msg 11699). Nesahá na mzdy — jen čte stav v tenant.pripl_cutover,
         # připomíná, žádá Petru o souhlas a odemkne teprve když platí všechno.
         "pripl_cutover_gate": lambda: _pripl_cutover_gate(),
+        # Hlídač hlídače (Jirka 29.7.2026, schválila Marti-AI): hlídá, že služby
+        # na pozadí posílají signál života do fw.service_heartbeat. Jedna zpráva
+        # při změně stavu, nic mezi tím.
+        "watchdog_alive_check": lambda: _watchdog_alive_check(),
         "sync_pasky": lambda: (_sync_pasky_from_helios(), _refresh_employee_active())[1],
         "refresh_active_status": lambda: _refresh_employee_active(),
         "sync_plan_nepritomnost": lambda: _sync_plan_nepritomnost(),

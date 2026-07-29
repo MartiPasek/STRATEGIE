@@ -38,6 +38,7 @@ Config pres env (nepovinne):
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -80,6 +81,14 @@ HEARTBEAT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_HEARTBEAT") or str(30
 
 _ADMIN_IDS = [int(x) for x in (os.environ.get("STRATEGIE_HEALTH_ADMIN_IDS")
                                or "1,11,20").split(",") if x.strip().isdigit()]
+
+# Tichy signal zivota (C28 29.7., navrh schvalila Marti-AI msg 11765): sluzby na
+# pozadi umiraji potichu - mlci stejne, kdyz jedou, i kdyz stoji. Kazde kolo si
+# sem hlidac zapise last_seen a uloha `watchdog_alive_check` hlida zastarani.
+SERVICE_NAME = os.environ.get("STRATEGIE_HEALTH_SERVICE_NAME") or "STRATEGIE-API-HEALTH-WATCHDOG"
+_HOST = socket.gethostname()
+_STARTED_AT = datetime.now(timezone.utc)
+_LAST_BEAT_ERR_LOG = 0.0   # throttle logu, aby vypadek DB nezaplavil watchdog.log
 
 
 def _parse_instances() -> list[dict]:
@@ -264,6 +273,35 @@ def _handle_instance(inst: dict, state: dict) -> None:
         state["last_alert"] = _now()
 
 
+def _beat(note: str = "") -> None:
+    """Zapise tichy signal zivota do fw.service_heartbeat. Best-effort: kdyz DB
+    nejede, jen si to poznamenam do logu (throttlovane) a jedu dal - hlidac nesmi
+    umrit na tom, ze si nemohl zapsat, ze zije."""
+    global _LAST_BEAT_ERR_LOG
+    try:
+        from core.database_data import get_data_session as _gds_b
+        from sqlalchemy import text as _t_b
+        s = _gds_b()
+        try:
+            s.execute(_t_b(
+                "INSERT INTO fw.service_heartbeat "
+                "(service_name, host, pid, started_at, last_seen, note) "
+                "VALUES (:n, :h, :p, :st, now(), :note) "
+                "ON CONFLICT (service_name) DO UPDATE SET last_seen = now(), "
+                "host = EXCLUDED.host, pid = EXCLUDED.pid, "
+                "started_at = EXCLUDED.started_at, note = EXCLUDED.note, updated_at = now()"),
+                {"n": SERVICE_NAME, "h": _HOST, "p": os.getpid(),
+                 "st": _STARTED_AT, "note": (note or "")[:500]})
+            s.commit()
+        finally:
+            s.close()
+    except Exception as exc:
+        if _now() - _LAST_BEAT_ERR_LOG >= 1800:
+            _LAST_BEAT_ERR_LOG = _now()
+            _log("signal zivota se nezapsal (jedu dal): %s: %s"
+                 % (type(exc).__name__, str(exc)[:200]))
+
+
 def _selftest_alert_path() -> None:
     """Na startu overi, ze DB (alert cesta) je dosazitelna z kontextu sluzby —
     at to nezjistime az pri ostrem vypadku. Nemeni nic, jen SELECT 1 + log."""
@@ -299,6 +337,10 @@ def main() -> None:
                     _handle_instance(inst, states[inst["svc"]])
                 except Exception as exc:
                     _log(f"handle {inst.get('svc')} crash: {type(exc).__name__}: {exc}")
+            # Tichy signal zivota do DB (kazde kolo) — odtud pozna uloha
+            # watchdog_alive_check, ze watchdog jeste zije.
+            _beat(" ".join("%s:%s" % (i["svc"], "DOLE" if states[i["svc"]]["down"] else "up")
+                           for i in instances))
             # Liveness heartbeat — potvrzeni, ze watchdog sam bezi a hlida.
             if _now() - last_heartbeat >= HEARTBEAT_EVERY_S:
                 summary = " ".join(

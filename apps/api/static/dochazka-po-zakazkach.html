@@ -414,9 +414,7 @@ function hlavicka(){
     if(e.target.classList&&e.target.classList.contains('dgrip'))return;
     var hth=e.target.closest?e.target.closest('th.hsort'):null;
     if(hth){var sk=hth.getAttribute('data-sk');
-      if(SORT.k!==sk){SORT.k=sk;SORT.dir=1;}       // nový sloupec = vzestupně
-      else if(SORT.dir>0){SORT.dir=-1;}            // 2. klik = sestupně
-      else {SORT.k=null;SORT.dir=1;}               // 3. klik = zpět na výchozí
+      if(SORT.k===sk)SORT.dir=-SORT.dir; else {SORT.k=sk;SORT.dir=1;}  // klik = vzestupně/sestupně; výchozí přes odkaz dole
       hlavicka(); render();}});
   th.addEventListener('mousedown',function(e){
     if(!e.target.classList.contains('dgrip'))return;

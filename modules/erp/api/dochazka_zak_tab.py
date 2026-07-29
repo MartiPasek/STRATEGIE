@@ -909,14 +909,20 @@ def _dzt_process_parsed(parsed: list[dict], do_commit: bool, uid: int, s) -> tup
                              "pr": pr, "n": (note if druh == "work" else note + " (pauza)"), "u": uid}).scalar()
                         inserted_ids.append(int(aid))
                         if druh == "work":
+                            # C24 29.7.2026 (krok 5-kód): import píše úsek přímo do JEDNÉ
+                            # tabulky vyroba_work (ne work_alloc). Vazba att_entry_id=aid
+                            # (čistá, přes právě založený att_entry). Režie = zakazka_ref='Rezie'
+                            # (žádný is_rezie). Denorm názvy se neukládají (join v přehledech).
                             s.execute(_t(
-                                "INSERT INTO tenant.work_alloc (tenant_id,user_id,started_at,ended_at,project_ref,"
-                                "project_nazev,cinnost_id,cinnost_name,cinnost_icon,is_rezie,source,created_at,updated_at) "
-                                "VALUES (2,:u,CAST(:ns AS timestamptz),CAST(:ne AS timestamptz),:pr,:pn,:ci,:cn,:cic,:rz,'import',now(),now())"),
-                                {"u": emp_uid, "ns": sdt.isoformat(sep=" "), "ne": edt.isoformat(sep=" "),
+                                "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
+                                "zakazka_ref,cinnost_id,hodiny,source_system,att_entry_id,created_at,updated_at) "
+                                "VALUES (2,:u,"
+                                "(SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=:u AND e.tenant_id=2 AND e.cislo_zam IS NOT NULL LIMIT 1),"
+                                ":d,CAST(:ns AS timestamptz),CAST(:ne AS timestamptz),"
+                                ":pr,(SELECT id FROM tenant.vyroba_cinnost WHERE id=:ci LIMIT 1),:h,'import',:aid,now(),now())"),
+                                {"u": emp_uid, "d": day_iso, "ns": sdt.isoformat(sep=" "), "ne": edt.isoformat(sep=" "),
                                  "pr": (orow["_zak"] or (_REZIE_REF if orow["_rez"] else None)),
-                                 "pn": orow["_zaknz"], "ci": orow["_cin"], "cn": orow["_cinn"],
-                                 "cic": orow["_cinic"], "rz": orow["_rez"]})
+                                 "ci": orow["_cin"], "h": seg_h, "aid": int(aid)})
                     emp_days.add((emp_id, day_iso))
                     if dmin is None or day_iso < dmin:
                         dmin = day_iso
@@ -958,8 +964,8 @@ def _dzt_process_parsed(parsed: list[dict], do_commit: bool, uid: int, s) -> tup
 
 def _dzt_import_run(parsed: list[dict], do_commit: bool, uid: int) -> JSONResponse:
     """Otevře PG session, spustí _dzt_process_parsed, commitne a vrátí odpověď.
-    Po zápisu přepočítá fond dotčených dní a přelije work_alloc → vyroba_work
-    (aby se úseky hned objevily na zakázkách v Docházka new)."""
+    Po zápisu přepočítá fond dotčených dní. Úseky se píší rovnou do vyroba_work
+    (C24 29.7.2026, krok 5/7 — už žádný fold z work_alloc)."""
     from modules.strategie_pg.application import service as _pg
     cm = _pg.get_session()
     s = cm.__enter__()
@@ -996,12 +1002,8 @@ def _dzt_import_run(parsed: list[dict], do_commit: bool, uid: int) -> JSONRespon
                     pass
         except Exception:
             pass
-        if post.get("frm"):
-            try:
-                from modules.erp.api.router import _sync_vyroba_work_app
-                _sync_vyroba_work_app(frm=post["frm"], to=post["to"])
-            except Exception:
-                pass
+        # C24 29.7.2026 (krok 7): app fold zrušen — import píše úseky rovnou do vyroba_work
+        # (viz INSERT výše), takže není co přelévat z work_alloc.
     return JSONResponse({"ok": True, "mode": ("commit" if do_commit else "preview"),
                          "files": out_files, "totals": total})
 

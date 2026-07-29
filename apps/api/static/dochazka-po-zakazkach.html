@@ -522,6 +522,8 @@ function cycleBoolFilter(inp,k){
 }
 
 function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
+// Normalizace pro textové filtry: malá písmena + BEZ diakritiky ("kroner" najde "Króner").
+function _norm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');}
 // Porovnání dvou řádků podle sloupce (číslo / datum / text) — pro řazení klikem na hlavičku.
 function _cmpRow(ra,rb,col){var va=ra[col.k],vb=rb[col.k];
   if(col.num){var na=parseFloat(normNum(va)),nb=parseFloat(normNum(vb));na=isNaN(na)?-Infinity:na;nb=isNaN(nb)?-Infinity:nb;return na<nb?-1:(na>nb?1:0);}
@@ -538,7 +540,7 @@ function projde(r){
   // Vlastní filtr (víc podmínek A/NEBO).
   if(VFILT&&VFILT.length){var res=null;
     for(var vi=0;vi<VFILT.length;vi++){var cnd=VFILT[vi];
-      var cell=String(r[cnd.k]==null?'':r[cnd.k]).toLowerCase(),val=String(cnd.val==null?'':cnd.val).toLowerCase(),ok;
+      var cell=_norm(r[cnd.k]),val=_norm(cnd.val),ok;
       if(cnd.op==='eq')ok=(cell===val); else if(cnd.op==='ne')ok=(cell!==val);
       else if(cnd.op==='has')ok=(cell.indexOf(val)>=0); else ok=(cell.indexOf(val)<0);
       if(vi===0)res=ok; else if(cnd.join==='or')res=res||ok; else res=res&&ok;}
@@ -556,7 +558,7 @@ function projde(r){
     if(col&&col.bool){v=(String(v||'').indexOf('✓')>=0)?'✓ano':'ne';}
     if(col&&col.num){var nv=normNum(v),nq=normNum(q);
       if(col.exact){if(nv!==nq)return false;}else{if(nv.indexOf(nq)<0)return false;}continue;}
-    if(String(v==null?'':v).toLowerCase().indexOf(q)<0)return false;
+    if(_norm(v).indexOf(_norm(q))<0)return false;
   }
   // datumové rozsahy (OD/DO) na datumových sloupcích
   for(var j=0;j<COLS.length;j++){var c=COLS[j];if(!c.date)continue;

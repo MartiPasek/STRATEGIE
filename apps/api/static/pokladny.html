@@ -243,8 +243,9 @@ function vfiltApply(){var out=[];[].forEach.call(document.querySelectorAll('#vfi
     out.push({join:join,k:col,op:op,val:val});});
   VFILT=out.length?out:null; renderDoklady();}
 function vfiltClearAll(){VFILT=null;closeCustomFilter();renderDoklady();}
+function _norm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');}
 function _vfPass(d){if(!VFILT||!VFILT.length)return true;var res=null;
-  for(var vi=0;vi<VFILT.length;vi++){var cnd=VFILT[vi];var cell=String(d[cnd.k]==null?'':d[cnd.k]).toLowerCase(),val=String(cnd.val==null?'':cnd.val).toLowerCase(),ok;
+  for(var vi=0;vi<VFILT.length;vi++){var cnd=VFILT[vi];var cell=_norm(d[cnd.k]),val=_norm(cnd.val),ok;
     if(cnd.op==='eq')ok=(cell===val);else if(cnd.op==='ne')ok=(cell!==val);else if(cnd.op==='has')ok=(cell.indexOf(val)>=0);else ok=(cell.indexOf(val)<0);
     if(vi===0)res=ok;else if(cnd.join==='or')res=res||ok;else res=res&&ok;}
   return res;}
@@ -262,8 +263,8 @@ function dmatch(d){
       return true;}
     var f=DFIL[c.k]; if(f==null||f==='')return true;
     var _rw=d[c.k];
-    var v=(_rw==null?'':(typeof _rw==='number'?_rw.toFixed(2):(''+_rw))).toLowerCase().replace(/,/g,'.');
-    return v.indexOf((''+f).toLowerCase().replace(/,/g,'.'))>=0;
+    var v=_norm(_rw==null?'':(typeof _rw==='number'?_rw.toFixed(2):(''+_rw))).replace(/,/g,'.');
+    return v.indexOf(_norm(f).replace(/,/g,'.'))>=0;
   });
 }
 function openDateFilterP(inp,key){

@@ -161,6 +161,26 @@ Referenční vzor: `apps/api/static/pokladny.html` (`table.dokl`) a `platby.html
     `FIL[sloupec+'_od']` / `FIL[sloupec+'_do']`, ✕ (zrušit filtry) je maže spolu s ostatními.
   - **Pravidlo:** kdykoli stavíš nebo upravuješ přehled a je v něm sloupec s datem, tenhle filtr tam dej.
 
+## INTERAKCE PŘEHLEDŮ — řazení, filtry, ukazatel (Peťa 29.7.2026, závazné pro VŠECHNY přehledy i nové)
+Platí pro Docházka new / Správa docházky (`dochazka-po-zakazkach.html`), Pokladní doklady (`pokladny.html`),
+Přijaté faktury (`platby.html`) — a **KAŽDÝ nový přehled to má mít taky**.
+- **Ukazatel u počtu:** „Řádků: X (z Y) · **vybráno: N**" — celkem (po filtru / z celku) + počet označených řádků,
+  aktualizuje se **živě** při změně výběru. (U pokladen/faktur je počet dole, u docházky nahoře u chipů.)
+- **Řazení klikem na název sloupce:** 1. klik = vzestupně (▲), 2. klik = sestupně (▼), 3. klik = zpět na
+  výchozí (dle datasetu). Klik na úchyt šířky (dgrip/colgrip) NEŘADÍ (guard). Porovnání dle typu sloupce
+  (číslo / datum / text / ✓bool). K tomu **zelené tlačítko „↺ výchozí řazení"** u počtu (jen když je seřazeno).
+  Stav v `SORT{k,dir}` (resp. `DSORT`/`FSORT`), řazení nad vyfiltrovaným polem, u faktur přes `.slice()` (nemutovat zdroj).
+- **Filtr sloupce — PRAVÝ klik do filtračního políčka** = pop-up menu: **Jen prázdné · Jen neprázdné · Smaž · Vlastní…**
+  (levý klik / psaní = filtr „obsahuje" jako dřív). „Prázdné" = null / false / prázdný řetězec. Psaní do políčka
+  režim prázdné/neprázdné zruší. Stav v `FILMODE` (resp. `DFILMODE`/`_fMode`). Žádná šipka/roletka — jen pravý klik.
+- **Vlastní filtr (spodní panel, „Vlastní…"):** víc podmínek, operátory **Obsahuje / Neobsahuje / Rovná se / Nerovná se**,
+  spojené **A / NEBO**, „+ přidat podmínku". **Filtruje ŽIVĚ — bez OK** (hned při vyplnění/změně hodnoty). Tlačítka jen
+  **Zavřít** a **Smazat vše**. Prázdná hodnota podmínku ignoruje. Aktivní filtr = zelený indikátor „⚙ vlastní filtr (N)"
+  u počtu (klik = upravit, ✕ = zrušit). Stav ve `VFILT`.
+- **Výběr řádků (jako Přijaté faktury):** prostý klik NEoznačuje (jen posune ▶ aktuální), **Ctrl+klik** = jeden,
+  **Shift+klik** = úsek. (Viz i výběrové pravidlo výše.)
+- **Barva „výchozí/vlastní filtr" tlačítek:** zelená `background:#0f2a22; color:#4fe0aa; border:#2dd4bf`.
+
 ## POJISTKA 2 — po deploji ověř, že server SERVÍRUJE novou verzi (21.7.2026)
 Deploy může napsat **„DEPLOY: OK · cloud: OK"**, a přesto cloud NEPŘEVEZME novou verzi. Stalo se
 21.7.: commit `platby.html`+`pokladny.html` prošel a byl na disku i v gitu, ale server pořád posílal

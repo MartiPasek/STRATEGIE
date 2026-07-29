@@ -29442,6 +29442,10 @@ def _mirror_run_job(job_key):
         # živé, dokud modul nepřesedlá na wage_movement. Jednosměrné (jen čtení z Centrály).
         "sync_pripl_srazky_ec": lambda: __import__("modules.erp.api.pripl_srazky_sync",
                                                    fromlist=["sync_from_ec"]).sync_from_ec(),
+        # Hlídač přepnutí příplatků/srážek do Prahy (Jirka 29.7.2026, návrh schválila
+        # Marti-AI msg 11699). Nesahá na mzdy — jen čte stav v tenant.pripl_cutover,
+        # připomíná, žádá Petru o souhlas a odemkne teprve když platí všechno.
+        "pripl_cutover_gate": lambda: _pripl_cutover_gate(),
         "sync_pasky": lambda: (_sync_pasky_from_helios(), _refresh_employee_active())[1],
         "refresh_active_status": lambda: _refresh_employee_active(),
         "sync_plan_nepritomnost": lambda: _sync_plan_nepritomnost(),
@@ -30064,6 +30068,27 @@ async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
                 "WHERE app_key=:app AND target_user_id=:uid AND status='pending' "
                 "AND command_type='claude_msg' AND created_at < now() - interval '24 hours'"),
                 {"app": app_key, "uid": uid})
+            ds.commit()
+        except Exception:
+            ds.rollback()
+        # Slucovani duplicit (Jirka 29.7., schvalila Marti-AI): stejny titulek
+        # info zpravy = ukaz jen NEJNOVEJSI, starsi odbav. Duvod: hlidac API
+        # poslal 29.7. kazdemu adminovi 137x "STRATEGIE-API zase bezi" (1x za
+        # 2 min) a appka je stavela do fronty karet k odklikani. Plosne, ne jen
+        # na ten jeden titulek — problem "N karet misto jedne" neni specificky
+        # pro hlidace. Potvrzeni (claude_confirm) se to NETYKA, ta se odbavuji
+        # rozhodnutim uzivatele.
+        try:
+            ds.execute(_sql_cp("""
+                UPDATE fw.mobile_command m SET status='done', decided_at=now()
+                 WHERE m.app_key=:app AND m.target_user_id=:uid
+                   AND m.status='pending' AND m.command_type='claude_msg'
+                   AND m.title IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM fw.mobile_command n
+                                WHERE n.app_key=m.app_key AND n.target_user_id=m.target_user_id
+                                  AND n.status='pending' AND n.command_type='claude_msg'
+                                  AND n.title=m.title AND n.id>m.id)
+            """), {"app": app_key, "uid": uid})
             ds.commit()
         except Exception:
             ds.rollback()
@@ -45991,6 +46016,173 @@ def _sync_priplatky_from_ec() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return {"imported": total, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
+# HLÍDAČ CUTOVERU „Příplatky a srážky" (Centrála → Praha)
+# ---------------------------------------------------------------------------
+# Zadání Jirka 29. 7. 2026: „musí to hlídat SERVER, ne moje PC — ať si to pamatuje
+# a 1. 8. zkontroluje, jestli to Petra po těch pěti kontrolách opravdu odsouhlasila,
+# a teprve tím se to ve STRATEGII odemkne."
+# Rozhodnutí Marti Pašek 27. 7.: příplatky a srážky v DB_EC končí, zdroj pravdy = Praha.
+# Technický návrh schválila Marti-AI 29. 7. (msg 11699), body T1–T3:
+#   T1 stav v `tenant.pripl_cutover` (ne v mirror_job — job má vědět KDY běžet,
+#      ne jaký je business stav) + `version` pro optimistic locking,
+#   T2 odemčení = DATOVÝ příznak (`unlocked_at`), NE přepnutí konstanty v kódu
+#      a deploy — okamžitě vratné (UPDATE na NULL) a samo nese kdo/kdy,
+#   T3 Petřin souhlas přes `fw.mobile_command` typu `claude_confirm` (Ano/Ne
+#      v appce); ověřeno, že ten vzor už existuje (router.py `app_command_result`),
+#      takže se NEZAVÁDÍ nový typ ani nová větev dispatcheru — hlídač jen ČTE,
+#      jestli je příkaz `accepted`.
+# Jednorázová úloha k datu v systému neexistuje, proto je to obyčejný hodinový job
+# a „jednorázovost" drží časové značky v DB (přežijí restart API i deploy).
+_PRIPL_GATE_UID_JIRKA = 20     # Jiří Honomichl — vlastník úkolu
+_PRIPL_GATE_UID_PETRA = 18     # Petra Šafránková — mzdová účetní, jediná kdo podepisuje
+
+
+def _pripl_cutover_gate() -> dict:
+    """Hodinový hlídač přepnutí Příplatků a srážek do Prahy. Nic nemění na mzdách.
+
+    Co dělá:
+      1) 30. 7. po 8:00 (Europe/Prague) jednou pošle Jirkovi připomínku, ať se
+         doptá Petry na tři otevřené otázky (pohled „pojištění", druhy odměn, OSVČ).
+      2) Od cílového data: když jsou všechny čtyři kontroly odškrtnuté a Petra
+         ještě nebyla požádána → pošle JÍ do appky žádost o souhlas (Ano/Ne).
+         Dokud kontroly hotové nejsou, Petru NEOBTĚŽUJE a místo toho jednou denně
+         napíše Jirkovi, co konkrétně chybí.
+      3) Jakmile Petra klikne „Povolit" → zapíše `signoff_petra_at`.
+      4) Teprve když platí VŠECHNO (4 kontroly + podpis) → zapíše `unlocked_at`.
+         Do té doby zůstává modul zamčený. Když něco chybí, prostě neodemkne.
+    """
+    import datetime as _dt_gate
+    from core.database_data import get_data_session as _gg
+    from sqlalchemy import text as _tg
+
+    s = _gg()
+    kroky = []
+    try:
+        st = s.execute(_tg(
+            "SELECT id, cilove_datum, kontrola_1_castky_ok, kontrola_2_typy_ok, "
+            "       kontrola_3_prava_ok, kontrola_4_roundtrip_ok, signoff_petra_at, "
+            "       signoff_command_id, unlocked_at, pripominka_jirka_sent_at, "
+            "       pripominka_petra_sent_at, version, "
+            "       (now() AT TIME ZONE 'Europe/Prague')::date AS dnes, "
+            "       EXTRACT(HOUR FROM (now() AT TIME ZONE 'Europe/Prague'))::int AS hodina "
+            "FROM tenant.pripl_cutover WHERE id = 1")).mappings().first()
+        if st is None:
+            return {"ok": False, "_msg": "tenant.pripl_cutover je prázdná — hlídač nemá co hlídat"}
+
+        if st["unlocked_at"] is not None:
+            return {"ok": True, "_msg": "odemčeno %s — hlídač už nemá co dělat"
+                                        % st["unlocked_at"].strftime("%d.%m.%Y %H:%M")}
+
+        dnes = st["dnes"]
+        hodina = int(st["hodina"] or 0)
+        cil = st["cilove_datum"]
+
+        def _push(uid, typ, titulek, text, payload=None):
+            """Jedna notifikace do appky. Vrací id příkazu."""
+            return s.execute(_tg(
+                "INSERT INTO fw.mobile_command "
+                "  (app_key, target_user_id, command_type, title, message, payload, created_by) "
+                "VALUES ('mobile', :u, :ct, :ti, :msg, CAST(:pl AS jsonb), NULL) RETURNING id"),
+                {"u": uid, "ct": typ, "ti": titulek[:120], "msg": text[:600],
+                 "pl": payload or '{}'}).scalar()
+
+        # --- 1) Připomínka Jirkovi: doptat se Petry (30. 7. po 8:00, jednou) ----
+        if (st["pripominka_jirka_sent_at"] is None
+                and dnes >= _dt_gate.date(2026, 7, 30) and hodina >= 8):
+            _push(_PRIPL_GATE_UID_JIRKA, "claude_msg",
+                  "📌 Příplatky a srážky — doptat se Petry",
+                  "Dobré ráno. Petře šel 29. 7. e-mail se třemi otázkami: "
+                  "(1) co má ukazovat pohled pojištění — v Centrále filtruje podle "
+                  "toho, kdo záznam zadal (Jana Klíková), ne podle pojištění; "
+                  "(2) jestli nechybí nějaký druh odměny, který se používá jen občas "
+                  "(např. Vánoční prémie); (3) souhlas, že OSVČ i zaměstnance uděláme "
+                  "najednou. Pokud neodpověděla, zeptej se jí prosím sám.")
+            s.execute(_tg("UPDATE tenant.pripl_cutover "
+                          "SET pripominka_jirka_sent_at = now(), version = version + 1, "
+                          "    updated_at = now() WHERE id = 1"))
+            kroky.append("pripominka_jirka")
+
+        # --- 2) Petřin souhlas: přečti, jestli už klikla ------------------------
+        if st["signoff_petra_at"] is None and st["signoff_command_id"]:
+            hotovo = s.execute(_tg(
+                "SELECT decided_at FROM fw.mobile_command "
+                "WHERE id = :c AND target_user_id = :u AND status = 'accepted'"),
+                {"c": int(st["signoff_command_id"]), "u": _PRIPL_GATE_UID_PETRA}).scalar()
+            if hotovo is not None:
+                s.execute(_tg(
+                    "UPDATE tenant.pripl_cutover SET signoff_petra_at = :d, "
+                    "  signoff_petra_by = :u, version = version + 1, updated_at = now() "
+                    "WHERE id = 1"), {"d": hotovo, "u": _PRIPL_GATE_UID_PETRA})
+                st = dict(st)
+                st["signoff_petra_at"] = hotovo
+                kroky.append("signoff_zaznamenan")
+
+        # --- 3) Od cílového data: požádat Petru / hlásit co chybí ---------------
+        kontroly = {
+            "srovnání částek proti Centrále (6+7/2026)": st["kontrola_1_castky_ok"],
+            "úplný číselník druhů odměn": st["kontrola_2_typy_ok"],
+            "otestované zadávání, schvalování a práva": st["kontrola_3_prava_ok"],
+            "jeden běh mezd nanečisto": st["kontrola_4_roundtrip_ok"],
+        }
+        chybi = [k for k, v in kontroly.items() if not v]
+
+        if dnes >= cil:
+            if not chybi and st["signoff_petra_at"] is None and not st["signoff_command_id"]:
+                cid = _push(
+                    _PRIPL_GATE_UID_PETRA, "claude_confirm",
+                    "✍️ Příplatky a srážky — souhlasíš s přepnutím?",
+                    "Ahoj Peti. Všechny čtyři kontroly jsou hotové: částky sedí proti "
+                    "Centrále, číselník druhů odměn je úplný, zadávání i práva jsou "
+                    "otestované a proběhl běh mezd nanečisto. Povolit = od teď se "
+                    "příplatky a srážky zadávají ve STRATEGII a Centrála se v tomhle "
+                    "vypíná. Odmítnout = zůstává všechno beze změny. Rozhodnutí je Tvoje.")
+                s.execute(_tg("UPDATE tenant.pripl_cutover SET signoff_command_id = :c, "
+                              "  pripominka_petra_sent_at = now(), version = version + 1, "
+                              "  updated_at = now() WHERE id = 1"), {"c": cid})
+                kroky.append("zadost_petre_odeslana")
+
+            elif chybi:
+                # Jednou denně napiš Jirkovi, co ještě chybí. Dedup podle toho, jestli
+                # dnes už takový vzkaz odešel — bez dalšího sloupce v tabulce.
+                uz = s.execute(_tg(
+                    "SELECT 1 FROM fw.mobile_command "
+                    "WHERE target_user_id = :u AND title LIKE '⏳ Příplatky a srážky%' "
+                    "  AND (created_at AT TIME ZONE 'Europe/Prague')::date = :d LIMIT 1"),
+                    {"u": _PRIPL_GATE_UID_JIRKA, "d": dnes}).first()
+                if uz is None and hodina >= 8:
+                    _push(_PRIPL_GATE_UID_JIRKA, "claude_msg",
+                          "⏳ Příplatky a srážky — zatím NEODEMČENO",
+                          "Cílové datum už bylo, ale přepnutí zůstává zamčené. "
+                          "Chybí: " + "; ".join(chybi) + ". "
+                          "Dokud tohle není hotové, Petru o souhlas nežádám a modul "
+                          "zůstává jen ke čtení.")
+                    kroky.append("hlaseni_co_chybi")
+
+        # --- 4) Odemknout, když platí opravdu všechno --------------------------
+        if not chybi and st["signoff_petra_at"] is not None and st["unlocked_at"] is None:
+            s.execute(_tg(
+                "UPDATE tenant.pripl_cutover SET unlocked_at = now(), "
+                "  unlocked_by = :u, version = version + 1, updated_at = now() "
+                "WHERE id = 1 AND unlocked_at IS NULL"), {"u": _PRIPL_GATE_UID_PETRA})
+            for _u in (_PRIPL_GATE_UID_JIRKA, _PRIPL_GATE_UID_PETRA):
+                _push(_u, "claude_msg", "✅ Příplatky a srážky — přepnuto do STRATEGIE",
+                      "Petra dala souhlas a všechny kontroly jsou hotové, takže "
+                      "příplatky a srážky se od teď zadávají ve STRATEGII. "
+                      "Kdyby cokoli nesedělo, jde to okamžitě vrátit zpět.")
+            kroky.append("ODEMCENO")
+
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
+
+    return {"ok": True, "kroku": len(kroky),
+            "_msg": (", ".join(kroky) if kroky else "nic k udělání (zatím zamčeno)")}
 
 
 def _sync_fin_from_ec() -> dict:

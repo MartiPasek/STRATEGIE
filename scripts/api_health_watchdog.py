@@ -71,6 +71,10 @@ MAX_RESTARTS = int(os.environ.get("STRATEGIE_HEALTH_MAX_RESTARTS") or "3")
 THROTTLE_WINDOW_S = float(os.environ.get("STRATEGIE_HEALTH_THROTTLE_WIN") or str(30 * 60))
 # Re-alert kdyz zustava dole (aby to nezapadlo, ale nespamovalo).
 REALERT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_REALERT") or str(60 * 60))
+# Tvrda pojistka proti spamu (C28 29.7., schvalila Marti-AI): stejny TITULEK alertu
+# neodejde casteji nez jednou za tento interval, at se ve stavovem automatu stane
+# cokoli. Cil dle Jirky: jedna zprava kdyz spadne, jedna kdyz nabehne, nic mezi tim.
+ALERT_MIN_GAP_S = float(os.environ.get("STRATEGIE_HEALTH_ALERT_GAP") or str(30 * 60))
 # Liveness heartbeat do logu (aby bylo videt, ze watchdog sam zije a hlida).
 HEARTBEAT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_HEARTBEAT") or str(30 * 60))
 
@@ -94,15 +98,22 @@ def _parse_instances() -> list[dict]:
 
 
 def _log(msg: str) -> None:
+    # C28 29.7.: _log NESMI nikdy vyhodit vyjimku. Kdyz vyletela (rozbity stdout
+    # NSSM logu), shodila _handle_instance JESTE PRED resetem stavu -> priznak
+    # "je dole" zustal viset a watchdog hlasil zotaveni v KAZDEM kole
+    # (137 pushu adminum 29.7. za 4,5 h). Log je diagnostika, ne kriticka cesta.
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
-    except OSError:
+    except Exception:
         pass
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except Exception:
+        pass
 
 
 def _now() -> float:
@@ -139,8 +150,18 @@ def _restart(service: str) -> tuple[bool, str]:
 
 
 # ---- Alert (push adminum pres fw.mobile_command) ----------------------
+_LAST_ALERT: dict[str, float] = {}   # titulek -> cas posledniho odeslani
+
+
 def _alert(title: str, message: str) -> None:
-    """Vlozi push notifikaci pro kazdeho admina. Vzor = disk monitor (_DISK_MON)."""
+    """Vlozi push notifikaci pro kazdeho admina. Vzor = disk monitor (_DISK_MON).
+    Pojistka: stejny titulek nejdriv za ALERT_MIN_GAP_S (proti spamu na mobily)."""
+    _prev = _LAST_ALERT.get(title)
+    if _prev is not None and (_now() - _prev) < ALERT_MIN_GAP_S:
+        _log("ALERT potlacen (stejny titulek pred %ds, limit %ds): %s"
+             % (int(_now() - _prev), int(ALERT_MIN_GAP_S), title))
+        return
+    _LAST_ALERT[title] = _now()
     if not _ADMIN_IDS:
         _log("ALERT (bez prijemcu): %s | %s" % (title, message))
         return
@@ -186,14 +207,17 @@ def _handle_instance(inst: dict, state: dict) -> None:
     ok, detail = _check_health(port)
 
     if ok:
-        if state["down"]:
-            # Zotaveni
-            downtime = int(_now() - state["down_since"]) if state["down_since"] else 0
+        was_down = bool(state["down"])
+        downtime = int(_now() - state["down_since"]) if state["down_since"] else 0
+        # POZOR na poradi (C28 29.7.): stav se resetuje JAKO PRVNI, jeste pred
+        # logem a alertem. Kdyz predtim cokoli mezi alertem a resetem vyletelo,
+        # priznak "je dole" zustal viset a zotaveni se hlasilo v kazdem kole.
+        state.update({"down": False, "fails": 0, "down_since": 0.0, "gave_up": False,
+                      "last_alert": 0.0})
+        if was_down:
             _log(f"RECOVERED {svc}:{port} ({detail}) po {downtime}s")
             _alert(f"✅ {svc} zase běží",
                    f"Instance {svc} (port {port}) je zpět nahoře po ~{downtime}s dole. Zotaveno.")
-        state.update({"down": False, "fails": 0, "down_since": 0.0, "gave_up": False,
-                      "last_alert": 0.0})
         return
 
     # --- neuspech ---

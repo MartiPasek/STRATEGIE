@@ -1613,7 +1613,7 @@
   // stejné modulové loadery (dochListLoad/dochDailyLoad/paskaToggle), jen do
   // vlastního kontejneru s topbarem + Zpět.
   function _dochRail(listId,railId,h){
-    return '<div style="display:flex;gap:10px;height:'+(h||"calc(100vh - 150px)")+';align-items:stretch;">'
+    return '<div style="display:flex;gap:10px;height:'+(h||"calc(100vh - 85px - var(--navh, 65px))")+';align-items:stretch;">'
       +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;">'
       +'<ul id="'+listId+'" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'
       +'<div id="'+railId+'" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';

@@ -1,7 +1,7 @@
   function skupiny(){
     app.innerHTML=topbar("👥 Skupiny", true, true);
     var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
-    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 100px - var(--navh, 65px));padding:4px 2px 0;"></div>');
     var left=el('<div id="skleft" style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;"></div>');
     var rail=el('<div id="skrail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
     wrap.appendChild(left); wrap.appendChild(rail); app.appendChild(wrap);
@@ -344,7 +344,7 @@
   function _dnesScreen(title){
     app.innerHTML=topbar(title, true, true); _dochTopPad();
     if(!window._dnesViewSet){ _dnesView=(window._canManageVyroba?"zak":"doch"); }
-    var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 150px);align-items:stretch;"></div>');
+    var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 85px - var(--navh, 65px));align-items:stretch;"></div>');
     wrap.appendChild(el('<div id="dnesLeft" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"></div>'));
     wrap.appendChild(el('<div id="dnesRail" style="width:78px;flex:none;overflow-y:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:4px;padding:1px;"></div>'));
     app.appendChild(wrap);

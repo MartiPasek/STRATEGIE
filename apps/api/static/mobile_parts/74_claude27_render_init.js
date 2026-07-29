@@ -170,6 +170,19 @@
     var nb=el('<button class="green full" style="margin-top:10px;">Rozumím, pokračovat →</button>'); nb.addEventListener("click",function(){window._uc.i++;ucRender();}); fb.appendChild(nb);
   }
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
+  // C28 29.7.2026: spodni lista #navwrap NENI vzdy stejne vysoka - ma 1 az 3
+  // pruhy (tab lista 65px, "<- Zpet" 52px na iOS/desktopu, extra listy na
+  // Aplikace/Firma) plus safe-area. Obrazovky si drive odecitaly pevnych
+  // 165px -> tlacitko "+ Novy" v Ukolech koncilo 11px POD listou (iPhone,
+  // prohlizec). Merime skutecnou vysku a davame ji do CSS promenne --navh,
+  // obrazovky pocitaji height: calc(100vh - Xpx - var(--navh)).
+  function _syncNavH(){
+    try{
+      var h = (navwrap && navwrap.offsetHeight) || 0;
+      if(h < 40) h = 65;   // lista skryta (modal/overlay) -> drz rozumne minimum
+      document.documentElement.style.setProperty("--navh", h + "px");
+    }catch(e){}
+  }
   function renderNav(){
     bnav.innerHTML="";
     // Marti 17.6.: tlacitko Zpet je UPLNE DOLE (pod tab listou). Na Androidu
@@ -228,6 +241,7 @@
       bnavx2.style.scrollbarWidth="none";
       if(!_skupBarOn){ skupBar(); _skupBarOn=true; } else { startAnimIcons(); }
     } else { _skupBarOn=false; bnavx1.style.display="none"; bnavx2.style.display="none"; bnavx2.style.overflowX=""; }
+    _syncNavH();   // lista se prave prekreslila -> prepocitej --navh
   }
   function render(){
     try{ (SCREENS[stack[stack.length-1]]||home)(); }
@@ -248,6 +262,15 @@
       document.body.style.overscrollBehaviorY=_ob;
     }catch(_){}
   }
+
+  // --navh drz aktualni i bez prekresleni navigace: zmena vysky listy
+  // (rotace, safe-area, skryti pruhu "Zpet", zobrazeni extra list).
+  try{
+    if(window.ResizeObserver && navwrap){ new ResizeObserver(_syncNavH).observe(navwrap); }
+    window.addEventListener("resize", _syncNavH);
+    window.addEventListener("orientationchange", function(){ setTimeout(_syncNavH, 120); });
+    _syncNavH();
+  }catch(e){}
 
   window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}

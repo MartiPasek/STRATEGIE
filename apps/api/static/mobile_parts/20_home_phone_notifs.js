@@ -276,7 +276,7 @@
   function planapprovals(){
     app.innerHTML=topbar("🗓️ Schvalování plánu", true, true);
     var _tb=app.querySelector('.topbar'); if(_tb)_tb.style.paddingTop="12px";
-    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 100px - var(--navh, 65px));padding:4px 2px 0;"></div>');
     var left=el('<div id="apleft" style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;"></div>');
     var rail=el('<div id="aprail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
     rail.appendChild(el('<button style="margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:9px;cursor:default;"><span style="font-size:17px;">👥</span>Lidé</button>'));

@@ -78,7 +78,7 @@
   var _auTenant=0,_auData=null,_auMode="users",_auUnmatched=false;
   function alluser(){
     app.innerHTML=topbar("🌐 Uživatelé STRATEGIE", true, true);
-    var wrap=el('<div style="height:calc(100vh - 150px);display:flex;flex-direction:column;padding:6px 8px 0;"></div>');
+    var wrap=el('<div style="height:calc(100vh - 85px - var(--navh, 65px));display:flex;flex-direction:column;padding:6px 8px 0;"></div>');
     var chips=el('<div style="display:flex;gap:6px;margin-bottom:8px;"></div>');
     function chip(lbl,m){ var b=el('<button class="ghost" style="flex:1;'+(_auMode===m?"background:var(--blue);color:#fff;border-color:var(--blue);":"")+'">'+lbl+'</button>'); b.addEventListener("click",function(){ _auMode=m; alluser(); }); return b; }
     chips.appendChild(chip("👥 Naši","users")); chips.appendChild(chip("📒 Helios (účetní)","helios"));

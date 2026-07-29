@@ -28,7 +28,7 @@
     if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
     app.innerHTML=topbar(_vyIsGroup()?(((_vyCtx.icon||"👥").split("|")[0])+" "+(_vyCtx.name||"Skupina")):"🏭 Výroba", true, true);
     var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
-    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 100px - var(--navh, 65px));padding:4px 2px 0;"></div>');
     var left=el('<div style="flex:1;min-width:0;display:flex;flex-direction:column;"></div>');
     var s=el('<input id="vysearch" placeholder="🔍 Hledat…" autocomplete="off" style="border:1px solid var(--blue);background:#0d1828;box-shadow:0 0 0 2px rgba(79,142,247,.18);font-weight:600;margin-bottom:8px;">');
     s.addEventListener("input",vyRender);

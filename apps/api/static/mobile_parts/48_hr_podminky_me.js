@@ -142,7 +142,7 @@
     if(/pamě|pamet|poznám|poznam/.test(s))return"📝"; return"📄"; }
   function hr_me(){
     app.innerHTML=topbar("", true);
-    var pane=el('<div style="position:relative;display:flex;gap:10px;height:calc(100vh - 168px);align-items:stretch;">'
+    var pane=el('<div style="position:relative;display:flex;gap:10px;height:calc(100vh - 103px - var(--navh, 65px));align-items:stretch;">'
       +'<div id="meContent" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"><div class="hint">Načítám…</div></div>'
       +'<div id="meRail" style="width:86px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:6px;padding:0;"></div></div>');
     app.appendChild(pane);

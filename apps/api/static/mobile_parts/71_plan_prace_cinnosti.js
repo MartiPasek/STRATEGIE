@@ -5,7 +5,7 @@
     var _ptb=app.querySelector('.topbar'); if(_ptb)_ptb.style.paddingTop="12px";
     function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
-    var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
+    var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 67px - var(--navh, 65px));align-items:stretch;"></div>');
     var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);

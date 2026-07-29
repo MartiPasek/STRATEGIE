@@ -589,10 +589,37 @@ function bindFaktChips(){
   document.querySelectorAll('#faktury-body .chip').forEach(function(c){
     if(c.dataset.ff==null&&c.dataset.fs==null&&!c.dataset.fclear)return; // jen filtrovaci chipy; NEpřepisuj akční tlačítka (Změna návrhu / Generovat), co mají vlastní onclick
     c.onclick=function(){
-    if(c.dataset.fclear){_fCol={};_fActive=null;renderFaktury();return;}
+    if(c.dataset.fclear){_fCol={};_fMode={};_fActive=null;renderFaktury();return;}
     if(c.dataset.ff!=null)_ffFirma=c.dataset.ff; if(c.dataset.fs!=null)_ffStav=c.dataset.fs; loadFaktury(true);};});
 }
+// Rychlé filtry sloupce přes pop-up menu (pravý klik do políčka filtru).
+var _fMode={};
+function _isEmptyValF(raw){return (raw==null)||(raw===false)||(String(raw).trim()==='');}
+function openFaktFilterMenu(x,y,k,inp){
+  closeFaktFilterMenu();
+  var m=document.createElement('div'); m.id='ffiltm';
+  m.style.cssText='position:fixed;z-index:400;background:#1c2636;border:1px solid #2a3546;border-radius:8px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.55);font-size:13px;min-width:170px';
+  m.innerHTML='<div class="ffit" data-a="empty">Jen prázdné</div>'
+    +'<div class="ffit" data-a="nonempty">Jen neprázdné</div>'
+    +'<div style="height:1px;background:#2a3546;margin:4px 2px"></div><div class="ffit" data-a="smaz">Smaž</div>';
+  [].forEach.call(m.querySelectorAll('.ffit'),function(it){it.style.cssText='padding:7px 12px;border-radius:5px;cursor:pointer;color:#e8edf6;white-space:nowrap';
+    it.onmouseover=function(){it.style.background='#2563eb';};it.onmouseout=function(){it.style.background='';};});
+  document.body.appendChild(m);
+  var w=m.offsetWidth||180,h=m.offsetHeight||120;
+  m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';
+  m.style.top=Math.max(6,Math.min(y,window.innerHeight-h-6))+'px';
+  m.addEventListener('click',function(e){var it=e.target.closest('.ffit');if(!it)return;var a=it.getAttribute('data-a');
+    if(a==='smaz'){delete _fMode[k];_fCol[k]='';if(inp)inp.value='';}
+    else{_fMode[k]=a;_fCol[k]='';if(inp)inp.value=(a==='empty'?'(prázdné)':'(neprázdné)');}
+    closeFaktFilterMenu();renderFaktury();});
+}
+function closeFaktFilterMenu(){var m=document.getElementById('ffiltm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
+document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#ffiltm'))closeFaktFilterMenu();});
 function _faktMatch(p){
+  for(var mk in _fMode){var mode=_fMode[mk];if(!mode)continue;
+    var e2=_isEmptyValF(p[mk]);
+    if(mode==='empty'&&!e2)return false;
+    if(mode==='nonempty'&&e2)return false;}
   for(var i=0;i<FCOLS.length;i++){var c=FCOLS[i],fv=_fCol[c.k];
     if(c.t==='date')continue;
     if(fv==null||fv==='')continue;
@@ -616,7 +643,8 @@ function _faktCell(p,c){
 }
 function bindFaktFilters(){
   document.querySelectorAll('#faktury-body [data-fcol]').forEach(function(el){
-    var k=el.dataset.fcol;var hnd=function(){_fCol[k]=el.value;_fActive=k;renderFaktury();};
+    var k=el.dataset.fcol;var hnd=function(){delete _fMode[k];_fCol[k]=el.value;_fActive=k;renderFaktury();};
+    el.oncontextmenu=function(ev){ev.preventDefault();openFaktFilterMenu(ev.clientX,ev.clientY,k,el);};
     if(el.tagName==='SELECT'||el.type==='date')el.onchange=hnd;else el.oninput=hnd;});
   if(_fActive){var e=document.querySelector('#faktury-body input[data-fcol="'+_fActive+'"]');
     if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
@@ -663,7 +691,7 @@ function bindFaktSel(){
     renderFaktury();
   };});
 }
-function clearFaktFilters(){_fCol={};_fActive=null;renderFaktury();}
+function clearFaktFilters(){_fCol={};_fMode={};_fActive=null;renderFaktury();}
 function toggleNavrh(ids,on){
   ids=ids.filter(function(x){return x!==''&&x!=null;});
   if(!ids.length)return;

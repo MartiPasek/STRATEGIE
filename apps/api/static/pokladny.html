@@ -153,7 +153,7 @@ function _cmpDokl(a,b,col){var va=a[col.k],vb=b[col.k];
   if(col.t==='chk'){var ca=va?1:0,cb=vb?1:0;return ca-cb;}
   return String(va==null?'':va).localeCompare(String(vb==null?'':vb),'cs');}
 function resetDoklSort(){DSORT.k=null;DSORT.dir=1;renderDoklady();}
-function clearDoklFilters(){DFIL={};DACTIVE=null;renderDoklady();}
+function clearDoklFilters(){DFIL={};DFILMODE={};DACTIVE=null;renderDoklady();}
 function dcw(k){return DOKLW[k]||DCOLW_DEF[k]||80;}
 function dTotW(){var t=18;DCOLS.forEach(function(c){t+=dcw(c.k);});return t;}
 function saveDCW(){try{localStorage.setItem('pokl_dokl_colw',JSON.stringify(DOKLW));}catch(_){}}
@@ -179,7 +179,34 @@ function _isoCz(s){var m=(''+s).match(/(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+
 function _dateSummaryP(key){var od=DFIL[key+'_od'],dv=DFIL[key+'_do'];
   if(od&&dv)return od===dv?_isoCz(od):(_isoCz(od)+'–'+_isoCz(dv));
   if(od)return 'od '+_isoCz(od); if(dv)return 'do '+_isoCz(dv); return '';}
+// Rychlé filtry sloupce přes pop-up menu (pravý klik do políčka filtru).
+var DFILMODE={};
+function _isEmptyVal(raw){return (raw==null)||(raw===false)||(String(raw).trim()==='');}
+function openDoklFilterMenu(x,y,k,inp){
+  closeDoklFilterMenu();
+  var m=document.createElement('div'); m.id='dfiltm';
+  m.style.cssText='position:fixed;z-index:400;background:#1c2636;border:1px solid #2a3546;border-radius:8px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.55);font-size:13px;min-width:170px';
+  m.innerHTML='<div class="dfit" data-a="empty">Jen prázdné</div>'
+    +'<div class="dfit" data-a="nonempty">Jen neprázdné</div>'
+    +'<div style="height:1px;background:#2a3546;margin:4px 2px"></div><div class="dfit" data-a="smaz">Smaž</div>';
+  [].forEach.call(m.querySelectorAll('.dfit'),function(it){it.style.cssText='padding:7px 12px;border-radius:5px;cursor:pointer;color:#e8edf6;white-space:nowrap';
+    it.onmouseover=function(){it.style.background='#2563eb';};it.onmouseout=function(){it.style.background='';};});
+  document.body.appendChild(m);
+  var w=m.offsetWidth||180,h=m.offsetHeight||120;
+  m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';
+  m.style.top=Math.max(6,Math.min(y,window.innerHeight-h-6))+'px';
+  m.addEventListener('click',function(e){var it=e.target.closest('.dfit');if(!it)return;var a=it.getAttribute('data-a');
+    if(a==='smaz'){delete DFILMODE[k];DFIL[k]='';if(inp)inp.value='';}
+    else{DFILMODE[k]=a;DFIL[k]='';if(inp)inp.value=(a==='empty'?'(prázdné)':'(neprázdné)');}
+    closeDoklFilterMenu();renderDoklady();});
+}
+function closeDoklFilterMenu(){var m=document.getElementById('dfiltm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
+document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#dfiltm'))closeDoklFilterMenu();});
 function dmatch(d){
+  for(var mk in DFILMODE){var mode=DFILMODE[mk];if(!mode)continue;
+    var e2=_isEmptyVal(d[mk]);
+    if(mode==='empty'&&!e2)return false;
+    if(mode==='nonempty'&&e2)return false;}
   return DCOLS.every(function(c){
     if(c.date){var od=DFIL[c.k+'_od'],dv=DFIL[c.k+'_do'];if(!od&&!dv)return true;
       var dn=_dnum(d[c.k]);if(dn===null)return false;
@@ -288,8 +315,9 @@ function bindDGrips(){
 function bindDFilters(){
   document.querySelectorAll('#doklBox [data-dfcol]').forEach(function(el){
     var k=el.dataset.dfcol;
+    el.oncontextmenu=function(ev){ev.preventDefault();openDoklFilterMenu(ev.clientX,ev.clientY,k,el);};
     if(el.dataset.dfdate){el.onclick=function(){openDateFilterP(el,k);};return;}
-    el.oninput=function(){DFIL[k]=el.value;DACTIVE=k;renderDoklady();};});
+    el.oninput=function(){delete DFILMODE[k];DFIL[k]=el.value;DACTIVE=k;renderDoklady();};});
   if(DACTIVE){var e=document.querySelector('#doklBox input[data-dfcol="'+DACTIVE+'"]');
     if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
 }

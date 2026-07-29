@@ -11332,6 +11332,28 @@ def chat(
     # jsou v packu. Marti-AI's princip: jeden pack naraz, jasna sada
     # nastroju, "povolenim, ne tonem" overlay v promptu.
     _active_pack_name = _conv.active_pack if _conv else None
+    # Lean default (28.7.2026, Marti-AI kufr cíl #7):
+    # když flag lean_default_enabled == 'on' + default persona + žádný explicitní pack
+    # → chovej se jako active_pack='core'. Stávající pack filtr níže udělá zbytek.
+    # Reverzibilní: chybějící řádek v nastaveni = off = přesně dnešní chování.
+    if _is_default and not _active_pack_name:
+        try:
+            from core.database import get_session as _gss_lean
+            from sqlalchemy import text as _t_lean
+            _sg_lean = _gss_lean()
+            try:
+                _lean_val = _sg_lean.execute(
+                    _t_lean("SELECT hodnota FROM g2007.nastaveni WHERE klic='lean_default_enabled'")
+                ).scalar()
+                if str(_lean_val or "").strip().lower() == "on":
+                    _active_pack_name = "core"
+                    logger.info(
+                        f"TOOLS LEAN | lean_default_enabled ON → core pack | conv={conversation_id}"
+                    )
+            finally:
+                _sg_lean.close()
+        except Exception:
+            pass  # fail-safe: chyba = necháme default chování (all tools)
     if _active_pack_name and _is_default:
         # Jen pro default Marti-AI -- specializovane persony packy nemaji.
         from modules.conversation.application.tool_packs import (

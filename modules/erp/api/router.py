@@ -28953,15 +28953,77 @@ def _maybe_auto_checkout_midnight():
         _LAST_AUTO_CO[0] = day
         out = _att_auto_checkout_midnight()
         logger.info("[auto_checkout] půlnoční odhlášení: %s", out)
-        # Automat: srovnání dne na osobní úvazek (sloučené intervaly minus pauzy) —
-        # obě strany najednou: dopíchnutí pod fond i odpíchnutí přebytku do nenárokové.
-        try:
-            lv = _att_automat_level_day()
-            logger.info("[automat] srovnání na úvazek: %s", lv)
-        except Exception:
-            logger.exception("[automat] level_day failed")
+        # POZN.: srovnání dne na úvazek (fond_doplneni / nenarokova) se sem DŘÍV
+        # volalo taky, ale jen v okně 23:58–24:00. Když se do těch dvou minut trefil
+        # restart/nasazení, den tiše vypadl bez náhrady (28.7.2026). Přesunuto do
+        # _maybe_att_level_catchup() — trvalá značka v DB + dohnání mimo okno.
     except Exception as e:
         logger.warning("[auto_checkout] %s", e)
+
+
+# Spolehlivé srovnání na úvazek — nezávislé na 2min okně (Peťa 29.7.2026).
+# In-memory cache posledního Praha-dne, kdy srovnání proběhlo (rychlá zkratka, ať
+# se každých 30 s nechodí do DB). Zdroj pravdy je ale tenant.ec_mirror_state, takže
+# restart cache jen zahodí a značka se přečte znovu z DB.
+_LAST_LEVEL_DAY = [None]
+
+
+def _maybe_att_level_catchup():
+    """Srovnání dne na osobní úvazek (dopíchnutí do fondu + nad fond → nenárokové)
+    spolehlivě: JEDNOU za lokální den, nezávisle na půlnočním okně. Značku o posledním
+    srovnaném dni drží DB (tenant.ec_mirror_state, src_table='att_automat_level_day'),
+    takže restart/nasazení ji nezahodí a zameškaný den se DOHNÁ při prvním tiku (i mimo
+    23:58–24:00, i po delším výpadku — do hloubky trailing okna days_back).
+
+    Nemění výpočet ani per-edit přepočet (_att_automat_recalc_day) — mění JEN spouštěč.
+    _att_automat_level_day srovnává jen DOKONČENÉ dny (e.entry_date < current_date),
+    takže běžící den nikdy nešahne; je idempotentní (okno smaže + vloží znovu)."""
+    from sqlalchemy import text as _t
+    KEY = "att_automat_level_day"
+    try:
+        cm, s = _att_session()
+        try:
+            today_s = str(s.execute(_t(
+                "SELECT (now() AT TIME ZONE 'Europe/Prague')::date")).scalar())
+            if _LAST_LEVEL_DAY[0] == today_s:
+                return
+            marker = s.execute(_t(
+                "SELECT last_note FROM tenant.ec_mirror_state WHERE src_table=:k"),
+                {"k": KEY}).scalar()
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception as e:
+        logger.warning("[automat] level catchup precheck: %s", e)
+        return
+    if marker == today_s:
+        _LAST_LEVEL_DAY[0] = today_s
+        return
+    # Ještě dnes neproběhlo → srovnej (trailing okno days_back=4 jako doposud; sebeléčí
+    # i pár dní zpět, ale nikdy do zamčeného června — okno má floor 2026-06-01).
+    try:
+        lv = _att_automat_level_day()
+        logger.info("[automat] srovnání na úvazek (catchup, den=%s): %s", today_s, lv)
+    except Exception:
+        logger.exception("[automat] level_day (catchup) failed")
+        return   # značku NEposouvej — ať to příští tik zkusí znovu
+    # Značku posuň (trvale) až po úspěchu.
+    try:
+        cm, s = _att_session()
+        try:
+            up = s.execute(_t(
+                "UPDATE tenant.ec_mirror_state SET last_note=:d, last_sync_at=now() "
+                "WHERE src_table=:k"), {"d": today_s, "k": KEY})
+            if up.rowcount == 0:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_mirror_state(src_table,last_sync_at,last_note) "
+                    "VALUES(:k, now(), :d)"), {"k": KEY, "d": today_s})
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+        _LAST_LEVEL_DAY[0] = today_s
+    except Exception as e:
+        logger.warning("[automat] level catchup marker save: %s", e)
 
 
 def _att_sync_today():
@@ -29127,6 +29189,10 @@ async def _att_sync_loop():
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _att_sync_today)
             await loop.run_in_executor(None, _maybe_auto_checkout_midnight)
+            try:  # spolehlivé srovnání na úvazek (1×/den, dožene i zameškaný den) — Peťa 29.7.
+                await loop.run_in_executor(None, _maybe_att_level_catchup)
+            except Exception as _le:
+                logger.warning("[automat level catchup] %s", _le)
             try:  # auto re-embed vektorů (self-gated 1×/2min, jen když je co) — Marti 4.7.
                 await loop.run_in_executor(None, _reembed_due_pass)
             except Exception as _re:

@@ -414,7 +414,9 @@ function hlavicka(){
     if(e.target.classList&&e.target.classList.contains('dgrip'))return;
     var hth=e.target.closest?e.target.closest('th.hsort'):null;
     if(hth){var sk=hth.getAttribute('data-sk');
-      if(SORT.k===sk)SORT.dir=-SORT.dir; else {SORT.k=sk;SORT.dir=1;}
+      if(SORT.k!==sk){SORT.k=sk;SORT.dir=1;}       // nový sloupec = vzestupně
+      else if(SORT.dir>0){SORT.dir=-1;}            // 2. klik = sestupně
+      else {SORT.k=null;SORT.dir=1;}               // 3. klik = zpět na výchozí
       hlavicka(); render();}});
   th.addEventListener('mousedown',function(e){
     if(!e.target.classList.contains('dgrip'))return;
@@ -457,9 +459,13 @@ function _cmpRow(ra,rb,col){var va=ra[col.k],vb=rb[col.k];
   if(col.num){var na=parseFloat(normNum(va)),nb=parseFloat(normNum(vb));na=isNaN(na)?-Infinity:na;nb=isNaN(nb)?-Infinity:nb;return na<nb?-1:(na>nb?1:0);}
   if(col.date){var da=_dnum(va),db=_dnum(vb);da=(da===null?-1:da);db=(db===null?-1:db);return da<db?-1:(da>db?1:0);}
   return String(va==null?'':va).localeCompare(String(vb==null?'':vb),'cs');}
-// Spodní ukazatel: celkem řádků (po filtru / z celku) + kolik je vybráno (jako v Centrále).
+// Návrat na výchozí řazení (dle datasetu).
+function resetSort(){SORT.k=null;SORT.dir=1;hlavicka();render();}
+// Spodní ukazatel: celkem řádků (po filtru / z celku) + kolik je vybráno (jako v Centrále) + návrat na výchozí řazení.
 function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
-  $('info').textContent='Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s;}
+  var t='Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s;
+  if(SORT.k)t+=' · <a href="#" onclick="resetSort();return false" style="color:#2dd4bf;text-decoration:none">↺ výchozí řazení</a>';
+  $('info').innerHTML=t;}
 function projde(r){
   for(var k in FIL){var q=FIL[k];if(!q)continue;
     if(k.slice(-3)==='_od'||k.slice(-3)==='_do')continue;  // datumové řeším níže

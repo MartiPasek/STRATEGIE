@@ -478,7 +478,7 @@ function openCustomFilter(prefK){
   var p=document.createElement('div'); p.id='vfilt-panel';
   p.style.cssText='position:fixed;left:0;right:0;bottom:0;background:#141c28;border-top:2px solid #34506f;padding:10px 14px 12px;z-index:350;box-shadow:0 -10px 30px rgba(0,0,0,.55);max-height:60vh;overflow:auto';
   p.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><b style="color:#e8edf6">Vlastní filtr</b><span style="color:#8fa3bd;font-size:12px">více podmínek spojených A / NEBO</span><span style="flex:1"></span>'
-    +'<button class="b-cn" onclick="vfiltClearAll()">Smazat vše</button><button class="b-cn" onclick="closeCustomFilter()">Zrušit</button><button class="b-ok" onclick="applyCustom()">OK</button></div>'
+    +'<button class="b-cn" onclick="vfiltClearAll()">Smazat vše</button><button class="b-ok" onclick="closeCustomFilter()">Zavřít</button></div>'
     +'<div id="vfilt-rows"></div>'
     +'<div style="margin-top:6px"><a href="#" onclick="vfiltAddRow();return false" style="color:#4fe0aa;text-decoration:none;font-weight:600">+ přidat podmínku</a></div>';
   document.body.appendChild(p);
@@ -494,16 +494,18 @@ function vfiltAddRow(c){c=c||{};var box=document.getElementById('vfilt-rows');if
     +'<select class="vf-col">'+_vfColOpts(c.k)+'</select>'
     +'<select class="vf-op">'+_vfOpOpts(c.op||'has')+'</select>'
     +'<input class="vf-val" value="'+esc(c.val||'')+'" placeholder="hodnota" style="flex:1;min-width:120px">'
-    +'<button class="b-cn" title="Odebrat podmínku" onclick="this.parentNode.remove()">✕</button>';
+    +'<button class="b-cn" title="Odebrat podmínku" onclick="this.parentNode.remove();vfiltApply()">✕</button>';
   box.appendChild(row);
-  [].forEach.call(row.querySelectorAll('select,input'),function(el){el.style.background='#0b0d10';el.style.border='1px solid #363b43';el.style.color='#e9eef5';el.style.borderRadius='5px';el.style.padding='5px 7px';el.style.fontSize='13px';});
+  [].forEach.call(row.querySelectorAll('select,input'),function(el){el.style.background='#0b0d10';el.style.border='1px solid #363b43';el.style.color='#e9eef5';el.style.borderRadius='5px';el.style.padding='5px 7px';el.style.fontSize='13px';
+    el.addEventListener('input',vfiltApply);el.addEventListener('change',vfiltApply);});
 }
-function applyCustom(){var rows=document.querySelectorAll('#vfilt-panel .vfrow');var out=[];
-  [].forEach.call(rows,function(row,idx){var col=row.querySelector('.vf-col').value,op=row.querySelector('.vf-op').value,val=row.querySelector('.vf-val').value;
+// Živé filtrování — aplikuje se hned při změně podmínky, bez OK.
+function vfiltApply(){var out=[];
+  [].forEach.call(document.querySelectorAll('#vfilt-panel .vfrow'),function(row,idx){var col=row.querySelector('.vf-col').value,op=row.querySelector('.vf-op').value,val=row.querySelector('.vf-val').value;
     var jn=row.querySelector('.vf-join'); var join=idx===0?null:(jn?jn.value:'and');
-    if(val===''&&(op==='has'||op==='nhas'))return;  // prázdná hodnota u obsahuje = přeskoč
+    if(val==='')return;  // prázdná hodnota = podmínka se ignoruje
     out.push({join:join,k:col,op:op,val:val});});
-  VFILT=out.length?out:null; closeCustomFilter(); render();}
+  VFILT=out.length?out:null; render();}
 function vfiltClearAll(){VFILT=null;closeCustomFilter();render();}
 function closeFilterMenu(){var m=document.getElementById('filtm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
 document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#filtm'))closeFilterMenu();});

@@ -406,7 +406,12 @@ function hlavicka(){
   if(!th._wired){th._wired=true;  // navěsit jen jednou (thead přežívá překreslení při přepnutí sady sloupců)
   th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;
     if(e.target.getAttribute('data-date'))return;
-    FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
+    delete FILMODE[k]; FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
+  // Pravý klik do filtračního políčka = pop-up menu (Jen prázdné / Jen neprázdné / Smaž)
+  th.addEventListener('contextmenu',function(e){
+    var inp=e.target&&e.target.closest?e.target.closest('.frow input[data-k]'):null;
+    if(!inp)return; e.preventDefault();
+    openFilterMenu(e.clientX,e.clientY,inp.getAttribute('data-k'),inp);});
   th.addEventListener('click',function(e){
     if(e.target.getAttribute&&e.target.getAttribute('data-date')){openDateFilter(e.target,e.target.getAttribute('data-k'));return;}
     if(e.target.getAttribute&&e.target.getAttribute('data-bool')){cycleBoolFilter(e.target,e.target.getAttribute('data-k'));return;}
@@ -441,7 +446,28 @@ function hlavicka(){
   }
 }
 
-function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
+// Rychlé filtry sloupce přes pop-up menu (pravý klik do políčka filtru).
+// FILMODE[k]: 'empty' = jen prázdné · 'nonempty' = jen neprázdné.
+var FILMODE={};
+function openFilterMenu(x,y,k,inp){
+  closeFilterMenu();
+  var m=document.createElement('div'); m.className='ctxm on'; m.id='filtm';
+  m.innerHTML='<div class="it" data-a="empty">Jen prázdné</div>'
+    +'<div class="it" data-a="nonempty">Jen neprázdné</div>'
+    +'<div class="sep"></div><div class="it" data-a="smaz">Smaž</div>';
+  document.body.appendChild(m);
+  var w=m.offsetWidth||180,h=m.offsetHeight||120;
+  m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';
+  m.style.top=Math.max(6,Math.min(y,window.innerHeight-h-6))+'px';
+  m.addEventListener('click',function(e){var it=e.target.closest('.it');if(!it)return;
+    var a=it.getAttribute('data-a');
+    if(a==='smaz'){delete FILMODE[k];FIL[k]='';if(inp)inp.value='';}
+    else{FILMODE[k]=a;FIL[k]='';if(inp)inp.value=(a==='empty'?'(prázdné)':'(neprázdné)');}
+    closeFilterMenu();render();});
+}
+function closeFilterMenu(){var m=document.getElementById('filtm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
+document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#filtm'))closeFilterMenu();});
+function clearFil(){FIL={};FILMODE={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
 
 // Filtr zaškrtávacího sloupce (✓ / prázdné / vše) — klikáním se přepíná.
 // FIL[k]: '' = vše · 'ano' = jen zaškrtnuté (✓) · 'ne' = jen nezaškrtnuté (prázdné).
@@ -466,6 +492,11 @@ function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
   var btn=SORT.k?('<a href="#" onclick="resetSort();return false" title="Zpět na výchozí řazení (dle data)" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:2px 9px;margin-right:10px;font-size:11.5px;font-weight:600;text-decoration:none;vertical-align:middle">↺ výchozí řazení</a>'):'';
   $('info').innerHTML=btn+'Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s;}
 function projde(r){
+  // Rychlé filtry sloupce (pravý klik): jen prázdné / jen neprázdné.
+  for(var mk in FILMODE){var mode=FILMODE[mk];if(!mode)continue;
+    var mvs=String(r[mk]==null?'':r[mk]).trim();
+    if(mode==='empty' && mvs!=='')return false;
+    if(mode==='nonempty' && mvs==='')return false;}
   for(var k in FIL){var q=FIL[k];if(!q)continue;
     if(k.slice(-3)==='_od'||k.slice(-3)==='_do')continue;  // datumové řeším níže
     var col=null;

@@ -454,20 +454,60 @@ function openFilterMenu(x,y,k,inp){
   var m=document.createElement('div'); m.className='ctxm on'; m.id='filtm';
   m.innerHTML='<div class="it" data-a="empty">Jen prázdné</div>'
     +'<div class="it" data-a="nonempty">Jen neprázdné</div>'
-    +'<div class="sep"></div><div class="it" data-a="smaz">Smaž</div>';
+    +'<div class="sep"></div><div class="it" data-a="smaz">Smaž</div>'
+    +'<div class="sep"></div><div class="it" data-a="vlastni">Vlastní…</div>';
   document.body.appendChild(m);
   var w=m.offsetWidth||180,h=m.offsetHeight||120;
   m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';
   m.style.top=Math.max(6,Math.min(y,window.innerHeight-h-6))+'px';
   m.addEventListener('click',function(e){var it=e.target.closest('.it');if(!it)return;
     var a=it.getAttribute('data-a');
+    if(a==='vlastni'){closeFilterMenu();openCustomFilter(k);return;}
     if(a==='smaz'){delete FILMODE[k];FIL[k]='';if(inp)inp.value='';}
     else{FILMODE[k]=a;FIL[k]='';if(inp)inp.value=(a==='empty'?'(prázdné)':'(neprázdné)');}
     closeFilterMenu();render();});
 }
+
+// ── Vlastní filtr (Fáze 2): víc podmínek spojených A / NEBO ────────────────
+var VFILT=null;  // [{join:'and'|'or'|null, k, op:'eq'|'ne'|'has'|'nhas', val}]
+var _VOPS=[['has','Obsahuje'],['nhas','Neobsahuje'],['eq','Rovná se'],['ne','Nerovná se']];
+function _vfColOpts(sel){return COLS.map(function(c){return '<option value="'+c.k+'"'+(c.k===sel?' selected':'')+'>'+esc(c.h)+'</option>';}).join('');}
+function _vfOpOpts(sel){return _VOPS.map(function(o){return '<option value="'+o[0]+'"'+(o[0]===sel?' selected':'')+'>'+o[1]+'</option>';}).join('');}
+function openCustomFilter(prefK){
+  closeCustomFilter();
+  var p=document.createElement('div'); p.id='vfilt-panel';
+  p.style.cssText='position:fixed;left:0;right:0;bottom:0;background:#141c28;border-top:2px solid #34506f;padding:10px 14px 12px;z-index:350;box-shadow:0 -10px 30px rgba(0,0,0,.55);max-height:60vh;overflow:auto';
+  p.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><b style="color:#e8edf6">Vlastní filtr</b><span style="color:#8fa3bd;font-size:12px">více podmínek spojených A / NEBO</span><span style="flex:1"></span>'
+    +'<button class="b-cn" onclick="vfiltClearAll()">Smazat vše</button><button class="b-cn" onclick="closeCustomFilter()">Zrušit</button><button class="b-ok" onclick="applyCustom()">OK</button></div>'
+    +'<div id="vfilt-rows"></div>'
+    +'<div style="margin-top:6px"><a href="#" onclick="vfiltAddRow();return false" style="color:#4fe0aa;text-decoration:none;font-weight:600">+ přidat podmínku</a></div>';
+  document.body.appendChild(p);
+  if(VFILT&&VFILT.length){VFILT.forEach(function(c){vfiltAddRow(c);});}
+  else vfiltAddRow({k:prefK||(COLS[1]&&COLS[1].k),op:'has',val:''});
+}
+function closeCustomFilter(){var p=document.getElementById('vfilt-panel');if(p&&p.parentNode)p.parentNode.removeChild(p);}
+function vfiltAddRow(c){c=c||{};var box=document.getElementById('vfilt-rows');if(!box)return;
+  var first=box.children.length===0;
+  var row=document.createElement('div'); row.className='vfrow'; row.style.cssText='display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+  row.innerHTML=(first?'<span style="width:64px;color:#8fa3bd;font-size:12px">kde</span>'
+      :'<select class="vf-join" style="width:70px"><option value="and"'+(c.join==='or'?'':' selected')+'>A</option><option value="or"'+(c.join==='or'?' selected':'')+'>NEBO</option></select>')
+    +'<select class="vf-col">'+_vfColOpts(c.k)+'</select>'
+    +'<select class="vf-op">'+_vfOpOpts(c.op||'has')+'</select>'
+    +'<input class="vf-val" value="'+esc(c.val||'')+'" placeholder="hodnota" style="flex:1;min-width:120px">'
+    +'<button class="b-cn" title="Odebrat podmínku" onclick="this.parentNode.remove()">✕</button>';
+  box.appendChild(row);
+  [].forEach.call(row.querySelectorAll('select,input'),function(el){el.style.background='#0b0d10';el.style.border='1px solid #363b43';el.style.color='#e9eef5';el.style.borderRadius='5px';el.style.padding='5px 7px';el.style.fontSize='13px';});
+}
+function applyCustom(){var rows=document.querySelectorAll('#vfilt-panel .vfrow');var out=[];
+  [].forEach.call(rows,function(row,idx){var col=row.querySelector('.vf-col').value,op=row.querySelector('.vf-op').value,val=row.querySelector('.vf-val').value;
+    var jn=row.querySelector('.vf-join'); var join=idx===0?null:(jn?jn.value:'and');
+    if(val===''&&(op==='has'||op==='nhas'))return;  // prázdná hodnota u obsahuje = přeskoč
+    out.push({join:join,k:col,op:op,val:val});});
+  VFILT=out.length?out:null; closeCustomFilter(); render();}
+function vfiltClearAll(){VFILT=null;closeCustomFilter();render();}
 function closeFilterMenu(){var m=document.getElementById('filtm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
 document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#filtm'))closeFilterMenu();});
-function clearFil(){FIL={};FILMODE={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
+function clearFil(){FIL={};FILMODE={};VFILT=null;[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
 
 // Filtr zaškrtávacího sloupce (✓ / prázdné / vše) — klikáním se přepíná.
 // FIL[k]: '' = vše · 'ano' = jen zaškrtnuté (✓) · 'ne' = jen nezaškrtnuté (prázdné).
@@ -490,8 +530,17 @@ function resetSort(){SORT.k=null;SORT.dir=1;hlavicka();render();}
 // Spodní ukazatel: celkem řádků (po filtru / z celku) + kolik je vybráno (jako v Centrále) + návrat na výchozí řazení.
 function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
   var btn=SORT.k?('<a href="#" onclick="resetSort();return false" title="Zpět na výchozí řazení (dle data)" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:2px 9px;margin-right:10px;font-size:11.5px;font-weight:600;text-decoration:none;vertical-align:middle">↺ výchozí řazení</a>'):'';
-  $('info').innerHTML=btn+'Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s;}
+  var vf=(VFILT&&VFILT.length)?(' <a href="#" onclick="openCustomFilter();return false" title="Upravit vlastní filtr" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:2px 9px;margin-left:8px;font-size:11.5px;font-weight:600;text-decoration:none">⚙ vlastní filtr ('+VFILT.length+')</a> <a href="#" onclick="vfiltClearAll();return false" title="Zrušit vlastní filtr" style="color:#e88;text-decoration:none;font-weight:700">✕</a>'):'';
+  $('info').innerHTML=btn+'Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s+vf;}
 function projde(r){
+  // Vlastní filtr (víc podmínek A/NEBO).
+  if(VFILT&&VFILT.length){var res=null;
+    for(var vi=0;vi<VFILT.length;vi++){var cnd=VFILT[vi];
+      var cell=String(r[cnd.k]==null?'':r[cnd.k]).toLowerCase(),val=String(cnd.val==null?'':cnd.val).toLowerCase(),ok;
+      if(cnd.op==='eq')ok=(cell===val); else if(cnd.op==='ne')ok=(cell!==val);
+      else if(cnd.op==='has')ok=(cell.indexOf(val)>=0); else ok=(cell.indexOf(val)<0);
+      if(vi===0)res=ok; else if(cnd.join==='or')res=res||ok; else res=res&&ok;}
+    if(!res)return false;}
   // Rychlé filtry sloupce (pravý klik): jen prázdné / jen neprázdné.
   for(var mk in FILMODE){var mode=FILMODE[mk];if(!mode)continue;
     var mvs=String(r[mk]==null?'':r[mk]).trim();

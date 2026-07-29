@@ -51,6 +51,7 @@ from modules.erp.api.automat import automat_router  # G2007 automaty — exekuto
 from modules.erp.api.exec_approval_router import exec_approval_router  # 🟡 Zluty banner — schvalovani rizikoveho eurosoft_exec (#3, 27.7.2026)
 from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
 from modules.erp.api.dochazka_zak_tab import doch_zak_tab_router  # Docházka po zakázkách — data pro vlastní stránku (22.7.2026, Peta)
+from modules.erp.api.foto import foto_router  # Fotky pro výrobu — univerzální fotodokumentace (29.7.2026)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.landmark_report import landmark_router  # Landmark měsíční podklad mezd → mail (22.7.2026, Peta)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
@@ -950,6 +951,7 @@ app.include_router(drops_router)  # DR: streaming přenos data_db dumpu Praha→
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
 app.include_router(bozp_router)  # BOZP a PO cockpit (řízení dokumentů, rizik, termínů, úrazů)
 app.include_router(doch_zak_tab_router)  # Docházka po zakázkách — data pro vlastní stránku (table.dokl styl)
+app.include_router(foto_router)  # Fotky pro výrobu — fotodokumentace (sablony/zabery/attach/sada/prehled)
 app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)
 app.include_router(jmhz_router)  # JMHZ (ČSSZ hlášení) — generace z Heliosu + ověření na tlačítku (12.7.2026)
 app.include_router(g2007_vec_router)  # G2007 vektorizace — index + sémantické hledání nad znalostní bází (17.7.2026)
@@ -1049,6 +1051,16 @@ def vyroba_page():
     Funguje na desktopu (ERP/CRM) i v mobilu, gate v API endpointech. SAMEORIGIN
     pro iframe embed v ERP. Marti 8.6.2026."""
     return FileResponse(os.path.join(static_dir, "vyroba.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
+@app.get("/foto")
+def foto_page():
+    """📷 Fotky pro výrobu — testovací focení k zakázce (offline kontrola
+    rozmazanosti, upload přes modul media, AI hodnocení). Claude C23, 29.7.2026."""
+    return FileResponse(os.path.join(static_dir, "foto.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})

@@ -16,6 +16,7 @@
     g2.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
     g2.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
     g2.appendChild(appCell("🛒","Nákup materiálu",0,function(){openVyroba("nakup");}));
+    g2.appendChild(appCell("📷","Fotky",0,function(){openInApp("/foto");}));
     app.appendChild(g2);
     s("LIDÉ & DOCHÁZKA");
     var g3=el('<div class="appgrid"></div>');

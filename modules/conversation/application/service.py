@@ -1210,6 +1210,34 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     except Exception as _tfe:
         logger.exception(f"TOOL | tool_factory: {_tfe}")
 
+    # Agent-as-default (bod 2, C23 29.7.): governed RUCE i v default chatu. Volají se
+    # jen když jsou v effective_tools (přidané za flagem agent_default_enabled), takže
+    # při vypnutém flagu je model nikdy nezavolá. Bránu 🟢/🟡/🔴 drží strategie_exec/
+    # eurosoft uvnitř (+ jejich vlastní flagy) — tady je jen nasměrujeme.
+    if tool_name == "praha_exec":
+        import json as _js_px
+        try:
+            from modules.conversation.application.strategie_exec import strategie_exec as _sx_px
+            _r_px = _sx_px(cmd=tool_input.get("cmd", ""),
+                           shell=tool_input.get("shell", "powershell"), actor="Marti-AI")
+            return _r_px if isinstance(_r_px, str) else _js_px.dumps(_r_px, ensure_ascii=False)
+        except Exception as _e_px:
+            return "[praha_exec error: %s: %s]" % (type(_e_px).__name__, str(_e_px)[:200])
+    if tool_name == "plzen_exec":
+        import json as _js_pl
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client as _gm_pl
+            _m_pl = _gm_pl()
+            if _m_pl is None:
+                return "[plzen_exec: EUROSOFT MCP nedostupny]"
+            _raw_pl = _m_pl.call_tool_sync("eurosoft_eurosoft_exec",
+                                           {"cmd": tool_input.get("cmd", ""),
+                                            "shell": tool_input.get("shell", "powershell")},
+                                           conversation_id=None)
+            return _raw_pl if isinstance(_raw_pl, str) else _js_pl.dumps(_raw_pl, ensure_ascii=False)
+        except Exception as _e_pl:
+            return "[plzen_exec error: %s: %s]" % (type(_e_pl).__name__, str(_e_pl)[:200])
+
     # Marti-AI Fáze A (9.6.2026): nativní úkoly (read + report + stav).
     if tool_name in ("moje_ukoly", "ukol_detail", "ukol_poznamka", "ukol_stav"):
         return _handle_task_tool(tool_name, tool_input)
@@ -11414,6 +11442,39 @@ def chat(
                     _added.append(_n)
             if _added:
                 logger.info(f"TOOLS RECOVERY | pinned core recovery tools: {_added}")
+
+    # Agent-as-default (bod 2, C23 29.7.): za flagem agent_default_enabled dostane
+    # default chat governed RUCE (praha_exec/plzen_exec) -> chat se stává agentní
+    # (chatuje A jedná ve stejném tahu). Ruce si samy drží tier bránu 🟢🟡🔴 uvnitř
+    # strategie_exec/eurosoft (+ vlastní flag strategie_exec_enabled). Default OFF =
+    # přesně dnešek. Reverzibilní. Škáluje (chat jede přes API, ne přes Max CLI session).
+    if _is_default:
+        try:
+            from core.database import get_session as _gss_ad
+            from sqlalchemy import text as _t_ad
+            _sg_ad = _gss_ad()
+            try:
+                _ad_val = _sg_ad.execute(_t_ad(
+                    "SELECT hodnota FROM g2007.nastaveni WHERE klic='agent_default_enabled'")).scalar()
+            finally:
+                _sg_ad.close()
+            if str(_ad_val or "").strip().lower() == "on":
+                _exec_schema_ad = {"type": "object", "properties": {
+                    "cmd": {"type": "string", "description": "prikaz"},
+                    "shell": {"type": "string", "description": "powershell|cmd|bash"}},
+                    "required": ["cmd"]}
+                _present_ad = {t["name"] for t in effective_tools}
+                for _nm_ad, _desc_ad in (
+                    ("praha_exec", "Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) "
+                                   "lokalne, pod branou 🟢/🟡/🔴. Args: cmd, shell (powershell|cmd|bash)."),
+                    ("plzen_exec", "Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres "
+                                   "EUROSOFT MCP, pod branou. Args: cmd, shell.")):
+                    if _nm_ad not in _present_ad:
+                        effective_tools = effective_tools + [
+                            {"name": _nm_ad, "description": _desc_ad, "input_schema": _exec_schema_ad}]
+                logger.info(f"TOOLS AGENT-DEFAULT | ruce pripnuty (praha/plzen) | conv={conversation_id}")
+        except Exception as _ad_e:
+            logger.warning(f"agent_default ruce pripnuti selhalo (non-fatal): {_ad_e}")
 
     # Phase 28-C (4.5.2026 vecer): composer-side MCP klient pro EUROSOFT MCP.
     # Anthropic native MCP (mcp_servers parameter) byl nahrazen vlastnim klientem

@@ -28030,14 +28030,17 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         for r in _rows(sql):
             rid = int(r["ID"])
             total += 1
-            if str(r.get("CisloZam") or "").strip() in app_only_cisla:
-                continue  # „jen STRATEGIE" — EC píchnutí neimportujeme
             zak = (r.get("CisloZakazky") or "").strip()
             rezie = zak.lower() == "rezie"
             _et = _ec_druh_entry_type(r.get("druh"), rezie, type_ids, type_work, type_oh)
             if _et is None:
                 continue  # Kristý 29.7.2026: kód mimo docházku (OSVČ/APS) — nebrat
             _abs = _et not in (type_work, type_oh)
+            # Marti 16.6.: app_only lidé („jen STRATEGIE") — jejich PŘÍTOMNOST z Centrály nebereme
+            # (mají appku). ALE absence (dovolená/nemoc/lékař) v appce nejsou → z Centrály je bereme
+            # i pro ně, jinak by wipe+reimport smazal jejich dovolené. Kristý 29.7.2026.
+            if not _abs and str(r.get("CisloZam") or "").strip() in app_only_cisla:
+                continue
             lf = (r.get("LoginFrom") or "").strip().upper()
             src = {"D": "tablet", "C": "manual", "A": "mobile_app"}.get(lf, "import")
             st = "locked" if int(r.get("uz") or 0) else ("approved" if (int(r.get("ved") or 0) and int(r.get("sef") or 0)) else "pending")

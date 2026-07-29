@@ -64,6 +64,8 @@ MAX_RESTARTS = int(os.environ.get("STRATEGIE_HEALTH_MAX_RESTARTS") or "3")
 THROTTLE_WINDOW_S = float(os.environ.get("STRATEGIE_HEALTH_THROTTLE_WIN") or str(30 * 60))
 # Re-alert kdyz zustava dole (aby to nezapadlo, ale nespamovalo).
 REALERT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_REALERT") or str(60 * 60))
+# Liveness heartbeat do logu (aby bylo videt, ze watchdog sam zije a hlida).
+HEARTBEAT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_HEARTBEAT") or str(30 * 60))
 
 _ADMIN_IDS = [int(x) for x in (os.environ.get("STRATEGIE_HEALTH_ADMIN_IDS")
                                or "1,11,20").split(",") if x.strip().isdigit()]
@@ -239,6 +241,7 @@ def main() -> None:
         _log("CHYBA: zadne instance ke sledovani (STRATEGIE_HEALTH_INSTANCES). Koncim.")
         return
     states = {i["svc"]: _fresh_state() for i in instances}
+    last_heartbeat = _now()
     try:
         while True:
             for inst in instances:
@@ -246,6 +249,13 @@ def main() -> None:
                     _handle_instance(inst, states[inst["svc"]])
                 except Exception as exc:
                     _log(f"handle {inst.get('svc')} crash: {type(exc).__name__}: {exc}")
+            # Liveness heartbeat — potvrzeni, ze watchdog sam bezi a hlida.
+            if _now() - last_heartbeat >= HEARTBEAT_EVERY_S:
+                summary = " ".join(
+                    "%s:%s" % (i["svc"], "DOLE" if states[i["svc"]]["down"] else "up")
+                    for i in instances)
+                _log("HEARTBEAT alive · %s" % summary)
+                last_heartbeat = _now()
             time.sleep(CHECK_INTERVAL_S)
     except KeyboardInterrupt:
         _log("STRATEGIE-API-HEALTH-WATCHDOG stopped (Ctrl+C)")

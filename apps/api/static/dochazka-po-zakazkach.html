@@ -291,7 +291,7 @@ function $(i){return document.getElementById(i);}
    num = filtr bere čárku i tečku. */
 // Sloupce docházky (Poslední 2 měsíce / Vše) — výroba po zakázkách + rezie + absence po dnech.
 var COLS_DEF=[
- {k:'PraceAktivni',h:'PraceAktivni',w:34,c:1},
+ {k:'PraceAktivni',h:'PraceAktivni',w:34,c:1,bool:1},
  {k:'CisloZakazky',h:'CisloZakazky',w:92,cls:'zak'},
  {k:'JmenoPrijmeni',h:'JmenoPrijmeni',w:150},
  {k:'CisloZam',h:'CisloZam',w:56,r:1,num:1,exact:1},
@@ -305,8 +305,8 @@ var COLS_DEF=[
  {k:'Smlouva',h:'Smlouva',w:70,c:1},
  {k:'Poznamka',h:'Poznamka',w:220},
  {k:'VedPoznamka',h:'VedPoznamka',w:150},
- {k:'VedSchvaleno',h:'VedSchvaleno',w:44,c:1},
- {k:'Pozadavek',h:'Pozadavek',w:44,c:1},
+ {k:'VedSchvaleno',h:'VedSchvaleno',w:44,c:1,bool:1},
+ {k:'Pozadavek',h:'Pozadavek',w:44,c:1,bool:1},
  {k:'DatumPripadu',h:'DatumPripadu',w:92,date:1},
  {k:'Rok',h:'Rok',w:52,r:1,num:1,exact:1},
  {k:'Mesic',h:'Mesic',w:50,r:1,num:1,exact:1}
@@ -387,6 +387,7 @@ function hlavicka(){
     h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.ht||c.h)+'">'+esc(c.h)
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     if(c.date) f+='<td><input data-k="'+c.k+'" data-date="1" readonly placeholder="datum…" title="Filtr podle data — rozsah OD–DO nebo jeden den" style="cursor:pointer"></td>';
+    else if(c.bool) f+='<td><input data-k="'+c.k+'" data-bool="1" readonly placeholder="–" title="Filtr: klikáním přepínáš ✓ (jen zaškrtnuté) → prázdné (jen nezaškrtnuté) → vše" style="cursor:pointer;text-align:center"></td>';
     else f+='<td><input data-k="'+c.k+'"></td>';
   }
   cg+='</colgroup>';
@@ -406,7 +407,8 @@ function hlavicka(){
     if(e.target.getAttribute('data-date'))return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
   th.addEventListener('click',function(e){
-    if(e.target.getAttribute&&e.target.getAttribute('data-date'))openDateFilter(e.target,e.target.getAttribute('data-k'));});
+    if(e.target.getAttribute&&e.target.getAttribute('data-date'))openDateFilter(e.target,e.target.getAttribute('data-k'));
+    else if(e.target.getAttribute&&e.target.getAttribute('data-bool'))cycleBoolFilter(e.target,e.target.getAttribute('data-k'));});
   th.addEventListener('mousedown',function(e){
     if(!e.target.classList.contains('dgrip'))return;
     var i=parseInt(e.target.getAttribute('data-i'),10),col=cols()[i+1];
@@ -432,6 +434,16 @@ function hlavicka(){
 
 function clearFil(){FIL={};[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
 
+// Filtr zaškrtávacího sloupce (✓ / prázdné / vše) — klikáním se přepíná.
+// FIL[k]: '' = vše · 'ano' = jen zaškrtnuté (✓) · 'ne' = jen nezaškrtnuté (prázdné).
+function cycleBoolFilter(inp,k){
+  var cur=FIL[k]||'';
+  var nxt=(cur==='')?'ano':(cur==='ano'?'ne':'');
+  FIL[k]=nxt;
+  inp.value=(nxt==='ano')?'✓':(nxt==='ne'?'prázdné':'');
+  render();
+}
+
 function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
 function projde(r){
   for(var k in FIL){var q=FIL[k];if(!q)continue;
@@ -439,7 +451,7 @@ function projde(r){
     var col=null;
     for(var i=0;i<COLS.length;i++){if(COLS[i].k===k){col=COLS[i];break;}}
     var v=r[k];
-    if(col&&col.k==='PraceAktivni'){v=(String(v||'').indexOf('✓')>=0)?'✓ano':'ne';}
+    if(col&&col.bool){v=(String(v||'').indexOf('✓')>=0)?'✓ano':'ne';}
     if(col&&col.num){var nv=normNum(v),nq=normNum(q);
       if(col.exact){if(nv!==nq)return false;}else{if(nv.indexOf(nq)<0)return false;}continue;}
     if(String(v==null?'':v).toLowerCase().indexOf(q)<0)return false;

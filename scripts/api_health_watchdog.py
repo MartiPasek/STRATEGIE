@@ -233,10 +233,29 @@ def _handle_instance(inst: dict, state: dict) -> None:
         state["last_alert"] = _now()
 
 
+def _selftest_alert_path() -> None:
+    """Na startu overi, ze DB (alert cesta) je dosazitelna z kontextu sluzby —
+    at to nezjistime az pri ostrem vypadku. Nemeni nic, jen SELECT 1 + log."""
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        s = _gds()
+        try:
+            s.execute(_t("SELECT 1"))
+        finally:
+            s.close()
+        _log("ALERT PATH OK — DB dosazitelna, fw.mobile_command pripraveno (alerty dorazi).")
+    except Exception as exc:
+        _log("!!! ALERT PATH BROKEN — DB nedosazitelna z kontextu sluzby: %s" % exc)
+        _log("!!! Health-check + auto-restart POJEDOU, ale ALERTY NEDORAZI. "
+             "Oprav venv python / .env u sluzby STRATEGIE-API-HEALTH-WATCHDOG.")
+
+
 def main() -> None:
     instances = _parse_instances()
     _log("STRATEGIE-API-HEALTH-WATCHDOG start · instance=%s · admini=%s · interval=%ss · health=%s"
          % ([f"{i['svc']}:{i['port']}" for i in instances], _ADMIN_IDS, CHECK_INTERVAL_S, HEALTH_PATH))
+    _selftest_alert_path()
     if not instances:
         _log("CHYBA: zadne instance ke sledovani (STRATEGIE_HEALTH_INSTANCES). Koncim.")
         return

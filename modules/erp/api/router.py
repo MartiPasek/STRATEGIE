@@ -50753,7 +50753,17 @@ async def app_payroll_summary(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT d.cislo_zam, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '#'||d.cislo_zam) AS jmeno, "
-            " round(sum(d.fpd)::numeric,1) fond, "
+            # Fond NEBRAT ze zrcadla Centrály (att_day_summary.fpd) — ten má natvrdo 7 h
+            # a nekouká na úvazek (Peťa 28.7.2026, viz g2007 doc-dochazka-fond-a-narok-
+            # z-podminek-ne-ze-zrcadla). Správně = pracovní dny × (úvazek / 5).
+            " round((( SELECT count(*) FROM tenant.att_calendar_day c "
+            "          WHERE c.tenant_id=2 AND c.is_workday=true "
+            "            AND c.day BETWEEN make_date(:y,:m,1) "
+            "            AND LEAST((make_date(:y,:m,1) + INTERVAL '1 month - 1 day')::date, CURRENT_DATE) ) "
+            "        * COALESCE(( SELECT g.uvazek_tyden_h FROM tenant.engagement g "
+            "            JOIN tenant.att_employee em2 ON em2.id=g.employee_id AND em2.tenant_id=2 "
+            "            WHERE em2.cislo_zam = d.cislo_zam::text AND g.tenant_id=2 AND g.is_current=true "
+            "            ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), 0) / 5.0)::numeric, 1) AS fond, "
             " round(sum(d.cas_montaz+d.cas_rezie)::numeric,1) odprac, "
             " round(sum(d.cas_prescas)::numeric,1) prescas, "
             " round(sum(d.cas_dovolena)::numeric,1) dov, "
@@ -50813,7 +50823,16 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             "    round(sum(d.cas_montaz+d.cas_rezie)::numeric,1) odprac, "
             "    round(sum(d.cas_dovolena+d.cas_nemoc+d.cas_sickday+d.cas_ocr+d.cas_lekar"
             "       +d.cas_nahr_volno+d.cas_nariz_volno+d.cas_absence+d.cas_materska+d.cas_prekazka)::numeric,1) absence, "
-            "    round(sum(d.fpd)::numeric,1) fond, "
+            # Fond z ÚVAZKU, ne ze zrcadla Centrály (viz /app/payroll/summary + g2007
+            # doc-dochazka-fond-a-narok-z-podminek-ne-ze-zrcadla). Peťa 28.7.2026.
+            "    round((( SELECT count(*) FROM tenant.att_calendar_day c "
+            "             WHERE c.tenant_id=2 AND c.is_workday=true "
+            "               AND c.day BETWEEN make_date(:y,:m,1) "
+            "               AND LEAST((make_date(:y,:m,1) + INTERVAL '1 month - 1 day')::date, CURRENT_DATE) ) "
+            "           * COALESCE(( SELECT g.uvazek_tyden_h FROM tenant.engagement g "
+            "               JOIN tenant.att_employee em3 ON em3.id=g.employee_id AND em3.tenant_id=2 "
+            "               WHERE em3.user_id = d.user_id AND g.tenant_id=2 AND g.is_current=true "
+            "               ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), 0) / 5.0)::numeric, 1) fond, "
             "    round(sum(d.cas_materska)::numeric,1) mat, round(sum(d.cas_nemoc)::numeric,1) nem "
             "  FROM tenant.att_day_summary d WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m AND d.user_id IS NOT NULL "
             "  GROUP BY d.user_id), "

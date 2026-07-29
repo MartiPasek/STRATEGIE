@@ -53,6 +53,19 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# Konzole pod NSSM jede v cp1250 -> print(" ") skoncil na
+# UnicodeEncodeError('charmap' codec can't encode '✅') a ta vyjimka
+# 29.7. shodila _handle_instance JESTE PRED resetem stavu -> hlidac hlasil
+# zotaveni v kazdem kole (187 pushu adminum). Dolozeno primo z watchdog.log.
+# Reseni je dvoji: (1) tady prepneme vystup na UTF-8 s nahradou neznamych znaku,
+# aby log zustal citelny; (2) _log nize navic nikdy nevyhodi vyjimku (pojistka,
+# kdyby reconfigure nebyl k dispozici).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # ---- Konfigurace (env-overridable) ------------------------------------
 LOG_FILE = Path(os.environ.get("STRATEGIE_HEALTH_LOG")
                 or r"C:\Data\STRATEGIE\api_health\watchdog.log")

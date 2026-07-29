@@ -1647,6 +1647,27 @@ setTimeout(function(){
         +'<div style="text-align:right;white-space:nowrap;">'+badge
         +'<br><span style="color:#60a5fa;font-size:12px;">otevřít →</span></div></div>';
     }).catch(function(){ zbox.style.display="none"; });
+    // 🛟 Denní obnova zálohy (DR Plzeň) — stejný deník jako v cockpitu /marti. Endpoint gated (rodič/HR). C23 29.7.
+    sec("🛟 OBNOVA (DR ZÁLOHA PLZEŇ)");
+    var drbox=el('<div style="margin:2px 2px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--mut);">Načítám deník obnov…</div>');
+    app.appendChild(drbox);
+    api("GET","/api/v1/erp/app/dr/status","").then(function(d){
+      if(!d||d.ok===false){ drbox.style.display="none"; return; }
+      if(!d.has_data){ drbox.innerHTML="Samokontrolní agent v Plzni zatím neposlal žádný deník obnov."; return; }
+      var ok=d.verdict==="OK", stale=(d.pred_h!=null&&d.pred_h>30);
+      var badge=(ok&&!stale)?'<span style="color:#34d399;font-weight:800;">✅ Obnova OK</span>'
+        :(stale?'<span style="color:#fbbf24;font-weight:800;">⏳ Bez kontroly '+Math.round(d.pred_h)+' h</span>'
+        :'<span style="color:#f87171;font-weight:800;">⚠️ NENÍ OK</span>');
+      var hist=(d.history||[]).slice().reverse().map(function(h){ return '<span style="color:'+(h.verdict==="OK"?"#34d399":"#f87171")+';font-size:15px;" title="'+esc(h.den)+'">'+(h.verdict==="OK"?"▪":"▫")+'</span>'; }).join(" ");
+      var age=d.data_age_h!=null?(Math.round(d.data_age_h)+" h"):"?";
+      drbox.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b style="color:var(--tx);">🛟 Denní obnova zálohy ('+esc(d.source||"Plzeň")+')</b>'+badge+'</div>'
+        +'<div style="margin-top:6px;line-height:1.5;">Poslední kontrola: <b style="color:var(--tx);">'+esc(d.checked_at||"?")+'</b>'+(d.pred_h!=null?(' (před '+Math.round(d.pred_h)+' h)'):'')+'<br>'
+        +'Stáří dat: <b style="color:var(--tx);">'+age+'</b> · tabulek '+(d.cnt_tables||"?")+' · konverzací '+(d.cnt_conversations||"?")+' · vektorů '+(d.cnt_vectors||"?")
+        +(d.chain_count!=null?('<br>Řetěz záloh: <b style="color:var(--tx);">'+d.chain_count+'/30</b>'+(d.chain_newest?(' · nejnovější '+esc(d.chain_newest)):'')+(d.chain_oldest?(' · nejstarší '+esc(d.chain_oldest)):'')):'')
+        +((d.verdict!=="OK"&&d.reason)?('<br><span style="color:#f87171;">'+esc(d.reason)+'</span>'):'')+'</div>'
+        +'<div style="margin-top:8px;">'+hist+'</div>'
+        +'<div style="margin-top:6px;font-size:11px;color:#56688a;">Deník obnov: každé ráno po nočním restore Praha→Plzeň. ▪ OK · ▫ chyba. Při chybě push.</div>';
+    }).catch(function(){ drbox.style.display="none"; });
     sec("DOKUMENTY & ADRESÁŘE");
     var gDoc=el('<div class="appgrid"></div>');
     gDoc.appendChild(appCell("🗂️","Adresáře (správa)",0,function(){openInApp("/dir-admin");}));

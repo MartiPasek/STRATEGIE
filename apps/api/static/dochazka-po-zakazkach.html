@@ -330,6 +330,7 @@ var COLS=COLS_DEF;
 function setCols(){COLS=(OBD==='budoucnost')?COLS_BUD:COLS_DEF;}
 var SRC={'aplikace':'z_a','z Centrály':'z_c','ČSSZ':'z_s'};
 var ROWS=[], FIL={}, OBD='vse', SELSET={}, CUR=null;  // SELSET = vybrané řádky (•), CUR = aktuální (▶)
+var SORT={k:null,dir:1};  // řazení klikem na název sloupce (dir 1=vzestupně, -1=sestupně)
 // Šířky: SRVW = SDÍLENÉ základní ze serveru (pro všechny). Osobní tažení je JEDNORÁZOVÉ
 // — nikam se neukládá, po obnovení zpět na základní. Trvale (pro všechny) uloží jen
 // rodiče/Peťa (CANSAVE) na server.
@@ -384,7 +385,7 @@ function hlavicka(){
   var f='<tr class="frow"><td class="fx" title="Zrušit filtry sloupců (jen řádek filtru)" onclick="clearFil()">✕</td>';
   for(var i=0;i<COLS.length;i++){var c=COLS[i];
     cg+='<col style="width:'+(MEW[c.k]||SRVW[c.k]||c.w)+'px">';
-    h+='<th class="'+(c.r?'r':(c.c?'c':''))+'" title="'+esc(c.ht||c.h)+'">'+esc(c.h)
+    h+='<th class="'+(c.r?'r':(c.c?'c':''))+' hsort" data-sk="'+c.k+'" title="'+esc(c.ht||c.h)+' — klik = seřadit" style="cursor:pointer">'+esc(c.h)+(SORT.k===c.k?(SORT.dir>0?' ▲':' ▼'):'')
       +'<span class="dgrip" data-i="'+i+'" title="Táhni = roztáhnout · dvojklik = výchozí"></span></th>';
     if(c.date) f+='<td><input data-k="'+c.k+'" data-date="1" readonly placeholder="datum…" title="Filtr podle data — rozsah OD–DO nebo jeden den" style="cursor:pointer"></td>';
     else if(c.bool) f+='<td><input data-k="'+c.k+'" data-bool="1" readonly placeholder="–" title="Filtr: klikáním přepínáš ✓ (jen zaškrtnuté) → prázdné (jen nezaškrtnuté) → vše" style="cursor:pointer;text-align:center"></td>';
@@ -407,8 +408,14 @@ function hlavicka(){
     if(e.target.getAttribute('data-date'))return;
     FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
   th.addEventListener('click',function(e){
-    if(e.target.getAttribute&&e.target.getAttribute('data-date'))openDateFilter(e.target,e.target.getAttribute('data-k'));
-    else if(e.target.getAttribute&&e.target.getAttribute('data-bool'))cycleBoolFilter(e.target,e.target.getAttribute('data-k'));});
+    if(e.target.getAttribute&&e.target.getAttribute('data-date')){openDateFilter(e.target,e.target.getAttribute('data-k'));return;}
+    if(e.target.getAttribute&&e.target.getAttribute('data-bool')){cycleBoolFilter(e.target,e.target.getAttribute('data-k'));return;}
+    // Klik na název sloupce (ne na úchyt šířky) = seřadit; opakovaný klik obrátí směr.
+    if(e.target.classList&&e.target.classList.contains('dgrip'))return;
+    var hth=e.target.closest?e.target.closest('th.hsort'):null;
+    if(hth){var sk=hth.getAttribute('data-sk');
+      if(SORT.k===sk)SORT.dir=-SORT.dir; else {SORT.k=sk;SORT.dir=1;}
+      hlavicka(); render();}});
   th.addEventListener('mousedown',function(e){
     if(!e.target.classList.contains('dgrip'))return;
     var i=parseInt(e.target.getAttribute('data-i'),10),col=cols()[i+1];
@@ -445,6 +452,11 @@ function cycleBoolFilter(inp,k){
 }
 
 function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
+// Porovnání dvou řádků podle sloupce (číslo / datum / text) — pro řazení klikem na hlavičku.
+function _cmpRow(ra,rb,col){var va=ra[col.k],vb=rb[col.k];
+  if(col.num){var na=parseFloat(normNum(va)),nb=parseFloat(normNum(vb));na=isNaN(na)?-Infinity:na;nb=isNaN(nb)?-Infinity:nb;return na<nb?-1:(na>nb?1:0);}
+  if(col.date){var da=_dnum(va),db=_dnum(vb);da=(da===null?-1:da);db=(db===null?-1:db);return da<db?-1:(da>db?1:0);}
+  return String(va==null?'':va).localeCompare(String(vb==null?'':vb),'cs');}
 // Spodní ukazatel: celkem řádků (po filtru / z celku) + kolik je vybráno (jako v Centrále).
 function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
   $('info').textContent='Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s;}
@@ -494,6 +506,8 @@ function appendChunk(){
 }
 function render(){
   FILT=[];for(var i=0;i<ROWS.length;i++){if(projde(ROWS[i]))FILT.push(i);}
+  if(SORT.k){var _sc=null;for(var _ci=0;_ci<COLS.length;_ci++)if(COLS[_ci].k===SORT.k){_sc=COLS[_ci];break;}
+    if(_sc)FILT.sort(function(a,b){return _cmpRow(ROWS[a],ROWS[b],_sc)*SORT.dir;});}
   var tb=$('tab').getElementsByTagName('tbody')[0];
   tb.innerHTML=''; RENDERED=0;
   if(!FILT.length){tb.innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Nic neodpovídá filtru.</td></tr>';}

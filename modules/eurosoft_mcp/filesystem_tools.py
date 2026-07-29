@@ -129,7 +129,7 @@ def _parse_roots(raw: str) -> list[Path]:
 # C23 27.7.2026: DR logy jen pro CTENI, fixne v kodu (nezavisle na NSSM env) -
 # aby sel 30.11 diagnostikovat autonomne z Coworku/STRATEGIE bez RDP. RW beze zmeny.
 _DR_RO_EXTRA = r"D:\STRATEGIE_IN;D:\STRATEGIE_ARCHIVE"
-_DR_RW_EXTRA = r"C:\scripts"  # C23 27.7.: RW pro nasazeni oprav DR skriptu bez RDP
+_DR_RW_EXTRA = r"C:\scripts;C:\caddy"  # C23 27.7.: C:\scripts (DR); 29.7.: +C:\caddy (Caddyfile pro strategie-system.com)
 
 def _allow_roots() -> tuple[list[Path], list[Path]]:
     """(rw_roots, ro_roots) z env + fixni DR (RO logy + RW C:/scripts). C23 27.7."""

@@ -119,6 +119,15 @@ def _act_dr_restore(a: dict) -> list[str]:
             r"C:\scripts\dr_pull_restore.ps1"]
 
 
+def _act_caddy_validate(a: dict) -> list[str]:
+    return [r"C:\caddy\caddy.exe", "validate", "--config", r"C:\caddy\Caddyfile"]
+
+
+def _act_caddy_reload(a: dict) -> list[str]:
+    # C23 29.7.: reload bezici Caddy s novou Caddyfile (strategie-system.com). GREEN, atomicke (spatny config odmitnut, stary bezi dal).
+    return [r"C:\caddy\caddy.exe", "reload", "--config", r"C:\caddy\Caddyfile"]
+
+
 _OPS_ACTIONS = {
     "pg_dump":    {"tier": GREEN,  "build": _act_pg_dump,    "desc": "pg_dump data_db → allowed backup dir"},
     "pg_status":  {"tier": GREEN,  "build": lambda a: [_pg_bin("pg_isready.exe"), "-h", "localhost"], "desc": "pg_isready"},
@@ -127,6 +136,8 @@ _OPS_ACTIONS = {
     "dr_restore": {"tier": GREEN, "build": _act_dr_restore, "desc": "rizena DR obnova standby (dr_pull_restore.ps1)"},
     "net_test": {"tier": GREEN, "build": _act_net_test, "desc": "diag dostupnosti Prahy z 30.11 (DNS/TCP/HTTP)"},
     "dr_task_run": {"tier": GREEN, "build": _act_dr_task_run, "desc": "spusti scheduled task STRATEGIE-DR-PullRestore jako SYSTEM"},
+    "caddy_validate": {"tier": GREEN, "build": _act_caddy_validate, "desc": "caddy validate Caddyfile"},
+    "caddy_reload": {"tier": GREEN, "build": _act_caddy_reload, "desc": "caddy reload - nova Caddyfile do bezici instance (atomicke)"},
 }
 
 

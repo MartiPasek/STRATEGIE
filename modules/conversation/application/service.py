@@ -143,6 +143,12 @@ CORE_RECOVERY_TOOLS = [
     "g2007_hledej", "hledej_ve_znalostech",
     "strategie_file_list", "strategie_file_read",
     "zobraz_muj_prompt",
+    # Self-code + paměť (kufr fix 29.7.): self-management nástroje z TOOLS musí zůstat
+    # i pod lean/packem, aby se Marti-AI vždy mohla sama opravit / zapsat znalost.
+    "navrhni_zmenu_kodu", "navrhni_zmenu_kodu_patch",
+    "list_navrhy_kodu", "zobraz_navrh_kodu",
+    "schval_zmenu_kodu", "zamitni_zmenu_kodu",
+    "zapis_znalost",
 ]
 
 # Hlavni model pro chat + tool loop. Sonnet 4.6 ma 200k context window a znacne

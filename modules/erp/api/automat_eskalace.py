@@ -141,9 +141,59 @@ def _check_smoke_eskalace(sg):
             0, "Rizeny test eskalace. Haiku ma odpovedet [VERDIKT: VYRESENO].")
 
 
+_DISK_MIN_GB = 8.0  # volné místo pod tímto prahem (GB) = problém
+
+
+def _check_disk(sg):
+    """Volné místo na fixních discích (Praha app + Plzeň). Pod prahem = problém.
+    Bez pádu: exec nedostupný -> ok (žádný planý poplach)."""
+    import json as _json
+    ps = ("Get-CimInstance -ClassName Win32_LogicalDisk -Filter 'DriveType=3' | "
+          "Select-Object DeviceID,@{N='FreeGB';E={[math]::Round($_.FreeSpace/1GB,1)}} | "
+          "ConvertTo-Json -Compress")
+    problems, lines, probed_any = [], [], False
+    for label, exec_fn in (("Praha", _praha_exec), ("Plzeň", _plzen_exec)):
+        r = exec_fn(ps)
+        if not (isinstance(r, dict) and r.get("ok")):
+            lines.append("%s: disk probe nedostupný" % label)
+            continue
+        txt = (r.get("out") or "").strip()
+        if not txt:
+            lines.append("%s: prázdný výstup disk probe" % label)
+            continue
+        try:
+            data = _json.loads(txt)
+        except Exception:  # noqa: BLE001
+            lines.append("%s: nečitelný výstup disk probe" % label)
+            continue
+        if isinstance(data, dict):
+            data = [data]
+        probed_any = True
+        for d in data:
+            if not isinstance(d, dict):
+                continue
+            drive = str(d.get("DeviceID") or "?")
+            try:
+                free = float(d.get("FreeGB"))
+            except Exception:  # noqa: BLE001
+                continue
+            bad = free < _DISK_MIN_GB
+            lines.append("%s %s/%s: %.1f GB volno" % ("X" if bad else "ok", label, drive, free))
+            if bad:
+                problems.append("%s:%s(%.1f GB)" % (label, drive, free))
+    context = "\n".join(lines)
+    if problems:
+        return ("chyba", "Málo místa na disku: %s (práh %s GB)" % (", ".join(problems), _DISK_MIN_GB),
+                len(problems), context)
+    if not probed_any:
+        return ("ok", "Disk probe nedostupný (exec off) — bez poplachu.", 0, context)
+    return ("ok", "Všechny sledované disky mají dost místa.", 0, context)
+
+
 WATCHERS = {
     "check_service_down": _check_service_down,
     "check_backup_freshness": _check_backup_freshness,
+    "check_disk": _check_disk,
     "smoke_eskalace": _check_smoke_eskalace,
 }
 

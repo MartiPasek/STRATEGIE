@@ -71,13 +71,14 @@ def _check_vp_freshness(sg):
 
 
 def _check_legacy_errors(sg):
-    """Najde JAKÝKOLI mirror job v chybě (fw.mirror_job). Vrací (vysledek, zprava, rows, context)."""
+    """Najde ENABLED mirror job ve skutečné chybě (ignoruje vypnuté a běžící). Vrací (vysledek, zprava, rows, context)."""
     from sqlalchemy import text as T
     rows = sg.execute(T(
         "SELECT job_key, enabled, last_status, "
         " to_char(last_run_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') AS last_run, "
         " COALESCE(LEFT(last_result,100),'') AS last_result "
-        "FROM fw.mirror_job WHERE last_status IS NOT NULL AND last_status <> 'ok' "
+        "FROM fw.mirror_job WHERE enabled = true "
+        " AND lower(COALESCE(last_status,'')) IN ('chyba','error','fail','failed') "
         "ORDER BY last_run_at DESC NULLS LAST")).mappings().all()
     if not rows:
         return "ok", "Žádný mirror job v chybě.", 0, ""

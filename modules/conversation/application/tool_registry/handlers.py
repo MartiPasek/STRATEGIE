@@ -115,19 +115,21 @@ V1_META_SPECS = [
 ]
 META_NAMES = frozenset(s["name"] for s in V1_META_SPECS)
 
-# ── Fáze 0: Marti-AI spustí VLASTNÍ agentí smyčku (read-only) ────────────────────
+# ── Marti-AI spustí VLASTNÍ agentí smyčku (čtení + ruce dle cil_ruce_enabled) ─────
 RUN_AS_AGENT_SPEC = {
     "name": "run_as_agent",
     "description": (
-        "🧠 AGENT (seberozvoj, Fáze 0): proběhni zadaný CÍL svojí VLASTNÍ agentí "
+        "🧠 AGENT (seberozvoj): proběhni zadaný CÍL svojí VLASTNÍ agentí "
         "smyčkou — autonomně, mnoha tahy, čteš repo přes Read/Grep/Glob a vrátíš "
-        "výsledek. Zatím JEN ČTENÍ (analýzy, průzkum repa, návrhy) — bez zápisu. "
+        "výsledek. Když je zapnutý flag cil_ruce_enabled, máš v této smyčce i RUCE "
+        "(praha_exec/plzen_exec) pod bránou 🟢/🟡/🔴 — reálně JEDNÁŠ na serverech, ne "
+        "jen čteš (bez per-akčního schvalování, brána je v kódu). "
         "Toto NENÍ delegace na Claude-23: běžíš TY, pod svojí identitou. "
-        "Zadej 'goal' = co mám samostatně zjistit / vyrobit."
+        "Zadej 'goal' = co mám samostatně zjistit / vyrobit / provést."
     ),
     "input_schema": {
         "type": "object",
-        "properties": {"goal": {"type": "string", "description": "Cíl k autonomnímu proběhnutí (read-only)."}},
+        "properties": {"goal": {"type": "string", "description": "Cíl k autonomnímu proběhnutí (čtení + ruce dle cil_ruce_enabled)."}},
         "required": ["goal"],
     },
 }
@@ -194,6 +196,26 @@ PROMPT_NAVRH_SPEC = {
         "cely_novy_prompt": {"type": "string", "description": "Kompletní nové znění system_promptu."},
         "zduvodneni": {"type": "string", "description": "Proč tato změna zlepší tvoji užitečnost."}},
         "required": ["cely_novy_prompt", "zduvodneni"]},
+}
+
+PROMPT_NAVRH_PATCH_SPEC = {
+    "name": "navrhni_zmenu_promptu_patch",
+    "description": (
+        "🧬 SEBEROZVOJ (patch): navrhni změnu SVÉHO promptu KOTVAMI místo celého znění — "
+        "pošli edits = pole {old_string, new_string} (jako Edit tool nad kódem). Každý "
+        "old_string musí být v aktuálním promptu PRÁVĚ JEDNOU (jinak návrh odmítnu — přidej "
+        "okolní kontext). Výhoda: nepřeposíláš celý prompt, míň chyb. Zbytek stejný jako "
+        "navrhni_zmenu_promptu (rodič schvaluje, předchozí znění se uloží pro rollback). "
+        "Nejdřív si přečti prompt přes zobraz_muj_prompt, ať kotvy sedí."
+    ),
+    "input_schema": {"type": "object", "properties": {
+        "edits": {"type": "array", "description": "Pole úprav {old_string, new_string} do promptu.",
+                  "items": {"type": "object", "properties": {
+                      "old_string": {"type": "string", "description": "Přesný text v promptu (musí být unikátní)."},
+                      "new_string": {"type": "string", "description": "Čím ho nahradit."}},
+                      "required": ["old_string", "new_string"]}},
+        "zduvodneni": {"type": "string", "description": "Proč tato změna zlepší tvoji užitečnost."}},
+        "required": ["edits", "zduvodneni"]},
 }
 
 PROMPT_SCHVAL_SPEC = {
@@ -320,9 +342,10 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     specs = list(V1_META_SPECS)
     specs.append(RUN_AS_AGENT_SPEC)  # Fáze 0 — vlastní agentí smyčka (handler gate-uje flag)
     specs.append(SCHVAL_METERED_SPEC)  # schválení další metered várky (rodič)
-    specs.append(PRACUJ_NA_CILI_SPEC)  # Cílový režim — popojeď na schváleném cíli (read-only Krok 1)
+    specs.append(PRACUJ_NA_CILI_SPEC)  # Cílový režim — popojeď na schváleném cíli (ruce dle cil_ruce_enabled)
     # Seberozvoj promptu — sebe-editace vlastní persony (běh gate-uje sub-flag promptedit_enabled)
     specs.append(PROMPT_NAVRH_SPEC)
+    specs.append(PROMPT_NAVRH_PATCH_SPEC)
     specs.append(PROMPT_SCHVAL_SPEC)
     specs.append(PROMPT_ZAMITNI_SPEC)
     specs.append(PROMPT_LIST_SPEC)
@@ -377,6 +400,8 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _pracuj_na_cili(tool_input, user_id, conversation_id)
         if tool_name == "navrhni_zmenu_promptu":
             return _prompt_propose(tool_input, user_id)
+        if tool_name == "navrhni_zmenu_promptu_patch":
+            return _prompt_propose_patch(tool_input, user_id)
         if tool_name == "schval_zmenu_promptu":
             return _prompt_approve(tool_input, user_id)
         if tool_name == "zamitni_zmenu_promptu":
@@ -601,7 +626,7 @@ def _schval_metered_varku(user_id) -> str:
 
 
 def _pracuj_na_cili(inp: dict, user_id, conversation_id) -> str:
-    # Cilovy rezim Krok 1 (read-only): popojed na schvalenem cili, loguj do claude_aktivita.
+    # Cilovy rezim: popojed na schvalenem cili (ruce dle cil_ruce_enabled), loguj do claude_aktivita.
     if not _agent_allowed(user_id):
         return "❌ Cílový režim je zatím jen pro admina/rodiče se zapnutým agentním režimem."
     try:
@@ -763,6 +788,33 @@ def _prompt_propose(inp: dict, user_id) -> str:
     return (f"✅ Návrh změny promptu **#{nid}** čeká na schválení rodiče ({diff}). "
             f"Až ho Marti/Kristý schválí (schval_zmenu_promptu), aplikuje se; "
             f"předchozí znění zůstane uložené pro rollback.")
+
+
+def _prompt_propose_patch(inp: dict, user_id) -> str:
+    """Patch varianta navrhni_zmenu_promptu: aplikuj kotvy {old_string,new_string}
+    na aktualni prompt a zbytek deleguj na _prompt_propose (schvaleni, verze, rollback)."""
+    if not _promptedit_enabled():
+        return ("🚫 Sebe-editace promptu je vypnutá. Rodič ji zapne "
+                "(g2007.nastaveni martiai_promptedit_enabled='on').")
+    edits = inp.get("edits")
+    zduvod = (inp.get("zduvodneni") or "").strip()
+    if not isinstance(edits, list) or not edits:
+        return "❌ Zadej 'edits' — neprázdné pole úprav {old_string, new_string}."
+    if not zduvod:
+        return "❌ Zadej 'zduvodneni' — proč to zlepší tvoji užitečnost."
+    per = _resolve_default_persona()
+    if not per:
+        return "❌ Nenašla jsem svou default personu."
+    try:
+        from modules.conversation.application.martiai_self_code import _apply_edits
+    except Exception as e:
+        return f"❌ Patch engine nedostupný: {type(e).__name__}: {e}"
+    new_prompt, err = _apply_edits(per["system_prompt"], edits)
+    if new_prompt is None:
+        return f"❌ Patch se nepovedl: {err}"
+    if new_prompt == per["system_prompt"]:
+        return "❌ Patch nic nezměnil (výsledek je identický se současným promptem)."
+    return _prompt_propose({"cely_novy_prompt": new_prompt, "zduvodneni": zduvod}, user_id)
 
 
 def _prompt_approve(inp: dict, user_id) -> str:

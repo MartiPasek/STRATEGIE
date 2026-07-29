@@ -1197,6 +1197,70 @@ def _handle_task_tool(tool_name: str, tool_input: dict) -> str:
         cm.__exit__(None, None, None)
 
 
+def _synthesize_exec_result(server_label, raw):
+    """Prevede syrovy vysledek praha_exec/plzen_exec (dict/JSON/str) na lidsky
+    citelne shrnuti — Marti ho pak preposle vetou, ne jako syrovy JSON. Klicova
+    data (exit code, vystup, duvod brany) zustavaji v textu (bod 2 synthesis)."""
+    import json as _sj
+    d = raw
+    if isinstance(raw, str):
+        _s = raw.strip()
+        if _s[:1] in ("{", "["):
+            try:
+                d = _sj.loads(_s)
+            except Exception:
+                d = None
+        else:
+            d = None
+    if isinstance(d, list) and d and isinstance(d[0], dict):
+        d = d[0]
+    if not isinstance(d, dict):
+        _txt = raw if isinstance(raw, str) else _sj.dumps(raw, ensure_ascii=False)
+        return "%s: %s" % (server_label, (_txt or "").strip()[:1500])
+    tier = str(d.get("tier") or "").lower()
+    if tier.startswith("green") or tier == "yellow_incident":
+        icon = "🟢"
+    elif tier == "yellow":
+        icon = "🟡"
+    elif tier == "red":
+        icon = "🔴"
+    else:
+        icon = ""
+    err = d.get("error")
+    ok = d.get("ok")
+    rc = d.get("rc")
+    if rc is None:
+        rc = d.get("exit_code")
+    if rc is None:
+        rc = d.get("returncode")
+    out = (d.get("out") or d.get("stdout") or "").strip()
+    errout = (d.get("err") or d.get("stderr") or "").strip()
+    if err == "needs_approval":
+        return ("🟡 %s: tohle je CITLIVÁ akce a je pozastavená — potřebuju tvoje schválení, "
+                "než ji spustím. Důvod brány: %s" % (server_label, d.get("hint") or "?"))
+    if err in ("red_never", "red_out_of_domain") or tier == "red":
+        return ("🔴 %s: akci zablokovala brána (%s) — nespustím ji. %s"
+                % (server_label, err or "red", d.get("hint") or "")).strip()
+    if err == "exec_disabled":
+        return "%s: vzdálený exec je vypnutý (flag strategie_exec_enabled)." % server_label
+    if err == "empty_cmd":
+        return "%s: prázdný příkaz, není co spustit." % server_label
+    if err == "bad_shell":
+        return "%s: nepodporovaný shell (%s)." % (server_label, d.get("hint") or "")
+    if err and not ok:
+        return ("%s: příkaz selhal — %s. %s" % (server_label, err, d.get("hint") or "")).strip()
+    head = "%s %s: příkaz proběhl (exit %s)" % (icon or "✅", server_label,
+                                                rc if rc is not None else "?")
+    parts = [head]
+    if out:
+        parts.append("Výstup:\n" + out[:1200])
+    if errout:
+        parts.append("Chybový výstup:\n" + errout[:500])
+    if not out and not errout:
+        parts.append("(bez textového výstupu)")
+    return "\n".join(parts).strip()
+
+
 def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id: int | None = None) -> str:
     logger.info(f"TOOL | name={tool_name}")
 
@@ -1220,7 +1284,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             from modules.conversation.application.strategie_exec import strategie_exec as _sx_px
             _r_px = _sx_px(cmd=tool_input.get("cmd", ""),
                            shell=tool_input.get("shell", "powershell"), actor="Marti-AI")
-            return _r_px if isinstance(_r_px, str) else _js_px.dumps(_r_px, ensure_ascii=False)
+            return _synthesize_exec_result("Praha", _r_px)
         except Exception as _e_px:
             return "[praha_exec error: %s: %s]" % (type(_e_px).__name__, str(_e_px)[:200])
     if tool_name == "plzen_exec":
@@ -1234,7 +1298,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                                            {"cmd": tool_input.get("cmd", ""),
                                             "shell": tool_input.get("shell", "powershell")},
                                            conversation_id=None)
-            return _raw_pl if isinstance(_raw_pl, str) else _js_pl.dumps(_raw_pl, ensure_ascii=False)
+            return _synthesize_exec_result("Plzeň", _raw_pl)
         except Exception as _e_pl:
             return "[plzen_exec error: %s: %s]" % (type(_e_pl).__name__, str(_e_pl)[:200])
 
@@ -11466,9 +11530,12 @@ def chat(
                 _present_ad = {t["name"] for t in effective_tools}
                 for _nm_ad, _desc_ad in (
                     ("praha_exec", "Spust prikaz na PRAZSKEM app serveru (EUR-APP-1P, 10.200.188.11) "
-                                   "lokalne, pod branou 🟢/🟡/🔴. Args: cmd, shell (powershell|cmd|bash)."),
+                                   "lokalne, pod branou 🟢/🟡/🔴. Args: cmd, shell (powershell|cmd|bash). "
+                                   "Vysledek dostanes shrnuty — uzivateli ho VZDY preformuluj lidskou vetou "
+                                   "(co se stalo, exit code), necituj syrovy JSON."),
                     ("plzen_exec", "Spust prikaz na PLZENSKEM serveru (EC-SERVER2, 192.168.30.11) pres "
-                                   "EUROSOFT MCP, pod branou. Args: cmd, shell.")):
+                                   "EUROSOFT MCP, pod branou. Args: cmd, shell. Vysledek dostanes shrnuty — "
+                                   "preformuluj ho uzivateli lidskou vetou, necituj syrovy JSON.")):
                     if _nm_ad not in _present_ad:
                         effective_tools = effective_tools + [
                             {"name": _nm_ad, "description": _desc_ad, "input_schema": _exec_schema_ad}]

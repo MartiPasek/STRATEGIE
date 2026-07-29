@@ -589,7 +589,7 @@ function bindFaktChips(){
   document.querySelectorAll('#faktury-body .chip').forEach(function(c){
     if(c.dataset.ff==null&&c.dataset.fs==null&&!c.dataset.fclear)return; // jen filtrovaci chipy; NEpřepisuj akční tlačítka (Změna návrhu / Generovat), co mají vlastní onclick
     c.onclick=function(){
-    if(c.dataset.fclear){_fCol={};_fMode={};_fActive=null;renderFaktury();return;}
+    if(c.dataset.fclear){_fCol={};_fMode={};VFILT=null;_fActive=null;renderFaktury();return;}
     if(c.dataset.ff!=null)_ffFirma=c.dataset.ff; if(c.dataset.fs!=null)_ffStav=c.dataset.fs; loadFaktury(true);};});
 }
 // Rychlé filtry sloupce přes pop-up menu (pravý klik do políčka filtru).
@@ -601,7 +601,8 @@ function openFaktFilterMenu(x,y,k,inp){
   m.style.cssText='position:fixed;z-index:400;background:#1c2636;border:1px solid #2a3546;border-radius:8px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.55);font-size:13px;min-width:170px';
   m.innerHTML='<div class="ffit" data-a="empty">Jen prázdné</div>'
     +'<div class="ffit" data-a="nonempty">Jen neprázdné</div>'
-    +'<div style="height:1px;background:#2a3546;margin:4px 2px"></div><div class="ffit" data-a="smaz">Smaž</div>';
+    +'<div style="height:1px;background:#2a3546;margin:4px 2px"></div><div class="ffit" data-a="smaz">Smaž</div>'
+    +'<div style="height:1px;background:#2a3546;margin:4px 2px"></div><div class="ffit" data-a="vlastni">Vlastní…</div>';
   [].forEach.call(m.querySelectorAll('.ffit'),function(it){it.style.cssText='padding:7px 12px;border-radius:5px;cursor:pointer;color:#e8edf6;white-space:nowrap';
     it.onmouseover=function(){it.style.background='#2563eb';};it.onmouseout=function(){it.style.background='';};});
   document.body.appendChild(m);
@@ -609,13 +610,58 @@ function openFaktFilterMenu(x,y,k,inp){
   m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';
   m.style.top=Math.max(6,Math.min(y,window.innerHeight-h-6))+'px';
   m.addEventListener('click',function(e){var it=e.target.closest('.ffit');if(!it)return;var a=it.getAttribute('data-a');
+    if(a==='vlastni'){closeFaktFilterMenu();openCustomFilter(k);return;}
     if(a==='smaz'){delete _fMode[k];_fCol[k]='';if(inp)inp.value='';}
     else{_fMode[k]=a;_fCol[k]='';if(inp)inp.value=(a==='empty'?'(prázdné)':'(neprázdné)');}
     closeFaktFilterMenu();renderFaktury();});
 }
 function closeFaktFilterMenu(){var m=document.getElementById('ffiltm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
 document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#ffiltm'))closeFaktFilterMenu();});
+
+// ── Vlastní filtr (Fáze 2): víc podmínek spojených A / NEBO ────────────────
+var VFILT=null;
+var _VOPS=[['has','Obsahuje'],['nhas','Neobsahuje'],['eq','Rovná se'],['ne','Nerovná se']];
+function _vfColOpts(sel){return FCOLS.map(function(c){return '<option value="'+c.k+'"'+(c.k===sel?' selected':'')+'>'+esc(c.h)+'</option>';}).join('');}
+function _vfOpOpts(sel){return _VOPS.map(function(o){return '<option value="'+o[0]+'"'+(o[0]===sel?' selected':'')+'>'+o[1]+'</option>';}).join('');}
+function openCustomFilter(prefK){
+  closeCustomFilter();
+  var p=document.createElement('div'); p.id='vfilt-panel';
+  p.style.cssText='position:fixed;left:0;right:0;bottom:0;background:#141c28;border-top:2px solid #34506f;padding:10px 14px 12px;z-index:350;box-shadow:0 -10px 30px rgba(0,0,0,.55);max-height:60vh;overflow:auto';
+  p.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><b style="color:#e8edf6">Vlastní filtr</b><span style="color:#8fa3bd;font-size:12px">více podmínek spojených A / NEBO</span><span style="flex:1"></span>'
+    +'<button onclick="vfiltClearAll()">Smazat vše</button><button onclick="closeCustomFilter()">Zrušit</button><button onclick="applyCustom()" style="background:#1f6feb;color:#fff;border:0;border-radius:5px;padding:5px 12px;cursor:pointer">OK</button></div>'
+    +'<div id="vfilt-rows"></div>'
+    +'<div style="margin-top:6px"><a href="#" onclick="vfiltAddRow();return false" style="color:#4fe0aa;text-decoration:none;font-weight:600">+ přidat podmínku</a></div>';
+  document.body.appendChild(p);
+  if(VFILT&&VFILT.length){VFILT.forEach(function(c){vfiltAddRow(c);});}
+  else vfiltAddRow({k:prefK||(FCOLS[7]&&FCOLS[7].k),op:'has',val:''});
+}
+function closeCustomFilter(){var p=document.getElementById('vfilt-panel');if(p&&p.parentNode)p.parentNode.removeChild(p);}
+function vfiltAddRow(c){c=c||{};var box=document.getElementById('vfilt-rows');if(!box)return;
+  var first=box.children.length===0;
+  var row=document.createElement('div'); row.className='vfrow'; row.style.cssText='display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+  row.innerHTML=(first?'<span style="width:60px;color:#8fa3bd;font-size:12px">kde</span>'
+      :'<select class="vf-join" style="width:70px"><option value="and"'+(c.join==='or'?'':' selected')+'>A</option><option value="or"'+(c.join==='or'?' selected':'')+'>NEBO</option></select>')
+    +'<select class="vf-col">'+_vfColOpts(c.k)+'</select>'
+    +'<select class="vf-op">'+_vfOpOpts(c.op||'has')+'</select>'
+    +'<input class="vf-val" value="'+esc(c.val||'')+'" placeholder="hodnota" style="flex:1;min-width:120px">'
+    +'<button title="Odebrat podmínku" onclick="this.parentNode.remove()">✕</button>';
+  box.appendChild(row);
+  [].forEach.call(row.querySelectorAll('select,input'),function(el){el.style.background='#0b0d10';el.style.border='1px solid #363b43';el.style.color='#e9eef5';el.style.borderRadius='5px';el.style.padding='5px 7px';el.style.fontSize='13px';});
+}
+function applyCustom(){var out=[];[].forEach.call(document.querySelectorAll('#vfilt-panel .vfrow'),function(row,idx){
+    var col=row.querySelector('.vf-col').value,op=row.querySelector('.vf-op').value,val=row.querySelector('.vf-val').value;
+    var jn=row.querySelector('.vf-join');var join=idx===0?null:(jn?jn.value:'and');
+    if(val===''&&(op==='has'||op==='nhas'))return;
+    out.push({join:join,k:col,op:op,val:val});});
+  VFILT=out.length?out:null; closeCustomFilter(); renderFaktury();}
+function vfiltClearAll(){VFILT=null;closeCustomFilter();renderFaktury();}
+function _vfPass(p){if(!VFILT||!VFILT.length)return true;var res=null;
+  for(var vi=0;vi<VFILT.length;vi++){var cnd=VFILT[vi];var cell=String(p[cnd.k]==null?'':p[cnd.k]).toLowerCase(),val=String(cnd.val==null?'':cnd.val).toLowerCase(),ok;
+    if(cnd.op==='eq')ok=(cell===val);else if(cnd.op==='ne')ok=(cell!==val);else if(cnd.op==='has')ok=(cell.indexOf(val)>=0);else ok=(cell.indexOf(val)<0);
+    if(vi===0)res=ok;else if(cnd.join==='or')res=res||ok;else res=res&&ok;}
+  return res;}
 function _faktMatch(p){
+  if(!_vfPass(p))return false;
   for(var mk in _fMode){var mode=_fMode[mk];if(!mode)continue;
     var e2=_isEmptyValF(p[mk]);
     if(mode==='empty'&&!e2)return false;
@@ -691,7 +737,7 @@ function bindFaktSel(){
     renderFaktury();
   };});
 }
-function clearFaktFilters(){_fCol={};_fMode={};_fActive=null;renderFaktury();}
+function clearFaktFilters(){_fCol={};_fMode={};VFILT=null;_fActive=null;renderFaktury();}
 function toggleNavrh(ids,on){
   ids=ids.filter(function(x){return x!==''&&x!=null;});
   if(!ids.length)return;
@@ -807,7 +853,8 @@ function renderFaktury(){
   var navrhN=_faktury.filter(function(p){return p.navrh;}).length;
   var genBtn=navrhN?' <span class="chip" onclick="openGenPopup()" style="font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle;background:#1f6feb;color:#fff;border-color:#1f6feb" title="Vygeneruj platební příkazy z faktur označených Návrh">🧾 Generovat platební příkazy ('+navrhN+')</span>':'';
   var _rbtn=FSORT.k?(' <a href="#" onclick="resetFaktSort();return false" title="Zpět na výchozí řazení" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:2px 9px;margin-left:8px;font-size:11px;font-weight:600;text-decoration:none;vertical-align:middle">↺ výchozí řazení</a>'):'';
-  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur · vybráno: '+selIds.length+_rbtn+cap+selBtn+genBtn+'</div>'+
+  var _vfb=(VFILT&&VFILT.length)?(' <a href="#" onclick="openCustomFilter();return false" title="Upravit vlastní filtr" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:1px 8px;margin-left:8px;font-size:11px;font-weight:600;text-decoration:none">⚙ vlastní filtr ('+VFILT.length+')</a> <a href="#" onclick="vfiltClearAll();return false" title="Zrušit vlastní filtr" style="color:#e88;text-decoration:none;font-weight:700">✕</a>'):'';
+  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur · vybráno: '+selIds.length+_rbtn+_vfb+cap+selBtn+genBtn+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   h+='<div class="doklwrap"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
   FCOLS.forEach(function(c){h+='<col data-col="'+c.k+'" style="width:'+_colw(c.k)+'px">';});

@@ -176,6 +176,18 @@ async def dr_selfcheck(req: Request):
         reasons.append("chybi pgvector")
     if body.get("error"):
         reasons.append("agent: %s" % str(body.get("error"))[:120])
+    # C23 29.7.: retez zaloh musi rust (archivace bezi). Nejnovejsi archiv starsi nez 2 dny = regrese.
+    try:
+        if not chain_newest:
+            reasons.append("retez zaloh prazdny - zadny archiv na standby")
+        else:
+            from datetime import datetime as _dt
+            _cn = _dt.strptime(chain_newest[:10], "%Y-%m-%d")
+            _agd = (_dt.utcnow() - _cn).days
+            if _agd > 2:
+                reasons.append("retez zaloh zamrzly - nejnovejsi archiv %s (%d dni), archivace asi nebezi" % (chain_newest, _agd))
+    except Exception:
+        pass
     verdict = "OK" if not reasons else "NENI_OK"
     reason = "; ".join(reasons)[:500] if reasons else "obnova OK, data cerstva, pocty sedi"
     try:

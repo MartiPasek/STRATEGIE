@@ -234,7 +234,8 @@ function renderDoklady(){
     h+='</tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div class="muted" style="margin-top:6px">'+rows.length+(anyF?(' z '+DOKLADY.length):'')+' dokladů · rok '+ROK+(anyF?' · <a href="#" id="dclear" style="color:#2dd4bf;text-decoration:none">zrušit filtr</a>':'')+'</div>';
+  var _selN=(function(){var s=0;for(var k in _doklSel)if(_doklSel[k])s++;return s;})();
+  h+='<div class="muted" style="margin-top:6px">'+rows.length+(anyF?(' z '+DOKLADY.length):'')+' dokladů · vybráno: '+_selN+' · rok '+ROK+(anyF?' · <a href="#" id="dclear" style="color:#2dd4bf;text-decoration:none">zrušit filtr</a>':'')+'</div>';
   box.innerHTML=h;
   bindDGrips(); bindDFilters(); bindDoklRows();
   var dc=document.getElementById('dclear'); if(dc)dc.onclick=function(e){e.preventDefault();DFIL={};DACTIVE=null;renderDoklady();};

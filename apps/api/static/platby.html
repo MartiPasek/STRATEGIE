@@ -759,7 +759,7 @@ function renderFaktury(){
   var selBtn=selIds.length?' <span class="chip on" onclick="changeNavrhSelected()" style="font-size:11px;padding:2px 8px;margin-left:10px;vertical-align:middle" title="Označí/odznačí Návrh k platbě u vybraných">✎ Změna návrhu k platbě ('+selIds.length+')</span>':'';
   var navrhN=_faktury.filter(function(p){return p.navrh;}).length;
   var genBtn=navrhN?' <span class="chip" onclick="openGenPopup()" style="font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle;background:#1f6feb;color:#fff;border-color:#1f6feb" title="Vygeneruj platební příkazy z faktur označených Návrh">🧾 Generovat platební příkazy ('+navrhN+')</span>':'';
-  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur'+cap+selBtn+genBtn+'</div>'+
+  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur · vybráno: '+selIds.length+cap+selBtn+genBtn+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   h+='<div class="doklwrap"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
   FCOLS.forEach(function(c){h+='<col data-col="'+c.k+'" style="width:'+_colw(c.k)+'px">';});

@@ -445,6 +445,9 @@ function cycleBoolFilter(inp,k){
 }
 
 function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
+// Spodní ukazatel: celkem řádků (po filtru / z celku) + kolik je vybráno (jako v Centrále).
+function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
+  $('info').textContent='Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s;}
 function projde(r){
   for(var k in FIL){var q=FIL[k];if(!q)continue;
     if(k.slice(-3)==='_od'||k.slice(-3)==='_do')continue;  // datumové řeším níže
@@ -495,7 +498,7 @@ function render(){
   tb.innerHTML=''; RENDERED=0;
   if(!FILT.length){tb.innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Nic neodpovídá filtru.</td></tr>';}
   else appendChunk();
-  $('info').textContent='Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'');
+  updInfo();
 }
 
 function load(){
@@ -1116,7 +1119,7 @@ function init(){
       for(var s in SELSET){touched[s]=1;} SELSET={};
     }
     CUR=i; touched[i]=1; if(oldCUR!=null)touched[oldCUR]=1;
-    for(var k in touched)paintRow(parseInt(k,10));});
+    for(var k in touched)paintRow(parseInt(k,10)); updInfo();});
   // Záloha: nativní dvojklik (kdyby překreslení nevadilo) — na jistotu
   $('tab').getElementsByTagName('tbody')[0].addEventListener('dblclick',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;

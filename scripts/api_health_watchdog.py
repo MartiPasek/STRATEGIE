@@ -1,0 +1,255 @@
+"""STRATEGIE-API-HEALTH-WATCHDOG — per-instance health watchdog (29.7.2026, C23).
+
+DUVOD (incident 28.7.): primarni API (A, 8002) spadla a NIKDO se to nedozvedel.
+Caddy failover to zamaskoval — verejny web zustal zeleny (chat jel pres B/D),
+takze zadny check na verejny endpoint vypadek neodhalil. Rozbite bylo jen to,
+co sekundary neumi (deploy token) -> hodiny honeni "proc nejde token".
+
+RESENI: standalone NSSM sluzba na cloud APP, ktera kontroluje KAZDOU instanci
+na JEJIM portu (localhost:8002/8003/...), ne pres Caddy. Pri vypadku:
+  1. throttlovany auto-restart sluzby (proti crash-loopu),
+  2. push alert vsem adminum (fw.mobile_command),
+  3. re-alert kdyz zustava dole, + zprava o zotaveni.
+
+Vzor: scripts/restart_watcher.py (stejne konvence — _log, NSSM, cloud C:\\Data).
+NEBEZI v STRATEGIE-API procesu (aby ho neshodil sam se sebou).
+
+--------------------------------------------------------------------------
+NSSM install (jednorazove na cloud APP, PowerShell jako admin):
+  New-Item -ItemType Directory -Path "C:\\Data\\STRATEGIE\\api_health" -Force
+
+  $py = "C:\\Users\\Administrator\\AppData\\Local\\pypoetry\\Cache\\virtualenvs\\strategie-W5adySD1-py3.14\\Scripts\\python.exe"
+  C:\\Tools\\nssm.exe install STRATEGIE-API-HEALTH-WATCHDOG $py "C:\\Projekty\\STRATEGIE\\scripts\\api_health_watchdog.py"
+  C:\\Tools\\nssm.exe set STRATEGIE-API-HEALTH-WATCHDOG AppDirectory C:\\Projekty\\STRATEGIE
+  C:\\Tools\\nssm.exe set STRATEGIE-API-HEALTH-WATCHDOG AppStdout C:\\Data\\STRATEGIE\\api_health\\watchdog.log
+  C:\\Tools\\nssm.exe set STRATEGIE-API-HEALTH-WATCHDOG AppStderr C:\\Data\\STRATEGIE\\api_health\\watchdog.log
+  C:\\Tools\\nssm.exe set STRATEGIE-API-HEALTH-WATCHDOG Start SERVICE_AUTO_START
+  C:\\Tools\\nssm.exe start STRATEGIE-API-HEALTH-WATCHDOG
+
+Pozn.: sluzba MUSI bezet pod uctem s pravy na Restart-Service (LocalSystem OK,
+jako STRATEGIE-RESTART-WATCHER) a musi mit venv python (kvuli core.database_data).
+
+Config pres env (nepovinne):
+  STRATEGIE_HEALTH_INSTANCES = "STRATEGIE-API:8002,STRATEGIE-API-B:8003"
+  STRATEGIE_HEALTH_ADMIN_IDS = "1,11,20"
+  STRATEGIE_HEALTH_INTERVAL  = "120"        (sekundy mezi koly)
+--------------------------------------------------------------------------
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ---- Konfigurace (env-overridable) ------------------------------------
+LOG_FILE = Path(os.environ.get("STRATEGIE_HEALTH_LOG")
+                or r"C:\Data\STRATEGIE\api_health\watchdog.log")
+NSSM_EXE = os.environ.get("STRATEGIE_NSSM_EXE") or r"C:\Tools\nssm.exe"
+HEALTH_PATH = os.environ.get("STRATEGIE_HEALTH_PATH") or "/api/v1/health"
+HEALTH_TIMEOUT_S = float(os.environ.get("STRATEGIE_HEALTH_TIMEOUT") or "6")
+CHECK_INTERVAL_S = float(os.environ.get("STRATEGIE_HEALTH_INTERVAL") or "120")
+RESTART_TIMEOUT_S = 90
+
+# Produkcni instance A + B (D=8004 je test/data_db_test -> vynechano, zadny noise).
+# Format env: "svc:port,svc:port".
+_DEFAULT_INSTANCES = "STRATEGIE-API:8002,STRATEGIE-API-B:8003"
+# Kolik po sobe jdoucich neuspechu = "dole" (proti jednorazovemu blipu behem restartu).
+FAILS_TO_DOWN = int(os.environ.get("STRATEGIE_HEALTH_FAILS") or "2")
+# Auto-restart throttle: max N restartu v okne (proti crash-loopu).
+MAX_RESTARTS = int(os.environ.get("STRATEGIE_HEALTH_MAX_RESTARTS") or "3")
+THROTTLE_WINDOW_S = float(os.environ.get("STRATEGIE_HEALTH_THROTTLE_WIN") or str(30 * 60))
+# Re-alert kdyz zustava dole (aby to nezapadlo, ale nespamovalo).
+REALERT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_REALERT") or str(60 * 60))
+
+_ADMIN_IDS = [int(x) for x in (os.environ.get("STRATEGIE_HEALTH_ADMIN_IDS")
+                               or "1,11,20").split(",") if x.strip().isdigit()]
+
+
+def _parse_instances() -> list[dict]:
+    raw = os.environ.get("STRATEGIE_HEALTH_INSTANCES") or _DEFAULT_INSTANCES
+    out = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        svc, port = part.rsplit(":", 1)
+        try:
+            out.append({"svc": svc.strip(), "port": int(port.strip())})
+        except ValueError:
+            continue
+    return out
+
+
+def _log(msg: str) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+    print(line, flush=True)
+
+
+def _now() -> float:
+    return time.time()
+
+
+# ---- Health check -----------------------------------------------------
+def _check_health(port: int) -> tuple[bool, str]:
+    url = f"http://127.0.0.1:{port}{HEALTH_PATH}"
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=HEALTH_TIMEOUT_S) as resp:
+            code = resp.getcode()
+            if 200 <= code < 300:
+                return True, f"HTTP {code}"
+            return False, f"HTTP {code}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {str(exc)[:120]}"
+
+
+# ---- Auto-restart (throttlovany) --------------------------------------
+def _restart(service: str) -> tuple[bool, str]:
+    cmd = [NSSM_EXE, "restart", service]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=RESTART_TIMEOUT_S, encoding="utf-8", errors="replace")
+        return r.returncode == 0, ((r.stdout or "") + (r.stderr or "")).strip()[:300]
+    except subprocess.TimeoutExpired:
+        return False, f"nssm restart timeout {RESTART_TIMEOUT_S}s"
+    except FileNotFoundError:
+        return False, f"NSSM nenalezen: {NSSM_EXE}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+# ---- Alert (push adminum pres fw.mobile_command) ----------------------
+def _alert(title: str, message: str) -> None:
+    """Vlozi push notifikaci pro kazdeho admina. Vzor = disk monitor (_DISK_MON)."""
+    if not _ADMIN_IDS:
+        _log("ALERT (bez prijemcu): %s | %s" % (title, message))
+        return
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        s = _gds()
+        try:
+            for uid in _ADMIN_IDS:
+                s.execute(_t(
+                    "INSERT INTO fw.mobile_command "
+                    "(app_key, target_user_id, command_type, title, message, created_by) "
+                    "VALUES ('mobile', :uid, 'claude_msg', :ti, :m, 1)"),
+                    {"uid": uid, "ti": title[:120], "m": message[:2000]})
+            s.commit()
+        finally:
+            s.close()
+        _log("ALERT sent -> admins %s: %s" % (_ADMIN_IDS, title))
+    except Exception as exc:
+        # Alert je smysl watchdogu — kdyz selze, logni HLASITE (uvidime v logu).
+        _log("!!! ALERT DELIVERY FAILED (%s): %s | %s" % (exc, title, message))
+
+
+# ---- Stav per instance ------------------------------------------------
+def _fresh_state() -> dict:
+    return {
+        "down": False,          # potvrzeny vypadek (>= FAILS_TO_DOWN)
+        "fails": 0,             # po sobe jdouci neuspechy
+        "down_since": 0.0,
+        "restart_times": [],    # timestampy auto-restartu (throttle okno)
+        "last_alert": 0.0,      # posledni alert (re-alert throttle)
+        "gave_up": False,       # throttle vycerpan -> uz nerestartujeme, jen alertujeme
+    }
+
+
+def _prune_restarts(state: dict) -> None:
+    cutoff = _now() - THROTTLE_WINDOW_S
+    state["restart_times"] = [t for t in state["restart_times"] if t >= cutoff]
+
+
+def _handle_instance(inst: dict, state: dict) -> None:
+    svc, port = inst["svc"], inst["port"]
+    ok, detail = _check_health(port)
+
+    if ok:
+        if state["down"]:
+            # Zotaveni
+            downtime = int(_now() - state["down_since"]) if state["down_since"] else 0
+            _log(f"RECOVERED {svc}:{port} ({detail}) po {downtime}s")
+            _alert(f"✅ {svc} zase běží",
+                   f"Instance {svc} (port {port}) je zpět nahoře po ~{downtime}s dole. Zotaveno.")
+        state.update({"down": False, "fails": 0, "down_since": 0.0, "gave_up": False,
+                      "last_alert": 0.0})
+        return
+
+    # --- neuspech ---
+    state["fails"] += 1
+    if state["fails"] < FAILS_TO_DOWN:
+        _log(f"WARN {svc}:{port} health fail {state['fails']}/{FAILS_TO_DOWN} ({detail})")
+        return
+
+    first_down = not state["down"]
+    if first_down:
+        state["down"] = True
+        state["down_since"] = _now()
+        _log(f"DOWN {svc}:{port} potvrzeno ({detail})")
+
+    # Auto-restart (throttlovany)
+    _prune_restarts(state)
+    if not state["gave_up"] and len(state["restart_times"]) < MAX_RESTARTS:
+        state["restart_times"].append(_now())
+        n = len(state["restart_times"])
+        _log(f"AUTO-RESTART {svc} (pokus {n}/{MAX_RESTARTS} v okne)...")
+        r_ok, r_out = _restart(svc)
+        _log(("restart OK: " if r_ok else "restart FAIL: ") + (r_out or ""))
+        # Alert na prvni pad hned (i kdyz restartujeme — admin ma vedet)
+        if first_down:
+            _alert(f"🔴 {svc} spadla — zkouším restart",
+                   f"Instance {svc} (port {port}) neodpovídá na health ({detail}). "
+                   f"Auto-restart {n}/{MAX_RESTARTS} spuštěn. Pokud nenaběhne, ozvu se znovu.")
+            state["last_alert"] = _now()
+    else:
+        # Throttle vycerpan -> vzdat auto-restart, eskalovat
+        if not state["gave_up"]:
+            state["gave_up"] = True
+            _log(f"GAVE UP {svc}: {MAX_RESTARTS} restartu v okne nepomohlo — jen alertuji")
+            _alert(f"🔴🔴 {svc} DOLE — auto-restart vzdal",
+                   f"Instance {svc} (port {port}) je opakovaně dole a {MAX_RESTARTS} "
+                   f"auto-restartů v okně nepomohlo ({detail}). POTŘEBA RUČNÍ ZÁSAH na Praze.")
+            state["last_alert"] = _now()
+
+    # Re-alert kdyz zustava dole dlouho
+    if state["down"] and (_now() - state["last_alert"]) >= REALERT_EVERY_S:
+        downtime = int(_now() - state["down_since"]) if state["down_since"] else 0
+        _alert(f"🔴 {svc} stále dole ({downtime // 60} min)",
+               f"Instance {svc} (port {port}) je pořád dole ({detail}). Downtime ~{downtime // 60} min.")
+        state["last_alert"] = _now()
+
+
+def main() -> None:
+    instances = _parse_instances()
+    _log("STRATEGIE-API-HEALTH-WATCHDOG start · instance=%s · admini=%s · interval=%ss · health=%s"
+         % ([f"{i['svc']}:{i['port']}" for i in instances], _ADMIN_IDS, CHECK_INTERVAL_S, HEALTH_PATH))
+    if not instances:
+        _log("CHYBA: zadne instance ke sledovani (STRATEGIE_HEALTH_INSTANCES). Koncim.")
+        return
+    states = {i["svc"]: _fresh_state() for i in instances}
+    try:
+        while True:
+            for inst in instances:
+                try:
+                    _handle_instance(inst, states[inst["svc"]])
+                except Exception as exc:
+                    _log(f"handle {inst.get('svc')} crash: {type(exc).__name__}: {exc}")
+            time.sleep(CHECK_INTERVAL_S)
+    except KeyboardInterrupt:
+        _log("STRATEGIE-API-HEALTH-WATCHDOG stopped (Ctrl+C)")
+
+
+if __name__ == "__main__":
+    main()

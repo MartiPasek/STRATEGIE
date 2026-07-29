@@ -27937,72 +27937,13 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
 
 def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
                           to: str = None) -> dict:
-    """Fold app segmentů tenant.work_alloc → tenant.vyroba_work (source_system='app').
-    App-lidi (mobile) volí činnost per úsek → work_alloc má PRAVDU (EC u nich jen agregát
-    DruhCinnosti=4 natvrdo). Dedup: pro (user, den) s app segmenty smaž centrala1 řádky
-    (EC agregát), ať se nezapočítá dvakrát. Claude ID23 4.7.2026."""
-    from datetime import date as _date_d, timedelta as _td_d
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    if not frm:
-        frm = (_date_d.today() - _td_d(days=days)).isoformat()
-    cm = _pg.get_session()
-    sess = cm.__enter__()
-    ins = upd = total = 0
-    try:
-        _wh = "wa.started_at::date >= :frm"
-        p0 = {"t": tenant, "frm": frm}
-        if to:
-            _wh += " AND wa.started_at::date <= :toe"
-            p0["toe"] = to
-        segs = sess.execute(_t(
-            "SELECT wa.id, wa.user_id, wa.project_ref, wa.cinnost_id, "
-            "  wa.started_at::date AS d, wa.started_at AS z, wa.ended_at AS k, "
-            "  round((EXTRACT(EPOCH FROM (wa.ended_at-wa.started_at))/3600.0)::numeric,3) AS hod, "
-            "  (SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=wa.user_id AND e.tenant_id=:t LIMIT 1) AS cz "
-            "FROM tenant.work_alloc wa "
-            "WHERE wa.tenant_id=:t AND wa.ended_at IS NOT NULL AND wa.cinnost_id IS NOT NULL "
-            "  AND COALESCE(wa.project_ref,'')<>'' AND LOWER(COALESCE(wa.project_ref,''))<>'rezie' "
-            "  AND " + _wh + " ORDER BY wa.id"), p0).fetchall()
-        # poziční: 0=id 1=user_id 2=project_ref 3=cinnost_id 4=d 5=z 6=k 7=hod 8=cz
-        seen_ud = set()
-        for sg in segs:
-            ud = (sg[1], sg[4])
-            if ud not in seen_ud:
-                seen_ud.add(ud)
-                sess.execute(_t(
-                    "DELETE FROM tenant.vyroba_work WHERE tenant_id=:t AND source_system='centrala1' "
-                    "AND datum=:d AND user_id=:u"),
-                    {"t": tenant, "d": sg[4], "u": sg[1]})
-        for sg in segs:
-            total += 1
-            p = {"t": tenant, "u": sg[1], "cz": sg[8], "zak": sg[2],
-                 "cin": sg[3], "d": sg[4], "z": sg[5], "k": sg[6],
-                 "h": sg[7], "sid": int(sg[0])}
-            res = sess.execute(_t(
-                "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
-                "cinnost_id=(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1), "
-                "datum=:d, od=:z, konec=:k, hodiny=:h, "
-                "cislo_zam=:cz, user_id=:u, updated_at=now() "
-                "WHERE tenant_id=:t AND source_system='app' AND source_id=:sid"), p)
-            if (res.rowcount or 0) == 0:
-                sess.execute(_t(
-                    "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
-                    "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
-                    "VALUES (:t,:u,:cz,:d,:z,:k,:zak,"
-                    "(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1),:h,'app',:sid,now(),now())"), p)
-                ins += 1
-            else:
-                upd += 1
-        sess.commit()
-        cm.__exit__(None, None, None)
-        return {"ok": True, "total": total, "ins": ins, "upd": upd, "frm": frm, "to": to}
-    except Exception as exc:
-        try:
-            cm.__exit__(type(exc), exc, exc.__traceback__)
-        except Exception:
-            pass
-        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
+    """ZRUŠENO (C24 29.7.2026, krok 7). Dřív foldoval app segmenty work_alloc → vyroba_work.
+    Mobil/import/opravy teď píší nativně přímo do vyroba_work (source_system 'app'/'import'/
+    'manual_fix'), dedup EC agregátu drží _sync_vyroba_work_ec (klíčuje na app řádky ve
+    vyroba_work). work_alloc dropnut v kroku 10. Stub necháván, aby případné staré volání
+    nespadlo — nic nedělá."""
+    return {"ok": True, "skipped": "app fold zrusen (krok 7) — nativni zapisy do vyroba_work",
+            "total": 0, "ins": 0, "upd": 0}
 
 
 def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
@@ -48774,8 +48715,10 @@ def _refresh_employee_active() -> dict:
             "  AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id=ut.user_id AND u.is_marti_parent=true) "
             "  AND ut.user_id IS DISTINCT FROM (SELECT owner_user_id FROM public.tenants WHERE id=2)"))
         # a vyřadit je ze skupin lidí + plánu/docházky (jinak straší ve výpisech + nafukují kapacitu)
+        # C24 29.7.2026 (krok 8): work_alloc z mazání odebráno (dropne se v kroku 10; vyroba_work
+        # historii NEmažeme — odešlí se řeší filtrem is_active v přehledech).
         for _tbl in ("tenant.staff_group_member", "tenant.att_plan_effective",
-                     "tenant.att_plan_day", "tenant.work_alloc"):
+                     "tenant.att_plan_day"):
             s.execute(_t(
                 "DELETE FROM " + _tbl + " x "
                 "WHERE x.tenant_id=2 AND x.user_id IN (SELECT e.user_id FROM tenant.att_employee e "

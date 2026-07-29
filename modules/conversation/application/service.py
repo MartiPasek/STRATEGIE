@@ -10338,8 +10338,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"propose_deployment failed: {exc_pd}")
             return f"[propose_deployment error: {exc_pd}]"
 
-    if tool_name in ("navrhni_zmenu_kodu", "list_navrhy_kodu", "zobraz_navrh_kodu",
-                     "schval_zmenu_kodu", "zamitni_zmenu_kodu"):
+    if tool_name in ("navrhni_zmenu_kodu", "navrhni_zmenu_kodu_patch", "list_navrhy_kodu",
+                     "zobraz_navrh_kodu", "schval_zmenu_kodu", "zamitni_zmenu_kodu"):
         try:
             from modules.conversation.application import martiai_self_code as _scode
             from modules.thoughts.application.service import is_marti_parent as _imp_sc
@@ -10349,6 +10349,11 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                                       popis=tool_input.get("popis", ""),
                                       novy_obsah=tool_input.get("novy_obsah", ""),
                                       actor="Marti-AI", user_id=user_id)
+            elif tool_name == "navrhni_zmenu_kodu_patch":
+                r_sc = _scode.propose_patch(soubor=tool_input.get("soubor", ""),
+                                            popis=tool_input.get("popis", ""),
+                                            edits=tool_input.get("edits") or [],
+                                            actor="Marti-AI", user_id=user_id)
             elif tool_name == "list_navrhy_kodu":
                 r_sc = _scode.list_navrhy()
             elif tool_name == "zobraz_navrh_kodu":

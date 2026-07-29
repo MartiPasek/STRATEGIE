@@ -77,7 +77,7 @@ _ALLOW_WRITE_TOOLNAMES = {
     "create_tool",                   # Tool Factory: self-test + propose, aktivace rodič
     "record_diary_entry", "record_thought", "update_thought",
     "add_conversation_note", "zapis_znalost",
-    "navrhni_zmenu_kodu",
+    "navrhni_zmenu_kodu", "navrhni_zmenu_kodu_patch",
 }
 
 

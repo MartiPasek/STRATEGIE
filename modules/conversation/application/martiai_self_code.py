@@ -84,6 +84,38 @@ def _diff_preview(a: str, b: str, max_lines: int = 40) -> str:
     return ("\n".join(out[:max_lines]))[:2500] if out else "(beze zmeny)"
 
 
+def _apply_edits(content: str, edits):
+    """Aplikuj seznam kotev {old_string,new_string} na obsah (jako Edit tool).
+    Nejbezpecnejsi forma: kazda kotva MUSI byt v souboru PRAVE JEDNOU, jinak fail
+    (0x = nenalezena, >1x = neunikatni). Zadne hadani, zadne slepe trefy.
+    Vraci (novy_obsah, chyba|None)."""
+    if not isinstance(edits, (list, tuple)) or not edits:
+        return None, "edits musi byt neprazdny seznam objektu {old_string, new_string}"
+    cur = content
+    for i, e in enumerate(edits, 1):
+        if not isinstance(e, dict):
+            return None, "edit #%d neni objekt {old_string,new_string}" % i
+        old = e.get("old_string")
+        new = e.get("new_string")
+        if old is None or new is None:
+            return None, "edit #%d: chybi old_string nebo new_string" % i
+        old = str(old)
+        new = str(new)
+        if old == "":
+            return None, "edit #%d: old_string nesmi byt prazdny (kotva na nic)" % i
+        if old == new:
+            return None, "edit #%d: old_string == new_string (zadna zmena)" % i
+        n = cur.count(old)
+        if n == 0:
+            return None, ("edit #%d: KOTVA NENALEZENA -- old_string neni v souboru "
+                          "(zkontroluj presne zneni vc. mezer): %r" % (i, old[:120]))
+        if n > 1:
+            return None, ("edit #%d: KOTVA NENI UNIKATNI (%dx v souboru) -- pridej vic "
+                          "okolniho kontextu, at je old_string jednoznacny: %r" % (i, n, old[:120]))
+        cur = cur.replace(old, new, 1)
+    return cur, None
+
+
 def propose(soubor, popis, novy_obsah, actor="Marti-AI", user_id=None) -> dict:
     soubor = (soubor or "").strip().replace("\\", "/")
     novy_obsah = novy_obsah or ""
@@ -119,6 +151,51 @@ def propose(soubor, popis, novy_obsah, actor="Marti-AI", user_id=None) -> dict:
     return {"ok": True, "navrh_id": nid, "selftest_ok": ok, "selftest_detail": detail,
             "delka": len(novy_obsah), "stav": "navrzen",
             "hint": "Ceka na schvaleni rodice (schval_zmenu_kodu). Selftest %s." % ("OK" if ok else "SELHAL")}
+
+
+def propose_patch(soubor, popis, edits, actor="Marti-AI", user_id=None) -> dict:
+    """Patch-navrh pro VELKE soubory: misto celeho obsahu zadas kotvy
+    old_string -> new_string (jako Edit tool). Server precte aktualni soubor,
+    aplikuje kotvy (kazda MUSI byt unikatni), a vyrobi novy obsah -> pak STEJNA
+    cesta jako propose (deny-list, py_compile, schvali rodic). Bez posilani celeho
+    souboru = zvladne i service.py/tools.py, ktere se do jednoho promptu nevejdou."""
+    soubor = (soubor or "").strip().replace("\\", "/")
+    if not soubor:
+        return {"ok": False, "error": "chybi soubor"}
+    prot = _is_protected(soubor)
+    if prot:
+        return {"ok": False, "gate": "red",
+                "error": "CHRANENE JADRO -- tento soubor menit nesmis (%s)" % prot}
+    abs_p = _norm_rel(soubor)
+    if abs_p is None:
+        return {"ok": False, "error": "cesta mimo repo / neplatna"}
+    if not abs_p.exists():
+        return {"ok": False, "error": "soubor neexistuje (patch je pro ZMENU existujiciho): %s" % soubor}
+    try:
+        puv = abs_p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return {"ok": False, "error": "nelze precist soubor"}
+    novy_obsah, err = _apply_edits(puv, edits)
+    if err:
+        return {"ok": False, "gate": "patch", "error": err}
+    ok, detail = _selftest_pycompile(soubor, novy_obsah)
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        nid = sg.execute(_t(
+            "INSERT INTO g2007.code_navrh (soubor, popis, novy_obsah, puvodni_sha, selftest_ok, "
+            "selftest_detail, stav, navrhl_actor, navrhl_user_id) "
+            "VALUES (:s,:p,:o,:sha,:st,:sd,'navrzen',:a,:u) RETURNING id"),
+            {"s": soubor, "p": popis, "o": novy_obsah, "sha": _sha(puv), "st": ok, "sd": detail,
+             "a": actor, "u": user_id}).scalar()
+        sg.commit()
+    finally:
+        sg.close()
+    return {"ok": True, "navrh_id": nid, "selftest_ok": ok, "selftest_detail": detail,
+            "pocet_kotev": len(edits), "delka": len(novy_obsah), "stav": "navrzen",
+            "hint": ("Patch aplikovan (%d kotev), ceka na schvaleni rodice (schval_zmenu_kodu). "
+                     "Selftest %s." % (len(edits), "OK" if ok else "SELHAL"))}
 
 
 def list_navrhy() -> dict:
@@ -175,7 +252,8 @@ def schval(navrh_id, user_id) -> dict:
     from sqlalchemy import text as _t
     sg = get_session()
     try:
-        r = sg.execute(_t("SELECT id, soubor, novy_obsah, selftest_ok, stav FROM g2007.code_navrh WHERE id=:i"),
+        r = sg.execute(_t("SELECT id, soubor, novy_obsah, selftest_ok, stav, puvodni_sha "
+                          "FROM g2007.code_navrh WHERE id=:i"),
                        {"i": navrh_id}).mappings().first()
     finally:
         sg.close()
@@ -192,6 +270,18 @@ def schval(navrh_id, user_id) -> dict:
     abs_p = _norm_rel(soubor)
     if abs_p is None or not abs_p.exists():
         return {"ok": False, "error": "soubor neexistuje / mimo repo"}
+    # DRIFT GUARD (nejbezpecnejsi forma): nenasazuj navrh postaveny na STARE verzi
+    # souboru -- jinak bys prepsal cizi zmeny provedene mezi navrhem a schvalenim.
+    # Fail-closed: pri driftu odmitni a nech prepracovat proti aktualni verzi.
+    try:
+        _cur_now = abs_p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        _cur_now = None
+    if _cur_now is not None and r.get("puvodni_sha") and _sha(_cur_now) != r["puvodni_sha"]:
+        return {"ok": False, "gate": "drift",
+                "error": ("soubor se od navrhu ZMENIL (drift: ted=%s vs navrh=%s) -- "
+                          "nenasazuji, abych neprepsal cizi zmeny. Prepracuj navrh proti "
+                          "aktualni verzi souboru." % (_sha(_cur_now), r["puvodni_sha"]))}
     from modules.conversation.application import deployment_service as _dep
     try:
         abs_p.write_text(r["novy_obsah"], encoding="utf-8")

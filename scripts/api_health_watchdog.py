@@ -45,6 +45,13 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Skript bezi z scripts/, takze sys.path[0] je scripts/, NE koren repa. Alert
+# importuje core.* (fw.mobile_command) -> bez korene repa na ceste: "No module
+# named 'core'". Doplnime koren repa (scripts/ = parents[1]).
+_REPO_ROOT = str(Path(__file__).resolve().parents[1])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 # ---- Konfigurace (env-overridable) ------------------------------------
 LOG_FILE = Path(os.environ.get("STRATEGIE_HEALTH_LOG")
                 or r"C:\Data\STRATEGIE\api_health\watchdog.log")

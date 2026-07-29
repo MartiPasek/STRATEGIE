@@ -179,6 +179,9 @@ Přijaté faktury (`platby.html`) — a **KAŽDÝ nový přehled to má mít tak
   u počtu (klik = upravit, ✕ = zrušit). Stav ve `VFILT`.
 - **Výběr řádků (jako Přijaté faktury):** prostý klik NEoznačuje (jen posune ▶ aktuální), **Ctrl+klik** = jeden,
   **Shift+klik** = úsek. (Viz i výběrové pravidlo výše.)
+- **Filtr BEZ diakritiky:** psací i „Vlastní" filtr ignoruje diakritiku — „kroner" najde „Króner",
+  „prace" najde „Práce". Normalizuje se obě strany (`_norm` = malá písmena + `normalize('NFD')` +
+  odstranění `\p{Diacritic}`). Platí všude.
 - **Barva „výchozí/vlastní filtr" tlačítek:** zelená `background:#0f2a22; color:#4fe0aa; border:#2dd4bf`.
 
 ## POJISTKA 2 — po deploji ověř, že server SERVÍRUJE novou verzi (21.7.2026)

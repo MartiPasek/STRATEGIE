@@ -14415,6 +14415,27 @@ _DRUH_ABSENCE = {20: "vacation", 30: "vacation", 21: "medical", 22: "sick", 23: 
                  31: "sickday", 26: "unpaid", 39: "unpaid", 47: "unpaid", 133: "unpaid",
                  10: "unpaid", 34: "unpaid", 35: "unpaid", 33: "sick", 36: "sick"}
 _DRUH_HO = 8
+# Kristý 29.7.2026: kódy, které v Centrále NEšly do docházky (evidence OSVČ / plánování
+# výroby) → nebrat do att_entry vůbec.
+_DRUH_SKIP = {37, 54}
+
+
+def _ec_druh_entry_type(druh, rezie, type_ids, type_work, type_oh):
+    """DruhCinnosti (EC_Dochazka) → att_entry_type id. Vrátí None = záznam NEpatří do
+    docházky (přeskoč). Absence dle _DRUH_ABSENCE, 8=Home office, jinak práce/režie.
+    Sjednocuje klasifikaci recent-syncu i hr_migrate s měsíčním syncem — dřív oba braly
+    Rezie→overhead a zahazovaly dovolenou/nemoc do 'Režie'. Kristý 29.7.2026."""
+    try:
+        d = int(druh or 0)
+    except Exception:
+        d = 0
+    if d in _DRUH_SKIP:
+        return None
+    if d in _DRUH_ABSENCE:
+        return type_ids.get(_DRUH_ABSENCE[d]) or (type_oh if rezie else type_work)
+    if d == _DRUH_HO:
+        return type_ids.get("homeoffice") or type_work
+    return type_oh if rezie else type_work
 
 
 def _sync_dochazka_ec(rok, mesic):
@@ -27951,6 +27972,9 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         if not (tw and toh):
             return {"ok": False, "error": "missing_types"}
         type_work, type_oh = tw[0], toh[0]
+        # Kristý 29.7.2026: mapa code→id pro klasifikaci absencí přes _ec_druh_entry_type.
+        type_ids = {row[0]: row[1] for row in sess.execute(_t(
+            "SELECT code, id FROM tenant.att_entry_type WHERE tenant_id=:t"), {"t": tenant}).fetchall()}
         # Marti 16.6.: lidé „jen STRATEGIE" (att_source_pref.app_only) — NEimportovat
         # jejich EC píchnutí (jinak duplicita app × Centrála). Best-effort.
         try:
@@ -27991,6 +28015,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
                "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
                "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
+               "ISNULL(DruhCinnosti,0) druh, "
                "CAST(ISNULL(PraceAktivni,0) AS int) akt, "
                "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
                # Jirka 27.6.2026: NEimportuj zpět naše vlastní zrcadlené řádky (Autor='STRATEGIE') —
@@ -28009,14 +28034,18 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                 continue  # „jen STRATEGIE" — EC píchnutí neimportujeme
             zak = (r.get("CisloZakazky") or "").strip()
             rezie = zak.lower() == "rezie"
+            _et = _ec_druh_entry_type(r.get("druh"), rezie, type_ids, type_work, type_oh)
+            if _et is None:
+                continue  # Kristý 29.7.2026: kód mimo docházku (OSVČ/APS) — nebrat
+            _abs = _et not in (type_work, type_oh)
             lf = (r.get("LoginFrom") or "").strip().upper()
             src = {"D": "tablet", "C": "manual", "A": "mobile_app"}.get(lf, "import")
             st = "locked" if int(r.get("uz") or 0) else ("approved" if (int(r.get("ved") or 0) and int(r.get("sef") or 0)) else "pending")
             p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
-                 "et": type_oh if rezie else type_work, "h": r.get("hod"),
+                 "et": _et, "h": r.get("hod"),
                  "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
-                 # Peťa 20.7.2026: jednotně 'Rezie' bez háčků (dřív se tu psalo 'Režie').
-                 "proj": (_REZIE_REF if rezie else (_norm_zakazka(zak) or None)), "st": st, "src": src, "sid": rid,
+                 # Peťa 20.7.2026: jednotně 'Rezie' bez háčků; absence/HO bez zakázky (Kristý 29.7.2026).
+                 "proj": (None if _abs else (_REZIE_REF if rezie else (_norm_zakazka(zak) or None))), "st": st, "src": src, "sid": rid,
                  "akt": (int(r.get("akt") or 0) == 1 and str(r.get("d") or "") == _today_iso)}
             res = sess.execute(_t(
                 "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
@@ -29674,6 +29703,9 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
         return (rows[0].get("id") if rows else None)
     type_work = _type_id("work")
     type_oh = _type_id("overhead")
+    # Kristý 29.7.2026: mapa code→id pro klasifikaci absencí přes _ec_druh_entry_type.
+    _ti_res = _pg.query_raw("SELECT code, id FROM tenant.att_entry_type WHERE tenant_id=:t", {"t": tenant})
+    type_ids = {row.get("code"): row.get("id") for row in (_ti_res.get("rows") or _ti_res.get("data") or [])}
     if not (type_work and type_oh):
         return JSONResponse({"ok": False, "error": "chybí typy work/overhead pro tenant %s" % tenant},
                             status_code=400)
@@ -29701,6 +29733,7 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
             sql = ("SELECT TOP %d ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
                    "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
                    "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
+                   "ISNULL(DruhCinnosti,0) druh, "
                    "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
                    # Jirka 27.6.2026: NEimportuj zpět naše zrcadlené řádky (Autor='STRATEGIE') — viz
                    # zpětná smyčka mirror×import (duplicitní centrala1 overhead). Originál = app záznam.
@@ -29716,6 +29749,10 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
                 total += 1
                 zak = (r.get("CisloZakazky") or "").strip()
                 rezie = zak.lower() == "rezie"
+                _et = _ec_druh_entry_type(r.get("druh"), rezie, type_ids, type_work, type_oh)
+                if _et is None:
+                    continue  # Kristý 29.7.2026: kód mimo docházku (OSVČ/APS) — nebrat
+                _abs = _et not in (type_work, type_oh)
                 lf = (r.get("LoginFrom") or "").strip().upper()
                 src = {"D": "tablet", "C": "manual", "A": "mobile_app"}.get(lf, "import")
                 if int(r.get("uz") or 0):
@@ -29725,11 +29762,10 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
                 else:
                     st = "pending"
                 p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
-                     "et": type_oh if rezie else type_work, "h": r.get("hod"),
+                     "et": _et, "h": r.get("hod"),
                      "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
-                     # Peťa 20.7.2026: režie se ukládá jako 'Rezie' (dřív tu byla NULL,
-                     # zatímco druhý importér psal 'Režie' — odtud dva tvary v datech).
-                     "proj": (_REZIE_REF if rezie else (_norm_zakazka(zak) or None)),
+                     # Peťa 20.7.2026: 'Rezie' jednotně; absence/HO bez zakázky (Kristý 29.7.2026).
+                     "proj": (None if _abs else (_REZIE_REF if rezie else (_norm_zakazka(zak) or None))),
                      "st": st, "src": src, "sid": rid}
                 res = sess.execute(_t(
                     "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"

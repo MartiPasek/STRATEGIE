@@ -89,6 +89,11 @@ REALERT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_REALERT") or str(60 * 6
 # neodejde casteji nez jednou za tento interval, at se ve stavovem automatu stane
 # cokoli. Cil dle Jirky: jedna zprava kdyz spadne, jedna kdyz nabehne, nic mezi tim.
 ALERT_MIN_GAP_S = float(os.environ.get("STRATEGIE_HEALTH_ALERT_GAP") or str(30 * 60))
+# ...ale u PADU kratsi (C28 29.7., schvalila Marti-AI msg 11777). Zjisteno z ostrych
+# dat: 29.7. byly dva skutecne vypadky 26 min po sobe a ten druhy jednotna 30min
+# pojistka spolkla. Dva pady za pul hodiny jsou pattern, ne sum - to clovek videt musi.
+# Spam nehrozi: stavovy automat po oprave pusti alert jen pri skutecne zmene stavu.
+ALERT_DOWN_GAP_S = float(os.environ.get("STRATEGIE_HEALTH_ALERT_GAP_DOWN") or str(10 * 60))
 # Liveness heartbeat do logu (aby bylo videt, ze watchdog sam zije a hlida).
 HEARTBEAT_EVERY_S = float(os.environ.get("STRATEGIE_HEALTH_HEARTBEAT") or str(30 * 60))
 
@@ -175,13 +180,15 @@ def _restart(service: str) -> tuple[bool, str]:
 _LAST_ALERT: dict[str, float] = {}   # titulek -> cas posledniho odeslani
 
 
-def _alert(title: str, message: str) -> None:
+def _alert(title: str, message: str, min_gap: float | None = None) -> None:
     """Vlozi push notifikaci pro kazdeho admina. Vzor = disk monitor (_DISK_MON).
-    Pojistka: stejny titulek nejdriv za ALERT_MIN_GAP_S (proti spamu na mobily)."""
+    Pojistka: stejny titulek nejdriv za min_gap (vychozi ALERT_MIN_GAP_S = zotaveni
+    30 min; u padu se predava ALERT_DOWN_GAP_S = 10 min)."""
+    gap = ALERT_MIN_GAP_S if min_gap is None else min_gap
     _prev = _LAST_ALERT.get(title)
-    if _prev is not None and (_now() - _prev) < ALERT_MIN_GAP_S:
+    if _prev is not None and (_now() - _prev) < gap:
         _log("ALERT potlacen (stejny titulek pred %ds, limit %ds): %s"
-             % (int(_now() - _prev), int(ALERT_MIN_GAP_S), title))
+             % (int(_now() - _prev), int(gap), title))
         return
     _LAST_ALERT[title] = _now()
     if not _ADMIN_IDS:
@@ -266,7 +273,8 @@ def _handle_instance(inst: dict, state: dict) -> None:
         if first_down:
             _alert(f"🔴 {svc} spadla — zkouším restart",
                    f"Instance {svc} (port {port}) neodpovídá na health ({detail}). "
-                   f"Auto-restart {n}/{MAX_RESTARTS} spuštěn. Pokud nenaběhne, ozvu se znovu.")
+                   f"Auto-restart {n}/{MAX_RESTARTS} spuštěn. Pokud nenaběhne, ozvu se znovu.",
+                   ALERT_DOWN_GAP_S)
             state["last_alert"] = _now()
     else:
         # Throttle vycerpan -> vzdat auto-restart, eskalovat
@@ -275,14 +283,16 @@ def _handle_instance(inst: dict, state: dict) -> None:
             _log(f"GAVE UP {svc}: {MAX_RESTARTS} restartu v okne nepomohlo — jen alertuji")
             _alert(f"🔴🔴 {svc} DOLE — auto-restart vzdal",
                    f"Instance {svc} (port {port}) je opakovaně dole a {MAX_RESTARTS} "
-                   f"auto-restartů v okně nepomohlo ({detail}). POTŘEBA RUČNÍ ZÁSAH na Praze.")
+                   f"auto-restartů v okně nepomohlo ({detail}). POTŘEBA RUČNÍ ZÁSAH na Praze.",
+                   ALERT_DOWN_GAP_S)
             state["last_alert"] = _now()
 
     # Re-alert kdyz zustava dole dlouho
     if state["down"] and (_now() - state["last_alert"]) >= REALERT_EVERY_S:
         downtime = int(_now() - state["down_since"]) if state["down_since"] else 0
         _alert(f"🔴 {svc} stále dole ({downtime // 60} min)",
-               f"Instance {svc} (port {port}) je pořád dole ({detail}). Downtime ~{downtime // 60} min.")
+               f"Instance {svc} (port {port}) je pořád dole ({detail}). Downtime ~{downtime // 60} min.",
+               ALERT_DOWN_GAP_S)
         state["last_alert"] = _now()
 
 

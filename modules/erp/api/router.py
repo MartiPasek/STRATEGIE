@@ -14412,8 +14412,9 @@ _EC_DOCH_MAP = [("mont", "work"), ("rez", "overhead"), ("dov", "vacation"),
 
 # DruhCinnosti klasifikace (číselník Kristý + reálná data 28.6.): absence → att_entry typ; 8=HO; ostatní=práce.
 _DRUH_ABSENCE = {20: "vacation", 30: "vacation", 21: "medical", 22: "sick", 23: "family_care",
-                 31: "sickday", 26: "unpaid", 39: "unpaid", 47: "unpaid", 133: "unpaid",
-                 10: "unpaid", 34: "unpaid", 35: "unpaid", 33: "sick", 36: "sick"}
+                 31: "sickday", 26: "unpaid", 39: "unpaid", 47: "plac_volno_70", 133: "unpaid",
+                 10: "unpaid", 34: "unpaid", 35: "unpaid", 33: "sick", 36: "sick",
+                 50: "plac_volno_80", 51: "plac_volno_90"}  # Kristý 29.7.2026 Fáze 2: placené volno 70/80/90 %
 _DRUH_HO = 8
 # Kristý 29.7.2026: kódy, které v Centrále NEšly do docházky (evidence OSVČ / plánování
 # výroby) → nebrat do att_entry vůbec.

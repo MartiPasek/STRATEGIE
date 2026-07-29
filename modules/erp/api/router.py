@@ -29582,19 +29582,40 @@ def _maybe_notify_seclag():
 
 async def _mirror_sched_loop():
     import asyncio as _aio
+    import concurrent.futures as _cfd
+    import os as _os
+    # Dedikovaný executor + timeout na tik (C23 29.7.): zaseklý job na blokujícím
+    # volání (MCP/MSSQL bez timeoutu) dřív zmrazil CELOU smyčku přes `await
+    # run_in_executor(None, ...)` → všechny mirror joby stály až do restartu API.
+    # Nově tik běží na vlastním poolu s `wait_for`; při timeoutu tik opustíme
+    # (vlákno dobehne na pozadí, watchdog v _mirror_sched_tick uvolní `running`
+    # po 20 min) a smyčka tiká dál. Víc vláken = tolerujeme pár souběžných visů.
+    _tick_timeout = float(_os.environ.get("STRATEGIE_MIRROR_TICK_TIMEOUT") or "900")
+    _ex = _cfd.ThreadPoolExecutor(max_workers=4, thread_name_prefix="mirror-sched")
     _sl_tick = 0
-    while not _MIRROR_SCHED_STOP[0]:
-        try:
-            await _aio.sleep(30)
-            loop = _aio.get_event_loop()
-            await loop.run_in_executor(None, _mirror_sched_tick)
-            _sl_tick += 1
-            if _sl_tick % 10 == 0:  # ~každých 5 min: hlídač blue-green lagu
-                await loop.run_in_executor(None, _maybe_notify_seclag)
-        except _aio.CancelledError:
-            break
-        except Exception as e:
-            logger.warning("[mirror_sched_loop] %s", e)
+    try:
+        while not _MIRROR_SCHED_STOP[0]:
+            try:
+                await _aio.sleep(30)
+                loop = _aio.get_event_loop()
+                try:
+                    await _aio.wait_for(
+                        loop.run_in_executor(_ex, _mirror_sched_tick),
+                        timeout=_tick_timeout)
+                except _aio.TimeoutError:
+                    logger.warning(
+                        "[mirror_sched_loop] tik > %ss (job visí na pozadí) — "
+                        "pokracuji, DB watchdog uvolni running po 20 min",
+                        int(_tick_timeout))
+                _sl_tick += 1
+                if _sl_tick % 10 == 0:  # ~každých 5 min: hlídač blue-green lagu
+                    await loop.run_in_executor(_ex, _maybe_notify_seclag)
+            except _aio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("[mirror_sched_loop] %s", e)
+    finally:
+        _ex.shutdown(wait=False)
 
 
 def _mirror_sched_start():

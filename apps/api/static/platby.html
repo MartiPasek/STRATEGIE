@@ -523,6 +523,13 @@ var FCOLS=[
   {k:'v_plataku',h:'V platáku',t:'b'},{k:'suma_uhrad',h:'Uhrazeno',t:'mu',r:1},
   {k:'banka_export',h:'Export',t:'b'},{k:'ceka_vypis',h:'Čeká výpis',t:'b'},{k:'bank_vypis',h:'Bank.výpis',t:'b'},{k:'uziv_ok',h:'Uživ.OK',t:'b'}
 ];
+var FSORT={k:null,dir:1};  // řazení klikem na název sloupce
+function _cmpFakt(a,b,col){var va=a[col.k],vb=b[col.k];
+  if(col.t==='date'){var da=(_dnum(va)||_inum(va)),db=(_dnum(vb)||_inum(vb));da=(da==null?-1:da);db=(db==null?-1:db);return da<db?-1:(da>db?1:0);}
+  if(col.r||col.t==='m'||col.t==='mu'||col.t==='sal'){var na=parseFloat((''+(va==null?'':va)).replace(/\s/g,'').replace(',','.')),nb=parseFloat((''+(vb==null?'':vb)).replace(/\s/g,'').replace(',','.'));na=isNaN(na)?-Infinity:na;nb=isNaN(nb)?-Infinity:nb;return na<nb?-1:(na>nb?1:0);}
+  if(col.t==='b'){var ca=va?1:0,cb=vb?1:0;return ca-cb;}
+  return String(va==null?'':va).localeCompare(String(vb==null?'':vb),'cs');}
+function resetFaktSort(){FSORT.k=null;FSORT.dir=1;renderFaktury();}
 var _faktColDef={_sel:40,realizovano:40,uctovano:40,schvaleno:40,zakaz:40,rada:50,doklad:87,vs:90,dodavatel:180,splatnost:90,castka:150,mena:48,navrh:54,saldo:150,skonto:68,skonto_do:82,dat_uhrady:92,v_plataku:70,suma_uhrad:92,banka_export:58,ceka_vypis:70,bank_vypis:74,uziv_ok:62};
 function _colw(k){return _faktColW[k]||_faktColDef[k]||60;}
 function _faktTotW(){var t=_colw('_sel');FCOLS.forEach(function(c){t+=_colw(c.k);});return t;}
@@ -613,6 +620,16 @@ function bindFaktFilters(){
     if(el.tagName==='SELECT'||el.type==='date')el.onchange=hnd;else el.oninput=hnd;});
   if(_fActive){var e=document.querySelector('#faktury-body input[data-fcol="'+_fActive+'"]');
     if(e){e.focus();try{var n=e.value.length;e.setSelectionRange(n,n);}catch(_){}}}
+}
+function bindFaktSort(){
+  document.querySelectorAll('#faktury-body table.fakt thead tr:first-child th[data-sk]').forEach(function(th){
+    th.addEventListener('click',function(e){
+      if(e.target.classList&&e.target.classList.contains('colgrip'))return;
+      var sk=th.getAttribute('data-sk');
+      if(FSORT.k!==sk){FSORT.k=sk;FSORT.dir=1;}
+      else if(FSORT.dir>0){FSORT.dir=-1;}
+      else {FSORT.k=null;FSORT.dir=1;}
+      renderFaktury();});});
 }
 function bindFaktSel(){
   var _selList=_faktRendered;
@@ -750,6 +767,8 @@ function renderFaktury(){
   var cekaMode=(_ffStav==='ceka');
   var list=anyF?_faktury.filter(_faktMatch):_faktury;
   if(cekaMode)list=list.filter(function(p){return p.ceka_vypis;});
+  if(FSORT.k){var _sc=null;for(var _si=0;_si<FCOLS.length;_si++)if(FCOLS[_si].k===FSORT.k){_sc=FCOLS[_si];break;}
+    if(_sc)list=list.slice().sort(function(a,b){return _cmpFakt(a,b,_sc)*FSORT.dir;});}
   _faktRendered=list;
   var sh=cekaMode?'v platáku, čeká na potvrzení bankovním výpisem':(Object.keys(_fsums).map(function(m){return _fsums[m].pocet+'× '+money(_fsums[m].otevreno,m)+' otevř.';}).join(' · ')||'—');
   var cap=(!cekaMode&&_fshown<_ftotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_fshown+' nejnovějších)</span>'):'';
@@ -759,14 +778,15 @@ function renderFaktury(){
   var selBtn=selIds.length?' <span class="chip on" onclick="changeNavrhSelected()" style="font-size:11px;padding:2px 8px;margin-left:10px;vertical-align:middle" title="Označí/odznačí Návrh k platbě u vybraných">✎ Změna návrhu k platbě ('+selIds.length+')</span>':'';
   var navrhN=_faktury.filter(function(p){return p.navrh;}).length;
   var genBtn=navrhN?' <span class="chip" onclick="openGenPopup()" style="font-size:11px;padding:2px 8px;margin-left:8px;vertical-align:middle;background:#1f6feb;color:#fff;border-color:#1f6feb" title="Vygeneruj platební příkazy z faktur označených Návrh">🧾 Generovat platební příkazy ('+navrhN+')</span>':'';
-  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur · vybráno: '+selIds.length+cap+selBtn+genBtn+'</div>'+
+  var _rbtn=FSORT.k?(' <a href="#" onclick="resetFaktSort();return false" title="Zpět na výchozí řazení" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:2px 9px;margin-left:8px;font-size:11px;font-weight:600;text-decoration:none;vertical-align:middle">↺ výchozí řazení</a>'):'';
+  var h=faktChips()+'<div class="grp"><div class="gh"><div class="t">📄 '+poc+' faktur · vybráno: '+selIds.length+_rbtn+cap+selBtn+genBtn+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   h+='<div class="doklwrap"><table class="fakt" style="width:'+_faktTotW()+'px"><colgroup><col data-col="_sel" style="width:'+_colw('_sel')+'px">';
   FCOLS.forEach(function(c){h+='<col data-col="'+c.k+'" style="width:'+_colw(c.k)+'px">';});
   h+='</colgroup><thead>';
   var allSel=list.length&&selIds.length===list.length;
   h+='<tr><th data-col="_sel" style="text-align:center"><input type="checkbox" id="faktSelAll"'+(allSel?' checked':'')+' title="Vybrat vše" style="cursor:pointer"><span class="colgrip" data-col="_sel" title="Táhni pro roztažení/zúžení sloupce"></span></th>';
-  FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-col="'+c.k+'"'+(c.tt?' title="'+c.tt+'"':'')+'>'+c.h+'<span class="colgrip" data-col="'+c.k+'" title="Táhni pro roztažení/zúžení sloupce"></span></th>';});h+='</tr>';
+  FCOLS.forEach(function(c){h+='<th'+(c.r?' class="r"':'')+' data-col="'+c.k+'" data-sk="'+c.k+'" title="'+(c.tt?esc(c.tt)+' — ':'')+'klik = seřadit" style="cursor:pointer">'+c.h+(FSORT.k===c.k?(FSORT.dir>0?' ▲':' ▼'):'')+'<span class="colgrip" data-col="'+c.k+'" title="Táhni pro roztažení/zúžení sloupce"></span></th>';});h+='</tr>';
   h+='<tr class="frow"><td style="text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700" title="Zrušit filtry sloupců" onclick="clearFaktFilters()">✕</td>';FCOLS.forEach(function(c){
     if(c.t==='b'){h+='<td><select data-fcol="'+c.k+'"><option value="">–</option><option value="1"'+(_fCol[c.k]==='1'?' selected':'')+'>✓</option><option value="0"'+(_fCol[c.k]==='0'?' selected':'')+'>✗</option></select></td>';}
     else if(c.t==='date'){h+='<td><input readonly value="'+esc(_splatSummary())+'" placeholder="datum…" onclick="openSplatFilter(this)" style="cursor:pointer" title="Klikni pro výběr data nebo období"></td>';}
@@ -780,7 +800,7 @@ function renderFaktury(){
     FCOLS.forEach(function(c){
     var cls=c.r?'r money':(c.k==='dodavatel'?'dod':'');
     h+='<td'+(cls?' class="'+cls+'"':'')+'>'+_faktCell(p,c)+'</td>';});h+='</tr>';});
-  b.innerHTML=h+'</tbody></table></div></div>';bindFaktChips();bindFaktFilters();bindFaktSel();bindColResize();
+  b.innerHTML=h+'</tbody></table></div></div>';bindFaktChips();bindFaktFilters();bindFaktSel();bindColResize();bindFaktSort();
 }
 function loadFaktury(force){
   var b=document.getElementById('faktury-body');

@@ -11362,9 +11362,21 @@ def chat(
         if _is_valid_pack_tf(_active_pack_name):
             _pack_def_tf = _get_pack_tf(_active_pack_name)
             _pack_tool_names_tf = set(_pack_def_tf["tools"])
+            # VŽDY zachovej meta/self-management nástroje (agentní smyčka pracuj_na_cili/
+            # run_as_agent, self-code navrhni_zmenu_kodu*, prompt-edit, tool factory) i pod
+            # lean/packem — jinak by se Marti-AI nemohla řídit ani sama sebe opravit (regres
+            # kufru 29.7.). Doménové nástroje se dál sekají (tam je úspora); agentura zůstává.
+            try:
+                from modules.conversation.application.tool_registry.handlers import (
+                    effective_factory_specs as _efs_keep,
+                )
+                _keep_meta_tf = {s["name"] for s in (_efs_keep(_is_default) or [])}
+            except Exception:
+                _keep_meta_tf = set()
             _filtered_count_before = len(effective_tools)
             effective_tools = [
-                t for t in effective_tools if t["name"] in _pack_tool_names_tf
+                t for t in effective_tools
+                if t["name"] in _pack_tool_names_tf or t["name"] in _keep_meta_tf
             ]
             logger.info(
                 f"TOOLS FILTER | pack={_active_pack_name} | "

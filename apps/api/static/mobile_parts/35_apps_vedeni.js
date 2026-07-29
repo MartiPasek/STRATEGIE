@@ -32,6 +32,7 @@
       if(vp) gg.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
       if(uid===1||uid===11||uid===34) gg.appendChild(appCell("🗼","VP věž",0,function(){openInApp("/vp-vez");}));
       gg.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
+      gg.appendChild(appCell("📷","Fotáky výroba",0,function(){openInApp("/foto");}));
       gg.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
       gg.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
       gg.appendChild(appCell("🔋","Vytížení dílny",0,function(){openInApp("/vytizeni-prehled");}));

@@ -222,12 +222,24 @@ def _kdo(req):
 
 def _smi(s, uid, emp=None):
     """Práva shodná s `fix/void`: editor oprav + působnost na danou osobu.
-    Vrací None = OK, jinak (chyba, http kód)."""
-    from modules.erp.api.router import _att_can_fix, _att_fix_scope, _att_fix_scope_emps
+    Vrací None = OK, jinak (chyba, http kód).
+
+    POZOR (Peťa 30.7.2026): musí respektovat i `_att_fix_scope.fix_all` — příznak
+    „vidí a opravuje VŠECHNY lidi" (Peťa 18, Michaela 16), který přibyl týž den
+    commitem 42876531. Bez něj tenhle modul držel starou působnost (kancelář) a
+    mazání absence u člověka z výroby tiše skončilo na 403 — přesně to se stalo
+    u Horkého 27.7. Kdo bude sahat na práva oprav docházky, ať to přidá i sem."""
+    from modules.erp.api.router import (_att_can_fix, _att_fix_scope,
+                                        _att_fix_scope_emps)
     if not _att_can_fix(s, uid):
         return ("Na opravy docházky nemáš oprávnění.", 403)
     if emp is not None:
-        emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        try:
+            from modules.erp.api.router import _att_fix_all as _fa
+            vse = _fa(s, uid)
+        except Exception:
+            vse = False
+        emps = None if vse else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if emps is not None and int(emp) not in emps:
             return ("Osoba není ve tvé působnosti (kancelář/výroba).", 403)
     return None

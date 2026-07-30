@@ -1494,41 +1494,95 @@ function absSave(){
     }).catch(function(){document.getElementById('abs_ok').disabled=false;
       chyba('Spojení se serverem selhalo.');});
 }
+/* Mazání absencí — VLASTNÍ okno, ne confirm()/prompt() prohlížeče.
+   Peťa 30.7.2026: „vyskočí tabulka, ptá se na důvod, ale nezmizí to." Příčina:
+   stránka běží v rámu (iframe) uvnitř ERP a Chrome v něm modální dialogy prohlížeče
+   tiše potlačuje — `prompt()` vrátí null, funkce mlčky skončí a uživatel nevidí nic.
+   Proto vlastní overlay ve stylu stránky; navíc unese víc řádků i chybové hlášky. */
+var ABSDEL_ROWS=[];
+function absDelBox(){
+  var b=document.getElementById('absdelov'); if(b)return b;
+  b=document.createElement('div'); b.className='ov'; b.id='absdelov';
+  b.innerHTML='<div class="dlg" role="dialog" aria-modal="true" style="width:min(560px,95vw)">'
+    +'<h3>🗑 Smazat absenci</h3><div class="bd">'
+    +'<div id="absdel_warn" style="display:none;margin:0 0 10px;padding:8px 10px;border-radius:6px;'
+    +'background:#3a2a12;border:1px solid #7a5a20;color:#e6c67f;font-size:12px"></div>'
+    +'<div id="absdel_list" style="max-height:200px;overflow:auto;font-size:12.5px;'
+    +'background:#0b0d10;border:1px solid #363b43;border-radius:5px;padding:8px"></div>'
+    +'<div class="fld full" style="margin-top:10px"><label>Důvod smazání '
+    +'<span class="soon">povinné — kvůli auditu</span></label>'
+    +'<input type="text" id="absdel_reason" maxlength="300" autocomplete="off" '
+    +'placeholder="např. zadáno omylem, duplicita…"></div>'
+    +'</div><div class="dmsg" id="absdel_msg"></div>'
+    +'<div class="dbtn"><div class="r">'
+    +'<button class="b-cn" id="absdel_storno">Storno</button>'
+    +'<button class="b-ok" id="absdel_ok">Smazat</button></div></div></div>';
+  document.body.appendChild(b);
+  b.addEventListener('mousedown',function(e){if(e.target===b)absDelClose();});
+  document.getElementById('absdel_storno').addEventListener('click',absDelClose);
+  document.getElementById('absdel_ok').addEventListener('click',absDelRun);
+  document.getElementById('absdel_reason').addEventListener('keydown',function(e){
+    if(e.key==='Enter')absDelRun();});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&b.classList.contains('on'))absDelClose();});
+  return b;
+}
+function absDelClose(){var b=document.getElementById('absdelov'); if(b)b.classList.remove('on');}
 function absDel(idxs){
   var rs=[]; idxs.forEach(function(i){var r=ROWS[i]; if(r&&r.RadekId)rs.push(r);});
   if(!rs.length){alert('Označené řádky nemají číslo řádku — obnov stránku (Ctrl+F5).');return;}
   absMeta(function(){
+    var b=absDelBox(); ABSDEL_ROWS=rs;
+    document.getElementById('absdel_list').innerHTML=rs.map(function(r){
+      return '<div>• <b>'+esc(r.JmenoPrijmeni||'')+'</b> — '+esc(r.Druh||'')+' '
+        +esc(r.DatumOd||'')+(r.DatumDo&&r.DatumDo!==r.DatumOd?('–'+esc(r.DatumDo)):'')
+        +' <span class="muted">('+esc(r.Zdroj||'')+')</span></div>';}).join('');
     var plan=rs.filter(function(r){return String(r.Zdroj||'').indexOf('plán z Centrály')>=0;}).length;
-    var vzkaz='Smazat '+rs.length+' absenc'+(rs.length===1?'i':'í')+'?\n\n'
-      +rs.slice(0,8).map(function(r){return '• '+(r.JmenoPrijmeni||'')+' — '+(r.Druh||'')+' '
-        +(r.DatumOd||'')+'–'+(r.DatumDo||'');}).join('\n')
-      +(rs.length>8?('\n… a další '+(rs.length-8)):'')
-      +((plan&&ABSMETA.sync_centrala)?('\n\n⚠ '+plan+'× plán ze staré Centrály — synchronizace jede '
-        +'každou hodinu a vrátí je zpět, dokud ji Jirka nevypne.'):'');
-    if(!confirm(vzkaz))return;
-    var duv=prompt('Důvod smazání (povinné — kvůli auditu):','');
-    if(duv===null)return;
-    duv=String(duv).trim();
-    if(!duv){alert('Bez důvodu to smazat nejde — je to kvůli auditu.');return;}
-    var hotovo=0, chyby=[];
-    function dalsi(k){
-      if(k>=rs.length){
-        load();
-        $('msg').innerHTML=chyby.length
-          ? '<div class="err">Smazáno '+hotovo+' z '+rs.length+'. Nepovedlo se: '+esc(chyby.join(' · '))+'</div>'
-          : '<div class="ok">Smazáno '+hotovo+' absencí · zůstatky přepočteny.</div>';
-        return;
-      }
-      fetch('/api/v1/erp/app/dochazka-abs/delete',{method:'POST',credentials:'include',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({radek_id:rs[k].RadekId,reason:duv})})
-        .then(function(r){return r.json();}).then(function(j){
-          if(j&&j.ok)hotovo++; else chyby.push((rs[k].JmenoPrijmeni||'?')+': '+((j&&j.error)||'chyba'));
-          dalsi(k+1);
-        }).catch(function(){chyby.push((rs[k].JmenoPrijmeni||'?')+': spojení selhalo');dalsi(k+1);});
-    }
-    dalsi(0);
+    var w=document.getElementById('absdel_warn');
+    if(plan&&ABSMETA&&ABSMETA.sync_centrala){
+      w.style.display=''; w.innerHTML='⚠ '+plan+'× <b>plán ze staré Centrály</b> — synchronizace '
+        +'je pořád zapnutá a smazané dny vrátí zpátky.';
+    } else { w.style.display='none'; }
+    document.getElementById('absdel_reason').value='';
+    document.getElementById('absdel_msg').textContent='';
+    document.getElementById('absdel_msg').className='dmsg';
+    document.getElementById('absdel_ok').disabled=false;
+    b.classList.add('on');
+    setTimeout(function(){try{document.getElementById('absdel_reason').focus();}catch(_e){}},30);
   });
+}
+function absDelRun(){
+  var m=document.getElementById('absdel_msg');
+  var duv=document.getElementById('absdel_reason').value.trim();
+  if(!duv){m.className='dmsg err';m.textContent='Bez důvodu to smazat nejde — je to kvůli auditu.';return;}
+  var rs=ABSDEL_ROWS, hotovo=0, chyby=[];
+  document.getElementById('absdel_ok').disabled=true;
+  m.className='dmsg';m.textContent='Mažu…';
+  function dalsi(k){
+    if(k>=rs.length){
+      document.getElementById('absdel_ok').disabled=false;
+      if(chyby.length){
+        m.className='dmsg err';
+        m.textContent='Smazáno '+hotovo+' z '+rs.length+'. Nepovedlo se: '+chyby.join(' · ');
+        load(); return;
+      }
+      absDelClose(); load();
+      $('msg').innerHTML='<div class="ok">Smazáno '+hotovo+' absencí · zůstatky přepočteny.</div>';
+      setTimeout(function(){$('msg').innerHTML='';},6000);
+      return;
+    }
+    fetch('/api/v1/erp/app/dochazka-abs/delete',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({radek_id:rs[k].RadekId,reason:duv})})
+      .then(function(r){return r.json().then(function(j){return {s:r.status,j:j};},
+                                             function(){return {s:r.status,j:null};});})
+      .then(function(x){
+        if(x.j&&x.j.ok)hotovo++;
+        else chyby.push((rs[k].JmenoPrijmeni||'?')+': '+((x.j&&x.j.error)||('HTTP '+x.s)));
+        dalsi(k+1);
+      }).catch(function(){chyby.push((rs[k].JmenoPrijmeni||'?')+': spojení selhalo');dalsi(k+1);});
+  }
+  dalsi(0);
 }
 </script>
 </body>

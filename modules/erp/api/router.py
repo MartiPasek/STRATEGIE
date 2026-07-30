@@ -23108,29 +23108,11 @@ async def att_fix_void(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
-        # Když stornovaný řádek vznikl ze SCHVÁLENÉ ŽÁDOSTI a byl poslední z ní,
-        # zruš i tu žádost — jinak zůstane viset jako „schváleno + promítnuto",
-        # ale v docházce po ní nic není (a příští materializace by ji vrátila).
-        # Peťa 30.7.2026. Best-effort, storno nikdy neshodí.
-        try:
-            if row[5] == "absence_req":
-                _sid = s.execute(_t("SELECT source_id FROM tenant.att_entry WHERE id=:i"),
-                                 {"i": eid}).scalar()
-                if _sid:
-                    _zbyva = s.execute(_t(
-                        "SELECT count(*) FROM tenant.att_entry WHERE tenant_id=:t "
-                        "AND source_system='absence_req' AND source_id=:z "
-                        "AND COALESCE(status,'')<>'superseded'"),
-                        {"t": _ATT_TENANT, "z": _sid}).scalar() or 0
-                    if not _zbyva:
-                        s.execute(_t(
-                            "UPDATE tenant.att_absence_request SET stav='cancelled', "
-                            "materialized=false, status_text=:st, decided_by_user_id=:u, "
-                            "decided_at=now() WHERE id=:z AND tenant_id=:t"),
-                            {"z": _sid, "t": _ATT_TENANT, "u": uid,
-                             "st": ("Zrušeno stornem v Opravách (" + actor + "): " + reason)[:500]})
-        except Exception:
-            pass
+        # POZOR — navázanou ŽÁDOST tady SCHVÁLNĚ NERUŠÍME (Peťa 30.7.2026:
+        # „tu žádost tam zatím necháme, ale musíme to smazat z docházky").
+        # Storno v Opravách řeší jen docházkový záznam; žádost zůstane ve Správě
+        # docházky jako informace (u home office je to celý smysl — HO je ohlášení,
+        # ne docházka). Kdo sem bude sahat: nedoplňovat rušení žádosti bez Peti.
         # C24 30.7.2026: storno sjednoceno pod KANONICKOU KASKÁDU
         # _att_sync_vyroba_work (G2007 doc-dochazka-att-entry-vyroba-work-kaskada) —
         # „jeden zdroj pravdy". Nejdřív vždy zneplatníme položky vlastní stornovanému

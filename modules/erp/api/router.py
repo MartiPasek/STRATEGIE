@@ -469,6 +469,108 @@ def _require_data_write_access(user_id: int, entity_type: str) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# PŘÍPLATKY A SRÁŽKY — serverová brána zápisu do tenant.wage_movement
+# ---------------------------------------------------------------------------
+# Proč to tu je: `_require_data_write_access` výše pouští KAŽDÉHO člena ERP do
+# jakékoli business tabulky. U mzdových pohybů to nestačí — z `wage_movement`
+# se počítá výplata. Zámek na formuláři (mzdy_pripl_actions.js) je jen vizuální;
+# skutečnou pojistkou musí být tahle brána, protože obejít frontend umí kdokoli.
+#
+# Dvě vrstvy:
+#   1) CUTOVER — dokud `tenant.pripl_cutover.unlocked_at IS NULL`, NIKDO nesmí
+#      zapsat (ani Petra). Zdroj pravdy je pořád Centrála; zápis u nás by vyrobil
+#      druhou pravdu pro období, které se právě počítá. Odemyká hlídač
+#      `pripl_cutover_gate` po čtyřech kontrolách + písemném souhlasu Petry.
+#   2) PRÁVA (po odemčení) — rozhodnutí Jirka 30. 7. 2026:
+#        - schvalovat smí jen držitel postu s příznakem `wage_approver`
+#          (dnes MZDOVÁ ÚČETNÍ = Petra, PERSONALISTA = Šárka; právo visí na POSTU,
+#          takže po odchodu člověka přejde na nástupce samo),
+#        - navrhovat smí vedoucí NEBO zástupce skupiny (`tenant.staff_group`),
+#          ve které je dotyčný člověk členem. Skupiny už existují a používá je
+#          mobilní appka — nic nového se nezakládá.
+#      Rodič (Marti, Kristý, Jirka) projde vždy — doctrine #5.
+_PRIPL_TABULKA = "tenant.wage_movement"
+# Sloupce, jejichž změna JE schvalovací akt (ne běžná editace návrhu).
+_PRIPL_SCHVALOVACI_SLOUPCE = {"status", "approved_by_id", "approved_at", "exported_at"}
+
+
+def _pripl_je_schvalovatel(s, uid: int) -> bool:
+    """Drží uživatel post s příznakem `wage_approver`? (mzdová účetní / personalistka)"""
+    from sqlalchemy import text as _tg
+    r = s.execute(_tg(
+        "SELECT 1 FROM tenant.org_role_flag f "
+        "JOIN tenant.org_post_assign a ON a.post_id = f.post_id AND coalesce(a.aktivni,true) "
+        "  AND (a.platnost_do IS NULL OR a.platnost_do >= current_date) "
+        "JOIN tenant.att_employee ae ON ae.id = a.employee_id AND ae.tenant_id = 2 "
+        "WHERE f.tenant_id = 2 AND f.flag = 'wage_approver' AND coalesce(f.aktivni,true) "
+        "  AND ae.user_id = :u LIMIT 1"), {"u": uid}).first()
+    return r is not None
+
+
+def _pripl_smi_navrhnout(s, uid: int, engagement_id) -> bool:
+    """Je uživatel vedoucím nebo zástupcem skupiny, ve které je dotyčný člověk?"""
+    from sqlalchemy import text as _tg
+    if not engagement_id:
+        return False
+    r = s.execute(_tg(
+        "SELECT 1 "
+        "FROM tenant.engagement e "
+        "JOIN tenant.att_employee ae ON ae.id = e.employee_id "
+        "JOIN tenant.staff_group_member m ON m.user_id = ae.user_id "
+        "JOIN tenant.staff_group g ON g.id = m.group_id AND coalesce(g.archived,false) = false "
+        "WHERE e.id = :eng AND (g.leader_user_id = :u OR g.deputy_user_id = :u) LIMIT 1"),
+        {"eng": engagement_id, "u": uid}).first()
+    return r is not None
+
+
+def _pripl_write_guard(uid: int, schema_name: str, table_name: str,
+                       field_changes: dict, row_id=None) -> None:
+    """Brána zápisu do wage_movement. Mimo tuhle tabulku nedělá nic."""
+    if ("%s.%s" % (schema_name or "", table_name or "")) != _PRIPL_TABULKA:
+        return
+    from core.database_data import get_data_session as _gg
+    from sqlalchemy import text as _tg
+    s = _gg()
+    try:
+        st = s.execute(_tg(
+            "SELECT unlocked_at FROM tenant.pripl_cutover WHERE id = 1")).first()
+        # Bez řádku se chováme jako ZAMČENO — bezpečnější než opačně.
+        if st is None or st[0] is None:
+            raise HTTPException(status_code=403, detail=(
+                "Příplatky a srážky se zatím zadávají ve staré Centrále. "
+                "Zápis ve STRATEGII se odemkne teprve po kontrolách a písemném "
+                "souhlasu mzdové účetní."))
+
+        if is_marti_parent(uid):
+            return
+
+        zmeny = set((field_changes or {}).keys())
+        schvaluje = bool(zmeny & _PRIPL_SCHVALOVACI_SLOUPCE)
+        je_schvalovatel = _pripl_je_schvalovatel(s, uid)
+
+        if schvaluje and not je_schvalovatel:
+            raise HTTPException(status_code=403, detail=(
+                "Schválit nebo předat odměnu do mzdy může jen mzdová účetní "
+                "nebo personalistka."))
+        if je_schvalovatel:
+            return
+
+        # Návrh: musí jít o člověka z vlastní skupiny.
+        eng = (field_changes or {}).get("engagement_id")
+        if eng is None and row_id is not None:
+            r = s.execute(_tg(
+                "SELECT engagement_id FROM tenant.wage_movement WHERE id = :i"),
+                {"i": row_id}).first()
+            eng = r[0] if r else None
+        if not _pripl_smi_navrhnout(s, uid, eng):
+            raise HTTPException(status_code=403, detail=(
+                "Odměnu můžeš navrhnout jen lidem ze své skupiny. "
+                "Pokud si myslíš, že to je omyl, ozvi se personalistce."))
+    finally:
+        s.close()
+
+
 def _get_tenant_id(user_id: int) -> int:
     """
     Phase B+8.1 (6.5.2026): resolve current tenant pro per-tenant user state.
@@ -51707,6 +51809,8 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
     schema_name = entity_config["schema"]
     table_name = entity_config["table"]
     id_column = entity_config["id_column"]
+    # Mzdové pohyby (příplatky a srážky) mají vlastní bránu — viz _pripl_write_guard.
+    _pripl_write_guard(uid, schema_name, table_name, field_changes, row_id)
     # Phase 38.4 Krok 5.N-2 v2 (22.5.2026 vecer, Marti's "NULL = all editable,
     # trust frontend"): resolver vrací select_columns=None pro DB-driven
     # entity configs (Excel mode + dynamic comp_grid columns). Legacy
@@ -52440,6 +52544,8 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
     schema = config["schema"]
     table = config["table"]
     id_column = config.get("id_column", "id")
+    # Mzdové pohyby: mazat smí jen ten, kdo smí i zapisovat (a jen po odemčení).
+    _pripl_write_guard(uid, schema, table, {}, row_id)
 
     ds = _gds_del()
     try:
@@ -53459,6 +53565,8 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
     schema_name = entity_config["schema"]
     table_name = entity_config["table"]
     id_column = entity_config["id_column"]
+    # Mzdové pohyby (příplatky a srážky) mají vlastní bránu — viz _pripl_write_guard.
+    _pripl_write_guard(uid, schema_name, table_name, field_changes, None)
     _raw_cols = entity_config.get("select_columns")
     allowed_columns = set(_raw_cols) if _raw_cols is not None else None
 

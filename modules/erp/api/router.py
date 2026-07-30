@@ -23417,11 +23417,15 @@ async def att_fix_resync(req: Request) -> JSONResponse:
                 if dry:
                     p = _att_sync_vyroba_work(s, emp_id, den, dry_run=True, create_missing=create_missing)
                 else:
-                    # atomicky po dni — když jedna dvojice spadne uprostřed, rollbackne
-                    # se jen ona (savepoint), zbytek běhu zůstane konzistentní.
-                    with s.begin_nested():
-                        p = _att_sync_vyroba_work(s, emp_id, den, dry_run=False, create_missing=create_missing)
+                    # COMMIT PO KAŽDÉM DNI (C24 30.7.2026): nedrží obří transakci přes
+                    # stovky dnů (to zahlcovalo API → 502/503). Každý den je atomický a
+                    # hned trvalý → backfill je resumovatelný a idempotentní. I tak pouštět
+                    # po malých rozsazích (týden), ať request nespadne na gateway timeout.
+                    p = _att_sync_vyroba_work(s, emp_id, den, dry_run=False, create_missing=create_missing)
+                    s.commit()
             except Exception:
+                if not dry:
+                    s.rollback()
                 logger.error("resync kaskáda selhala (emp=%s, den=%s)", emp_id, den, exc_info=True)
                 continue
             if p.get("rows", 0) > 0 and p.get("segs", 0) == 0 and len(podezrele) < 50:

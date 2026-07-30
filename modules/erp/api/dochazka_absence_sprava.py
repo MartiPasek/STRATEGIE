@@ -137,6 +137,38 @@ def _engagement(s, emp):
                         "ORDER BY id DESC LIMIT 1"), {"e": emp, "t": _TEN}).scalar()
 
 
+class _Kousek:
+    """Bezpečná obálka pro „když to nevyjde, nevadí" bloky.
+
+    ⚠️ POUČENÍ 30.7.2026 (Peťa: „napsalo smazáno, ale nesmazalo se"):
+    prosté `try/except: s.rollback()` uvnitř pomocné funkce VRÁTÍ ZPĚT CELOU
+    rozdělanou transakci, tedy i práci volajícího — smazání absence se zapsalo,
+    pak selhal navazující přepočet zůstatku, jeho `rollback()` smazání zahodil
+    a endpoint přesto vrátil `ok`. Uživatel viděl „Smazáno 1 absencí" a v datech
+    nebylo nic. Rollback v PG nejde vynechat (po chybě je transakce zablokovaná),
+    takže se každý nepovinný blok jistí SAVEPOINTem = vrátí se jen on sám.
+    """
+
+    def __init__(self, s):
+        self.s = s
+        self.tx = None
+
+    def __enter__(self):
+        try:
+            self.tx = self.s.begin_nested()
+        except Exception:
+            self.tx = None
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.tx is not None:
+            try:
+                self.tx.rollback() if exc_type else self.tx.commit()
+            except Exception:
+                pass
+        return True  # výjimku spolkni, hlavní práce pokračuje
+
+
 def _abs_recalc_balances(s, emp, roky):
     """IDEMPOTENTNÍ přepočet zůstatků z docházky (ne inkrement — spočítá se znovu).
 
@@ -155,7 +187,7 @@ def _abs_recalc_balances(s, emp, roky):
         return out
     for rok in sorted({int(r) for r in roky if r}):
         # ── dovolená ────────────────────────────────────────────────────────
-        try:
+        with _Kousek(s):
             ex = s.execute(_t("SELECT narok_h, prevod_h, COALESCE(uzavreno,false) "
                               "FROM tenant.holiday_balance "
                               "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
@@ -185,10 +217,8 @@ def _abs_recalc_balances(s, emp, roky):
                                  "VALUES (:t,:g,:r,0,0,:c,NULL)"),
                               {"t": _TEN, "g": eng, "r": rok, "c": cerp})
                 out.append("dovolená %d: čerpáno %.1f h" % (rok, float(cerp)))
-        except Exception:
-            s.rollback()
         # ── sick days ───────────────────────────────────────────────────────
-        try:
+        with _Kousek(s):
             ex = s.execute(_t("SELECT narok_h, COALESCE(uzavreno,false) FROM tenant.sick_day_balance "
                               "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
                            {"t": _TEN, "g": eng, "r": rok}).first()
@@ -210,8 +240,6 @@ def _abs_recalc_balances(s, emp, roky):
                                  "VALUES (:t,:g,:r,16,:c)"),
                               {"t": _TEN, "g": eng, "r": rok, "c": cerp})
                 out.append("sick days %d: čerpáno %.1f h" % (rok, float(cerp)))
-        except Exception:
-            s.rollback()
     return out
 
 
@@ -327,10 +355,8 @@ def abs_promitni_zadost(s, rid, uid=None) -> int:
     if dnu:
         s.execute(_t("UPDATE tenant.att_absence_request SET materialized=true "
                      "WHERE id=:i AND tenant_id=:t"), {"i": rid, "t": _TEN})
-        try:
+        with _Kousek(s):
             _abs_recalc_balances(s, int(emp), {d_od.year, d_do.year})
-        except Exception:
-            s.rollback()
     return dnu
 
 
@@ -394,17 +420,15 @@ def _znic_dny(s, ids, emp, uid, actor, duvod):
             " note = CASE WHEN COALESCE(note,'')='' THEN :tg ELSE note || ' / ' || :tg END "
             "WHERE id=:i AND tenant_id=:t"), {"i": eid, "t": _TEN, "tg": tag})
         # navázaný úsek ve výrobě (kdyby existoval) — stejná kaskáda jako fix/void
-        try:
+        with _Kousek(s):
             s.execute(_t("UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
                          "WHERE att_entry_id=:i AND tenant_id=:t"), {"i": eid, "t": _TEN})
-        except Exception:
-            s.rollback()
         _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=row[2], new_note=tag,
                        detail="Správa docházky — absence", old_date=row[1])
         # když záznam vznikl ze schválené žádosti, zruš i tu žádost (jinak zůstane
         # viset jako approved+materialized — stará nekonzistence, viz docstring)
         if row[4] == "absence_req" and row[5]:
-            try:
+            with _Kousek(s):
                 zbyva = s.execute(_t(
                     "SELECT count(*) FROM tenant.att_entry WHERE tenant_id=:t AND source_system='absence_req' "
                     "AND source_id=:z AND COALESCE(status,'')<>'superseded'"),
@@ -415,8 +439,6 @@ def _znic_dny(s, ids, emp, uid, actor, duvod):
                                  "decided_at=now() WHERE id=:z AND tenant_id=:t"),
                               {"z": row[5], "t": _TEN, "u": uid,
                                "st": ("Zrušeno ve Správě docházky (" + actor + "): " + duvod)[:500]})
-            except Exception:
-                s.rollback()
     return data
 
 
@@ -682,6 +704,17 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
                            old_date=r[1])
             zust = _abs_recalc_balances(s, emp, {r[1].year, r[2].year})
             s.commit()
+            # POJISTKA (Peťa 30.7.2026): NIKDY nehlásit „smazáno", dokud to není
+            # opravdu v datech. Dřív endpoint vrátil ok i když se změna cestou
+            # ztratila (rollback v přepočtu zůstatku) — uživatel viděl zelenou
+            # hlášku a řádek zůstal. Radši ověřit čtením než věřit návratovce.
+            _ov = s.execute(_t("SELECT stav FROM tenant.att_absence_request "
+                               "WHERE id=:i AND tenant_id=:t"),
+                            {"i": zid, "t": _TEN}).scalar()
+            if _ov != "cancelled":
+                return _chyba("Smazání se neuložilo (stav zůstal „%s“). Zkus to prosím "
+                              "znovu a pokud to bude znovu, pošli tuhle hlášku Claudovi."
+                              % (_ov or "?"), 500)
             try:
                 _att_fix_notify(s, emp, uid, actor, "Zrušená absence",
                                 "%s zrušil(a) tvou absenci %s–%s. Důvod: %s"

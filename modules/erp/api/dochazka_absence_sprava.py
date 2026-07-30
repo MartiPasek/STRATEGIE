@@ -267,6 +267,61 @@ def dochazka_abs_meta(req: Request) -> JSONResponse:
             pass
 
 
+# ── PROMÍTNUTÍ ŽÁDOSTI DO DNŮ BEZ OHLEDU NA SCHVÁLENÍ ────────────────────────
+# Peťa 30.7.2026: „Nastavujeme to tak, jak jsou všichni zvyklí z Centrály — nemůže
+# se nám to nepropisovat kvůli schválení, když ti lidi tu dovolenou měli."
+# V Centrále šla dovolená do docházky rovnou; schvalování bylo vedle, ne brána před ní.
+# U nás se do 30.7. dny generovaly AŽ schválením (`/absence/decide`), takže neschválená
+# žádost znamenala v docházce PRÁZDNÝ den — člověk odjel a nikde nic. Doloženo: 23 žádostí
+# o dovolenou u 14 lidí (83 pracovních dnů, nejstarší z 22.6.) viselo nepromítnutých.
+#
+# Nově: dny se vygenerují PODLE PRAVIDEL (pracovní dny z firemního kalendáře × hodiny/den)
+# hned, nezávisle na `stav`. Schválení tím neztrácí smysl — vedoucí pořád rozhoduje,
+# jen už neblokuje zápis do docházky.
+#
+# Platí JEN pro dovolenou a sick day (Peťa 30.7.). Lékař, nemoc a OČR se zadávají
+# z reálných dokladů, ne ze žádosti — ty tudy schválně NEJDOU (řeší se s Kristý).
+# Co s dnem, když vedoucí žádost později zamítne, ZATÍM NEŘEŠÍME (Peťa: „až to
+# někdo bude řešit") — den v docházce zůstane.
+_ROVNOU_DO_DOCHAZKY = ("vacation", "sickday")
+
+
+def abs_promitni_zadost(s, rid, uid=None) -> int:
+    """Vygeneruje denní záznamy ze žádosti `rid`. Idempotentní — nejdřív smaže
+    dřívější materializaci téže žádosti, stejně jako to dělá `/absence/decide`,
+    takže opakované volání ani pozdější schválení nic nezdvojí.
+    Vrací počet založených dnů (0 = typ sem nepatří / není co zapsat)."""
+    from sqlalchemy import text as _t
+    r = s.execute(_t(
+        "SELECT employee_id, typ, datum_od, datum_do, hours_per_day, user_id, "
+        "       COALESCE(materialized,false), COALESCE(stav,'') "
+        "FROM tenant.att_absence_request WHERE id=:i AND tenant_id=:t"),
+        {"i": rid, "t": _TEN}).first()
+    if not r:
+        return 0
+    emp, typ, d_od, d_do, hpd, zad_uid, mat, stav = r
+    if typ not in _ROVNOU_DO_DOCHAZKY:
+        return 0
+    if stav in ("cancelled", "rejected"):
+        return 0
+    ti = _typ_id(s, typ)
+    if not ti:
+        return 0
+    # idempotence — shodně s /absence/decide
+    s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=:t AND source_system='absence_req' "
+                 "AND source_id=:i"), {"t": _TEN, "i": rid})
+    dnu = _zapis_dny(s, int(emp), typ, d_od, d_do, float(hpd or 8),
+                     "absence ze žádosti", (uid or zad_uid), zdroj="absence", zad_id=rid)
+    if dnu:
+        s.execute(_t("UPDATE tenant.att_absence_request SET materialized=true "
+                     "WHERE id=:i AND tenant_id=:t"), {"i": rid, "t": _TEN})
+        try:
+            _abs_recalc_balances(s, int(emp), {d_od.year, d_do.year})
+        except Exception:
+            s.rollback()
+    return dnu
+
+
 # ── společné jádro zápisu ────────────────────────────────────────────────────
 def _typ_id(s, code):
     from sqlalchemy import text as _t

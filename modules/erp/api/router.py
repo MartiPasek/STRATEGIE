@@ -15013,6 +15013,15 @@ async def att_absence_request(req: Request) -> JSONResponse:
             "hours_per_day,note,stav,manager_user_id) "
             "VALUES (2,:e,:u,:ty,:od,:do,:h,:n,'pending',:m) RETURNING id"),
             {"e": emp, "u": uid, "ty": typ, "od": d_od, "do": d_do, "h": hpd, "n": note, "m": mgr}).scalar()
+        # Peťa 30.7.2026: dovolená a sick day se propíšou do docházky ROVNOU podle
+        # pravidel, bez ohledu na schválení — jako to bylo v Centrále. Do té doby
+        # neschválená žádost = prázdný den v docházce (23 žádostí / 14 lidí viselo).
+        # Idempotentní, pozdější /absence/decide si materializaci přepíše po svém.
+        try:
+            from modules.erp.api.dochazka_absence_sprava import abs_promitni_zadost as _abs_prom
+            _abs_prom(s, rid, uid)
+        except Exception as _e_prom:
+            logger.warning("[absence] promitnuti zadosti #%s selhalo: %s", rid, _e_prom)
         who = s.execute(_t(
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),

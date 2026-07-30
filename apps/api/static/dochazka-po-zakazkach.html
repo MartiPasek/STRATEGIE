@@ -1458,7 +1458,8 @@ function absOpen(mode,i){
     b.classList.add('on');
   });
 }
-function absSave(){
+function absSave(){ try{ _absSave(); }catch(e){ _absErr('abs_msg', e); } }
+function _absSave(){
   var m=document.getElementById('abs_msg');
   var typ=document.getElementById('abs_typ').value;
   var od=document.getElementById('abs_od').value, dd=document.getElementById('abs_do').value;
@@ -1551,7 +1552,19 @@ function absDel(idxs){
     setTimeout(function(){try{document.getElementById('absdel_reason').focus();}catch(_e){}},30);
   });
 }
-function absDelRun(){
+/* Diagnostika (Peťa 30.7.2026): mazání i editace tiše nedělaly nic a NEUKÁZALY chybu.
+   Server přitom odpovídá (ověřeno na /app/dochazka-abs/meta). Aby se příště nehádalo,
+   obalíme obsluhu tlačítek try/catch a chybu vypíšeme rovnou do okna — uživatel ji
+   přečte bez konzole prohlížeče. */
+function _absErr(id, e){
+  try{
+    var m=document.getElementById(id);
+    if(m){m.className='dmsg err';
+      m.textContent='Chyba ve stránce: '+((e&&(e.message||e))||'neznámá')+' — pošli tenhle text Claudovi.';}
+  }catch(_x){ alert('Chyba ve stránce: '+((e&&(e.message||e))||'neznámá')); }
+}
+function absDelRun(){ try{ _absDelRun(); }catch(e){ _absErr('absdel_msg', e); } }
+function _absDelRun(){
   var m=document.getElementById('absdel_msg');
   var duv=document.getElementById('absdel_reason').value.trim();
   if(!duv){m.className='dmsg err';m.textContent='Bez důvodu to smazat nejde — je to kvůli auditu.';return;}

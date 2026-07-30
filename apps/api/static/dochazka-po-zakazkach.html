@@ -720,7 +720,7 @@ function recalcH(){
     $('d_hod').value=isNaN(h)?'':(Math.round(h*100)/100).toFixed(2);}
 }
 function openNew(i){
-  if(OBD==='budoucnost')return;  // budoucnost: zadávání připravujeme v dalším kroku
+  if(OBD==='budoucnost'){absOpen('new',i);return;}   // Správa docházky = vlastní okno na absenci
   // Nový záznam pro osobu z řádku, na kterém stojíš (jako v Centrále).
   var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=true;
   $('d_id').textContent='· nový'; $('d_idnum').value='(nový)';
@@ -741,7 +741,7 @@ function openNew(i){
   $('ov').classList.add('on');
 }
 function openEdit(i){
-  if(OBD==='budoucnost')return;  // budoucnost: úpravy připravujeme v dalším kroku
+  if(OBD==='budoucnost'){absOpen('edit',i);return;}  // Správa docházky = vlastní okno na absenci
   var r=ROWS[i]; if(!r)return; EDIT_I=i; EDIT_NEW=false;
   // Režim: W = práce na zakázce (naše přímé uložení). FIX = docházka z aplikace
   // (přítomnost/Rezie) → oprava se ukládá přes engine „Opravy docházky" (audit, mzdy,
@@ -1104,10 +1104,7 @@ function smazat(){
   openDel(idxs);
 }
 function openDel(idxs){
-  if(OBD==='budoucnost'){
-    alert('Naplánované absence se tu zatím nemažou — data „Naplánované budoucnosti" nemají ve výpisu vlastní ID. Připravujeme to s Jirkou (doplní ID + rušení celé žádosti). Zatím zruš žádost v „Žádosti o absenci".');
-    return;
-  }
+  if(OBD==='budoucnost'){ absDel(idxs); return; }   // absence mají vlastní mazání (Zdroj + Číslo řádku)
   // Roztřídit na mazatelné (P/W) a přeskočené (C/A/jiné) s důvodem.
   var del=[], skip={c:0,a:0,jine:0};
   idxs.forEach(function(i){var r=ROWS[i]; if(!r)return; var k=r._kind;
@@ -1342,6 +1339,187 @@ function init(){
     td.classList.add('cellcopied'); setTimeout(function(){td.classList.remove('cellcopied');},350);
   });
 })();
+
+/* ══ SPRÁVA DOCHÁZKY — úprava / přidání / smazání absence ══════════════════
+   Peťa 30.7.2026: „správa je správa proto, aby se to tam spravovalo."
+   Řádek se pozná podle sloupce „Číslo řádku": Z:<žádost> nebo D:<denní záznamy>.
+   Sloupec „Zdroj" rozhoduje, jestli varovat (plán z Centrály se do vypnutí
+   synchronizace přepíše). Zapisuje se přes /app/dochazka-abs/{new,save,delete}. */
+var ABSMETA=null;
+function absMeta(cb){
+  if(ABSMETA){cb();return;}
+  fetch('/api/v1/erp/app/dochazka-abs/meta',{credentials:'include'})
+    .then(function(r){return r.json();})
+    .then(function(j){ABSMETA=(j&&j.ok)?j:{druhy:[],sync_centrala:true};cb();})
+    .catch(function(){ABSMETA={druhy:[],sync_centrala:true};cb();});
+}
+function absBox(){
+  var b=document.getElementById('absov'); if(b)return b;
+  b=document.createElement('div'); b.className='ov'; b.id='absov';
+  b.innerHTML='<div class="dlg" role="dialog" aria-modal="true" style="width:min(560px,95vw)">'
+    +'<h3 id="abs_t">Absence</h3><div class="bd">'
+    +'<div id="abs_warn" style="display:none;margin:0 0 10px;padding:8px 10px;border-radius:6px;'
+    +'background:#3a2a12;border:1px solid #7a5a20;color:#e6c67f;font-size:12px"></div>'
+    +'<div class="fld full"><label>Pracovník</label><div id="abs_prac_w"></div></div>'
+    +'<div class="frow2" style="margin-top:10px">'
+    +'<div class="fld"><label>Druh absence</label><select id="abs_typ"></select></div>'
+    +'<div class="fld"><label>Hodin za den</label>'
+    +'<input type="number" id="abs_h" step="0.5" min="0.5" max="24" value="8"></div></div>'
+    +'<div class="frow2" style="margin-top:10px">'
+    +'<div class="fld"><label>Od</label><input type="date" id="abs_od"></div>'
+    +'<div class="fld"><label>Do</label><input type="date" id="abs_do"></div></div>'
+    +'<div class="fld full" style="margin-top:10px"><label>Poznámka</label>'
+    +'<input type="text" id="abs_pozn" maxlength="250"></div>'
+    +'<div class="fld full" style="margin-top:10px"><label id="abs_rl">Důvod '
+    +'<span class="soon">povinné — kvůli auditu</span></label>'
+    +'<input type="text" id="abs_reason" maxlength="300" autocomplete="off"></div>'
+    +'</div><div class="dmsg" id="abs_msg"></div>'
+    +'<div class="dbtn"><div class="r">'
+    +'<button class="b-cn" id="abs_storno">Storno</button>'
+    +'<button class="b-ok" id="abs_ok">OK</button></div></div></div>';
+  document.body.appendChild(b);
+  b.addEventListener('mousedown',function(e){if(e.target===b)absClose();});
+  document.getElementById('abs_storno').addEventListener('click',absClose);
+  document.getElementById('abs_ok').addEventListener('click',absSave);
+  document.getElementById('abs_od').addEventListener('input',function(){
+    var d=document.getElementById('abs_do'); if(!d.value||d.value<this.value)d.value=this.value;});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&b.classList.contains('on'))absClose();});
+  return b;
+}
+function absClose(){var b=document.getElementById('absov'); if(b)b.classList.remove('on');}
+function _absD(t){ // 'DD.MM.YYYY' → 'YYYY-MM-DD'
+  var m=/^(\d{2})\.(\d{2})\.(\d{4})/.exec(String(t||'')); return m?(m[3]+'-'+m[2]+'-'+m[1]):'';
+}
+function _absKod(label){ // název druhu z přehledu → kód pro server
+  var d=(ABSMETA&&ABSMETA.druhy)||[];
+  for(var i=0;i<d.length;i++){ if(String(d[i].label).trim()===String(label||'').trim())return d[i].code; }
+  return '';
+}
+function _absVarovani(zdroj){
+  var w=document.getElementById('abs_warn');
+  var plan=String(zdroj||'').indexOf('plán z Centrály')>=0;
+  if(plan&&ABSMETA&&ABSMETA.sync_centrala){
+    w.style.display=''; w.innerHTML='⚠ Tenhle řádek je <b>plán ze staré Centrály</b> a synchronizace '
+      +'je pořád zapnutá — jede každou hodinu a tvoji změnu přepíše zpátky. '
+      +'Až ji Jirka vypne, tohle varování samo zmizí.';
+  } else { w.style.display='none'; w.innerHTML=''; }
+}
+var ABS_MODE='new', ABS_ROW=null;
+function absOpen(mode,i){
+  closeCtx&&closeCtx();
+  var r=ROWS[i]; if(!r)return;
+  absMeta(function(){
+    var b=absBox(); ABS_MODE=mode; ABS_ROW=r;
+    var sel=document.getElementById('abs_typ');
+    sel.innerHTML='<option value="">—</option>'+((ABSMETA.druhy)||[]).map(function(d){
+      return '<option value="'+esc(d.code)+'">'+esc(d.label)+'</option>';}).join('');
+    document.getElementById('abs_msg').textContent='';
+    document.getElementById('abs_msg').className='dmsg';
+    document.getElementById('abs_reason').value='';
+    var pw=document.getElementById('abs_prac_w');
+    if(mode==='new'){
+      document.getElementById('abs_t').textContent='➕ Nová absence';
+      document.getElementById('abs_rl').innerHTML='Důvod <span class="muted">nepovinné</span>';
+      loadZam(function(){
+        pw.innerHTML='<select id="abs_prac">'+((ZAML)||[]).map(function(z){
+          return '<option value="'+esc(z.cislo)+'"'+(String(z.cislo)===String(r.CisloZam)?' selected':'')
+            +'>'+esc(z.jmeno)+' ('+esc(z.cislo)+')</option>';}).join('')+'</select>';
+      });
+      sel.value=''; document.getElementById('abs_od').value=''; document.getElementById('abs_do').value='';
+      document.getElementById('abs_h').value='8'; document.getElementById('abs_pozn').value='';
+      _absVarovani('');
+    } else {
+      document.getElementById('abs_t').textContent='✏ Úprava absence';
+      document.getElementById('abs_rl').innerHTML='Důvod úpravy <span class="muted">povinné — kvůli auditu</span>';
+      pw.innerHTML='<input type="text" value="'+esc((r.JmenoPrijmeni||'')+' '+(r.CisloZam||''))
+        +'" disabled title="U existujícího záznamu se pracovník nemění">';
+      sel.value=_absKod(r.Druh);
+      document.getElementById('abs_od').value=_absD(r.DatumOd);
+      document.getElementById('abs_do').value=_absD(r.DatumDo);
+      document.getElementById('abs_h').value='8';
+      document.getElementById('abs_pozn').value=r.ZamPoznamka||'';
+      _absVarovani(r.Zdroj);
+      if(!r.RadekId){
+        document.getElementById('abs_msg').className='dmsg err';
+        document.getElementById('abs_msg').textContent='Tenhle řádek nemá číslo řádku — obnov stránku (Ctrl+F5).';
+      }
+    }
+    b.classList.add('on');
+  });
+}
+function absSave(){
+  var m=document.getElementById('abs_msg');
+  var typ=document.getElementById('abs_typ').value;
+  var od=document.getElementById('abs_od').value, dd=document.getElementById('abs_do').value;
+  var h=document.getElementById('abs_h').value, pozn=document.getElementById('abs_pozn').value;
+  var duv=document.getElementById('abs_reason').value.trim();
+  function chyba(t){m.className='dmsg err';m.textContent=t;}
+  if(!typ)return chyba('Vyber druh absence.');
+  if(!od||!dd)return chyba('Vyplň období od–do.');
+  if(dd<od)return chyba('Datum „do" nesmí být dřív než „od".');
+  var url,body;
+  if(ABS_MODE==='new'){
+    var ps=document.getElementById('abs_prac');
+    if(!ps||!ps.value)return chyba('Vyber pracovníka.');
+    url='/api/v1/erp/app/dochazka-abs/new';
+    body={cislo_zam:ps.value,typ:typ,datum_od:od,datum_do:dd,hodin_den:h,poznamka:pozn};
+  } else {
+    if(!duv)return chyba('Důvod úpravy je povinný — kvůli auditu.');
+    if(!ABS_ROW||!ABS_ROW.RadekId)return chyba('Řádek nemá číslo řádku — obnov stránku (Ctrl+F5).');
+    url='/api/v1/erp/app/dochazka-abs/save';
+    body={radek_id:ABS_ROW.RadekId,typ:typ,datum_od:od,datum_do:dd,hodin_den:h,
+          poznamka:pozn,reason:duv};
+  }
+  m.className='dmsg';m.textContent='Ukládám…';
+  document.getElementById('abs_ok').disabled=true;
+  fetch(url,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){
+      document.getElementById('abs_ok').disabled=false;
+      if(!j||!j.ok){chyba((j&&j.error)||'Nepodařilo se uložit.');return;}
+      absClose(); load();
+      var z=(j.zustatky&&j.zustatky.length)?(' · přepočteno: '+j.zustatky.join(', ')):'';
+      $('msg').innerHTML='<div class="ok">Hotovo'+(j.dnu?(' — '+j.dnu+' dnů'):'')+esc(z)+'</div>';
+      setTimeout(function(){$('msg').innerHTML='';},6000);
+    }).catch(function(){document.getElementById('abs_ok').disabled=false;
+      chyba('Spojení se serverem selhalo.');});
+}
+function absDel(idxs){
+  var rs=[]; idxs.forEach(function(i){var r=ROWS[i]; if(r&&r.RadekId)rs.push(r);});
+  if(!rs.length){alert('Označené řádky nemají číslo řádku — obnov stránku (Ctrl+F5).');return;}
+  absMeta(function(){
+    var plan=rs.filter(function(r){return String(r.Zdroj||'').indexOf('plán z Centrály')>=0;}).length;
+    var vzkaz='Smazat '+rs.length+' absenc'+(rs.length===1?'i':'í')+'?\n\n'
+      +rs.slice(0,8).map(function(r){return '• '+(r.JmenoPrijmeni||'')+' — '+(r.Druh||'')+' '
+        +(r.DatumOd||'')+'–'+(r.DatumDo||'');}).join('\n')
+      +(rs.length>8?('\n… a další '+(rs.length-8)):'')
+      +((plan&&ABSMETA.sync_centrala)?('\n\n⚠ '+plan+'× plán ze staré Centrály — synchronizace jede '
+        +'každou hodinu a vrátí je zpět, dokud ji Jirka nevypne.'):'');
+    if(!confirm(vzkaz))return;
+    var duv=prompt('Důvod smazání (povinné — kvůli auditu):','');
+    if(duv===null)return;
+    duv=String(duv).trim();
+    if(!duv){alert('Bez důvodu to smazat nejde — je to kvůli auditu.');return;}
+    var hotovo=0, chyby=[];
+    function dalsi(k){
+      if(k>=rs.length){
+        load();
+        $('msg').innerHTML=chyby.length
+          ? '<div class="err">Smazáno '+hotovo+' z '+rs.length+'. Nepovedlo se: '+esc(chyby.join(' · '))+'</div>'
+          : '<div class="ok">Smazáno '+hotovo+' absencí · zůstatky přepočteny.</div>';
+        return;
+      }
+      fetch('/api/v1/erp/app/dochazka-abs/delete',{method:'POST',credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({radek_id:rs[k].RadekId,reason:duv})})
+        .then(function(r){return r.json();}).then(function(j){
+          if(j&&j.ok)hotovo++; else chyby.push((rs[k].JmenoPrijmeni||'?')+': '+((j&&j.error)||'chyba'));
+          dalsi(k+1);
+        }).catch(function(){chyby.push((rs[k].JmenoPrijmeni||'?')+': spojení selhalo');dalsi(k+1);});
+    }
+    dalsi(0);
+  });
+}
 </script>
 </body>
 </html>

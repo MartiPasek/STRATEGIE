@@ -51,6 +51,7 @@ from modules.erp.api.automat import automat_router  # G2007 automaty — exekuto
 from modules.erp.api.exec_approval_router import exec_approval_router  # 🟡 Zluty banner — schvalovani rizikoveho eurosoft_exec (#3, 27.7.2026)
 from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
 from modules.erp.api.dochazka_zak_tab import doch_zak_tab_router  # Docházka po zakázkách — data pro vlastní stránku (22.7.2026, Peta)
+import modules.erp.api.dochazka_absence_sprava  # noqa: F401 — Správa docházky: úprava/přidání/smazání absencí (30.7.2026, Peta). Věší endpointy na doch_zak_tab_router, musí se naimportovat PŘED include_router.
 from modules.erp.api.foto import foto_router  # Fotky pro výrobu — univerzální fotodokumentace (29.7.2026)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.landmark_report import landmark_router  # Landmark měsíční podklad mezd → mail (22.7.2026, Peta)

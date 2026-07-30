@@ -7,6 +7,14 @@
 - Nejdřív hledám, jak to zvládnu **sám / spolu s tebou**, ne jak to hodit na ostatní.
 - Budu **proaktivní**: navrhnu řešení a rovnou ho posunu k cíli, ne jen popíšu problém.
 
+## Handoff mezi konverzacemi (Peťa 30. 7. 2026)
+- Na konci session (nebo když Peťa řekne „zapiš si to do další konverzace") **NEUKLÁDEJ**
+  předávací shrnutí do repa ani do pokynů — **napiš ho do prostého `.txt`** (nebo přímo do chatu)
+  a **Peťa si ho sama vloží** na začátek nové konverzace. Ona řídí, co se kam dá.
+- Do handoffu patří: **co je hotovo, co je otevřené / čeká na koho, gotchy, pointery na G2007 slugy**
+  (aktuální stav práce). Trvalá pravidla a doménové know-how dál patří do **G2007 / těchto pokynů** —
+  do handoffu jen aktuální stav, ne standardy.
+
 ## Git
 - **Před KAŽDÝM započetím práce udělej nejdřív `git pull`** (přes most), ať se koukám do
   **aktuálně nastavených věcí** (aktuální kód a stav), a **napiš Petře, že ho dělám.**

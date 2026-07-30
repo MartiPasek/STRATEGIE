@@ -4341,39 +4341,36 @@ def _g2007_composer_enabled_for(conversation_id: int) -> bool:
     3) g2007.composer_cutover (DB tabulka) -- scope_type 'user' (VSECHNY
        konverzace daneho clovceka) nebo 'conversation' (jedna konkretni).
        Tohle je hlavni ladici mechanismus -- Marti/Kristy (pripadne ja
-       pres SQL most) prepinaji INSERT/DELETE, BEZ deploye/restartu."""
+       pres SQL most) prepinaji INSERT/DELETE, BEZ deploye/restartu.
+
+    DOKTRINA (Marti 30.7.2026): bezpecnost pres ALARM, ne pres ticho --
+    zadny try/except kolem DB lookupu ani kolem malformed env. Kdyz tenhle
+    check selze, ma to byt hned videt (chat_endpoint to chytne a vrati
+    viditelnou 503), ne se tvarit, ze konverzace proste neni v g2007
+    rezimu."""
     import os
     mode = (os.environ.get("COMPOSER_MODE") or "").strip().lower()
     if mode == "g2007":
         return True
     ids_raw = (os.environ.get("COMPOSER_G2007_CONVERSATION_IDS") or "").strip()
     if ids_raw:
-        try:
-            allowed = {int(x.strip()) for x in ids_raw.split(",") if x.strip()}
-            if conversation_id in allowed:
-                return True
-        except ValueError:
-            logger.warning(
-                f"[G2007 CUTOVER] COMPOSER_G2007_CONVERSATION_IDS malformed: {ids_raw!r}"
-            )
+        allowed = {int(x.strip()) for x in ids_raw.split(",") if x.strip()}
+        if conversation_id in allowed:
+            return True
+    from core.database import get_session
+    from sqlalchemy import text as _sql_text
+    s = get_session()
     try:
-        from core.database import get_session
-        from sqlalchemy import text as _sql_text
-        s = get_session()
-        try:
-            row = s.execute(_sql_text(
-                "SELECT 1 FROM g2007.composer_cutover WHERE "
-                "(scope_type = 'conversation' AND scope_id = :cid) OR "
-                "(scope_type = 'user' AND scope_id = "
-                "  (SELECT user_id FROM public.conversations WHERE id = :cid)) "
-                "LIMIT 1"
-            ), {"cid": conversation_id}).fetchone()
-            return row is not None
-        finally:
-            s.close()
-    except Exception as e:
-        logger.warning(f"[G2007 CUTOVER] composer_cutover lookup failed: {e}")
-        return False
+        row = s.execute(_sql_text(
+            "SELECT 1 FROM g2007.composer_cutover WHERE "
+            "(scope_type = 'conversation' AND scope_id = :cid) OR "
+            "(scope_type = 'user' AND scope_id = "
+            "  (SELECT user_id FROM public.conversations WHERE id = :cid)) "
+            "LIMIT 1"
+        ), {"cid": conversation_id}).fetchone()
+        return row is not None
+    finally:
+        s.close()
 
 
 def _finalize_messages_and_ensure_orchestrate(
@@ -4472,21 +4469,21 @@ def _finalize_messages_and_ensure_orchestrate(
 def build_prompt_for_conversation(conversation_id: int) -> tuple[str, list[dict]]:
     """VSTUPNI BOD pro chat() -- nahrazuje primy volani build_prompt().
     Rozhoduje legacy vs. g2007 stinovy composer per konverzace
-    (_g2007_composer_enabled_for). Kill-switch: jakakoli chyba v g2007
-    vetvi (chybejici resolver, spatna data v grafu, cokoli) spadne zpet
-    na legacy build_prompt() a jen zaloguje chybu -- chat nikdy nespadne
-    kvuli experimentalni ceste. Marti 30.7.2026."""
+    (_g2007_composer_enabled_for).
+
+    DOKTRINA (Marti 30.7.2026): bezpecnost pres ALARM, ne pres ticho.
+    "Je dobry cas to rozchodit po novu a uz se zpatky nevracet. A to i za
+    cenu, ze bude s chatem nekolik dni problem. Aspon se to driv odhali."
+    Kdyz je konverzace v g2007 rezimu a stinovy composer selze, NEPADAME
+    potichu zpet na legacy -- vyjimka jde nahoru beze zmeny a projevi se
+    VIDITELNE (chat_endpoint v router.py uz ma vlastni `except Exception`
+    -> HTTP 503 s user-friendly hlaskou + `logger.exception` s plnym
+    tracebackem). Tichy fallback by bug jen schoval a oddalil objeveni --
+    zamerne ZADNY try/except kolem g2007 vetve."""
     if not _g2007_composer_enabled_for(conversation_id):
         return build_prompt(conversation_id)
-    try:
-        system_prompt = build_prompt_g2007_full(conversation_id)
-        return _finalize_messages_and_ensure_orchestrate(conversation_id, system_prompt)
-    except Exception as e:
-        logger.error(
-            f"[G2007 CUTOVER] conv={conversation_id} g2007 composer selhal, "
-            f"fallback na legacy build_prompt(): {e}"
-        )
-        return build_prompt(conversation_id)
+    system_prompt = build_prompt_g2007_full(conversation_id)
+    return _finalize_messages_and_ensure_orchestrate(conversation_id, system_prompt)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

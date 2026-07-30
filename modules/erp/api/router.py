@@ -534,15 +534,27 @@ def _pripl_write_guard(uid: int, schema_name: str, table_name: str,
     s = _gg()
     try:
         st = s.execute(_tg(
-            "SELECT unlocked_at FROM tenant.pripl_cutover WHERE id = 1")).first()
+            "SELECT unlocked_at, coalesce(zkusebni_uzivatele, '{}') AS zk "
+            "FROM tenant.pripl_cutover WHERE id = 1")).mappings().first()
         # Bez řádku se chováme jako ZAMČENO — bezpečnější než opačně.
-        if st is None or st[0] is None:
+        if st is None:
+            raise HTTPException(status_code=403, detail=(
+                "Chybí stav přepnutí příplatků a srážek — zápis je zamčený."))
+
+        zkusi = (st["unlocked_at"] is None and uid in list(st["zk"] or []))
+        if st["unlocked_at"] is None and not zkusi:
             raise HTTPException(status_code=403, detail=(
                 "Příplatky a srážky se zatím zadávají ve staré Centrále. "
                 "Zápis ve STRATEGII se odemkne teprve po kontrolách a písemném "
                 "souhlasu mzdové účetní."))
 
-        if is_marti_parent(uid):
+        # ZKUŠEBNÍ REŽIM: dokud není odemčeno, označíme každý nový záznam jako TEST.
+        # Do mzdy pak nejde (stejná tvrdá podmínka jako u archivu) a po zkoušce se
+        # všechno smaže jedním DELETE ... WHERE import_src = 'TEST'.
+        if zkusi and row_id is None and isinstance(field_changes, dict):
+            field_changes["import_src"] = "TEST"
+
+        if is_marti_parent(uid) and not zkusi:
             return
 
         zmeny = set((field_changes or {}).keys())
@@ -29935,8 +29947,11 @@ async def pripl_workflow(req: Request) -> JSONResponse:
 
     s = _gw()
     try:
-        st = s.execute(_tw("SELECT unlocked_at FROM tenant.pripl_cutover WHERE id = 1")).first()
-        if st is None or st[0] is None:
+        st = s.execute(_tw(
+            "SELECT unlocked_at, coalesce(zkusebni_uzivatele, '{}') AS zk "
+            "FROM tenant.pripl_cutover WHERE id = 1")).mappings().first()
+        if st is None or (st["unlocked_at"] is None
+                          and uid not in list(st["zk"] or [])):
             return JSONResponse({"ok": False, "error": (
                 "Zadávání příplatků a srážek ve STRATEGII ještě není odemknuté. "
                 "Schvaluje a zadává se dál v Centrále.")}, status_code=403)
@@ -30030,7 +30045,8 @@ def pripl_cutover_stav(req: Request):
         r = s.execute(_tcs(
             "SELECT unlocked_at, cilove_datum, signoff_petra_at, "
             "       kontrola_1_castky_ok, kontrola_2_typy_ok, "
-            "       kontrola_3_prava_ok, kontrola_4_roundtrip_ok "
+            "       kontrola_3_prava_ok, kontrola_4_roundtrip_ok, "
+            "       coalesce(zkusebni_uzivatele, '{}') AS zk "
             "FROM tenant.pripl_cutover WHERE id = 1")).mappings().first()
     finally:
         s.close()
@@ -30048,9 +30064,13 @@ def pripl_cutover_stav(req: Request):
         chybi.append("běh mezd nanečisto")
     if r["signoff_petra_at"] is None:
         chybi.append("písemný souhlas Petry Šafránkové")
+    zkusi = (r["unlocked_at"] is None and uid in list(r["zk"] or []))
     return JSONResponse({
         "ok": True,
-        "odemceno": r["unlocked_at"] is not None,
+        # Ve zkušebním režimu se formulář chová jako odemčený, ale UI to musí
+        # dát jasně najevo — proto zvlášť příznak `zkusebni`.
+        "odemceno": (r["unlocked_at"] is not None) or zkusi,
+        "zkusebni": zkusi,
         "cilove_datum": r["cilove_datum"].strftime("%d.%m.%Y") if r["cilove_datum"] else None,
         "chybi": chybi,
     })
@@ -34783,7 +34803,7 @@ def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
             "JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
             "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
             "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' "
+            "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') "
             # VYJMA: HO/OBL/korekce (benefit systém). srazka_telefon už NEvyjímáme —
             # promítá se jako srážka do složky 953 (znaménko otočíme níž). Peta 7.7.2026.
             "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod') "
@@ -35900,7 +35920,7 @@ def mzdy_vyplatnice_detail(req: Request):
                         "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:c "
                         "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
                         "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' AND msm.ext_code='693' "
+                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') AND msm.ext_code='693' "
                         "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
                         "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
                         {"f": _fec, "c": str(_ci_pj), "y": rok, "mo": mesic}).scalar() or 0)
@@ -35961,7 +35981,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
             "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
             "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
             "    AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' "
+            "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') "
             "    AND msm.ext_code ~ '^[0-9]+$' AND msm.ext_code::int=:cms "
             "    AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
             "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
@@ -36020,7 +36040,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
                     "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
                     "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
                     "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                    "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' AND msm.ext_code='693' "
+                    "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') AND msm.ext_code='693' "
                     "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
                     "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
                     {"fec": fec, "cislo": cislo, "y": rok, "mo": mesic}).scalar()

@@ -157,6 +157,7 @@
       .then(function (j) {
         if (j && j.ok && j.odemceno) {
           _unlock(inst);
+          if (j.zkusebni) { _zkusebniPruh(inst); }
           try { _pridejTlacitka(inst); } catch (e) {
             if (global.console) global.console.error("[mzdy-pripl-wf]", e);
           }
@@ -175,6 +176,23 @@
           "🔒 Jen ke čtení — nepodařilo se zjistit stav přepnutí, "
           + "takže formulář nechávám zámknutý. Zkus to prosím znovu.");
       });
+  }
+
+  /* Zkusebni rezim: formular je otevreny, ale JEN na zkousku. Vse, co tu vznikne,
+   * ma na serveru import_src='TEST' a do mzdy to nejde. Uzivatel to MUSI vedet,
+   * jinak by si mysel, ze uz zadava ostre. */
+  function _zkusebniPruh(inst) {
+    var host = (inst._shell || {}).body;
+    if (!host) return;
+    if (host.querySelector(".mzdy-pripl-test")) return;
+    var bar = document.createElement("div");
+    bar.className = "mzdy-pripl-test";
+    bar.textContent = "🧪 Zkušební režim — tohle je jen na vyzkoušení. "
+      + "Co tu založíš, se do mzdy nedostane a po zkoušce to smažeme. "
+      + "Ostré příplatky zadávej zatím dál v Centrále.";
+    bar.style.cssText = "padding:7px 10px;margin:0 0 10px 0;background:#eff6ff;"
+      + "border:1px solid #93c5fd;border-radius:8px;color:#1e3a8a;font-size:12.5px;line-height:1.35;";
+    host.insertBefore(bar, host.firstChild);
   }
 
   /* Odemceno: vrat pole a OK, sundej pruh. */

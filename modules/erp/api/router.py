@@ -22687,7 +22687,14 @@ async def att_fix_day(req: Request) -> JSONResponse:
              "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
              "status": r[9], "running": bool(r[10] and not r[2]),
              "source_system": r[11], "source": r[12], "cin_name": r[13], "cin_id": r[14],
-             "editable": (not locked) and (not r[11]) and r[9] != "superseded"} for r in rows]})
+             "editable": (not locked) and (not r[11]) and r[9] != "superseded",
+             # STORNO smí i řádek ze staré Centrály (Jirka 30.7.2026, commit b05c15ed):
+             # `fix/void` ho propouští a chrání local_lockem. `editable` zůstává
+             # přísnější — OPRAVIT (fix/entry) centrálské řádky pořád nejde, jen
+             # STORNOVAT. Bez tohohle příznaku stránka schovávala obě tlačítka
+             # najednou a Peťa neměla jak přebytečný řádek z Centrály odstranit.
+             "stornable": ((not locked) and r[9] != "superseded"
+                           and ((not r[11]) or r[11] == "centrala1"))} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 

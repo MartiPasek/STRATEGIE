@@ -571,8 +571,8 @@ function faktChips(){
   [['open','Nezaplacené'],['all','Vše'],['ceka','🏦 Čeká na výpis']].forEach(function(o){
     h+='<span class="chip'+(_ffStav===o[0]?' on':'')+'" data-fs="'+o[0]+'" title="'+(o[0]==='ceka'?'Vygenerovaný platák, který ještě nemá potvrzení bankovním výpisem (BV)':'')+'">'+o[1]+'</span>';});
   h+='<span style="flex:1"></span>';
-  if(_fSyncAt){h+='<span style="font-size:11.5px;color:var(--dim);margin-right:8px" title="Kdy se naposledy natáhla data z Heliosu (automaticky každých 30 min)">🕓 data z Heliosu: <b style="color:var(--ink)">'+esc(_fSyncAt)+'</b></span>';}
-  h+='<span class="chip" id="fakt-sync-btn" onclick="syncFaktury(this)" title="Přezrcadlí faktury a úhrady z Heliosu právě teď. Automaticky se to děje každých 30 min." style="background:#12294a">🔄 Aktualizovat z Heliosu</span>';
+  if(_fLoadHM){h+='<span style="font-size:11.5px;color:var(--dim);margin-right:8px" title="Kdy byla naposledy načtena zobrazená data">🕓 data k <b style="color:var(--ink)">'+esc(_fLoadHM)+'</b></span>';}
+  h+='<span class="chip" id="fakt-sync-btn" onclick="loadFaktury(true)" title="Znovu načíst zobrazené faktury" style="background:#12294a">🔄 Aktualizovat</span>';
   return h+'</div>';
 }
 function syncFaktury(btn){
@@ -879,6 +879,7 @@ function renderFaktury(){
     h+='<td'+(cls?' class="'+cls+'"':'')+'>'+_faktCell(p,c)+'</td>';});h+='</tr>';});
   b.innerHTML=h+'</tbody></table></div></div>';bindFaktChips();bindFaktFilters();bindFaktSel();bindColResize();bindFaktSort();
 }
+var _fLoadHM='';
 function loadFaktury(force){
   var b=document.getElementById('faktury-body');
   if(force){b.innerHTML=faktChips()+'<div class="load">Načítám…</div>';bindFaktChips();}
@@ -886,6 +887,7 @@ function loadFaktury(force){
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
       _faktury=d.faktury||[]; _fsums=d.sums||{}; _ftotal=d.total||0; _fshown=d.shown||_faktury.length; _fSyncAt=d.sync_at||null;
+      (function(){var _d=new Date();_fLoadHM=('0'+_d.getHours()).slice(-2)+':'+('0'+_d.getMinutes()).slice(-2);})();
       _faktury.sort(function(a,b){var ap=a.zaplaceno?1:0,bp=b.zaplaceno?1:0;if(ap!==bp)return ap-bp;return _dparse(a.splatnost)-_dparse(b.splatnost);});
       renderFaktury();
     }).catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});

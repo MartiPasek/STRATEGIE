@@ -64,7 +64,7 @@
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
     <h2 style="margin:0">💰 Pokladny a kartové účty</h2>
-    <div><span id="syncMsg" class="muted" style="margin-right:8px"></span><button class="sec mini" id="btnSyncAll">🔄 Aktualizovat z Heliosu</button></div>
+    <div><span id="syncMsg" class="muted" style="margin-right:8px"></span><button class="sec mini" id="btnSyncAll" title="Znovu načíst zobrazená data">🔄 Aktualizovat</button></div>
   </div>
   <div class="firmbar" id="firmyBox"></div>
   <div class="druhbar" id="druhyBox"></div>
@@ -420,16 +420,16 @@ async function load(){
   DATA.kartove_ucty=DATA.pokladny.filter(p=>p.typ==='kartovy_ucet');
   FIRMA = DATA.pokladny.some(p=>firmaOf(p.cislo)===keepFirma) ? keepFirma : 'EC';
   SELPOK = (keepPok && druhyFirmy().some(p=>p.cislo===keepPok)) ? keepPok : firstDruh();
-  const m=document.getElementById('syncMsg'); if(m){m.textContent=DATA.pokl_sync_at?('🕓 data z Heliosu: '+DATA.pokl_sync_at):'zatím nenačteno';m.className='muted';}
+  const m=document.getElementById('syncMsg'); if(m){var _d=new Date();m.textContent='🕓 data k '+('0'+_d.getHours()).slice(-2)+':'+('0'+_d.getMinutes()).slice(-2);m.className='muted';}
   renderFirmy();renderDruhy();renderObsah();renderCards();
 }
 document.getElementById('btnSyncAll').onclick=async function(){
-  const m=document.getElementById('syncMsg');m.textContent='⏳ Aktualizuji z Heliosu…';m.className='muted';
+  // Jen obnovit = znovu načíst zobrazená data z DB (bez tahání z Heliosu). Peta 30.7.2026.
+  const m=document.getElementById('syncMsg');m.textContent='⏳ Aktualizuji…';m.className='muted';
   const b=this;b.style.pointerEvents='none';b.style.opacity='0.6';
-  const r=await j('/api/v1/erp/app/bank/sync-pokl-doklady-all?rok='+ROK,{method:'POST'});
+  await load();
+  if(SELPOK){await loadDoklady(SELPOK);}
   b.style.pointerEvents='';b.style.opacity='';
-  if(r.ok){await load();}
-  else{m.textContent='✗ '+(r.error||'chyba');m.className='err';}
 };
 load();
 </script>

@@ -317,6 +317,15 @@ class Persona(BaseCore):
     # Vyplněné = per-persona tier (Opus pro orchestrátora, Haiku pro úzké role).
     model: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
+    # Domenove Martinky (30.7.2026 vecer, C23 dle navrhu Marti-AI g2007.znalost#280,
+    # implementacni plan #281, schvaleno Martim). Pojistka v kodu, ne v promptu --
+    # persona s tierem 'domain_user' nedostane nastroje domeny s
+    # permission_tier_min='parent' i kdyby ji o to uzivatel sebevic prosil.
+    # DEFAULT 'parent' = VSICHNI existujici (Marti-AI, specializovane persony) maji
+    # dnes presne stejny pristup jako pred touhle zmenou, nulova regrese.
+    # Hodnoty: 'domain_user' | 'domain_lead' | 'parent'.
+    permission_tier: Mapped[str] = mapped_column(String(20), nullable=False, default="parent")
+
 
 class PersonaChannel(BaseCore):
     """

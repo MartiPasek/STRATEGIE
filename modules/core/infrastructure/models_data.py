@@ -95,6 +95,14 @@ class Conversation(BaseData):
     # iteracich konzultace -- viz tool_packs.py registry.
     active_pack: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Domenove Martinky (30.7.2026 vecer, C23 dle navrhu Marti-AI g2007.znalost#280,
+    # implementacni plan #281, schvaleno Martim "Jdi na to. Prosim."). NULL = presne
+    # dnesni chovani beze zmeny -- nic tenhle sloupec zatim nenastavuje, je to
+    # cisty no-op dokud nekdo/neco domenu explicitne nenastavi. Hodnoty: kod z
+    # g2007.tool_domain (poptavky, nabidky, tisax, seberozvoj, ...). Viz service.py
+    # blok "TOOLS DOMAIN" pro filtrovaci logiku.
+    active_domain: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Phase 31 (3.5.2026): Per-conversation sliding window.
     # Default zvysen z 5 na 20 (19.5.2026 vecer, Marti's catch z "lamani chleba"):
     # 5-message window byl pro multi-turn build sessions katastrofa — Marti-AI

@@ -11511,6 +11511,64 @@ def chat(
             if _added:
                 logger.info(f"TOOLS RECOVERY | pinned core recovery tools: {_added}")
 
+    # Domenove Martinky (30.7.2026 vecer, C23 dle navrhu Marti-AI g2007.znalost#280,
+    # implementacni plan #281, schvaleno Martim "Jdi na to. Prosim."). NULL
+    # active_domain (dnes VSECHNY konverzace) = presne dnesni chovani, tenhle blok
+    # je no-op dokud neco domenu explicitne nenastavi -- zatim nic nenastavuje.
+    # Az bude domena nastavena: dale zuzi effective_tools na zachrannou sadu +
+    # domenove nastroje z g2007.domain_nastroj, tier-filtrovane podle
+    # persona.permission_tier (pojistka V KODU, ne v promptu -- domain_user nikdy
+    # nedostane domenu s min. tierem 'parent', i kdyby ji uzivatel presvedcoval).
+    _active_domain = getattr(_conv, "active_domain", None) if _conv else None
+    if _active_domain and _is_default:
+        try:
+            from core.database import get_session as _gss_dom
+            from sqlalchemy import text as _t_dom
+            _sg_dom = _gss_dom()
+            try:
+                _dom_row = _sg_dom.execute(_t_dom(
+                    "SELECT permission_tier_min, aktivni FROM g2007.tool_domain WHERE kod=:k"
+                ), {"k": _active_domain}).first()
+                _dom_tool_names = set()
+                if _dom_row and _dom_row[1]:
+                    _dom_tool_names = {
+                        r[0] for r in _sg_dom.execute(_t_dom(
+                            "SELECT nastroj_kod FROM g2007.domain_nastroj WHERE domain_kod=:k"
+                        ), {"k": _active_domain}).fetchall()
+                    }
+            finally:
+                _sg_dom.close()
+            try:
+                from modules.conversation.application.tool_registry.handlers import (
+                    effective_factory_specs as _efs_dom,
+                )
+                _keep_meta_dom = {s["name"] for s in (_efs_dom(_is_default) or [])}
+            except Exception:
+                _keep_meta_dom = set()
+            _tier_order = {"domain_user": 0, "domain_lead": 1, "parent": 2}
+            _persona_tier = (getattr(_persona, "permission_tier", None) or "parent") if _active_pid else "parent"
+            _dom_tier_min = ((_dom_row[0] if _dom_row else None) or "parent")
+            if _dom_row and _tier_order.get(_persona_tier, 2) >= _tier_order.get(_dom_tier_min, 2):
+                _present_dom_before = len(effective_tools)
+                effective_tools = [
+                    t for t in effective_tools
+                    if t["name"] in _dom_tool_names
+                    or t["name"] in CORE_RECOVERY_TOOLS
+                    or t["name"] in _keep_meta_dom
+                ]
+                logger.info(
+                    f"TOOLS DOMAIN | domain={_active_domain} | tier={_persona_tier} | "
+                    f"filtered {_present_dom_before} -> {len(effective_tools)}"
+                )
+            elif _dom_row:
+                logger.warning(
+                    f"TOOLS DOMAIN | conv={conversation_id} persona tier '{_persona_tier}' "
+                    f"below domain '{_active_domain}' min '{_dom_tier_min}' -- filtr PRESKOCEN "
+                    f"(nedostatecne opravneni; bezpecnost = neomezit navic, ne tise povolit vic)"
+                )
+        except Exception as _dom_e:
+            logger.warning(f"TOOLS DOMAIN filter selhal (non-fatal, beze zmeny effective_tools): {_dom_e}")
+
     # Agent-as-default (bod 2, C23 29.7.): za flagem agent_default_enabled dostane
     # default chat governed RUCE (praha_exec/plzen_exec) -> chat se stává agentní
     # (chatuje A jedná ve stejném tahu). Ruce si samy drží tier bránu 🟢🟡🔴 uvnitř

@@ -4334,22 +4334,46 @@ def compare_composer_full(conversation_id: int, graf_kod: str = "marti-ai-md5") 
 
 def _g2007_composer_enabled_for(conversation_id: int) -> bool:
     """Rozhoduje, jestli tahle konverzace jede na stinovem (g2007) composeru
-    misto legacy build_prompt(). Viz komentar sekce vyse."""
+    misto legacy build_prompt(). Tri vrstvy, v tomhle poradi:
+    1) env COMPOSER_MODE=g2007 -- globalni override (nouzovy/ops pristup,
+       vyzaduje redeploy/restart, nepohodlny pro ladeni za chodu).
+    2) env COMPOSER_G2007_CONVERSATION_IDS=1,403 -- CSV, taky env/redeploy.
+    3) g2007.composer_cutover (DB tabulka) -- scope_type 'user' (VSECHNY
+       konverzace daneho clovceka) nebo 'conversation' (jedna konkretni).
+       Tohle je hlavni ladici mechanismus -- Marti/Kristy (pripadne ja
+       pres SQL most) prepinaji INSERT/DELETE, BEZ deploye/restartu."""
     import os
     mode = (os.environ.get("COMPOSER_MODE") or "").strip().lower()
     if mode == "g2007":
         return True
     ids_raw = (os.environ.get("COMPOSER_G2007_CONVERSATION_IDS") or "").strip()
-    if not ids_raw:
-        return False
+    if ids_raw:
+        try:
+            allowed = {int(x.strip()) for x in ids_raw.split(",") if x.strip()}
+            if conversation_id in allowed:
+                return True
+        except ValueError:
+            logger.warning(
+                f"[G2007 CUTOVER] COMPOSER_G2007_CONVERSATION_IDS malformed: {ids_raw!r}"
+            )
     try:
-        allowed = {int(x.strip()) for x in ids_raw.split(",") if x.strip()}
-    except ValueError:
-        logger.warning(
-            f"[G2007 CUTOVER] COMPOSER_G2007_CONVERSATION_IDS malformed: {ids_raw!r}"
-        )
+        from core.database import get_session
+        from sqlalchemy import text as _sql_text
+        s = get_session()
+        try:
+            row = s.execute(_sql_text(
+                "SELECT 1 FROM g2007.composer_cutover WHERE "
+                "(scope_type = 'conversation' AND scope_id = :cid) OR "
+                "(scope_type = 'user' AND scope_id = "
+                "  (SELECT user_id FROM public.conversations WHERE id = :cid)) "
+                "LIMIT 1"
+            ), {"cid": conversation_id}).fetchone()
+            return row is not None
+        finally:
+            s.close()
+    except Exception as e:
+        logger.warning(f"[G2007 CUTOVER] composer_cutover lookup failed: {e}")
         return False
-    return conversation_id in allowed
 
 
 def _finalize_messages_and_ensure_orchestrate(

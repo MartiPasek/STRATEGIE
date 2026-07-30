@@ -67,6 +67,84 @@
     bar.textContent = zprava;
   }
 
+  /* --- Schvalovaci kolecko ------------------------------------------------
+   * Tlacitka NEmeni stav primo v datech — volaji /app/pripl/workflow, ktery si
+   * sam overi prava a sam zapise "kdo a kdy". Prohlizec posila jen "co chci
+   * udelat", nikdy ne "schvalila Petra". Server take rozhodne, jestli akce
+   * v danem stavu vubec dava smysl — tady jen schovavame, co nema smysl nabizet.
+   */
+  var WF_URL = "/api/v1/erp/app/pripl/workflow";
+  var AKCE = [
+    { kod: "navrhnout", popis: "📤 Odeslat ke schválení", stavy: ["draft", "rejected"], barva: "#2563eb" },
+    { kod: "schvalit",  popis: "✅ Schválit",             stavy: ["pending"],           barva: "#16a34a" },
+    { kod: "vratit",    popis: "↩️ Vrátit k přepracování", stavy: ["pending", "approved"], barva: "#b45309" }
+  ];
+
+  function _stavZaznamu(inst) {
+    try { return String((inst._spec.data || {}).status || ""); } catch (e) { return ""; }
+  }
+  function _idZaznamu(inst) {
+    try {
+      var d = inst._spec.data || {};
+      return (d.id != null) ? d.id : (inst.opts && inst.opts.rowId);
+    } catch (e) { return null; }
+  }
+
+  function _pridejTlacitka(inst) {
+    var host = (inst._shell || {}).body;
+    if (!host) return;
+    var stary = host.querySelector(".mzdy-pripl-wf");
+    if (stary && stary.parentNode) stary.parentNode.removeChild(stary);
+
+    var stav = _stavZaznamu(inst);
+    var id = _idZaznamu(inst);
+    if (id == null) return;
+    /* Archiv z Centraly se nehybe — server to stejne odmitne, ale at to uzivatel
+     * vubec nevidi jako nabidku. */
+    if (stav === "archiv") return;
+
+    var lista = document.createElement("div");
+    lista.className = "mzdy-pripl-wf";
+    lista.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;padding:8px 10px;margin:0 0 10px 0;"
+      + "background:#f5f7fa;border:1px solid #e2e8f0;border-radius:8px;";
+
+    var pridano = 0;
+    AKCE.forEach(function (a) {
+      if (a.stavy.indexOf(stav) < 0) return;
+      pridano++;
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = a.popis;
+      b.style.cssText = "cursor:pointer;padding:6px 12px;border:1px solid " + a.barva
+        + ";border-radius:6px;background:#fff;color:" + a.barva + ";font-size:13px;line-height:1.2;";
+      b.onclick = function () {
+        var puvodni = b.textContent;
+        b.disabled = true; b.textContent = "…";
+        fetch(WF_URL, {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: id, akce: a.kod })
+        }).then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+        }).then(function (o) {
+          if (!o.j || !o.j.ok) {
+            global.alert((o.j && o.j.error) || "Akce se nepodařila.");
+            b.disabled = false; b.textContent = puvodni;
+            return;
+          }
+          try { if (typeof inst._reloadSpec === "function") { inst._reloadSpec(); } } catch (e) {}
+        }).catch(function (e) {
+          global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
+          b.disabled = false; b.textContent = puvodni;
+        });
+      };
+      lista.appendChild(b);
+    });
+
+    if (!pridano) return;
+    host.insertBefore(lista, host.firstChild);
+  }
+
   function _apply(inst) {
     if (_coreCode(inst) !== CORE_CODE) return;
 
@@ -79,6 +157,9 @@
       .then(function (j) {
         if (j && j.ok && j.odemceno) {
           _unlock(inst);
+          try { _pridejTlacitka(inst); } catch (e) {
+            if (global.console) global.console.error("[mzdy-pripl-wf]", e);
+          }
           return;
         }
         var chybi = (j && j.chybi && j.chybi.length)

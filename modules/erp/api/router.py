@@ -546,13 +546,15 @@ def _pripl_write_guard(uid: int, schema_name: str, table_name: str,
             return
 
         zmeny = set((field_changes or {}).keys())
-        schvaluje = bool(zmeny & _PRIPL_SCHVALOVACI_SLOUPCE)
-        je_schvalovatel = _pripl_je_schvalovatel(s, uid)
-
-        if schvaluje and not je_schvalovatel:
+        # Stav a audit schválení se NEMĚNÍ ručně v formuláři — od toho jsou tlačítka
+        # (endpoint /app/pripl/workflow), která zapisují „kdo a kdy" na serveru.
+        # Kdyby to šlo přepsat tudy, mohl by si kdokoli napsat, že schválila Petra.
+        if zmeny & _PRIPL_SCHVALOVACI_SLOUPCE:
             raise HTTPException(status_code=403, detail=(
-                "Schválit nebo předat odměnu do mzdy může jen mzdová účetní "
-                "nebo personalistka."))
+                "Stav se nemění ručně — použij tlačítka Odeslat ke schválení / "
+                "Schválit / Vrátit k přepracování."))
+
+        je_schvalovatel = _pripl_je_schvalovatel(s, uid)
         if je_schvalovatel:
             return
 
@@ -29884,6 +29886,114 @@ def _mirror_sched_stop_now():
     _MIRROR_SCHED_STOP[0] = True
     if _MIRROR_SCHED_TASK[0] is not None and not _MIRROR_SCHED_TASK[0].done():
         _MIRROR_SCHED_TASK[0].cancel()
+
+
+@api_router.post("/app/pripl/workflow")
+async def pripl_workflow(req: Request) -> JSONResponse:
+    """Posun příplatku/srážky ve schvalovacím kolečku: draft → pending → approved.
+
+    Proč vlastní endpoint a ne obyčejné uložení formuláře: audit (kdo a kdy navrhl /
+    schválil) se musí zapsat NA SERVERU. Kdyby to posílal prohlížeč, mohl by si
+    kdokoli napsat, že schválila Petra. Klient tedy posílá jen „co chci udělat".
+
+    Kdo co smí (rozhodnutí Jirka 30. 7. 2026):
+      - navrhnout / poslat ke schválení: vedoucí nebo zástupce skupiny, ve které je
+        dotyčný člověk (`tenant.staff_group`), nebo rovnou schvalovatel,
+      - schválit / vrátit k přepracování: jen držitel postu s příznakem `wage_approver`
+        (dnes MZDOVÁ ÚČETNÍ = Petra, PERSONALISTA = Šárka),
+      - dokud není cutover odemčený, NIKDO (ani rodič) — zdroj pravdy je pořád Centrála.
+
+    Archivní řádky (migrovaná historie) se nesmí hýbat vůbec.
+    """
+    from core.database_data import get_data_session as _gw
+    from sqlalchemy import text as _tw
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        row_id = int(body.get("id") or 0)
+    except Exception:
+        row_id = 0
+    akce = (str(body.get("akce") or "")).strip().lower()
+    if not row_id or akce not in ("navrhnout", "schvalit", "vratit"):
+        return JSONResponse({"ok": False, "error": "Chybí záznam nebo neznámá akce."},
+                            status_code=400)
+
+    s = _gw()
+    try:
+        st = s.execute(_tw("SELECT unlocked_at FROM tenant.pripl_cutover WHERE id = 1")).first()
+        if st is None or st[0] is None:
+            return JSONResponse({"ok": False, "error": (
+                "Zadávání příplatků a srážek ve STRATEGII ještě není odemknuté. "
+                "Schvaluje a zadává se dál v Centrále.")}, status_code=403)
+
+        r = s.execute(_tw(
+            "SELECT status, engagement_id, import_src FROM tenant.wage_movement "
+            "WHERE id = :i AND tenant_id = 2"), {"i": row_id}).mappings().first()
+        if r is None:
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."}, status_code=404)
+        if r["status"] == "archiv" or (r["import_src"] or "") == "EC_PRIPL_HIST":
+            return JSONResponse({"ok": False, "error": (
+                "Tohle je archivní záznam přenesený z Centrály — nedá se měnit.")},
+                status_code=403)
+
+        je_schvalovatel = _pripl_je_schvalovatel(s, uid)
+
+        if akce == "navrhnout":
+            if r["status"] not in ("draft", "rejected"):
+                return JSONResponse({"ok": False, "error": (
+                    "Ke schválení jde poslat jen rozepsaný nebo vrácený záznam.")},
+                    status_code=400)
+            if not je_schvalovatel and not _pripl_smi_navrhnout(s, uid, r["engagement_id"]):
+                return JSONResponse({"ok": False, "error": (
+                    "Odměnu můžeš navrhnout jen lidem ze své skupiny.")}, status_code=403)
+            s.execute(_tw(
+                "UPDATE tenant.wage_movement SET status = 'pending', "
+                "  proposed_by_id = :u, proposed_at = now() WHERE id = :i"),
+                {"u": uid, "i": row_id})
+            novy = "pending"
+
+        elif akce == "schvalit":
+            if not je_schvalovatel:
+                return JSONResponse({"ok": False, "error": (
+                    "Schválit může jen mzdová účetní nebo personalistka.")}, status_code=403)
+            if r["status"] != "pending":
+                return JSONResponse({"ok": False, "error": (
+                    "Schválit jde jen záznam, který čeká na schválení.")}, status_code=400)
+            s.execute(_tw(
+                "UPDATE tenant.wage_movement SET status = 'approved', "
+                "  approved_by_id = :u, approved_at = now() WHERE id = :i"),
+                {"u": uid, "i": row_id})
+            novy = "approved"
+
+        else:  # vratit
+            if not je_schvalovatel:
+                return JSONResponse({"ok": False, "error": (
+                    "Vrátit k přepracování může jen mzdová účetní nebo personalistka.")},
+                    status_code=403)
+            if r["status"] not in ("pending", "approved"):
+                return JSONResponse({"ok": False, "error": (
+                    "Vrátit jde jen navržený nebo schválený záznam.")}, status_code=400)
+            s.execute(_tw(
+                "UPDATE tenant.wage_movement SET status = 'draft', "
+                "  approved_by_id = NULL, approved_at = NULL WHERE id = :i"),
+                {"i": row_id})
+            novy = "draft"
+
+        s.commit()
+        nazev = s.execute(_tw(
+            "SELECT nazev FROM tenant.wage_stav WHERE klic = :k"), {"k": novy}).scalar()
+        return JSONResponse({"ok": True, "stav": novy, "stav_nazev": nazev or novy})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[pripl_workflow] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        s.close()
 
 
 @api_router.get("/app/pripl/cutover-stav")

@@ -59502,6 +59502,10 @@ def _render_full_page(
       border-radius: 8px; cursor: pointer; text-decoration: none;
       color: var(--text); transition: background 0.12s, opacity 0.12s;
       flex-shrink: 0; line-height: 1;
+      /* Peťa 30.7.2026: v liště se dal popisek označit jako text (a při zapnutém
+         „procházení kurzorem" v Chromu se do něj dal i postavit blikající kurzor —
+         vypadalo to, jako by v „Výroba" něco blikalo). Je to tlačítko, ne text. */
+      user-select: none; -webkit-user-select: none; caret-color: transparent;
     }}
     .erp-navico:hover {{ background: var(--surface2); opacity: 0.95; }}
     .erp-navico:active {{ opacity: 0.7; }}

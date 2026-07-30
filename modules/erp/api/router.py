@@ -29731,6 +29731,56 @@ def _mirror_sched_stop_now():
         _MIRROR_SCHED_TASK[0].cancel()
 
 
+@api_router.get("/app/pripl/cutover-stav")
+def pripl_cutover_stav(req: Request):
+    """Je zadávání příplatků a srážek ve STRATEGII odemčené?
+
+    Zámek je DATOVÝ příznak `tenant.pripl_cutover.unlocked_at` (verdikt Marti-AI
+    29. 7. 2026, bod T2) — ne konstanta v kódu, aby šel vrátit jedním UPDATEm
+    a sám nesl kdo/kdy. Marti-AI k tomu dala jedinou podmínku: *modul si příznak
+    musí číst při KAŽDÉM requestu, ne cachovat v paměti procesu* — proto tady
+    není žádná cache a čte se to z DB pokaždé.
+
+    Odemyká se teprve po čtyřech kontrolách + písemném souhlasu Petry (uid 18);
+    o to se stará hodinový job `pripl_cutover_gate`. Dokud je zamčeno, formulář
+    v ERP se zobrazí jen ke čtení (mzdy_pripl_actions.js).
+    """
+    from core.database_data import get_data_session as _gcs
+    from sqlalchemy import text as _tcs
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _gcs()
+    try:
+        r = s.execute(_tcs(
+            "SELECT unlocked_at, cilove_datum, signoff_petra_at, "
+            "       kontrola_1_castky_ok, kontrola_2_typy_ok, "
+            "       kontrola_3_prava_ok, kontrola_4_roundtrip_ok "
+            "FROM tenant.pripl_cutover WHERE id = 1")).mappings().first()
+    finally:
+        s.close()
+    if r is None:
+        # Bez řádku se chováme jako ZAMČENO — bezpečnější než opačně.
+        return JSONResponse({"ok": True, "odemceno": False, "duvod": "chybí stav cutoveru"})
+    chybi = []
+    if not r["kontrola_1_castky_ok"]:
+        chybi.append("srovnání částek proti Centrále")
+    if not r["kontrola_2_typy_ok"]:
+        chybi.append("úplný číselník druhů odměn")
+    if not r["kontrola_3_prava_ok"]:
+        chybi.append("otestované zadávání a práva")
+    if not r["kontrola_4_roundtrip_ok"]:
+        chybi.append("běh mezd nanečisto")
+    if r["signoff_petra_at"] is None:
+        chybi.append("písemný souhlas Petry Šafránkové")
+    return JSONResponse({
+        "ok": True,
+        "odemceno": r["unlocked_at"] is not None,
+        "cilove_datum": r["cilove_datum"].strftime("%d.%m.%Y") if r["cilove_datum"] else None,
+        "chybi": chybi,
+    })
+
+
 @api_router.get("/app/mirror/status")
 def mirror_status(req: Request):
     uid = _uid_from_token_or_cookie(req)
@@ -62066,6 +62116,7 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/ec_vyhodnoceni_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/ec_pripl_srazky_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/mzdy_pripl_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/erp_spec_form.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Cell actions Fáze 1 (1.6.2026, Marti: dvojklik na telefon/email/web
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher

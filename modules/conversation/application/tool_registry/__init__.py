@@ -32,6 +32,10 @@ sys.modules.setdefault("tool_registry", sys.modules[__name__])
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFS_DIR = os.path.join(HERE, "defs")
 GENERATED_DIR = os.path.join(HERE, "generated")
+# Migrace ŽIVÝCH (dřív jen SPEC v defs/) nástrojů na vlastní run() — samoobslužný
+# tok Marti-AI (tool_registry/migration.py). Oddělený adresář od GENERATED_DIR,
+# ať se migrace existujícího nástroje nikdy neplete s nástrojem zbrusu novým.
+MIGRATIONS_DIR = os.path.join(HERE, "generated_migrations")
 
 # Vysoký default_order → nezařazené jdou na konec, ale stabilně (pak dle name).
 _DEFAULT_ORDER = 10_000_000

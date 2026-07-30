@@ -351,6 +351,14 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     specs.append(PROMPT_LIST_SPEC)
     specs.append(PROMPT_ROLLBACK_SPEC)
     specs.append(PROMPT_SHOW_SPEC)
+    # Seberozvoj migrace — samoobslužné přesunutí JIŽ ŽIVÉHO nástroje z tools.py/
+    # _handle_tool do vlastního run() (tool_registry/migration.py). Rozhodnutí
+    # Marti 30.7.2026: MartiAI si tohle testuje a doladuje sama, aktivaci má rodič.
+    try:
+        from tool_registry import migration as _MIG
+        specs.extend(_MIG.MIGRATION_META_SPECS)
+    except Exception as e:
+        logger.exception(f"TOOLFACTORY | migration specs: {e}")
     try:
         from core.database import get_session
         sg = get_session()
@@ -412,8 +420,33 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _prompt_rollback(tool_input, user_id)
         if tool_name == "zobraz_muj_prompt":
             return _prompt_show()
+        # Seberozvoj migrace existujícího nástroje (samoobslužný tok Marti-AI) —
+        # meta-nástroje z tool_registry/migration.py.
+        if tool_name == "navrhni_migraci_nastroje":
+            from tool_registry import migration as _MIG
+            return _MIG.propose(tool_input, user_id)
+        if tool_name == "schval_migraci_nastroje":
+            from tool_registry import migration as _MIG
+            return _MIG.approve(tool_input, user_id)
+        if tool_name == "zamitni_migraci_nastroje":
+            from tool_registry import migration as _MIG
+            return _MIG.reject(tool_input, user_id)
+        if tool_name == "seznam_migraci_nastroju":
+            from tool_registry import migration as _MIG
+            return _MIG.list_status()
+        if tool_name == "vrat_na_legacy":
+            from tool_registry import migration as _MIG
+            return _MIG.rollback(tool_input, user_id)
         if tool_name in META_NAMES:
             return None
+        # už migrovaný nástroj (nová implementace místo _handle_tool)?
+        try:
+            from tool_registry import migration as _MIG
+            mig_result = _MIG.dispatch_migrated(tool_name, tool_input, user_id, conversation_id)
+            if mig_result is not None:
+                return mig_result
+        except Exception as e:
+            logger.exception(f"TOOLFACTORY | dispatch_migrated {tool_name}: {e}")
         # generovaný nástroj?
         return _dispatch_generated(tool_name, tool_input, user_id, conversation_id)
     except Exception as e:
@@ -492,9 +525,11 @@ def _approve(inp: dict, user_id) -> str:
             "JOIN g2007.nastroj n ON n.id=p.nastroj_id WHERE p.id=:p"), {"p": pid}).mappings().first()
         if not row:
             return f"❌ Návrh #{pid} neexistuje."
+        payload = row["selftest"] or {}
+        if isinstance(payload, dict) and payload.get("kind") == "migrace":
+            return f"❌ Návrh #{pid} je MIGRACE existujícího nástroje — schval ho přes schval_migraci_nastroje, ne approve_tool."
         if row["status"] != "pending":
             return f"❌ Návrh #{pid} už není 'pending' (stav {row['status']})."
-        payload = row["selftest"] or {}
         spec = payload.get("spec"); code = payload.get("code")
         if not spec or code is None:
             return f"❌ Návrh #{pid} nemá uložený kód/spec."
@@ -521,9 +556,14 @@ def _reject(inp: dict, user_id) -> str:
         return "🚫 Zamítnout návrh může jen rodič."
     sg = get_session()
     try:
-        row = sg.execute(_t("SELECT nastroj_id, status FROM g2007.tool_proposal WHERE id=:p"),
+        row = sg.execute(_t("SELECT nastroj_id, status, selftest FROM g2007.tool_proposal WHERE id=:p"),
                          {"p": pid}).mappings().first()
-        if not row or row["status"] != "pending":
+        if not row:
+            return f"❌ Návrh #{pid} neexistuje."
+        payload = row["selftest"] or {}
+        if isinstance(payload, dict) and payload.get("kind") == "migrace":
+            return f"❌ Návrh #{pid} je MIGRACE existujícího nástroje — zamítni ho přes zamitni_migraci_nastroje, ne reject_tool."
+        if row["status"] != "pending":
             return f"❌ Návrh #{pid} není čekající."
         sg.execute(_t("UPDATE g2007.tool_proposal SET status='rejected', approved_by=:u, reason=:r, "
                       "decided_at=now() WHERE id=:p"), {"u": user_id, "r": inp.get("reason"), "p": pid})

@@ -27671,14 +27671,23 @@ async def att_daily(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
+        # Hodiny za den bere SDÍLENÁ funkce tenant.att_den_hodiny — táž definice jako
+        # ERP „Správa docházky — opravy" (Kristý 30.7. 8:57 + Marti-AI msg 11818).
+        # Dřív tu byl prostý součet presence BEZ filtru stavu → počítal i stornované
+        # záznamy i nenárokovou práci (ta je ČÁST už odpracovaných hodin) a za
+        # 1.–29.7.2026 tím ukazoval o 644,9 h víc, než člověk odpracoval.
         rows = s.execute(_t(
-            "SELECT to_char(e.entry_date,'YYYY-MM-DD') d, "
-            "COALESCE(round(sum(CASE WHEN et.category='presence' THEN e.hours ELSE 0 END)::numeric,2),0) worked, "
-            "COALESCE(round(sum(CASE WHEN et.category<>'presence' THEN e.hours ELSE 0 END)::numeric,2),0) absence, "
-            "bool_or(e.is_active) active "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
-            "GROUP BY e.entry_date ORDER BY e.entry_date DESC"),
+            "SELECT to_char(f.den,'YYYY-MM-DD') d, f.hodiny_mzdove worked, "
+            "COALESCE((SELECT round(sum(e.hours)::numeric,2) "
+            "          FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "          WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date=f.den "
+            "            AND et.category<>'presence' "
+            "            AND e.status IS DISTINCT FROM 'superseded' "
+            "            AND e.status IS DISTINCT FROM 'announced'),0) absence, "
+            "COALESCE((SELECT bool_or(e.is_active) FROM tenant.att_entry e "
+            "          WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date=f.den),false) active "
+            "FROM tenant.att_den_hodiny(:t, current_date - :dd, NULL) f "
+            "WHERE f.emp_id=:e2 ORDER BY f.den DESC"),
             {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
         s.commit()
         return JSONResponse(jsonable_encoder({"ok": True, "days": [dict(r) for r in rows]}))
@@ -27699,18 +27708,20 @@ async def att_real(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        sql = ("SELECT to_char(e.entry_date,'YYYY-MM-DD') d, "
-               "to_char(min(CASE WHEN et.category='presence' THEN e.started_at END),'HH24:MI') zac, "
-               "COALESCE(round(sum(CASE WHEN et.category='presence' THEN e.hours ELSE 0 END)::numeric,2),0) worked "
-               "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-               "WHERE e.tenant_id=:t AND e.employee_id=:e2 "
-               "AND e.status IS DISTINCT FROM 'superseded' AND e.status IS DISTINCT FROM 'announced'")
-        par = {"t": _ATT_TENANT, "e2": emp}
-        if d_from:
-            sql += " AND e.entry_date >= :df"; par["df"] = d_from
-        if d_to:
-            sql += " AND e.entry_date <= :dt"; par["dt"] = d_to
-        sql += " GROUP BY e.entry_date ORDER BY e.entry_date"
+        # Hodiny bere SDÍLENÁ funkce tenant.att_den_hodiny (viz att_daily výše).
+        # Dřív prostý součet presence → přičítal i nenárokovou práci, což je ČÁST už
+        # odpracovaných hodin; za 1.–29.7.2026 o 375,4 h víc, než člověk odpracoval.
+        sql = ("SELECT to_char(f.den,'YYYY-MM-DD') d, "
+               "(SELECT to_char(min(e.started_at),'HH24:MI') "
+               "   FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+               "  WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date=f.den "
+               "    AND et.category='presence' "
+               "    AND e.status IS DISTINCT FROM 'superseded' "
+               "    AND e.status IS DISTINCT FROM 'announced') zac, "
+               "f.hodiny_mzdove worked "
+               "FROM tenant.att_den_hodiny(:t, CAST(:df AS date), CAST(:dt AS date)) f "
+               "WHERE f.emp_id=:e2 ORDER BY f.den")
+        par = {"t": _ATT_TENANT, "e2": emp, "df": d_from, "dt": d_to}
         rows = s.execute(_t(sql), par).mappings().all()
         s.commit()
         return JSONResponse(jsonable_encoder({"ok": True, "days": [dict(r) for r in rows]}))
@@ -28081,6 +28092,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
     cm = _pg.get_session()
     sess = cm.__enter__()
     ins = upd = total = 0
+    lck = 0  # kolik řádků synchronizace přeskočila, protože jsou zamčené (local_lock)
     try:
         tw = sess.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='work'"), {"t": tenant}).first()
         toh = sess.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='overhead'"), {"t": tenant}).first()
@@ -28114,8 +28126,12 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
             frm = (_date_d.today() - _td_d(days=days)).isoformat()
         if wipe:
             wp = {"t": tenant, "f": frm}
+            # local_lock = řádek opravený ve STRATEGII → wipe se ho NESMÍ dotknout
+            # (Claude-28 30.7.2026, schválila Marti-AI msg 11818). Bez toho by
+            # @@DOCHRESYNC nad rozsahem tiše smazal cizí opravu.
             wsql = ("DELETE FROM tenant.att_entry WHERE tenant_id=:t "
-                    "AND source_system='centrala1' AND entry_date >= :f")
+                    "AND source_system='centrala1' AND COALESCE(local_lock,false)=false "
+                    "AND entry_date >= :f")
             if to:
                 wsql += " AND entry_date <= :to"
                 wp["to"] = to
@@ -28169,14 +28185,27 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                 "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
                 "started_at=:z,ended_at=:k,break_minutes=:br,project_ref=:proj,status=:st,source=:src,"
                 "is_active=:akt,updated_at=now() "
-                "WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
+                # local_lock = řádek opravený ve STRATEGII → synchronizace ho už nepřepíše
+                # (Claude-28 30.7.2026, Marti-AI msg 11818). Do 30.7. byl UPDATE
+                # bezpodmínečný, takže oprava absence z Centrály tiše zmizela.
+                "WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid "
+                "AND COALESCE(local_lock,false)=false"), p)
             if (res.rowcount or 0) == 0:
-                sess.execute(_t(
-                    "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                    "started_at,ended_at,break_minutes,project_ref,status,source,source_system,source_id,"
-                    "is_active,created_at,updated_at) VALUES (:t,:emp,:d,:et,:h,:z,:k,:br,:proj,:st,:src,"
-                    "'centrala1',:sid,:akt,now(),now())"), p)
-                ins += 1
+                # POZOR: 0 řádků teď znamená DVĚ různé věci — buď záznam ještě není
+                # (→ INSERT), nebo JE, ale je zamčený (local_lock). Bez tohoto rozlišení
+                # by se u zamčeného řádku vložil duplikát. Claude-28 30.7.2026.
+                _exists = sess.execute(_t(
+                    "SELECT 1 FROM tenant.att_entry WHERE tenant_id=:t "
+                    "AND source_system='centrala1' AND source_id=:sid"), p).first()
+                if _exists:
+                    lck += 1
+                else:
+                    sess.execute(_t(
+                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                        "started_at,ended_at,break_minutes,project_ref,status,source,source_system,source_id,"
+                        "is_active,created_at,updated_at) VALUES (:t,:emp,:d,:et,:h,:z,:k,:br,:proj,:st,:src,"
+                        "'centrala1',:sid,:akt,now(),now())"), p)
+                    ins += 1
             else:
                 upd += 1
         # Marti 19.6.: appka = zdroj pravdy (hybrid). Kdo má dnes ŽIVOU směnu z appky,
@@ -28205,7 +28234,8 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                 ec_closed += int(_n or 0)
             except Exception:
                 pass
-        return {"ok": True, "total": total, "inserted": ins, "updated": upd, "ec_closed": ec_closed}
+        return {"ok": True, "total": total, "inserted": ins, "updated": upd,
+                "zamceno_preskoceno": lck, "ec_closed": ec_closed}
     except Exception as exc:
         try:
             sess.rollback()
@@ -33454,60 +33484,24 @@ def dochazka_moje_ep(req: Request):
             p = str(iso).split("-")
             return (p[2] + "." + p[1] + "." + p[0]) if len(p) == 3 else str(iso)
 
-        # 1) PŘÍTOMNOST (mzdové hodiny) per den = z tenant.att_entry, počítané STEJNĚ
-        #    jako ERP „Opravy": sloučení překryvů presence intervalů (duplicity, které
-        #    by prostý součet zdvojil — např. 2× stejná směna → 16 h místo 8 h) minus
-        #    přestávky uvnitř práce. Marti Pašek 26.7.2026: att_entry = jediný zdroj
-        #    pravdy pro hodiny; att_day_summary je mimo, NEpoužívat.
-        iv = s.execute(_t(
-            "SELECT to_char(ae.entry_date,'YYYY-MM-DD') d, et.category cat, "
-            "       EXTRACT(EPOCH FROM ae.started_at) s, EXTRACT(EPOCH FROM ae.ended_at) e "
-            "FROM tenant.att_entry ae JOIN tenant.att_entry_type et ON et.id=ae.entry_type_id "
-            "WHERE ae.tenant_id=2 AND ae.entry_date>=:od AND ae.entry_date<=:do "
-            "  AND ae.employee_id IN (SELECT id FROM tenant.att_employee "
-            "                         WHERE tenant_id=2 AND user_id=:uid) "
-            "  AND ae.status NOT IN ('superseded','announced') "
-            "  AND et.category IN ('presence','break') "
-            # „🫡 Odchod" (day_end) je v kategorii 'break', ale NENÍ přestávka — je to
-            # stav „dnes už se mnou nepočítej" a běží do 23:59. Bez tohoto vyloučení se
-            # odečítal jako pauza, takže kde někdo po odchodu ještě pracoval, ukázal
-            # mobil MENŠÍ hodiny než ERP „Opravy" (ověřeno na červenci: os. 475 8.7.
-            # −2,42 h, os. 105 22.7. −3,55 h, os. 49 14.7. −0,08 h). ERP ho vylučuje
-            # taky (dochazka-opravy.html: `if(isDE) return;`) — držíme stejnou definici.
-            "  AND et.code <> 'day_end' "
-            "  AND ae.started_at IS NOT NULL AND ae.ended_at IS NOT NULL"),
+        # 1) PŘÍTOMNOST (mzdové hodiny) per den — SDÍLENÁ funkce tenant.att_den_hodiny.
+        #    Táž definice jako ERP „Správa docházky — opravy": sloučení překrývajících se
+        #    úseků práce (2× stejná směna → 8 h, ne 16), pauza se odečte jen když leží
+        #    UVNITŘ práce, „🫡 Odchod" (day_end) ven (není pauza, běží do 23:59),
+        #    stornované/announced ven, nenárokovou nikdy nepřičítat.
+        #    Dřív se to počítalo tady v programu a CHYBĚLO v tom „Doplnění do fondu"
+        #    (za 1.–29.7.2026 = 185,4 h, o které mobil ukazoval míň než ERP).
+        #    Marti Pašek 26.7.2026: att_entry = jediný zdroj pravdy; att_day_summary NEpoužívat.
+        #    Sjednocení schválila Kristý 30.7. 8:57 + Marti-AI msg 11818.
+        pr = s.execute(_t(
+            "SELECT to_char(f.den,'YYYY-MM-DD') d, SUM(f.hodiny_mzdove) h "
+            "FROM tenant.att_den_hodiny(2, CAST(:od AS date), CAST(:do AS date)) f "
+            "WHERE f.emp_id IN (SELECT id FROM tenant.att_employee "
+            "                   WHERE tenant_id=2 AND user_id=:uid) "
+            "GROUP BY 1"),
             {"uid": target, "od": od, "do": do}).mappings().all()
-
-        def _merge(ivs):
-            ivs = sorted(ivs)
-            merged = []
-            for a, b in ivs:
-                if merged and a <= merged[-1][1]:
-                    if b > merged[-1][1]:
-                        merged[-1][1] = b
-                else:
-                    merged.append([a, b])
-            return merged
-
-        pres_by_day, brk_by_day = {}, {}
-        for r in iv:
-            si, ei = r["s"], r["e"]
-            if si is None or ei is None or ei <= si:
-                continue
-            bucket = pres_by_day if r["cat"] == "presence" else brk_by_day
-            bucket.setdefault(r["d"], []).append((float(si), float(ei)))
-
-        payroll = {}  # d -> mzdové hodiny (float)
-        for d, ivs in pres_by_day.items():
-            merged = _merge(ivs)
-            sec = sum(b - a for a, b in merged)
-            inside = 0.0
-            for bs, be in brk_by_day.get(d, []):
-                for ps, pe in merged:
-                    o = min(be, pe) - max(bs, ps)
-                    if o > 0:
-                        inside += o
-            payroll[d] = round(max(0.0, sec - inside) / 3600.0, 2)
+        # Jeden člověk může mít víc docházkových záznamů (ES + EC) → sečteno přes ně.
+        payroll = {r["d"]: float(r["h"] or 0) for r in pr}
 
         # 2) Zakázkové segmenty (rozpad, detail) per den z vyroba_work
         zak = s.execute(_t("""

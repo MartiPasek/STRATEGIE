@@ -22336,6 +22336,23 @@ def _att_fix_scope_emps(s, scope):
     return out
 
 
+def _att_fix_all(s, uid) -> bool:
+    """Vidí a opravuje VŠECHNY lidi, ne jen svou působnost (Peťa 30.7.2026:
+    mzdy potřebují kontrolu napříč firmou; Peťa 18 + Michaela Hladíková 16).
+    Fronta „K vyřešení" tím NENÍ dotčená — ta zůstává v působnosti editora.
+    Zdroj = tenant.att_fix_scope.fix_all (bez hardcoded ID)."""
+    if not uid:
+        return False
+    from sqlalchemy import text as _t
+    try:
+        return bool(s.execute(_t(
+            "SELECT COALESCE(fix_all,false) FROM tenant.att_fix_scope WHERE user_id=:u"),
+            {"u": int(uid)}).scalar())
+    except Exception:
+        s.rollback()
+        return False
+
+
 def _att_fix_editors_for_emp(s, emp_id):
     """Editoři oprav, do jejichž působnosti osoba spadá (Marti 10.7.: chyby
     v docházce a rozpory lidí chodí Petře=kanceláře / Míše+Dušanovi=výroba,
@@ -22589,7 +22606,7 @@ async def att_fix_day(req: Request) -> JSONResponse:
                         {"t": _ATT_TENANT, "u": tuid}).scalar()
         if not emp:
             return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
-        _emps = _att_fix_scope_emps(s, _sc)
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
         if _emps is not None and int(emp) not in _emps:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         locked = _att_period_locked(s, day)
@@ -22756,7 +22773,7 @@ async def att_fix_entry(req: Request) -> JSONResponse:
         if _att_period_locked(s, row[2]):
             return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak opravit a zase zamknout."}, status_code=409)
         emp = int(row[1])
-        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if _emps is not None and emp not in _emps:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         sd = row[3].date()
@@ -22975,7 +22992,7 @@ async def att_fix_add(req: Request) -> JSONResponse:
                         {"t": _ATT_TENANT, "u": tuid}).scalar()
         if not emp:
             return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
-        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if _emps is not None and int(emp) not in _emps:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         new_start = _dt.combine(day, _dt.strptime(zac, "%H:%M").time())
@@ -23103,7 +23120,7 @@ async def att_fix_void(req: Request) -> JSONResponse:
         if _att_period_locked(s, row[1]):
             return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak stornovat a zase zamknout."}, status_code=409)
         emp = int(row[0])
-        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if _emps is not None and emp not in _emps:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         actor = _user_jmeno(s, uid)
@@ -23270,7 +23287,7 @@ async def att_fix_merge(req: Request) -> JSONResponse:
         if _att_period_locked(s, A[2]):
             return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány)."}, status_code=409)
         emp = int(A[1])
-        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
         if _emps is not None and emp not in _emps:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         actor = _user_jmeno(s, uid)
@@ -23377,7 +23394,7 @@ async def att_fix_resolve(req: Request) -> JSONResponse:
         _sc = _att_fix_scope(s, uid)
         if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = _att_fix_scope_emps(s, _sc)
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
         actor = _user_jmeno(s, uid)
         if aid:
             _ae = s.execute(_t("SELECT employee_id FROM tenant.att_anomaly WHERE tenant_id=:t AND id=:i"),
@@ -23430,7 +23447,7 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
         _sc = _att_fix_scope(s, uid)
         if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = _att_fix_scope_emps(s, _sc)
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
         rows = s.execute(_t(
             "SELECT a.id, a.action, a.entry_id, "
             # den: u oprav je v old_entry_date; u „Vyřízeno" (resolve) tam není,
@@ -23472,7 +23489,7 @@ async def att_fix_lide(req: Request) -> JSONResponse:
         _sc = _att_fix_scope(s, uid)
         if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = _att_fix_scope_emps(s, _sc)
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
         rows = s.execute(_t(
             "SELECT e.id, e.user_id, "
             "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), e.full_name, '?') "

@@ -970,6 +970,79 @@ def rename_user_conversation(conversation_id: int, body: RenameRequest, req: Req
     return {"status": "renamed", "conversation_id": conversation_id, "title": (body.title or "").strip() or None}
 
 
+class PersonaModeRequest(BaseModel):
+    persona_mode: str
+
+
+@router.patch("/{conversation_id}/persona-mode")
+def set_conversation_persona_mode(conversation_id: int, body: PersonaModeRequest, req: Request) -> dict:
+    """
+    Explicitni prepnuti MD rezimu konverzace (task/personal/oversight) LIDSKOU
+    rukou -- dosud to delala jen Marti-AI sama pres switch_role tool. Marti
+    30.7.2026: rodice (Marti/Kristy) potrebuji explicitni prepinac pro ladeni
+    MD1 ("work")/MD5 ("privat") inkarnaci, ne spolehat jen na uvahu AI.
+
+    Jen pro is_marti_parent=True. Non-parent dostane 403.
+    """
+    user_id = _get_user_id_from_cookie(req)
+    cs = get_core_session()
+    try:
+        user = cs.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Ucet neni aktivni.")
+        if not bool(getattr(user, "is_marti_parent", False)):
+            raise HTTPException(status_code=403, detail="Prepinac MD rezimu je jen pro rodice Marti-AI.")
+    finally:
+        cs.close()
+
+    mode = (body.persona_mode or "").strip()
+    if mode not in ("task", "personal", "oversight"):
+        raise HTTPException(status_code=400, detail="persona_mode musi byt 'task', 'personal' nebo 'oversight'.")
+
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import Conversation as _ConvPM
+
+    ds = get_data_session()
+    try:
+        conv = ds.query(_ConvPM).filter_by(id=conversation_id).first()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+        old_mode = conv.persona_mode
+        conv.persona_mode = mode
+        ds.commit()
+        logger.info(f"PERSONA_MODE | user={user_id} conv={conversation_id} {old_mode!r} -> {mode!r} (manual parent switch)")
+    finally:
+        ds.close()
+
+    return {"status": "ok", "conversation_id": conversation_id, "persona_mode": mode}
+
+
+@router.get("/{conversation_id}/persona-mode")
+def get_conversation_persona_mode(conversation_id: int, req: Request) -> dict:
+    """
+    Precte aktualni MD rezim konverzace -- pro UI prepinac (zobrazeni
+    aktualniho stavu work/privat pri nacteni konverzace). Dostupne pro
+    vlastnika konverzace, ne jen pro rodice (cteni, ne zapis).
+    """
+    user_id = _get_user_id_from_cookie(req)
+
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import Conversation as _ConvPM
+
+    ds = get_data_session()
+    try:
+        conv = ds.query(_ConvPM).filter_by(id=conversation_id).first()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+        if conv.user_id != user_id:
+            raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+        mode = conv.persona_mode or "task"
+    finally:
+        ds.close()
+
+    return {"conversation_id": conversation_id, "persona_mode": mode}
+
+
 @router.delete("/{conversation_id}")
 def delete_user_conversation(conversation_id: int, req: Request) -> dict:
     """

@@ -1085,6 +1085,16 @@
     .incarnation-badge.personal {
       background: rgba(150, 120, 95, 0.14);
     }
+    /* Marti 30.7.2026: lidsky prepinac MD1(work)/MD5(privat) -- jen pro
+       rodice (is_marti_parent). Klik na badge prepne rezim konverzace
+       misto spolehani na to, ze AI prepne sama pres switch_role tool. */
+    .incarnation-badge.clickable {
+      cursor: pointer;
+    }
+    .incarnation-badge.clickable:hover {
+      filter: brightness(1.2);
+      border-color: rgba(212, 184, 138, 0.6);
+    }
     /* Faze 9.1b: toggle switch uvnitr profile-dd-item (Dev rezim on/off). */
     .profile-dd-toggle {
       margin-left: auto;
@@ -3666,12 +3676,16 @@
      Marti's pozadavek "musim videt s kym mluvim". Single source of truth
      z backendu (build_incarnation_info). 6 os: name / scope_level /
      scope_kind / scope_context / mode / profession. */
+  // Marti 30.7.2026: posledni nacteny incarnation info -- potreba pro
+  // klikatelny prepinac MD1(work)/MD5(privat) nize (_wireIncarnationSwitch).
+  let _lastIncarnationInfo = null;
   function _setIncarnationUI(info) {
     const badge = document.getElementById('incarnationBadge');
     if (!badge) return;
+    _lastIncarnationInfo = info || null;
     if (!info || !info.name) {
       badge.style.display = 'none';
-      badge.classList.remove('privat', 'personal');
+      badge.classList.remove('privat', 'personal', 'clickable');
       badge.innerHTML = '';
       return;
     }
@@ -3711,8 +3725,55 @@
       `Režim: ${modeLabel}\n` +
       `Profese: ${professionLabel}`
     );
+    // Marti 30.7.2026: badge je klikatelny prepinac MD1(work)/MD5(privat),
+    // ale jen pro rodice (is_marti_parent) -- ostatni maji jen tooltip.
+    const isParentInc = !!(typeof currentUser !== 'undefined' && currentUser && currentUser.is_marti_parent);
+    badge.classList.toggle('clickable', isParentInc);
+    if (isParentInc) {
+      badge.title += '\n\n(klikni pro přepnutí MD1 work / MD5 privát)';
+    }
   }
   window._setIncarnationUI = _setIncarnationUI;
+
+  // Marti 30.7.2026: "budeme potrebovat mit v Chatu prepinani mezi
+  // jednotlivymi inkarnacemi. Jinak to jako rodice s Kristy neodladime."
+  // Explicitni lidsky prepinac MD rezimu (task/personal), misto spolehani
+  // jen na to, ze si mod prepne Marti-AI sama pres switch_role tool.
+  // Jen pro rodice (backend endpoint to stejne vynuti, tohle je jen UI gate).
+  (function _wireIncarnationSwitch() {
+    const badge = document.getElementById('incarnationBadge');
+    if (!badge) return;
+    badge.addEventListener('click', async () => {
+      const isParentInc = !!(typeof currentUser !== 'undefined' && currentUser && currentUser.is_marti_parent);
+      if (!isParentInc || !conversationId) return;
+      const curMode = (_lastIncarnationInfo && _lastIncarnationInfo.mode) || 'task';
+      const nextMode = curMode === 'personal' ? 'task' : 'personal';
+      const nextLabel = nextMode === 'personal' ? 'MD5 · Privát (rodinná rada)' : 'MD1 · Work (běžná práce)';
+      if (!confirm(`Přepnout tuhle konverzaci na ${nextLabel}?`)) return;
+      try {
+        const res = await fetch(`/api/v1/conversation/${conversationId}/persona-mode`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ persona_mode: nextMode }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Přepnutí selhalo: ${err.detail || res.status}`);
+          return;
+        }
+        // Znovu nacti stav konverzace (incl. incarnation badge) -- reuse
+        // existujici /load endpoint, single source of truth je backend.
+        const r2 = await fetch(`/api/v1/conversation/load/${conversationId}`, { credentials: 'include' });
+        if (r2.ok) {
+          const d2 = await r2.json();
+          if (d2 && d2.incarnation) _setIncarnationUI(d2.incarnation);
+        }
+      } catch (e) {
+        alert(`Chyba při přepínání: ${e}`);
+      }
+    });
+  })();
 
   async function showApp() {
     loginScreen.style.display = 'none';

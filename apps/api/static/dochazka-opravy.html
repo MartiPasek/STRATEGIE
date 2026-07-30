@@ -239,6 +239,15 @@ document.getElementById('tabs').addEventListener('click',function(ev){
   document.querySelectorAll('#tabs .chip').forEach(function(x){x.classList.toggle('on',x===b);});
   ({queue:loadQueue,people:loadPeople,audit:loadAudit,lock:loadLock})[b.dataset.t]();
 });
+/* Po opravě/stornu se levý sloupec obnovoval VŽDY frontou „K vyřešení" — a přepsal
+   tím vyhledávání člověka, takže Peťa musela po každé úpravě znovu klikat na
+   „🔍 Najít člověka" (30.7.2026). Nově se obnoví ta záložka, na které uživatel
+   opravdu stojí; fronta se tím nepřestane aktualizovat, jen když je vidět. */
+function obnovLevy(){
+  var akt=document.querySelector('#tabs .chip.on');
+  var t=(akt&&akt.dataset.t)||'queue';
+  ({queue:loadQueue,people:loadPeople,audit:loadAudit,lock:loadLock})[t]();
+}
 // ── fronta ──
 function loadQueue(){
   var L=document.getElementById('left');L.innerHTML='<div class="hint">Načítám frontu…</div>';
@@ -491,7 +500,7 @@ function openDay(uid,name,day){
           if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}
           confirmBox(afx,'Přidat '+esc(sel.value)+' '+esc(t1.value)+'–'+esc(t2.value)+' pro <b>'+esc(CTX.name||'')+'</b> ('+esc(dt.value)+')?',function(cw){
             api('POST','/api/v1/erp/app/attendance/fix/add',{uid:CTX.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||'').trim()||null,cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
-              if(r.ok){render();loadQueue();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
+              if(r.ok){render();obnovLevy();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
             });
           });
         });
@@ -635,7 +644,7 @@ function openDay(uid,name,day){
               if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}
               confirmBox(fx,'Opravit záznam z <b>'+esc((e2.zac||'?')+'–'+(e2.kon||'…'))+'</b> na <b>'+esc(t1.value+'–'+t2.value)+((zk.value||'').trim()!==(e2.project_ref||'')?(' · 🧾 '+esc((zk.value||'').trim()||'bez zakázky')):'')+'</b>?',function(cw){
                 api('POST','/api/v1/erp/app/attendance/fix/entry',{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,project_ref:(zk.value||'').trim(),cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
-                  if(r.ok){render();loadQueue();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
+                  if(r.ok){render();obnovLevy();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
                 });
               });
             });
@@ -659,16 +668,16 @@ function openDay(uid,name,day){
                     var mbr=el('<div class="btns"></div>');
                     var many=el('<button class="b p" style="flex:1">🔗 Sloučit</button>'),mne=el('<button class="b">Nechat rozdělené</button>');
                     mbr.appendChild(many);mbr.appendChild(mne);mw.appendChild(mbr);fx.appendChild(mw);
-                    mne.addEventListener('click',function(){render();loadQueue();});
+                    mne.addEventListener('click',function(){render();obnovLevy();});
                     many.addEventListener('click',function(){
                       many.disabled=true;mne.disabled=true;
                       api('POST','/api/v1/erp/app/attendance/fix/merge',{a_id:mo.a_id,b_id:mo.b_id,reason:'sloučení po stornu přerušení'}).then(function(m){
-                        if(m.ok){render();loadQueue();}else{mw.innerHTML='<div class="hint">✗ '+esc(m.error||'Sloučení se nepovedlo.')+'</div>';setTimeout(function(){render();},1800);}
+                        if(m.ok){render();obnovLevy();}else{mw.innerHTML='<div class="hint">✗ '+esc(m.error||'Sloučení se nepovedlo.')+'</div>';setTimeout(function(){render();},1800);}
                       });
                     });
                     return;
                   }
-                  render();loadQueue();
+                  render();obnovLevy();
                 });
               });
             });

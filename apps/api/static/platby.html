@@ -952,5 +952,36 @@ document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
 loadFaktury();
 </script>
 <script src="/static/nav-back.js"></script>
+<script>
+/* Kopírování buňky přes Ctrl+C (jako v Centrále): klik = aktivní buňka, Ctrl+C zkopíruje celý její text. Peta 30.7.2026. */
+(function(){
+  if(window.__cellCopyInit)return; window.__cellCopyInit=true;
+  var st=document.createElement('style');
+  st.textContent='td.cellact{outline:2px solid #4a9eff;outline-offset:-2px;} td.cellcopied{background:rgba(74,158,255,.45)!important;}';
+  document.head.appendChild(st);
+  function isDataTable(t){return t&&/\b(dokl|fakt|sumtab)\b/.test(t.className||'');}
+  function clearActive(){var p=document.querySelector('td.cellact');if(p)p.classList.remove('cellact');}
+  document.addEventListener('click',function(e){
+    var td=e.target&&e.target.closest?e.target.closest('td'):null; if(!td)return;
+    if(!isDataTable(td.closest('table')))return;
+    if(td.classList.contains('mk')||td.classList.contains('ld'))return;
+    if(td.querySelector('input,select,button'))return;
+    clearActive(); td.classList.add('cellact');
+  });
+  function copyText(t){
+    try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;}}catch(_){}
+    var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand('copy');}catch(_){}document.body.removeChild(ta);
+  }
+  document.addEventListener('keydown',function(e){
+    if(!((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')))return;
+    if(/(INPUT|TEXTAREA|SELECT)/.test((e.target&&e.target.tagName)||''))return;
+    var sel=window.getSelection?String(window.getSelection()):''; if(sel&&sel.trim())return;
+    var td=document.querySelector('td.cellact'); if(!td)return;
+    var txt=(td.textContent||'').trim(); if(!txt)txt=td.getAttribute('title')||'';
+    e.preventDefault(); copyText(txt);
+    td.classList.add('cellcopied'); setTimeout(function(){td.classList.remove('cellcopied');},350);
+  });
+})();
+</script>
 </body>
 </html>

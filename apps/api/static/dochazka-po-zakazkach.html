@@ -1465,7 +1465,7 @@ function _absSave(){
   var od=document.getElementById('abs_od').value, dd=document.getElementById('abs_do').value;
   var h=document.getElementById('abs_h').value, pozn=document.getElementById('abs_pozn').value;
   var duv=document.getElementById('abs_reason').value.trim();
-  function chyba(t){m.className='dmsg err';m.textContent=t;}
+  function chyba(t){m.className='dmsg err';m.textContent=t;absChyba(t);}
   if(!typ)return chyba('Vyber druh absence.');
   if(!od||!dd)return chyba('Vyplň období od–do.');
   if(dd<od)return chyba('Datum „do" nesmí být dřív než „od".');
@@ -1554,12 +1554,36 @@ function absDel(idxs){
    Server přitom odpovídá (ověřeno na /app/dochazka-abs/meta). Aby se příště nehádalo,
    obalíme obsluhu tlačítek try/catch a chybu vypíšeme rovnou do okna — uživatel ji
    přečte bez konzole prohlížeče. */
+/* Chyby hlásit VYSKAKOVACÍM OKNEM (Peťa 30.7.2026). Úspěch se nehlásí vůbec —
+   ten je vidět v tabulce. Chybu ale uživatel musí zaregistrovat, a hláška v rohu
+   dialogu se přehlédne stejně jako zelený pruh nad tabulkou. Vlastní okno, ne
+   alert() prohlížeče — ten Chrome uvnitř ERP rámu tiše potlačuje. */
+function absChyba(text){
+  var b=document.getElementById('abschybov');
+  if(!b){
+    b=document.createElement('div'); b.className='ov'; b.id='abschybov';
+    b.style.zIndex='60';
+    b.innerHTML='<div class="dlg" role="alertdialog" style="width:min(480px,92vw)">'
+      +'<h3 style="color:#fca5a5">⚠ Nepovedlo se</h3>'
+      +'<div class="bd"><div id="abschyb_txt" style="font-size:13px;line-height:1.5"></div>'
+      +'<div class="muted" style="font-size:11px;margin-top:10px">Když se to bude opakovat, '
+      +'pošli tenhle text Claudovi — pozná z něj příčinu.</div></div>'
+      +'<div class="dbtn"><div class="r"><button class="b-ok" id="abschyb_ok">Rozumím</button></div></div></div>';
+    document.body.appendChild(b);
+    document.getElementById('abschyb_ok').addEventListener('click',function(){
+      b.classList.remove('on');});
+    b.addEventListener('mousedown',function(e){if(e.target===b)b.classList.remove('on');});
+    document.addEventListener('keydown',function(e){
+      if(e.key==='Escape'&&b.classList.contains('on'))b.classList.remove('on');});
+  }
+  document.getElementById('abschyb_txt').textContent=String(text||'Neznámá chyba.');
+  b.classList.add('on');
+  setTimeout(function(){try{document.getElementById('abschyb_ok').focus();}catch(_e){}},30);
+}
 function _absErr(id, e){
-  try{
-    var m=document.getElementById(id);
-    if(m){m.className='dmsg err';
-      m.textContent='Chyba ve stránce: '+((e&&(e.message||e))||'neznámá')+' — pošli tenhle text Claudovi.';}
-  }catch(_x){ alert('Chyba ve stránce: '+((e&&(e.message||e))||'neznámá')); }
+  var t='Chyba ve stránce: '+((e&&(e.message||e))||'neznámá');
+  try{ var m=document.getElementById(id); if(m){m.className='dmsg err'; m.textContent=t;} }catch(_x){}
+  try{ absChyba(t); }catch(_y){}
 }
 function absDelRun(){ try{ _absDelRun(); }catch(e){ _absErr('absdel_msg', e); } }
 function _absDelRun(){
@@ -1573,8 +1597,8 @@ function _absDelRun(){
     if(k>=rs.length){
       document.getElementById('absdel_ok').disabled=false;
       if(chyby.length){
-        m.className='dmsg err';
-        m.textContent='Smazáno '+hotovo+' z '+rs.length+'. Nepovedlo se: '+chyby.join(' · ');
+        var t='Smazáno '+hotovo+' z '+rs.length+'. Nepovedlo se: '+chyby.join(' · ');
+        m.className='dmsg err'; m.textContent=t; absChyba(t);
         load(); return;
       }
       // Peťa 30.7.2026: ÚSPĚCH SE NEHLÁSÍ. Zelená hláška nad tabulkou odstrčila

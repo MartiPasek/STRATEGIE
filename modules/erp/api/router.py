@@ -28037,7 +28037,13 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
            # C24 + Kristý 30.7.2026: importujeme i REŽII (dřív se '<>rezie' přeskakovala),
            # aby měla ve vyroba_work činnost (jinak byla v Docházka new prázdná). zakazka_ref
            # se normalizuje na 'Rezie' níže. Nadále jen záznamy s činností (DruhCinnosti>0).
-           "AND ISNULL(DruhCinnosti,0)>0 ORDER BY ID")
+           "AND ISNULL(DruhCinnosti,0)>0 "
+           # C24 30.7.2026 (fix regrese): NEimportovat ABSENCE do vyroba_work. Ta drží jen
+           # práci/režii/HO; dovolená/nemoc/lékař/OČR jsou JEN v att_entry (a odtud jdou do mezd
+           # přes att_day_summary). Při zrušení filtru '<>rezie' začaly absence prosakovat sem
+           # (druh 20/21/22… má taky DruhCinnosti>0). Absenční kódy = klíče _DRUH_ABSENCE.
+           "AND ISNULL(DruhCinnosti,0) NOT IN (" + ",".join(str(_k) for _k in _DRUH_ABSENCE) + ") "
+           "ORDER BY ID")
 
     cm = _pg.get_session()
     sess = cm.__enter__()

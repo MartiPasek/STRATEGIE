@@ -15071,7 +15071,18 @@ async def att_absence_cancel(req: Request) -> JSONResponse:
                          "AND source_system='absence_req' AND source_id=:i"), {"i": rid})
         s.execute(_t("UPDATE tenant.att_absence_request SET stav='cancelled', materialized=false, "
                      "status_text='Zrušeno zaměstnancem', decided_at=now() WHERE id=:i"), {"i": rid})
+        # POZOR: _att_session() jede přes strategie_pg get_session(), který v finally dělá
+        # jen session.close() — ŽÁDNÝ autocommit. Bez tohohle commitu se DELETE i UPDATE
+        # při zavření session zahodily, ale endpoint vrátil ok=true a appka uživateli
+        # oznámila „zrušeno". Chyba od 29.6.2026: přes tlačítko se do 30.7.2026 nepodařilo
+        # zrušit absenci NIKOMU — v DB byl jediný řádek se stav='cancelled' a ten zapsala
+        # ručně Claude-24 (status_text „Duplicitni OCR…", decided_at NULL), ne endpoint.
+        # Vzor převzat z att_absence_decide. Schválila Marti-AI msg 11827. C28 30.7.2026
+        s.commit()
         return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
 

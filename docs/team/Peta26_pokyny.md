@@ -183,6 +183,13 @@ Přijaté faktury (`platby.html`) — a **KAŽDÝ nový přehled to má mít tak
   „prace" najde „Práce". Normalizuje se obě strany (`_norm` = malá písmena + `normalize('NFD')` +
   odstranění `\p{Diacritic}`). Platí všude.
 - **Barva „výchozí/vlastní filtr" tlačítek:** zelená `background:#0f2a22; color:#4fe0aa; border:#2dd4bf`.
+- **Kopírování buňky přes Ctrl+C (Peta 30.7.2026):** jako v Centrále — klik do buňky ji označí (výrazný
+  rámeček `td.cellact`) a **Ctrl+C zkopíruje celý text té buňky** (bez tažení myší). Univerzální blok
+  na konci stránky (IIFE, `window.__cellCopyInit` guard): deleguje na `td` v tabulkách třídy
+  **`dokl`/`fakt`/`sumtab`**, přeskočí buňku značek (`.mk`), „Načítám" (`.ld`) a buňky se vstupy
+  (řádek filtru). Ctrl+C v psacím poli nebo při ručně označeném textu nechá nativní chování; jinak
+  zkopíruje `td.textContent` (fallback `title`) přes `navigator.clipboard` (fallback `execCommand`)
+  a krátce buňku probliskne (`td.cellcopied`). **Pravidlo:** tenhle blok patří do každého nového přehledu.
 
 ## POJISTKA 2 — po deploji ověř, že server SERVÍRUJE novou verzi (21.7.2026)
 Deploy může napsat **„DEPLOY: OK · cloud: OK"**, a přesto cloud NEPŘEVEZME novou verzi. Stalo se

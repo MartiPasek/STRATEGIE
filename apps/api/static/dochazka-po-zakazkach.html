@@ -1488,10 +1488,8 @@ function _absSave(){
     body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){
       document.getElementById('abs_ok').disabled=false;
       if(!j||!j.ok){chyba((j&&j.error)||'Nepodařilo se uložit.');return;}
+      // Úspěch se nehlásí (viz absDelRun) — změnu je vidět přímo v tabulce.
       absClose(); load();
-      var z=(j.zustatky&&j.zustatky.length)?(' · přepočteno: '+j.zustatky.join(', ')):'';
-      $('msg').innerHTML='<div class="ok">Hotovo'+(j.dnu?(' — '+j.dnu+' dnů'):'')+esc(z)+'</div>';
-      setTimeout(function(){$('msg').innerHTML='';},6000);
     }).catch(function(){document.getElementById('abs_ok').disabled=false;
       chyba('Spojení se serverem selhalo.');});
 }
@@ -1579,9 +1577,11 @@ function _absDelRun(){
         m.textContent='Smazáno '+hotovo+' z '+rs.length+'. Nepovedlo se: '+chyby.join(' · ');
         load(); return;
       }
+      // Peťa 30.7.2026: ÚSPĚCH SE NEHLÁSÍ. Zelená hláška nad tabulkou odstrčila
+      // řádky dolů a uživatel ji stejně nepřečetl — „přece vím, že jsem něco
+      // mazala". Že se to povedlo, je vidět na tom, že řádek zmizel. Hlásí se
+      // JEN chyby, ty samy o sobě poznat nejdou.
       absDelClose(); load();
-      $('msg').innerHTML='<div class="ok">Smazáno '+hotovo+' absencí · zůstatky přepočteny.</div>';
-      setTimeout(function(){$('msg').innerHTML='';},6000);
       return;
     }
     fetch('/api/v1/erp/app/dochazka-abs/delete',{method:'POST',credentials:'include',

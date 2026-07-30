@@ -320,11 +320,15 @@ var COLS_BUD=[
  {k:'DatumOd',h:'Od',w:96,date:1},
  {k:'DatumDo',h:'Do',w:96,date:1},
  {k:'PocetDni',h:'Dní',w:52,r:1,num:1},
+ // Jirka 30.7.2026: Zdroj = kudy záznam přišel (rozhoduje, KAM se ukládá oprava);
+ // RadekId = na co přesně sáhnout — „Z:<id žádosti>" nebo „D:<seznam id denních záznamů>".
+ {k:'Zdroj',h:'Zdroj',w:132},
  {k:'Autor',h:'Autor',w:120},
  {k:'DatPorizeni',h:'Pořízeno',w:96,date:1},
  {k:'ZamPoznamka',h:'Zam. poznámka',w:200},
  {k:'VedPoznamka',h:'Ved. poznámka',w:160},
- {k:'Smlouva',h:'Smlouva',w:70,c:1}
+ {k:'Smlouva',h:'Smlouva',w:70,c:1},
+ {k:'RadekId',h:'Číslo řádku',w:110}
 ];
 var COLS=COLS_DEF;
 function setCols(){COLS=(OBD==='budoucnost')?COLS_BUD:COLS_DEF;}

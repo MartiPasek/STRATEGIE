@@ -4319,6 +4319,153 @@ def compare_composer_full(conversation_id: int, graf_kod: str = "marti-ai-md5") 
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# G2007 · CUTOVER — přepínač legacy vs. stínový composer (Marti 30.7.2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# "Dulezity je ted se dostat do stavu, ze pobezi ten pripraveny novy
+# composer, misto toho stareho, a budeme moct zacit ladit." Bezpecny
+# per-konverzace rollout: default = NIKDO (chovani se nezmeni, dokud
+# nekdo explicitne nastavi env promennou). Kill-switch: jakakoli chyba v
+# g2007 vetvi spadne zpet na legacy build_prompt(), nikdy nespadne chat.
+#
+# ENV:
+#   COMPOSER_MODE=g2007                        -- VŠECHNY konverzace na g2007
+#   COMPOSER_G2007_CONVERSATION_IDS=1,403,405  -- jen tyhle konkretni (CSV)
+# Obe prazdne/nenastavene = 100% legacy (dnesni chovani, beze zmeny).
+
+def _g2007_composer_enabled_for(conversation_id: int) -> bool:
+    """Rozhoduje, jestli tahle konverzace jede na stinovem (g2007) composeru
+    misto legacy build_prompt(). Viz komentar sekce vyse."""
+    import os
+    mode = (os.environ.get("COMPOSER_MODE") or "").strip().lower()
+    if mode == "g2007":
+        return True
+    ids_raw = (os.environ.get("COMPOSER_G2007_CONVERSATION_IDS") or "").strip()
+    if not ids_raw:
+        return False
+    try:
+        allowed = {int(x.strip()) for x in ids_raw.split(",") if x.strip()}
+    except ValueError:
+        logger.warning(
+            f"[G2007 CUTOVER] COMPOSER_G2007_CONVERSATION_IDS malformed: {ids_raw!r}"
+        )
+        return False
+    return conversation_id in allowed
+
+
+def _finalize_messages_and_ensure_orchestrate(
+    conversation_id: int, system_prompt: str,
+) -> tuple[str, list[dict]]:
+    """1:1 kopie ocasu build_prompt() (Phase 31 window/kotvy + Faze 11d
+    orchestrate-ensure + Phase 31-B field strip), parametrizovana uz
+    hotovym system_promptem misto lokalni promenne budovane celou funkci.
+    Zamerne DUPLIKOVANO (ne refaktor build_prompt()) -- legacy cesta se
+    tímhle cutoverem nesmi zmenit ani o znak. Az bude g2007 composer
+    duveryhodny a legacy se odstrani, sjednotit."""
+    messages = _get_messages(conversation_id, after_id=None)
+
+    try:
+        from core.database import get_session as _gs_p31w
+        from modules.core.infrastructure.models_data import (
+            Conversation as _C_p31w,
+        )
+        cs_p31w = _gs_p31w()
+        try:
+            _conv_p31 = (
+                cs_p31w.query(_C_p31w).filter_by(id=conversation_id).first()
+            )
+            window_size_p31 = (
+                int(_conv_p31.context_window_size or 20) if _conv_p31 else 5
+            )
+        finally:
+            cs_p31w.close()
+    except Exception as _e_p31w:
+        logger.warning(f"COMPOSER | window_size lookup failed: {_e_p31w}")
+        window_size_p31 = 5
+
+    anchored_dicts_p31: list[dict] = []
+    try:
+        from modules.conversation.application import anchor_service as _as_p31
+        anchored_rows_p31 = _as_p31.get_anchored_messages(conversation_id)
+        for _r_p31 in anchored_rows_p31:
+            anchored_dicts_p31.append({
+                "role": _r_p31.role,
+                "content": _r_p31.content or "",
+                "id": _r_p31.id,
+                "is_anchored": True,
+            })
+    except Exception as _e_p31a:
+        logger.warning(f"COMPOSER | anchored lookup failed: {_e_p31a}")
+
+    total_messages_p31 = len(messages)
+    if total_messages_p31 > window_size_p31:
+        start_idx = max(0, total_messages_p31 - window_size_p31)
+
+        def _starts_with_tool_result(msg: dict) -> bool:
+            c = msg.get("content")
+            if isinstance(c, list):
+                for block in c:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        return True
+            return False
+
+        _safety = 0
+        while start_idx > 0 and _safety < 10:
+            if _starts_with_tool_result(messages[start_idx]):
+                start_idx -= 1
+                _safety += 1
+            else:
+                break
+
+        recent_p31 = messages[start_idx:]
+        recent_ids_p31 = {
+            m.get("id") for m in recent_p31 if m.get("id") is not None
+        }
+        anchored_pre_p31 = [
+            m for m in anchored_dicts_p31
+            if m.get("id") not in recent_ids_p31
+        ]
+        anchored_pre_p31.sort(key=lambda x: x.get("id") or 0)
+        messages = anchored_pre_p31 + recent_p31
+        logger.info(
+            f"COMPOSER | window | conv={conversation_id} | "
+            f"window={window_size_p31} | anchored={len(anchored_pre_p31)} | "
+            f"total={total_messages_p31} -> sending={len(messages)}"
+        )
+
+    if "[ORCHESTRATE MODE" not in system_prompt:
+        _orch2 = _build_orchestrate_block(conversation_id)
+        if _orch2:
+            system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch2}"
+
+    messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages
+    ]
+
+    return system_prompt, messages
+
+
+def build_prompt_for_conversation(conversation_id: int) -> tuple[str, list[dict]]:
+    """VSTUPNI BOD pro chat() -- nahrazuje primy volani build_prompt().
+    Rozhoduje legacy vs. g2007 stinovy composer per konverzace
+    (_g2007_composer_enabled_for). Kill-switch: jakakoli chyba v g2007
+    vetvi (chybejici resolver, spatna data v grafu, cokoli) spadne zpet
+    na legacy build_prompt() a jen zaloguje chybu -- chat nikdy nespadne
+    kvuli experimentalni ceste. Marti 30.7.2026."""
+    if not _g2007_composer_enabled_for(conversation_id):
+        return build_prompt(conversation_id)
+    try:
+        system_prompt = build_prompt_g2007_full(conversation_id)
+        return _finalize_messages_and_ensure_orchestrate(conversation_id, system_prompt)
+    except Exception as e:
+        logger.error(
+            f"[G2007 CUTOVER] conv={conversation_id} g2007 composer selhal, "
+            f"fallback na legacy build_prompt(): {e}"
+        )
+        return build_prompt(conversation_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # G2007 · ROZPAD PROMPTU PO BLOCÍCH + nástroje + cachovací zlom + % tokenů
 # ═══════════════════════════════════════════════════════════════════════════
 # Read-only. Pro danou konverzaci projde graf_krok v pořadí, změří každý blok

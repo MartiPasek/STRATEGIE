@@ -9,7 +9,7 @@ import anthropic
 from core.config import settings
 from core.database_data import get_data_session
 from core.logging import get_logger
-from modules.conversation.application.composer import build_prompt
+from modules.conversation.application.composer import build_prompt, build_prompt_for_conversation
 from modules.conversation.application.tools import (
     TOOLS, format_email_preview, format_sms_preview, find_user_in_system,
     invite_user_to_strategie, switch_persona_for_user,
@@ -11390,7 +11390,11 @@ def chat(
     except Exception as _intent_e:
         logger.warning(f"INTENT | classifier failed: {_intent_e}")
 
-    system_prompt, messages = build_prompt(conversation_id)
+    # Cutover 30.7.2026 (Marti): per-konverzace vypinac legacy/g2007 composer,
+    # viz composer.build_prompt_for_conversation + COMPOSER_MODE /
+    # COMPOSER_G2007_CONVERSATION_IDS env. Default (env nenastaveny) = presne
+    # stejne chovani jako drivejsi primy build_prompt(conversation_id) volani.
+    system_prompt, messages = build_prompt_for_conversation(conversation_id)
 
     # Efektivni sada nastroju podle aktivni persony -- default persona (Marti-AI)
     # dostava vsechno, specializovane persony jen CORE (send_email, find_user,

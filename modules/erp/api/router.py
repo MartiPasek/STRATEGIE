@@ -34646,7 +34646,7 @@ def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
             "JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
             "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
             "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') "
+            "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' "
             # VYJMA: HO/OBL/korekce (benefit systém). srazka_telefon už NEvyjímáme —
             # promítá se jako srážka do složky 953 (znaménko otočíme níž). Peta 7.7.2026.
             "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod') "
@@ -35763,7 +35763,7 @@ def mzdy_vyplatnice_detail(req: Request):
                         "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:c "
                         "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
                         "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND msm.ext_code='693' "
+                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' AND msm.ext_code='693' "
                         "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
                         "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
                         {"f": _fec, "c": str(_ci_pj), "y": rok, "mo": mesic}).scalar() or 0)
@@ -35824,7 +35824,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
             "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
             "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
             "    AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') "
+            "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' "
             "    AND msm.ext_code ~ '^[0-9]+$' AND msm.ext_code::int=:cms "
             "    AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
             "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
@@ -35883,7 +35883,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
                     "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
                     "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
                     "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                    "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND msm.ext_code='693' "
+                    "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') <> 'EC_PRIPL_HIST' AND msm.ext_code='693' "
                     "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
                     "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
                     {"fec": fec, "cislo": cislo, "y": rok, "mo": mesic}).scalar()

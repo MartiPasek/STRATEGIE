@@ -1699,6 +1699,16 @@ def dochazka_po_zakazkach_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/dochazka-kontrola")
+def dochazka_kontrola_page():
+    """Kontrolní přehledy docházky (soudek „Kontrolní přehledy"): ?report=fpd|prekryv.
+    Generická stránka, data z /app/dochazka-kontrola/data. Peťa 30.7.2026."""
+    return FileResponse(os.path.join(static_dir, "dochazka-kontrola.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/moje-dochazka")
 def moje_dochazka_page():
     """Vlastní historie docházky s rozpadem po zakázkách (self-scoped) pro mobilní

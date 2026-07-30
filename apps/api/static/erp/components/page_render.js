@@ -1046,6 +1046,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Kontrolní přehledy (Peťa 30.7.2026): jádra dochazka.kontrola.fpd / .prekryv = iframe generické stránky.
+      if (String(coreCode) === 'dochazka.kontrola.fpd' || String(coreCode) === 'dochazka.kontrola.prekryv') {
+        var _kRep = (String(coreCode) === 'dochazka.kontrola.prekryv') ? 'prekryv' : 'fpd';
+        mainContent.innerHTML = '<iframe src="/dochazka-kontrola?report=' + _kRep + '" title="Kontrolní přehled" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Fix J Vrstva 5 (20.5. vecer): set window context PRED page-spec fetch.
       // _apiCall + _erpLogToDb pak auto-add core_id do headers + event body →
       // fw.diag_log row dostane grid/form attribution.

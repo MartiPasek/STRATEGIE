@@ -260,6 +260,142 @@ def dochazka_zak_tab_zakazky(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
 
 
+# ── Kontrolní přehledy (soudek „Kontrolní přehledy" pod Docházkou) ──────────
+# report=fpd     → Hlídání FPD (HPP): odpracováno vs má-být (úvazek×prac.dny), chybí>0.
+# report=prekryv → Překrytá docházka: časové překryvy záznamů téhož člověka.
+# Vzor přehledů 1088 / 1084 z Centrály. Odpracováno = vyroba_work (práce+režie) +
+# placená absence (dovolená/nemoc…). POZN.: výpočet hodin sjednotí Jirka (viz jeho
+# nález o rozdílných výpočtech) — pak se sem napojíme; zatím vlastní výpočet.
+_KONTROLA_FPD_SQL = """
+WITH per AS (
+  SELECT (CASE WHEN extract(day FROM current_date) < 13
+            THEN date_trunc('month', current_date) - interval '1 month'
+            ELSE date_trunc('month', current_date) END)::date AS m_od),
+p AS (SELECT m_od, LEAST(current_date, (m_od + interval '1 month')::date) AS ke_dni FROM per),
+pracdny AS (SELECT count(*) AS pocet FROM tenant.att_calendar_day cd, p
+  WHERE cd.tenant_id=2 AND cd.is_workday AND COALESCE(cd.is_holiday,false)=false
+    AND cd.day >= p.m_od AND cd.day < p.ke_dni),
+base AS (
+  SELECT em.cislo_zam, em.full_name,
+    (COALESCE((SELECT sum(w.hodiny) FROM tenant.vyroba_work w, p
+        WHERE w.tenant_id=2 AND w.user_id=em.user_id AND w.is_active
+          AND w.datum >= p.m_od AND w.datum < p.ke_dni),0)
+     + COALESCE((SELECT sum(e.hours) FROM tenant.att_entry e
+          JOIN tenant.att_entry_type et ON et.id=e.entry_type_id, p
+        WHERE e.tenant_id=2 AND e.employee_id=em.id AND et.category='absence' AND et.is_paid
+          AND COALESCE(e.status,'')<>'superseded'
+          AND e.entry_date >= p.m_od AND e.entry_date < p.ke_dni),0)) AS odpracovano,
+    (SELECT pocet FROM pracdny) AS prac_dny,
+    (g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0)) AS hod_den
+  FROM tenant.att_employee em
+  JOIN tenant.engagement g ON g.employee_id=em.id AND g.tenant_id=2 AND g.is_current=true
+  LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id
+  WHERE em.tenant_id=2 AND UPPER(COALESCE(g.engagement_type,''))='HPP'
+    AND g.uvazek_tyden_h IS NOT NULL
+    AND em.cislo_zam NOT IN ('21','41','15','2','47','361'))
+SELECT full_name AS "JmenoPrijmeni", cislo_zam AS "CisloZam",
+       round(odpracovano::numeric,2) AS "Odpracovano",
+       prac_dny AS "PracDny", round(hod_den::numeric,2) AS "HodDen",
+       round((hod_den*prac_dny)::numeric,2) AS "MaByt",
+       round((hod_den*prac_dny - odpracovano)::numeric,2) AS "Chybi",
+       extract(month FROM (SELECT m_od FROM per))::int AS "Mesic",
+       to_char((SELECT ke_dni FROM p) - 1,'DD.MM.YYYY') AS "KeDni"
+FROM base
+WHERE (hod_den*prac_dny - odpracovano) > 0.01
+ORDER BY (hod_den*prac_dny - odpracovano) DESC
+"""
+
+_KONTROLA_PREKRYV_SQL = """
+WITH prace AS (
+  SELECT w.id, w.cislo_zam, COALESCE(em.full_name,'Zam '||w.cislo_zam) AS jmeno, w.od, w.konec
+  FROM tenant.vyroba_work w
+  LEFT JOIN tenant.att_employee em ON em.tenant_id=2 AND em.user_id=w.user_id
+  WHERE w.tenant_id=2 AND w.is_active AND w.od IS NOT NULL AND w.konec IS NOT NULL
+    AND w.datum >= '2026-01-01'),
+prc AS (
+  SELECT DISTINCT a.id, 'práce × práce' AS typ, a.cislo_zam, a.jmeno, a.od, a.konec
+  FROM prace a JOIN prace b
+    ON b.id<>a.id AND b.cislo_zam=a.cislo_zam AND b.od >= a.od AND b.od < a.konec),
+pauzy AS (
+  SELECT e.id, e.employee_id, em.cislo_zam, COALESCE(em.full_name,'Zam '||em.cislo_zam) AS jmeno,
+         e.started_at AS od, e.ended_at AS konec
+  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id
+  JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=2
+  WHERE e.tenant_id=2 AND et.code='break' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL
+    AND COALESCE(e.status,'')<>'superseded' AND e.entry_date >= '2026-01-01'),
+prp AS (
+  SELECT DISTINCT a.id, 'přestávka × přestávka' AS typ, a.cislo_zam, a.jmeno, a.od, a.konec
+  FROM pauzy a JOIN pauzy b
+    ON b.id<>a.id AND b.employee_id=a.employee_id AND b.od >= a.od AND b.od < a.konec)
+SELECT typ AS "Typ", cislo_zam AS "CisloZam", jmeno AS "JmenoPrijmeni",
+       to_char(od,'DD.MM.YYYY HH24:MI') AS "Zacatek",
+       to_char(konec,'DD.MM.YYYY HH24:MI') AS "Konec"
+FROM (SELECT * FROM prc UNION ALL SELECT * FROM prp) x
+ORDER BY "JmenoPrijmeni", od DESC
+"""
+
+_KONTROLA_COLS = {
+    "fpd": [
+        {"k": "JmenoPrijmeni", "h": "Příjmení Jméno", "w": 170},
+        {"k": "CisloZam", "h": "Číslo", "w": 60, "r": 1, "num": 1},
+        {"k": "Odpracovano", "h": "Odpracováno", "w": 100, "r": 1, "num": 1},
+        {"k": "PracDny", "h": "Prac. dny", "w": 70, "r": 1, "num": 1},
+        {"k": "HodDen", "h": "Hod/den", "w": 70, "r": 1, "num": 1},
+        {"k": "MaByt", "h": "Má být", "w": 90, "r": 1, "num": 1},
+        {"k": "Chybi", "h": "Chybí odpracovat", "w": 120, "r": 1, "num": 1},
+        {"k": "Mesic", "h": "Měsíc", "w": 56, "r": 1, "num": 1},
+        {"k": "KeDni", "h": "Ke dni", "w": 92},
+    ],
+    "prekryv": [
+        {"k": "Typ", "h": "Typ překryvu", "w": 150},
+        {"k": "CisloZam", "h": "Číslo", "w": 60, "r": 1, "num": 1},
+        {"k": "JmenoPrijmeni", "h": "Příjmení Jméno", "w": 180},
+        {"k": "Zacatek", "h": "Začátek", "w": 130},
+        {"k": "Konec", "h": "Konec", "w": 130},
+    ],
+}
+_KONTROLA_TITLE = {"fpd": "Hlídání FPD (HPP)", "prekryv": "Překrytá docházka"}
+
+
+@doch_zak_tab_router.get("/app/dochazka-kontrola/data")
+def dochazka_kontrola_data(req: Request) -> JSONResponse:
+    """Kontrolní přehledy: report=fpd | prekryv. Vrací columns + rows (jen čte, PG)."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _dzt_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    report = (req.query_params.get("report") or "fpd").strip().lower()
+    if report not in ("fpd", "prekryv"):
+        return JSONResponse({"ok": False, "error": "neznámý report"}, status_code=400)
+    sql = _KONTROLA_FPD_SQL if report == "fpd" else _KONTROLA_PREKRYV_SQL
+    from sqlalchemy import text as _t
+    try:
+        from core.database_data import get_data_session as _g
+        s = _g()
+        try:
+            rows = s.execute(_t(sql)).mappings().all()
+        finally:
+            s.close()
+        from decimal import Decimal as _D
+        import datetime as _dt
+
+        def _conv(v):
+            if isinstance(v, _D):
+                return float(v)
+            if isinstance(v, (_dt.date, _dt.datetime)):
+                return v.isoformat()
+            return v
+        out = [{k: _conv(v) for k, v in dict(r).items()} for r in rows]
+        return JSONResponse({"ok": True, "report": report,
+                             "title": _KONTROLA_TITLE[report],
+                             "columns": _KONTROLA_COLS[report],
+                             "pocet": len(out), "rows": out})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
 @doch_zak_tab_router.get("/app/dochazka-zak-tab/zamestnanci")
 def dochazka_zak_tab_zamestnanci(req: Request) -> JSONResponse:
     """Seznam pracovníků pro výběr pole Pracovník ve formuláři nového záznamu.

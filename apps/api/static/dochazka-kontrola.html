@@ -1,0 +1,158 @@
+<!DOCTYPE html><html lang="cs"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kontrolní přehled</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0b0f16;color:#e8edf6;font:13px/1.4 -apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  h2{margin:10px 14px 2px;font-size:18px}
+  .sub{margin:0 14px 8px;color:#8fa3bd;font-size:12px}
+  #info{margin:0 14px 6px;color:#a9bad0;font-size:12px}
+  .tw{margin:0 12px 14px;border:1px solid #2a3546;border-radius:8px;overflow:auto;max-height:calc(100vh - 90px)}
+  table.dokl{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
+  table.dokl thead th{position:sticky;top:0;z-index:5;background:#1c2636;color:#fff;font-weight:700;text-transform:uppercase;
+    font-size:11px;letter-spacing:.02em;border-bottom:2px solid #34506f;padding:5px 8px;text-align:left;white-space:nowrap;cursor:pointer}
+  table.dokl thead tr.frow td{position:sticky;background:#08090c;z-index:4;padding:2px 4px;border-bottom:1px solid #2a3546}
+  table.dokl thead tr.frow input{width:100%;background:#0b0d10;border:1px solid #363b43;border-radius:4px;color:#e9eef5;padding:4px 6px;font-size:12px}
+  th.r,td.r{text-align:right}
+  td{padding:4px 8px;border-bottom:1px solid #16202e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  tbody tr:hover{background:#111b28}
+  tbody tr.sel{background:rgba(37,99,235,.20)}
+  td.mk{width:20px;text-align:center;color:#5aa0ff;font-weight:700;padding:2px 0}
+  .fx{width:20px;text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700}
+  .ctxm{position:fixed;z-index:400;background:#1c2636;border:1px solid #2a3546;border-radius:8px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.55);font-size:13px;min-width:170px}
+  .ctxm .it{padding:7px 12px;border-radius:5px;cursor:pointer;color:#e8edf6;white-space:nowrap}
+  .ctxm .it:hover{background:#2563eb;color:#fff}
+  .ld{padding:16px;color:#8fa3bd}
+</style></head><body>
+<h2 id="title">Kontrolní přehled</h2>
+<div class="sub" id="sub"></div>
+<div id="info"></div>
+<div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
+<script>
+var $=function(id){return document.getElementById(id);};
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function _norm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');}
+function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.');}
+var REPORT=(new URLSearchParams(location.search).get('report')||'fpd');
+var COLS=[], ROWS=[], FILT=[], FIL={}, FILMODE={}, VFILT=null, SORT={k:null,dir:1}, SELSET={}, CUR=null;
+var _VOPS=[['has','Obsahuje'],['nhas','Neobsahuje'],['eq','Rovná se'],['ne','Nerovná se']];
+
+function load(){
+  fetch('/api/v1/erp/app/dochazka-kontrola/data?report='+encodeURIComponent(REPORT),{credentials:'include'})
+    .then(function(r){return r.json();}).then(function(j){
+      if(!j||!j.ok){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">'+esc((j&&j.error)||'Nepodařilo se načíst.')+'</td></tr>';return;}
+      COLS=j.columns||[]; ROWS=j.rows||[];
+      $('title').textContent=j.title||'Kontrolní přehled';
+      document.title=j.title||'Kontrolní přehled';
+      $('sub').textContent=(REPORT==='fpd')
+        ? 'Kdo za měsíc neodpracoval svůj fond (jen HPP). Odpracováno = práce na zakázkách + placená absence. Pravý klik na filtr = Jen prázdné / Vlastní…'
+        : 'Časové překryvy záznamů téhož člověka (práce×práce, přestávka×přestávka).';
+      hlavicka(); render();
+    }).catch(function(){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">Chyba spojení.</td></tr>';});
+}
+function hlavicka(){
+  var cg='<colgroup><col style="width:20px">';
+  var h='<tr><th class="mk" style="cursor:default"></th>';
+  var f='<tr class="frow"><td class="fx" title="Zrušit filtry" onclick="clearFil()">✕</td>';
+  COLS.forEach(function(c){ cg+='<col style="width:'+(c.w||90)+'px">';
+    h+='<th class="'+(c.r?'r ':'')+'hsort" data-sk="'+c.k+'" title="klik = seřadit">'+esc(c.h)+(SORT.k===c.k?(SORT.dir>0?' ▲':' ▼'):'')+'</th>';
+    f+='<td><input data-k="'+c.k+'"></td>'; });
+  cg+='</colgroup>';
+  var tab=$('tab'); var oc=tab.getElementsByTagName('colgroup')[0]; if(oc)oc.remove();
+  tab.insertAdjacentHTML('afterbegin',cg);
+  var th=tab.getElementsByTagName('thead')[0]; th.innerHTML=h+'</tr>'+f+'</tr>';
+  var hh=th.getElementsByTagName('tr')[0].offsetHeight||24;
+  [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=hh+'px';});
+  if(!th._w){th._w=true;
+    th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;delete FILMODE[k];FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
+    th.addEventListener('contextmenu',function(e){var inp=e.target.closest?e.target.closest('.frow input[data-k]'):null;if(!inp)return;e.preventDefault();openFilterMenu(e.clientX,e.clientY,inp.getAttribute('data-k'),inp);});
+    th.addEventListener('click',function(e){var t=e.target.closest?e.target.closest('th.hsort'):null;if(!t)return;var sk=t.getAttribute('data-sk');
+      if(SORT.k!==sk){SORT.k=sk;SORT.dir=1;}else if(SORT.dir>0){SORT.dir=-1;}else{SORT.k=null;SORT.dir=1;} hlavicka();render();});
+  }
+}
+function _col(k){for(var i=0;i<COLS.length;i++)if(COLS[i].k===k)return COLS[i];return null;}
+function projde(r){
+  if(VFILT&&VFILT.length){var res=null;
+    for(var vi=0;vi<VFILT.length;vi++){var cd=VFILT[vi];var cell=_norm(r[cd.k]),val=_norm(cd.val),ok;
+      if(cd.op==='eq')ok=(cell===val);else if(cd.op==='ne')ok=(cell!==val);else if(cd.op==='has')ok=(cell.indexOf(val)>=0);else ok=(cell.indexOf(val)<0);
+      if(vi===0)res=ok;else if(cd.join==='or')res=res||ok;else res=res&&ok;}
+    if(!res)return false;}
+  for(var mk in FILMODE){var m=FILMODE[mk];if(!m)continue;var mv=String(r[mk]==null?'':r[mk]).trim();
+    if(m==='empty'&&mv!=='')return false; if(m==='nonempty'&&mv==='')return false;}
+  for(var k in FIL){var q=FIL[k];if(!q)continue;var c=_col(k);var v=r[k];
+    if(c&&c.num){var nv=normNum(v),nq=normNum(q);if(nv.indexOf(nq)<0)return false;continue;}
+    if(_norm(v).indexOf(_norm(q))<0)return false;}
+  return true;
+}
+function _cmp(a,b,c){var va=a[c.k],vb=b[c.k];
+  if(c.num){var na=parseFloat(normNum(va)),nb=parseFloat(normNum(vb));na=isNaN(na)?-Infinity:na;nb=isNaN(nb)?-Infinity:nb;return na<nb?-1:(na>nb?1:0);}
+  return String(va==null?'':va).localeCompare(String(vb==null?'':vb),'cs');}
+function render(){
+  FILT=[];for(var i=0;i<ROWS.length;i++)if(projde(ROWS[i]))FILT.push(i);
+  if(SORT.k){var c=_col(SORT.k);if(c)FILT.sort(function(a,b){return _cmp(ROWS[a],ROWS[b],c)*SORT.dir;});}
+  var tb=$('tab').getElementsByTagName('tbody')[0];
+  if(!FILT.length){tb.innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Nic neodpovídá filtru.</td></tr>';updInfo();return;}
+  var h='';FILT.forEach(function(i){var r=ROWS[i];var mk=(CUR===i)?'▶':(SELSET[i]?'•':'');
+    h+='<tr data-i="'+i+'"'+((SELSET[i]||CUR===i)?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
+    COLS.forEach(function(c){var v=r[c.k];if(c.num&&v!=null&&v!=='')v=Number(v).toLocaleString('cs',{minimumFractionDigits:0,maximumFractionDigits:2});
+      h+='<td'+(c.r?' class="r"':'')+' title="'+esc(r[c.k])+'">'+esc(v)+'</td>';});
+    h+='</tr>';});
+  tb.innerHTML=h; updInfo();
+}
+function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
+  var btn=SORT.k?('<a href="#" onclick="resetSort();return false" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:1px 8px;margin-right:10px;font-size:11px;font-weight:600;text-decoration:none">↺ výchozí řazení</a>'):'';
+  var vf=(VFILT&&VFILT.length)?(' <a href="#" onclick="openCustomFilter();return false" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:1px 8px;margin-left:8px;font-size:11px;font-weight:600;text-decoration:none">⚙ vlastní filtr ('+VFILT.length+')</a> <a href="#" onclick="vfiltClearAll();return false" style="color:#e88;font-weight:700;text-decoration:none">✕</a>'):'';
+  $('info').innerHTML=btn+'Řádků: '+FILT.length+(FILT.length!==ROWS.length?(' (z '+ROWS.length+')'):'')+' · vybráno: '+s+vf;}
+function clearFil(){FIL={};FILMODE={};VFILT=null;[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
+function resetSort(){SORT.k=null;SORT.dir=1;hlavicka();render();}
+
+/* pop-up menu filtru sloupce */
+function openFilterMenu(x,y,k,inp){closeFilterMenu();
+  var m=document.createElement('div');m.className='ctxm';m.id='filtm';
+  m.innerHTML='<div class="it" data-a="empty">Jen prázdné</div><div class="it" data-a="nonempty">Jen neprázdné</div><div class="it" data-a="smaz">Smaž</div><div class="it" data-a="vlastni">Vlastní…</div>';
+  document.body.appendChild(m);var w=m.offsetWidth||180,hh=m.offsetHeight||120;
+  m.style.left=Math.max(6,Math.min(x,window.innerWidth-w-6))+'px';m.style.top=Math.max(6,Math.min(y,window.innerHeight-hh-6))+'px';
+  m.addEventListener('click',function(e){var it=e.target.closest('.it');if(!it)return;var a=it.getAttribute('data-a');
+    if(a==='vlastni'){closeFilterMenu();openCustomFilter(k);return;}
+    if(a==='smaz'){delete FILMODE[k];FIL[k]='';if(inp)inp.value='';}
+    else{FILMODE[k]=a;FIL[k]='';if(inp)inp.value=(a==='empty'?'(prázdné)':'(neprázdné)');}
+    closeFilterMenu();render();});}
+function closeFilterMenu(){var m=$('filtm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
+document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#filtm'))closeFilterMenu();});
+
+/* Vlastní filtr — živě */
+function _vfColOpts(sel){return COLS.map(function(c){return '<option value="'+c.k+'"'+(c.k===sel?' selected':'')+'>'+esc(c.h)+'</option>';}).join('');}
+function _vfOpOpts(sel){return _VOPS.map(function(o){return '<option value="'+o[0]+'"'+(o[0]===sel?' selected':'')+'>'+o[1]+'</option>';}).join('');}
+function openCustomFilter(prefK){closeCustomFilter();
+  var p=document.createElement('div');p.id='vfilt-panel';
+  p.style.cssText='position:fixed;left:0;right:0;bottom:0;background:#141c28;border-top:2px solid #34506f;padding:10px 14px 12px;z-index:350;box-shadow:0 -10px 30px rgba(0,0,0,.55);max-height:60vh;overflow:auto';
+  p.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><b>Vlastní filtr</b><span style="color:#8fa3bd;font-size:12px">více podmínek A / NEBO</span><span style="flex:1"></span><button onclick="vfiltClearAll()">Smazat vše</button><button onclick="closeCustomFilter()" style="background:#1f6feb;color:#fff;border:0;border-radius:5px;padding:5px 12px;cursor:pointer">Zavřít</button></div><div id="vfilt-rows"></div><div style="margin-top:6px"><a href="#" onclick="vfiltAddRow();return false" style="color:#4fe0aa;text-decoration:none;font-weight:600">+ přidat podmínku</a></div>';
+  document.body.appendChild(p);
+  if(VFILT&&VFILT.length)VFILT.forEach(function(c){vfiltAddRow(c);});
+  else vfiltAddRow({k:prefK||(COLS[0]&&COLS[0].k),op:'has',val:''});}
+function closeCustomFilter(){var p=$('vfilt-panel');if(p&&p.parentNode)p.parentNode.removeChild(p);}
+function vfiltAddRow(c){c=c||{};var box=$('vfilt-rows');if(!box)return;var first=box.children.length===0;
+  var row=document.createElement('div');row.className='vfrow';row.style.cssText='display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+  row.innerHTML=(first?'<span style="width:60px;color:#8fa3bd;font-size:12px">kde</span>':'<select class="vf-join" style="width:70px"><option value="and"'+(c.join==='or'?'':' selected')+'>A</option><option value="or"'+(c.join==='or'?' selected':'')+'>NEBO</option></select>')
+    +'<select class="vf-col">'+_vfColOpts(c.k)+'</select><select class="vf-op">'+_vfOpOpts(c.op||'has')+'</select><input class="vf-val" value="'+esc(c.val||'')+'" placeholder="hodnota" style="flex:1;min-width:120px"><button title="Odebrat" onclick="this.parentNode.remove();vfiltApply()">✕</button>';
+  box.appendChild(row);
+  [].forEach.call(row.querySelectorAll('select,input'),function(el){el.style.background='#0b0d10';el.style.border='1px solid #363b43';el.style.color='#e9eef5';el.style.borderRadius='5px';el.style.padding='5px 7px';el.style.fontSize='13px';el.addEventListener('input',vfiltApply);el.addEventListener('change',vfiltApply);});}
+function vfiltApply(){var out=[];[].forEach.call(document.querySelectorAll('#vfilt-panel .vfrow'),function(row,idx){
+    var col=row.querySelector('.vf-col').value,op=row.querySelector('.vf-op').value,val=row.querySelector('.vf-val').value;var jn=row.querySelector('.vf-join');var join=idx===0?null:(jn?jn.value:'and');
+    if(val==='')return;out.push({join:join,k:col,op:op,val:val});});
+  VFILT=out.length?out:null;render();}
+function vfiltClearAll(){VFILT=null;closeCustomFilter();render();}
+
+/* výběr řádků: prostý klik = ▶; Ctrl = jeden; Shift = úsek */
+document.addEventListener('DOMContentLoaded',function(){
+  $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
+    if(e.target.closest('input,select,a'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
+    var i=parseInt(tr.getAttribute('data-i'),10);
+    if(e.shiftKey&&CUR!=null){var pa=FILT.indexOf(CUR),pb=FILT.indexOf(i);if(pa>=0&&pb>=0){var lo=Math.min(pa,pb),hi=Math.max(pa,pb);for(var x=lo;x<=hi;x++)SELSET[FILT[x]]=true;}}
+    else if(e.ctrlKey||e.metaKey){if(SELSET[i])delete SELSET[i];else SELSET[i]=true;}
+    else{SELSET={};}
+    CUR=i;render();});
+  load();
+});
+</script></body></html>

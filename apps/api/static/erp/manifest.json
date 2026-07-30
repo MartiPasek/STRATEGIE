@@ -39,6 +39,15 @@
   ],
   "shortcuts": [
     {
+      "name": "Nové okno",
+      "short_name": "Nové okno",
+      "description": "Otevřít další samostatné okno STRATEGIE",
+      "url": "/erp/?okno=nove",
+      "icons": [
+        { "src": "/static/erp/icon-erp-192.png?v=20260602", "sizes": "192x192" }
+      ]
+    },
+    {
       "name": "System dashboard",
       "short_name": "System",
       "description": "Audit konverzací, security overview, framework editor",

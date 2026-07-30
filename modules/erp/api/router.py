@@ -22694,7 +22694,8 @@ async def att_fix_day(req: Request) -> JSONResponse:
              # STORNOVAT. Bez tohohle příznaku stránka schovávala obě tlačítka
              # najednou a Peťa neměla jak přebytečný řádek z Centrály odstranit.
              "stornable": ((not locked) and r[9] != "superseded"
-                           and ((not r[11]) or r[11] == "centrala1"))} for r in rows]})
+                           and ((not r[11]) or r[11] in ("centrala1", "absence_req")))}
+            for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 
@@ -23077,7 +23078,15 @@ async def att_fix_void(req: Request) -> JSONResponse:
         # att_entry.local_lock, který se níže nastaví při zneplatnění. ÚZCE jen 'centrala1';
         # ostatní zdroje (ec_real, absence_req) zůstávají zamítnuté, dokud o ně někdo
         # nepožádá s konkrétním důvodem (verdikt Marti-AI).
-        if row[5] and row[5] != "centrala1":
+        # Peťa 30.7.2026 — POŽÁDÁNO S DŮVODEM (podmínka Marti-AI z 30.7. byla, že se
+        # ostatní zdroje otevřou, „až o ně někdo požádá s konkrétním důvodem"):
+        # `absence_req` se povoluje, protože schválený HOME OFFICE se propisoval do
+        # docházky jako celodenní blok, ačkoli podle pravidla firmy je home office ve
+        # Správě docházky JEN INFORMACE („všechno se schvalovalo, ale pořád platilo,
+        # že HO ve správě byla jen informace"). Vznikaly tím překryvy s reálným
+        # píchnutím — doloženo u Marešové 29.6., Zemana 10.7., Hladíkové 16.7.
+        # Editor musí mít jak ten blok odstranit. Zbylé zdroje (ec_real…) dál zamítáme.
+        if row[5] and row[5] not in ("centrala1", "absence_req"):
             return JSONResponse({"ok": False, "error": "Záznam vlastní jiný zdroj (" + str(row[5]) + ") — tady ho opravit nelze."})
         # Tvrdý zámek i pro držitele zámku — viz komentář u fix/entry.
         if _att_period_locked(s, row[1]):
@@ -23099,6 +23108,29 @@ async def att_fix_void(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
+        # Když stornovaný řádek vznikl ze SCHVÁLENÉ ŽÁDOSTI a byl poslední z ní,
+        # zruš i tu žádost — jinak zůstane viset jako „schváleno + promítnuto",
+        # ale v docházce po ní nic není (a příští materializace by ji vrátila).
+        # Peťa 30.7.2026. Best-effort, storno nikdy neshodí.
+        try:
+            if row[5] == "absence_req":
+                _sid = s.execute(_t("SELECT source_id FROM tenant.att_entry WHERE id=:i"),
+                                 {"i": eid}).scalar()
+                if _sid:
+                    _zbyva = s.execute(_t(
+                        "SELECT count(*) FROM tenant.att_entry WHERE tenant_id=:t "
+                        "AND source_system='absence_req' AND source_id=:z "
+                        "AND COALESCE(status,'')<>'superseded'"),
+                        {"t": _ATT_TENANT, "z": _sid}).scalar() or 0
+                    if not _zbyva:
+                        s.execute(_t(
+                            "UPDATE tenant.att_absence_request SET stav='cancelled', "
+                            "materialized=false, status_text=:st, decided_by_user_id=:u, "
+                            "decided_at=now() WHERE id=:z AND tenant_id=:t"),
+                            {"z": _sid, "t": _ATT_TENANT, "u": uid,
+                             "st": ("Zrušeno stornem v Opravách (" + actor + "): " + reason)[:500]})
+        except Exception:
+            pass
         # C24 30.7.2026: storno sjednoceno pod KANONICKOU KASKÁDU
         # _att_sync_vyroba_work (G2007 doc-dochazka-att-entry-vyroba-work-kaskada) —
         # „jeden zdroj pravdy". Nejdřív vždy zneplatníme položky vlastní stornovanému

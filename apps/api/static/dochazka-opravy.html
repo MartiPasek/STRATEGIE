@@ -615,7 +615,9 @@ function openDay(uid,name,day){
           if(_lzeStorno)tdA.appendChild(bs);
           // u centrálského řádku ať je vidět, že opravit ho jde jen v Centrále
           if(_lzeStorno&&!_lzeOpravit)tdA.insertBefore(
-            el('<span class="sm" style="margin-right:6px;">🏛 opravit jen v Centrále</span>'), bs);
+            el('<span class="sm" style="margin-right:6px;">'
+               +(e2.source_system==='absence_req'?'📄 ze schválené žádosti':'🏛 opravit jen v Centrále')
+               +'</span>'), bs);
           be.addEventListener('click',function(){
             var fx=openForm('✏️ Oprava záznamu');
             var tr=el('<div class="btns"></div>');

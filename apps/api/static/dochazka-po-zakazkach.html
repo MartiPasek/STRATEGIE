@@ -124,6 +124,8 @@
     <button class="chip" data-o="budoucnost">📋 Správa docházky</button>
   </div>
   <span class="muted" id="info"></span>
+  <button type="button" id="btnObnovit" class="b-rf" style="margin-left:8px;padding:2px 10px;font-size:11.5px" title="Načíst čerstvá data ze serveru" onclick="reloadData()">↻ Obnovit</button>
+  <span class="muted" id="datat" style="font-size:11px;margin-left:6px" title="Kdy byla načtena data zobrazená v přehledu"></span>
   <span class="muted" style="font-size:11.5px" title="Pravým klikem na řádek otevřeš menu s akcemi">🖱 pravý klik na řádek = menu (Nový, Smazat, Excel, Sumace, …)</span>
 </div>
 <div class="jnote">⚠ <b>Červen 2026 je přechodový měsíc</b> (lidé přecházeli z Centrály do aplikace v různý čas) — hodnoty za červen ber s rezervou. Leden–květen = z Centrály, červenec dál = z aplikace.</div>
@@ -608,14 +610,20 @@ function render(){
   updInfo();
 }
 
+function _hmNow(){var d=new Date();return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
+function reloadData(){load();}   // ↻ Obnovit = znovu natáhnout čerstvá data ze serveru
 function load(){
   $('msg').innerHTML='';SELSET={};CUR=null;
   $('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld" colspan="'+(COLS.length+1)+'">Načítám…</td></tr>';
   $('info').textContent='';
-  api('/api/v1/erp/app/dochazka-zak-tab/data?obdobi='+encodeURIComponent(OBD)).then(function(j){
+  var _dt=$('datat'); if(_dt){_dt.textContent='načítám…';_dt.style.color='';}
+  // &_t=... = obejít případnou cache prohlížeče → Obnovit vždy tahá skutečně čerstvá data.
+  api('/api/v1/erp/app/dochazka-zak-tab/data?obdobi='+encodeURIComponent(OBD)+'&_t='+Date.now()).then(function(j){
     if(!j||!j.ok){$('msg').innerHTML='<div class="err">'+esc((j&&j.error)||'Nepodařilo se načíst data.')+'</div>';
-      $('tab').getElementsByTagName('tbody')[0].innerHTML='';return;}
+      $('tab').getElementsByTagName('tbody')[0].innerHTML='';
+      if(_dt){_dt.textContent='⚠ nenačteno';_dt.style.color='#e88';}return;}
     ROWS=j.rows||[];render();
+    if(_dt){_dt.textContent='✓ data k '+_hmNow();_dt.style.color='#4fe0aa';}
   });
 }
 

@@ -315,8 +315,15 @@ def _znic_dny(s, ids, emp, uid, actor, duvod):
             continue
         data.append(row[1])
         tag = "🛠 SPRÁVA DOCHÁZKY (" + actor + "): " + duvod
+        # local_lock=true je POVINNÝ (Jirka 30.7.2026, commit b05c15ed, schválila Marti‑AI
+        # msg 11842). Bez něj synchronizace ze staré Centrály (_sync_ec_dochazka_recent,
+        # běží po ~5 min) zneplatněný řádek OŽIVÍ — a když vedle něj už stojí opravená
+        # verze, vznikne den se DVĚMA platnými záznamy = dvojité hodiny do mzdových
+        # podkladů. Zámek říká synchronizaci „tenhle řádek je opravený, nesahej na něj";
+        # respektuje ho jak UPDATE, tak wipe DELETE.
         s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, updated_at=now(), "
+            "UPDATE tenant.att_entry SET status='superseded', is_active=false, local_lock=true, "
+            " updated_at=now(), "
             " note = CASE WHEN COALESCE(note,'')='' THEN :tg ELSE note || ' / ' || :tg END "
             "WHERE id=:i AND tenant_id=:t"), {"i": eid, "t": _TEN, "tg": tag})
         # navázaný úsek ve výrobě (kdyby existoval) — stejná kaskáda jako fix/void

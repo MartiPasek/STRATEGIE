@@ -26851,6 +26851,14 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False):
                 plan["dedup_off"].append(w[0])   # 4) sousední duplicita → off
             else:
                 runs.append({"keep": w, "od": w[1], "konec": w[2], "key": key})
+        # 5b) VYPLŇ OKRAJE ÚSEKU (Kristý 30.7.2026): když oprava prodlouží úsek za
+        # poslední/před první nap. položku, dorovnej první položku k začátku úseku a
+        # poslední (dle max konec) k jeho konci → rozpad na zakázky sedí s hlavičkou
+        # (Docházka new = Opravy), přidaný čas připadne na krajní zakázku. Vnitřní
+        # mezery mezi různými činnostmi se NEvyplňují (nejednoznačné, komu patří).
+        if runs:
+            runs[0]["od"] = sg[2]
+            max(runs, key=lambda r: r["konec"])["konec"] = sg[3]
         for r in runs:
             keep = r["keep"]
             new_od = r["od"] if r["od"] > sg[2] else sg[2]

@@ -23378,6 +23378,9 @@ async def att_fix_resync(req: Request) -> JSONResponse:
     if (d_to - d_from).days > 62:
         return JSONResponse({"ok": False, "error": "Rozsah max 62 dní."})
     dry = bool((body or {}).get("dry_run", True))
+    # create=false (DEFAULT) → backfill NEzakládá prázdné placeholdery pro úseky bez
+    # rozpadu na zakázky (lidi co nepíchají „Makám"); jen srovná existující položky.
+    create_missing = bool((body or {}).get("create", False))
     try:
         only_uid = int((body or {}).get("uid") or 0) or None
     except Exception:
@@ -23412,12 +23415,12 @@ async def att_fix_resync(req: Request) -> JSONResponse:
             emp_id, den = pr[0], pr[1]
             try:
                 if dry:
-                    p = _att_sync_vyroba_work(s, emp_id, den, dry_run=True)
+                    p = _att_sync_vyroba_work(s, emp_id, den, dry_run=True, create_missing=create_missing)
                 else:
                     # atomicky po dni — když jedna dvojice spadne uprostřed, rollbackne
                     # se jen ona (savepoint), zbytek běhu zůstane konzistentní.
                     with s.begin_nested():
-                        p = _att_sync_vyroba_work(s, emp_id, den, dry_run=False)
+                        p = _att_sync_vyroba_work(s, emp_id, den, dry_run=False, create_missing=create_missing)
             except Exception:
                 logger.error("resync kaskáda selhala (emp=%s, den=%s)", emp_id, den, exc_info=True)
                 continue
@@ -26764,7 +26767,7 @@ def _vw_recalc_hodiny(s, uid, day) -> None:
 #
 # dry_run=True nic nezapisuje, jen vrátí plán (pro DRY-RUN ověření). Vždy vrací dict
 # se souhrnem změn. best-effort volající si chytá výjimky sám (nesmí shodit fix).
-def _att_sync_vyroba_work(s, employee_id, den, dry_run=False):
+def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=True):
     from sqlalchemy import text as _t
     den_s = den.isoformat() if hasattr(den, "isoformat") else str(den)[:10]
     uid = s.execute(_t(
@@ -26872,8 +26875,9 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False):
             if new_od != keep[1] or new_kon != keep[2] or seg_id != keep[5]:
                 plan["clip"].append({"id": keep[0], "att": seg_id,
                                      "od": new_od, "konec": new_kon})
-    # 5) platný úsek bez pokrytí → prázdný řádek (jen uzavřený den)
-    if settled:
+    # 5) platný úsek bez pokrytí → prázdný řádek (jen uzavřený den; create_missing=False
+    #    ho vypne — backfill nechce zakládat placeholdery lidem bez rozpadu na zakázky)
+    if settled and create_missing:
         for sg in segs:
             if sg[0] not in covered:
                 plan["create"].append({"att": sg[0], "od": sg[2], "konec": sg[3],

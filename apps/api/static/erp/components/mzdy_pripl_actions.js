@@ -52,14 +52,19 @@
       }
     }
 
-    if (!host.querySelector(".mzdy-pripl-lock")) {
-      var bar = document.createElement("div");
+    /* POZOR: pruh se nejen zaklada, ale i PREPISUJE. Prvni volani ukaze
+     * "Zjistuji…", druhe (po odpovedi serveru) skutecny duvod. Kdyz se text
+     * neprepsal, uzivatel by navzdy koukal na "Zjistuji…" — realna chyba
+     * z prvni verze, overena v prohlizeci 30.7.2026. */
+    var bar = host.querySelector(".mzdy-pripl-lock");
+    if (!bar) {
+      bar = document.createElement("div");
       bar.className = "mzdy-pripl-lock";
-      bar.textContent = zprava;
       bar.style.cssText = "padding:7px 10px;margin:0 0 10px 0;background:#fff7ed;"
         + "border:1px solid #fed7aa;border-radius:8px;color:#7c2d12;font-size:12.5px;line-height:1.35;";
       host.insertBefore(bar, host.firstChild);
     }
+    bar.textContent = zprava;
   }
 
   function _apply(inst) {

@@ -168,16 +168,22 @@ def _abs_recalc_balances(s, emp, roky):
                     "AND COALESCE(en.status,'')<>'superseded' "
                     "AND EXTRACT(YEAR FROM en.entry_date)=:r"),
                     {"t": _TEN, "e": emp, "r": rok}).scalar() or 0
+                # POZOR — „zbývá" (zbytek_h) SCHVÁLNĚ NEPŘEPISUJEME (Peťa 30.7.2026).
+                # Nárok na dovolenou zatím není spočítaný: v `holiday_balance` má všech
+                # 79 lidí jednotných 200 h (25 dnů) bez ohledu na úvazek a nástup —
+                # výplň, ne výpočet (upozornil Jirka). Dokud nárok neumí počítat, bylo by
+                # „zbývá" nepravdivé číslo, na které se lidi dívají. Čerpáno naopak
+                # počítáme, to je pravda z docházky. Až bude nárok hotový, stačí sem
+                # vrátit dopočet zbytek_h = narok + prevod − cerpano.
                 if ex:
-                    nar, prv = float(ex[0] or 0), float(ex[1] or 0)
-                    s.execute(_t("UPDATE tenant.holiday_balance SET cerpano_h=:c, zbytek_h=:z, "
-                                 "changed_at=now() WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
-                              {"c": cerp, "z": nar + prv - float(cerp), "t": _TEN, "g": eng, "r": rok})
+                    s.execute(_t("UPDATE tenant.holiday_balance SET cerpano_h=:c, changed_at=now() "
+                                 "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
+                              {"c": cerp, "t": _TEN, "g": eng, "r": rok})
                 else:
                     s.execute(_t("INSERT INTO tenant.holiday_balance "
                                  "(tenant_id,engagement_id,rok,narok_h,prevod_h,cerpano_h,zbytek_h) "
-                                 "VALUES (:t,:g,:r,0,0,:c,:z)"),
-                              {"t": _TEN, "g": eng, "r": rok, "c": cerp, "z": -float(cerp)})
+                                 "VALUES (:t,:g,:r,0,0,:c,NULL)"),
+                              {"t": _TEN, "g": eng, "r": rok, "c": cerp})
                 out.append("dovolená %d: čerpáno %.1f h" % (rok, float(cerp)))
         except Exception:
             s.rollback()

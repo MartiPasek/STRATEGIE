@@ -61071,7 +61071,7 @@ def _render_full_page(
           <a id="erpNoveOknoLink" href="/erp/" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/erp/','_blank','noopener');"
              class="erp-navico" data-hint="Otevři další okno STRATEGIE (můžeš mít víc naráz)">
-             <span class="erp-navico-ico">🪟</span><span class="erp-navico-cap">Nové okno</span></a>
+             <span class="erp-navico-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg></span><span class="erp-navico-cap">Nové okno</span></a>
           <!-- Marti 16.6.2026: kompaktní hlavičkové ikonky (emoji + popisek dole),
                užší, ať nekolidují s CRUD. /mobile + /web + EUROSOFT + Výroba. -->
           <a id="erpMobileDevLink" href="/mobile" target="_blank" rel="noopener"

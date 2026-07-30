@@ -28005,7 +28005,9 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
            "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
            "CisloZakazky, DruhCinnosti, ISNULL(CasCelkemZakazka,0) hod "
            "FROM EC_Dochazka WHERE " + _wh + " "
-           "AND ISNULL(CisloZakazky,'')<>'' AND LOWER(ISNULL(CisloZakazky,''))<>'rezie' "
+           # C24 + Kristý 30.7.2026: importujeme i REŽII (dřív se '<>rezie' přeskakovala),
+           # aby měla ve vyroba_work činnost (jinak byla v Docházka new prázdná). zakazka_ref
+           # se normalizuje na 'Rezie' níže. Nadále jen záznamy s činností (DruhCinnosti>0).
            "AND ISNULL(DruhCinnosti,0)>0 ORDER BY ID")
 
     cm = _pg.get_session()
@@ -28027,7 +28029,9 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
         for r in _rows(sql):
             rid = int(r["ID"]); total += 1
             cz = str(r.get("CisloZam") or "").strip()
-            zak = (r.get("CisloZakazky") or "").strip()
+            _zak_raw = (r.get("CisloZakazky") or "").strip()
+            # C24 + Kristý 30.7.2026: režie (i prázdná zakázka) → jednotně 'Rezie'; jinak číslo zakázky.
+            zak = _REZIE_REF if (not _zak_raw or _zak_raw.lower() == "rezie") else (_norm_zakazka(_zak_raw) or _REZIE_REF)
             if (cz, str(r.get("d"))) in _appd:
                 continue
             try:
@@ -28192,11 +28196,12 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
             if _et is None:
                 continue  # Kristý 29.7.2026: kód mimo docházku (OSVČ/APS) — nebrat
             _abs = _et not in (type_work, type_oh)
-            # Marti 16.6.: app_only lidé („jen STRATEGIE") — jejich PŘÍTOMNOST z Centrály nebereme
-            # (mají appku). ALE absence (dovolená/nemoc/lékař) v appce nejsou → z Centrály je bereme
-            # i pro ně, jinak by wipe+reimport smazal jejich dovolené. Kristý 29.7.2026.
-            if not _abs and str(r.get("CisloZam") or "").strip() in app_only_cisla:
-                continue
+            # C24 + Petra + Kristý 30.7.2026: app_only skip PŘÍTOMNOSTI ZRUŠEN. Importujeme
+            # VŠECHNU přítomnost z Centrály (i pro app_only). Kdo píchá v appce, ten v Centrále
+            # nativní záznam nemá (naše zrcadlené Autor='STRATEGIE' se stejně vylučuje výše) → nedvojí se;
+            # přechodové dny (ráno Centrála + odpo appka) se korektně sečtou. Dřív se app_only
+            # přítomnost zahazovala → lidem chyběly hodiny (Martin 29: 61 vs 131 h). 2 dny s reálným
+            # časovým překryvem (Dušan 1.7., Tereza 42 17.7.) jdou na ruční kontrolu.
             lf = (r.get("LoginFrom") or "").strip().upper()
             src = {"D": "tablet", "C": "manual", "A": "mobile_app"}.get(lf, "import")
             st = "locked" if int(r.get("uz") or 0) else ("approved" if (int(r.get("ved") or 0) and int(r.get("sef") or 0)) else "pending")
@@ -28275,6 +28280,11 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
 
 
 def _maybe_sync_ec_dochazka():
+    # C24 30.7.2026: ⏸️ HLÍDKA DOCHÁZKY POZASTAVENA pro řízený přeimport července
+    # (zmrazení att_entry + vyroba_work, ať do přeimportu nekopou automatické zápisy).
+    # OBNOVIT = smazat tento `return` + deploy. (Pauzuje _sync_ec_dochazka_recent,
+    # _sync_vyroba_work_ec i self-complete fily naráz.)
+    return
     import time as _tm
     now = _tm.time()
     if now - _LAST_DOCH_SYNC[0] < 300:

@@ -61084,6 +61084,13 @@ def _render_full_page(
              onclick="event.preventDefault(); window.open('/finance','strategieFinance','noopener');"
              class="erp-navico" data-hint="Finance — sandbox Petra (banka, pokladny, deník, párování)">
              <span class="erp-navico-ico">💰</span><span class="erp-navico-cap">Finance</span></a>
+          <!-- Nové okno STRATEGIE (Peta 30.7.2026): otevře další samostatné okno ERP.
+               window.open bez pevného názvu = pokaždé NOVÉ okno (nezávislé na Chrome
+               jump-listu / launch_handleru). V nainstalované PWA = nové standalone okno. -->
+          <a id="erpNoveOknoLink" href="/erp/" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/erp/','_blank','noopener');"
+             class="erp-navico" data-hint="Otevři další okno STRATEGIE (můžeš mít víc naráz)">
+             <span class="erp-navico-ico">🪟</span><span class="erp-navico-cap">Nové okno</span></a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
                smazány z headeru — duplikát s browser title barem. Zachováno jako
                skryté kotvy pro JS update document.title (žádný visual). -->

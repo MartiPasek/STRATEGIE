@@ -22822,96 +22822,39 @@ async def att_fix_entry(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "nahrazeno opravou #" + str(nid) + " (" + actor + ")"})
-        # Jirka 20.7.2026: zápisy do work_alloc už NEMLČÍ. Dřív byly všechny
-        # v `except: pass`, takže při selhání oprava docházky prošla a den se
-        # tiše rozešel s výkazem (hodiny sedí, alokace ne). Teď se chyba loguje
-        # (logger.error → fw.diag_log) a zapíše do auditu, ať je dohledatelná.
+        # C24 30.7.2026: časy a životní cyklus položek vyroba_work srovnává KANONICKÁ
+        # KASKÁDA _att_sync_vyroba_work (G2007 doc-dochazka-att-entry-vyroba-work-kaskada).
+        # Nahrazuje dřívější dílčí „krok 5" časové okno, které navíc běželo jen pro PŮVODNÍ
+        # typ work/overhead (HO opravy nechávalo stát → stale fragmenty) a převod na absenci
+        # sázelo absenci do výkazu (regres). Kaskáda vezme VŠECHNY platné úseky dne, dorovná
+        # časy/životní cyklus a absence z výkazu vyřadí (superseded úsek už není platný).
+        # Zakázku/činnost, které editor v opravě VĚDOMĚ změnil, propíšeme až PO kaskáde na
+        # položky NOVÉ hlavičky (vazba att_entry_id=nid) — kaskáda je dle modelu nechává být.
+        # Chyba se loguje i zapíše do auditu (_wa_fail) — nesmí ale shodit opravu.
         _wa_fail = []
-        # C24 29.7.2026 (krok 5-kód, rozhodnutí 4): opravy píší úseky přímo do vyroba_work
-        # (ne work_alloc). Časové okno na `od`; režie = zakazka_ref='Rezie' (žádný is_rezie);
-        # denorm názvy (project_nazev/cinnost_name/icon) se neukládají. Filtr
-        # source_system<>'centrala1' CHRÁNÍ EC agregát — oprava sáhne jen na naše nativní úseky.
-        # Po posunu časů se přepočítá hodiny (helper _vw_recalc_hodiny).
-        if row[6] in ("work", "overhead") and row[4] is not None:
-            try:
-                tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-                if tu and new_code not in ("work", "overhead"):
-                    # Peťa 21.7.2026: převod práce na NEPŘÍTOMNOST (dovolená, lékař…).
-                    # Nepřítomnost NENÍ výkon, ale náleží za ni mzda, počítá se do FPD
-                    # a musí být evidovaná — v Centrále visí na zakázce Režie a má
-                    # vlastní činnost (Dovolená, Lékař…). Držíme to stejně: úsek ve
-                    # výkazu zůstává, přehodí se na Režii a dostane odpovídající
-                    # činnost z číselníku (kind='nepritomnost', v mobilu se nenabízí).
-                    _cin_abs = s.execute(_t(
-                        "SELECT id FROM tenant.vyroba_cinnost "
-                        "WHERE tenant_id=:t AND kind='nepritomnost' AND code=:c AND active"),
-                        {"t": _ATT_TENANT, "c": _ATT_ABS_CINNOST.get(new_code, "")}).first()
-                    s.execute(_t(
-                        "UPDATE tenant.vyroba_work SET zakazka_ref = :rz, cinnost_id = :ci, "
-                        "konec = GREATEST(CAST(:ns AS timestamptz), LEAST(konec, CAST(:ne AS timestamptz))), "
-                        "od = LEAST(CAST(:ne AS timestamptz), GREATEST(od, CAST(:ns AS timestamptz))), "
-                        "updated_at = now() "
-                        "WHERE user_id=:u AND COALESCE(source_system,'')<>'centrala1' "
-                        "  AND od >= CAST(:os AS timestamptz) - interval '1 minute' "
-                        "  AND od < CAST(:oe AS timestamptz)"),
-                        {"u": tu, "rz": _REZIE_REF,
-                         "ci": (_cin_abs[0] if _cin_abs else None),
-                         "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-                         "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
-                    _vw_recalc_hodiny(s, tu, sd)
-                elif tu:
-                    s.execute(_t(
-                        "UPDATE tenant.vyroba_work SET "
-                        "konec = GREATEST(CAST(:ns AS timestamptz), LEAST(konec, CAST(:ne AS timestamptz))), "
-                        "od = LEAST(CAST(:ne AS timestamptz), GREATEST(od, CAST(:ns AS timestamptz))), "
-                        "updated_at = now() "
-                        "WHERE user_id=:u AND COALESCE(source_system,'')<>'centrala1' "
-                        "  AND od >= CAST(:os AS timestamptz) - interval '1 minute' "
-                        "  AND od < CAST(:oe AS timestamptz) "
-                        "  AND (konec IS NULL OR konec > CAST(:ne AS timestamptz) OR od < CAST(:ns AS timestamptz))"),
-                        {"u": tu, "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-                         "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
-                    _vw_recalc_hodiny(s, tu, sd)
-                    # Jirka 12.7.: změna zakázky → přepiš JEN úseky nesoucí PŮVODNÍ
-                    # zakázku záznamu (multi-zakázková okna se nedotknou — pravda
-                    # o segmentech je vyroba_work, precedent Voříšek 27.6.)
-                    if pref_sent and new_code == "work" and pref != row[7]:
-                        s.execute(_t(
-                            "UPDATE tenant.vyroba_work SET zakazka_ref = :np, updated_at = now() "
-                            "WHERE user_id=:u AND COALESCE(source_system,'')<>'centrala1' "
-                            "  AND od >= CAST(:ns AS timestamptz) - interval '1 minute' "
-                            "  AND od < CAST(:ne AS timestamptz) "
-                            "  AND zakazka_ref IS NOT DISTINCT FROM :op"),
-                            {"u": tu, "np": pref, "op": row[7],
-                             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
-            except Exception:
-                logger.error("att fix/entry: srovnání vyroba_work selhalo (entry=%s, emp=%s)",
-                             eid, emp, exc_info=True)
-                _wa_fail.append("úseky zakázek")
-        if cin_new and new_code in ("work", "overhead"):
-            try:
-                _tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-                _cn = s.execute(_t("SELECT id FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"), {"c": cin_new}).first()
-                if _tu and _cn:
-                    # Jirka 20.7.2026: filtruj podle zakázky záznamu — stejně jako
-                    # u změny zakázky výše. Bez filtru se v multi-zakázkovém okně
-                    # přepsala činnost VŠEM segmentům (i těm, které s opravovaným
-                    # záznamem nesouvisí) — tichá ztráta. Pravda o segmentech je
-                    # vyroba_work (precedent Voříšek 27.6.). Efektivní zakázka =
-                    # nová, když ji oprava měnila, jinak původní.
+        try:
+            _att_sync_vyroba_work(s, emp, sd)
+            tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
+            if tu and pref_sent and new_code == "work" and pref != row[7]:
+                s.execute(_t(
+                    "UPDATE tenant.vyroba_work SET zakazka_ref=:np, updated_at=now() "
+                    "WHERE tenant_id=:t AND user_id=:u AND att_entry_id=:nid AND is_active=true "
+                    "  AND zakazka_ref IS NOT DISTINCT FROM :op"),
+                    {"t": _ATT_TENANT, "u": tu, "np": pref, "op": row[7], "nid": nid})
+            if tu and cin_new and new_code in ("work", "overhead"):
+                _cn = s.execute(_t("SELECT id FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"),
+                                {"c": cin_new}).first()
+                if _cn:
                     _eff_pref = pref if (pref_sent and new_code == "work" and pref != row[7]) else row[7]
                     s.execute(_t(
                         "UPDATE tenant.vyroba_work SET cinnost_id=:ci, updated_at=now() "
-                        "WHERE user_id=:u AND COALESCE(source_system,'')<>'centrala1' "
-                        "  AND od >= CAST(:ns AS timestamptz) - interval '1 minute' "
-                        "  AND od < CAST(:ne AS timestamptz) "
+                        "WHERE tenant_id=:t AND user_id=:u AND att_entry_id=:nid AND is_active=true "
                         "  AND zakazka_ref IS NOT DISTINCT FROM :ep"),
-                        {"u": _tu, "ci": cin_new, "ep": _eff_pref,
-                         "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" ")})
-            except Exception:
-                logger.error("att fix/entry: zápis činnosti do vyroba_work selhal (entry=%s, emp=%s, cinnost=%s)",
-                             eid, emp, cin_new, exc_info=True)
-                _wa_fail.append("činnost")
+                        {"t": _ATT_TENANT, "u": tu, "ci": cin_new, "ep": _eff_pref, "nid": nid})
+        except Exception:
+            logger.error("att fix/entry: kaskáda/propis vyroba_work selhala (entry=%s, emp=%s)",
+                         nid, emp, exc_info=True)
+            _wa_fail.append("úseky")
         # Peťa 22.7.2026: anomálii po opravě UŽ NEVYŘEŠOVAT automaticky. Dřív se tím
         # řádek z fronty rovnou ztratil; Peťa chce, aby zůstal jako u rozporů od lidí —
         # zeleně „✓ opraveno" s tlačítkem „Hotovo — z fronty", a zmizel až po odkliknutí
@@ -23048,6 +22991,10 @@ async def att_fix_add(req: Request) -> JSONResponse:
                         {"t": _ATT_TENANT, "u": _tu, "d": day.isoformat(),
                          "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
                          "pr": pref, "ci": cin_add, "h": hrs, "aid": nid})
+                    # C24 30.7.2026: po založení položky srovná den KANONICKÁ KASKÁDA
+                    # (dedup/ořez/životní cyklus vůči všem platným úsekům). Nově založená
+                    # položka kryje nový úsek → kaskáda ji nechá, jen uklidí okolí.
+                    _att_sync_vyroba_work(s, emp, day)
             except Exception:
                 # Jirka 20.7.2026: nemlčet — bez segmentu jsou hodiny v docházce,
                 # ale ve výkazu/vytížení chybí. Musí být vidět v logu i v auditu.
@@ -23136,38 +23083,23 @@ async def att_fix_void(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
-        # Marti-AI 23.7.2026 (konzultace) + Jirka: storno docházky KASKÁDUJE do výroby.
-        # Stornovaný att_entry zneplatní odpovídající řádky tenant.vyroba_work (is_active=false),
-        # aby se nepočítaly v přehledu „Docházka po zakázkách" (/app/dochazka/zakazky).
-        # Vazba: user + datum + shodná minuta ZAČÁTKU I KONCE + shodná zakázka (att_entry.project_ref).
-        # Konec je nutný (Jirka 24.7.): bez něj match omylem chytil PLATNOU práci — fantomové
-        # storno (0,01 h odchod / 12,9 h day-end) sdílelo start s reálným úsekem (Pavel/Lucie).
-        # Musí sedět i konec = je to TÝŽ úsek. Jen práce SE zakázkou (project_ref NOT NULL —
-        # storna přestávek/absencí sem nepatří). Best-effort: nikdy nesmí shodit storno → try/except.
-        # Krok 5 HYBRID (Jirka + Marti Pasek + Marti-AI 27.7.2026, "jeden zdroj pravdy"):
-        # NEJDRIV spolehliva kaskada pres pevnou vazbu att_entry_id. Fallback na minutovy
-        # match JEN kdyz pres vazbu neprosel ZADNY radek (updated==0) — ne "kdyz je vazba NULL"
-        # (kdyby vazba byla, ale radek uz neaktivni/smazany, fallback nesmi omylem stornovat jiny).
-        # Bez regrese: kde vazba chybi (app/editovatelne), chova se to presne jako dosud.
+        # C24 30.7.2026: storno sjednoceno pod KANONICKOU KASKÁDU
+        # _att_sync_vyroba_work (G2007 doc-dochazka-att-entry-vyroba-work-kaskada) —
+        # „jeden zdroj pravdy". Nejdřív vždy zneplatníme položky vlastní stornovanému
+        # úseku (pevná vazba att_entry_id=eid), pak den srovná kaskáda: co po stornu
+        # nekryje žádný platný úsek → is_active=false, co kryje jiný platný úsek →
+        # připne se k němu (reassign/dedup/ořez). Nahrazuje dřívější minutový fallback
+        # (kaskáda řeší i řádky bez vazby přes časový překryv). Best-effort — nikdy
+        # nesmí shodit storno (Marti-AI 23.7.2026 + Jirka 24.7.2026).
         try:
-            _rlink = s.execute(_t(
+            s.execute(_t(
                 "UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
                 "WHERE tenant_id=:t AND att_entry_id=:i AND is_active=true"),
                 {"i": eid, "t": _ATT_TENANT})
-            if (_rlink.rowcount or 0) == 0:
-                s.execute(_t(
-                    "UPDATE tenant.vyroba_work w SET is_active=false, att_entry_id=:i, updated_at=now() "
-                    "FROM tenant.att_entry e "
-                    "JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=:t "
-                    "WHERE e.id=:i AND w.tenant_id=:t AND w.user_id=em.user_id "
-                    "  AND w.datum=e.entry_date "
-                    "  AND date_trunc('minute', w.od)=date_trunc('minute', e.started_at) "
-                    "  AND date_trunc('minute', w.konec) IS NOT DISTINCT FROM date_trunc('minute', e.ended_at) "
-                    "  AND e.project_ref IS NOT NULL AND w.zakazka_ref=e.project_ref "
-                    "  AND w.is_active=true"),
-                    {"i": eid, "t": _ATT_TENANT})
+            _att_sync_vyroba_work(s, emp, row[1])
         except Exception:
-            pass
+            logger.error("att fix/void: kaskáda vyroba_work selhala (entry=%s, emp=%s)",
+                         eid, emp, exc_info=True)
         # Peťa 22.7.2026: po stornu anomálii NEVYŘEŠOVAT — ať zůstane ve frontě zeleně
         # „opraveno" s tlačítkem „Hotovo — z fronty" (maže se až odkliknutím). Viz fix/entry.
         _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=desc.strip(),
@@ -23314,35 +23246,21 @@ async def att_fix_merge(req: Request) -> JSONResponse:
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": b_id, "nn": "sloučeno do #" + str(a_id) + " (" + actor + ")"})
-        # Osa zakázek: sešij i vyroba_work — úsek A protáhni přes úsek B (stejná
-        # zakázka+činnost), úsek B zparazituj na nulovou délku (<60 s se ignoruje).
-        # C24 29.7.2026 (krok 5-kód): z work_alloc na vyroba_work (od/konec/zakazka_ref);
-        # jen naše nativní úseky (source_system<>'centrala1'); hodiny se dopočítají.
+        # C24 30.7.2026: sešití položek vyroba_work přebírá KANONICKÁ KASKÁDA
+        # _att_sync_vyroba_work — A je po sloučení jeden platný úsek, B je superseded;
+        # kaskáda položky A i B nad novým rozsahem A připne k A, ořízne a sloučí do spanu
+        # (stejná zakázka+činnost). U BĚŽÍCÍHO sloučení (A se znovu otevřela, konec NULL)
+        # kaskáda úsek A míjí (chybí konec) → běžící položku B přepneme pod A ručně, ať
+        # „Makat" jede dál (zbytek dorovná kaskáda po zavření). Best-effort.
         try:
-            tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-            if tu:
-                wa = s.execute(_t(
-                    "SELECT a.id, b.id, b.konec "
-                    "FROM tenant.vyroba_work a, tenant.vyroba_work b "
-                    "WHERE a.user_id=:u AND b.user_id=:u AND a.id<>b.id "
-                    "  AND COALESCE(a.source_system,'')<>'centrala1' AND COALESCE(b.source_system,'')<>'centrala1' "
-                    "  AND a.konec IS NOT NULL "
-                    "  AND abs(EXTRACT(EPOCH FROM (a.konec - CAST(:ae AS timestamptz)))) <= 180 "
-                    "  AND abs(EXTRACT(EPOCH FROM (b.od - CAST(:bs AS timestamptz)))) <= 180 "
-                    "  AND COALESCE(a.zakazka_ref,'') = COALESCE(b.zakazka_ref,'') "
-                    "  AND COALESCE(a.cinnost_id,0) = COALESCE(b.cinnost_id,0) LIMIT 1"),
-                    {"u": tu, "ae": A[4].isoformat(sep=" "), "bs": B[3].isoformat(sep=" ")}).first()
-                if wa:
-                    s.execute(_t(
-                        "UPDATE tenant.vyroba_work SET konec=:e, "
-                        "hodiny=CASE WHEN CAST(:e AS timestamptz) IS NULL THEN NULL "
-                        "ELSE round((EXTRACT(EPOCH FROM (CAST(:e AS timestamptz)-od))/3600.0)::numeric,3) END, "
-                        "updated_at=now() WHERE id=:i"),
-                        {"e": wa[2], "i": wa[0]})
-                    s.execute(_t("UPDATE tenant.vyroba_work SET konec=od, hodiny=0, updated_at=now() WHERE id=:i"),
-                              {"i": wa[1]})
+            _att_sync_vyroba_work(s, emp, A[2])
+            if b_running:
+                s.execute(_t(
+                    "UPDATE tenant.vyroba_work SET att_entry_id=:a, updated_at=now() "
+                    "WHERE tenant_id=:t AND att_entry_id=:b AND is_active=true AND konec IS NULL"),
+                    {"t": _ATT_TENANT, "a": a_id, "b": b_id})
         except Exception:
-            pass
+            logger.error("att fix/merge: kaskáda vyroba_work selhala (a=%s, b=%s)", a_id, b_id, exc_info=True)
         # Peťa 22.7.2026: po sloučení anomálii NEVYŘEŠOVAT — zůstane ve frontě zeleně
         # „opraveno" a maže se až tlačítkem „Hotovo — z fronty". Viz fix/entry.
         _att_fix_audit(s, "merge", a_id, emp, uid, actor,
@@ -23428,6 +23346,98 @@ async def att_fix_resolve(req: Request) -> JSONResponse:
             s.commit()
             return JSONResponse({"ok": True})
         return JSONResponse({"ok": False, "error": "missing_target"}, status_code=400)
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/fix/resync")
+async def att_fix_resync(req: Request) -> JSONResponse:
+    """Backfill/dorovnání položek vyroba_work KANONICKOU KASKÁDOU přes rozsah dnů.
+    Jen plný scope (Kristý/Peťa/Šárka). dry_run=true (DEFAULT) NIC nezapisuje — vrátí
+    souhrn plánu; dry_run=false ostře (rollback→commit). Tělo:
+    {from:'YYYY-MM-DD', to:'YYYY-MM-DD', uid?:int, dry_run?:bool}. Rozsah max 62 dní."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        d_from = _dt.strptime(str((body or {}).get("from") or "")[:10], "%Y-%m-%d").date()
+        d_to = _dt.strptime(str((body or {}).get("to") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Zadej rozsah from–to (YYYY-MM-DD)."})
+    if d_to < d_from:
+        return JSONResponse({"ok": False, "error": "to < from."})
+    if (d_to - d_from).days > 62:
+        return JSONResponse({"ok": False, "error": "Rozsah max 62 dní."})
+    dry = bool((body or {}).get("dry_run", True))
+    try:
+        only_uid = int((body or {}).get("uid") or 0) or None
+    except Exception:
+        only_uid = None
+    cm, s = _att_session()
+    try:
+        if not (_att_can_fix(s, uid) and _att_fix_all(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden (jen plný scope)"}, status_code=403)
+        # dvojice (employee, den) s pohybem v rozsahu — z docházky NEBO z výkazu
+        pairs = s.execute(_t(
+            "SELECT DISTINCT e.employee_id AS emp, e.entry_date AS den "
+            "FROM tenant.att_entry e "
+            "WHERE e.tenant_id=:t AND e.entry_date BETWEEN :f AND :d "
+            "  AND (:ou IS NULL OR e.user_id=:ou) "
+            "UNION "
+            "SELECT DISTINCT em.id AS emp, w.datum AS den "
+            "FROM tenant.vyroba_work w "
+            "JOIN tenant.att_employee em ON em.user_id=w.user_id AND em.tenant_id=:t "
+            "WHERE w.tenant_id=:t AND w.datum BETWEEN :f AND :d "
+            "  AND (:ou IS NULL OR w.user_id=:ou)"),
+            {"t": _ATT_TENANT, "f": d_from.isoformat(), "d": d_to.isoformat(), "ou": only_uid}).fetchall()
+        tot = {"dvojic": len(pairs), "zmenene_dny": 0,
+               "deactivate": 0, "clip": 0, "dedup_off": 0, "create": 0}
+        ukazka = []
+        podezrele = []   # dny s položkami, ale bez platného úseku (rows>0 & segs==0) — ať to operátor vidí
+        for pr in pairs:
+            emp_id, den = pr[0], pr[1]
+            try:
+                if dry:
+                    p = _att_sync_vyroba_work(s, emp_id, den, dry_run=True)
+                else:
+                    # atomicky po dni — když jedna dvojice spadne uprostřed, rollbackne
+                    # se jen ona (savepoint), zbytek běhu zůstane konzistentní.
+                    with s.begin_nested():
+                        p = _att_sync_vyroba_work(s, emp_id, den, dry_run=False)
+            except Exception:
+                logger.error("resync kaskáda selhala (emp=%s, den=%s)", emp_id, den, exc_info=True)
+                continue
+            if p.get("rows", 0) > 0 and p.get("segs", 0) == 0 and len(podezrele) < 50:
+                podezrele.append({"emp": emp_id, "den": str(den), "polozek": p.get("rows")})
+            noff = len(p["deactivate"]) + len(p["dedup_off"])
+            ncl = len(p["clip"])
+            ncr = len(p["create"])
+            if noff or ncl or ncr:
+                tot["deactivate"] += len(p["deactivate"])
+                tot["dedup_off"] += len(p["dedup_off"])
+                tot["clip"] += ncl
+                tot["create"] += ncr
+                tot["zmenene_dny"] += 1
+                if len(ukazka) < 30:
+                    ukazka.append({"emp": emp_id, "den": str(den),
+                                   "off": noff, "clip": ncl, "new": ncr,
+                                   "settled": p.get("settled")})
+        if dry:
+            s.rollback()
+        else:
+            s.commit()
+        return JSONResponse({"ok": True, "dry_run": dry,
+                             "od": d_from.isoformat(), "do": d_to.isoformat(),
+                             "souhrn": tot, "ukazka": ukazka, "podezrele": podezrele})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -26718,6 +26728,167 @@ def _vw_recalc_hodiny(s, uid, day) -> None:
         "WHERE tenant_id=:t AND user_id=:u AND datum=:d AND COALESCE(source_system,'')<>'centrala1'"),
         {"t": _ATT_TENANT, "u": uid,
          "d": (day.isoformat() if hasattr(day, "isoformat") else day)})
+
+
+# ── Kanonická kaskáda att_entry(hlavička) → vyroba_work(položky) ──────────────
+# C24 30.7.2026. JEDNO místo pravdy pro srovnání výkazu s docházkou. Spec:
+# G2007 doc-dochazka-att-entry-vyroba-work-kaskada (rozhodl Marti-člověk 30.7.,
+# KONEČNÝ model — žádná zářijová přestavba). Volá ji každá cesta měnící docházku
+# (oprava fix/entry|add|merge, storno, do budoucna import a Makám).
+#
+# Dělené vlastnictví: čas/hodiny/typ vlastní att_entry (hlavička), činnost vlastní
+# vyroba_work (položky), zakázka je na obou. Proto NE regenerace jedním směrem, ale
+# „dorovnej a zachovej": kaskáda dorovná časy a životní cyklus položek podle platných
+# úseků hlavičky, ale ČINNOST NIKDY nepřepisuje a zakázku na existující položce nechává.
+#
+# Platný úsek = att_entry.status<>'superseded', typ work/overhead/homeoffice, s časy.
+# (Absence/pauza/konec dne/nenároková-bez-časů sem nepatří — vyroba_work drží jen
+# odpracované, absence jdou do mezd z att_entry/att_day_summary.) Bere se JEN naše
+# nativní vyroba_work (source_system<>'centrala1' — EC agregát se nechává na pokoji)
+# a řádky s konec IS NOT NULL (běžící úsek z mobilu se nechává žít).
+#
+# Algoritmus pro (člověk, den):
+#  1) Vezmi platné att_entry úseky (viz výše).
+#  2) Aktivní vyroba_work řádek, který NEpřekrývá žádný platný úsek → is_active=false.
+#  3) Řádek překrývající úsek → přiřaď att_entry_id, ořízni od/konec do úseku, přepočti hodiny.
+#  4) SOUVISLÝ běh stejné (zakázka, činnost) v úseku → sluč do jednoho (span), ostatní
+#     is_active=false (fragmentace po sloučení). Slučují se JEN sousední fragmenty téhož
+#     klíče — když je mezi nimi jiná činnost/zakázka, NEslučuje se (span by ji jinak
+#     překryl a nafoukl hodiny).
+#  5) Platný úsek bez pokrytí → založ prázdný řádek (cinnost_id=NULL k doplnění).
+#
+# dry_run=True nic nezapisuje, jen vrátí plán (pro DRY-RUN ověření). Vždy vrací dict
+# se souhrnem změn. best-effort volající si chytá výjimky sám (nesmí shodit fix).
+def _att_sync_vyroba_work(s, employee_id, den, dry_run=False):
+    from sqlalchemy import text as _t
+    den_s = den.isoformat() if hasattr(den, "isoformat") else str(den)[:10]
+    uid = s.execute(_t(
+        "SELECT user_id FROM tenant.att_employee WHERE id=:e AND tenant_id=:t"),
+        {"e": employee_id, "t": _ATT_TENANT}).scalar()
+    plan = {"employee_id": employee_id, "user_id": uid, "den": den_s,
+            "deactivate": [], "clip": [], "dedup_off": [], "create": [],
+            "segs": 0, "rows": 0}
+    if not uid:
+        return plan
+    # 1) platné úseky work/overhead/homeoffice s časy
+    segs = s.execute(_t(
+        "SELECT e.id, et.code, e.started_at, e.ended_at, e.project_ref "
+        "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+        "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d "
+        "  AND e.status <> 'superseded' "
+        "  AND et.code IN ('work','overhead','homeoffice') "
+        "  AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
+        "ORDER BY e.started_at"),
+        {"t": _ATT_TENANT, "e": employee_id, "d": den_s}).fetchall()
+    # 2) aktivní naše položky dne (ne EC agregát, ne běžící)
+    rows = s.execute(_t(
+        "SELECT w.id, w.od, w.konec, w.zakazka_ref, w.cinnost_id, w.att_entry_id "
+        "FROM tenant.vyroba_work w "
+        "WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d "
+        "  AND w.is_active=true AND w.konec IS NOT NULL "
+        "  AND COALESCE(w.source_system,'') <> 'centrala1' "
+        "ORDER BY w.od, w.id"),
+        {"t": _ATT_TENANT, "u": uid, "d": den_s}).fetchall()
+    plan["segs"] = len(segs)
+    plan["rows"] = len(rows)
+    if not segs and not rows:
+        return plan
+
+    def _ovl(a_od, a_kon, s_od, s_kon):
+        lo = a_od if a_od > s_od else s_od
+        hi = a_kon if a_kon < s_kon else s_kon
+        return (hi - lo).total_seconds() if hi > lo else 0.0
+
+    # „settled" = den je uzavřený (žádný BĚŽÍCÍ platný úsek). Když někdo zrovna maká
+    # (běžící work/overhead/homeoffice bez konce), běžíme konzervativně: NEdeaktivujeme
+    # nekryté řádky a NEzakládáme placeholdery (běžící úsek je z segs vyloučen kvůli
+    # chybějícímu konci → jinak by kaskáda omylem shodila zavřené položky živého dne).
+    # Ořez a dedup zavřených položek nad zavřenými úseky běží pořád (bezpečné).
+    _run = s.execute(_t(
+        "SELECT 1 FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+        "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d AND e.status<>'superseded' "
+        "  AND et.code IN ('work','overhead','homeoffice') "
+        "  AND e.started_at IS NOT NULL AND e.ended_at IS NULL LIMIT 1"),
+        {"t": _ATT_TENANT, "e": employee_id, "d": den_s}).first()
+    settled = _run is None
+    plan["settled"] = settled
+
+    seg_by_id = {sg[0]: sg for sg in segs}
+    # přiřazení řádku k úseku s největším překryvem (úseky se nepřekrývají navzájem)
+    assign = {}
+    for w in rows:
+        best = None
+        best_ov = 0.0
+        for sg in segs:
+            ov = _ovl(w[1], w[2], sg[2], sg[3])
+            if ov > best_ov:
+                best_ov = ov
+                best = sg
+        if best is None:
+            if settled:
+                plan["deactivate"].append(w[0])      # 2) bez překryvu → off (jen uzavřený den)
+        else:
+            assign[w[0]] = best[0]
+    # 3)+4) přiřazené řádky → per úsek, seřaď dle času a slučuj JEN SOUVISLÉ běhy stejné
+    # (zakázka, činnost). Nesouvislý běh (mezi je jiná činnost/zakázka) se neslučuje —
+    # span by ji jinak překryl a zdvojil hodiny. Ořízne se do úseku, přepočte hodiny.
+    by_seg = {}
+    for w in rows:
+        if w[0] in assign:
+            by_seg.setdefault(assign[w[0]], []).append(w)
+    covered = set()
+    for seg_id, lst in by_seg.items():
+        covered.add(seg_id)
+        sg = seg_by_id[seg_id]
+        lst.sort(key=lambda w: (w[1], w[0]))     # dle od
+        runs = []
+        for w in lst:
+            key = ((w[3] or None), w[4])
+            if runs and runs[-1]["key"] == key:
+                r = runs[-1]
+                r["od"] = min(r["od"], w[1])
+                r["konec"] = max(r["konec"], w[2])
+                plan["dedup_off"].append(w[0])   # 4) sousední duplicita → off
+            else:
+                runs.append({"keep": w, "od": w[1], "konec": w[2], "key": key})
+        for r in runs:
+            keep = r["keep"]
+            new_od = r["od"] if r["od"] > sg[2] else sg[2]
+            new_kon = r["konec"] if r["konec"] < sg[3] else sg[3]
+            # jen skutečná změna (no-op řádky se nezapisují — čistý souhrn backfillu)
+            if new_od != keep[1] or new_kon != keep[2] or seg_id != keep[5]:
+                plan["clip"].append({"id": keep[0], "att": seg_id,
+                                     "od": new_od, "konec": new_kon})
+    # 5) platný úsek bez pokrytí → prázdný řádek (jen uzavřený den)
+    if settled:
+        for sg in segs:
+            if sg[0] not in covered:
+                plan["create"].append({"att": sg[0], "od": sg[2], "konec": sg[3],
+                                       "zak": _norm_zakazka(sg[4]) or None})
+    if dry_run:
+        return plan
+    # ── zápis ────────────────────────────────────────────────────────────────
+    for rid in plan["deactivate"] + plan["dedup_off"]:
+        s.execute(_t("UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
+                     "WHERE tenant_id=:t AND id=:i"), {"t": _ATT_TENANT, "i": rid})
+    for c in plan["clip"]:
+        s.execute(_t(
+            "UPDATE tenant.vyroba_work SET att_entry_id=:a, od=CAST(:od AS timestamptz), "
+            "konec=CAST(:kon AS timestamptz), "
+            "hodiny=round((EXTRACT(EPOCH FROM (CAST(:kon AS timestamptz) - CAST(:od AS timestamptz)))/3600.0)::numeric,3), "
+            "updated_at=now() WHERE tenant_id=:t AND id=:i"),
+            {"t": _ATT_TENANT, "a": c["att"], "od": c["od"], "kon": c["konec"], "i": c["id"]})
+    for c in plan["create"]:
+        s.execute(_t(
+            "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
+            "zakazka_ref,cinnost_id,hodiny,source_system,att_entry_id,created_at,updated_at) "
+            "VALUES (:t,:u,"
+            "(SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=:u AND e.tenant_id=:t AND e.cislo_zam IS NOT NULL LIMIT 1),"
+            ":d,CAST(:od AS timestamptz),CAST(:kon AS timestamptz),:zak,NULL,"
+            "round((EXTRACT(EPOCH FROM (CAST(:kon AS timestamptz) - CAST(:od AS timestamptz)))/3600.0)::numeric,3),'sync',:a,now(),now())"),
+            {"t": _ATT_TENANT, "u": uid, "d": den_s, "od": c["od"], "kon": c["konec"],
+             "zak": c["zak"], "a": c["att"]})
+    return plan
 
 
 # C24 29.7.2026 (krok 5-kód): mobil „Makat" píše/čte JEDNU položkovou tabulku

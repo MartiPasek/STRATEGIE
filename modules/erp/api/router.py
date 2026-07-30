@@ -23384,8 +23384,13 @@ async def att_fix_resync(req: Request) -> JSONResponse:
         only_uid = None
     cm, s = _att_session()
     try:
-        if not (_att_can_fix(s, uid) and _att_fix_all(s, uid)):
-            return JSONResponse({"ok": False, "error": "forbidden (jen plný scope)"}, status_code=403)
+        try:
+            _is_parent = bool(is_marti_parent(uid))
+        except Exception:
+            _is_parent = False
+        # Backfill = maintenance/oversight: plný scope (Peťa/Šárka) NEBO rodič (Kristý/Marti/Jirka).
+        if not (_att_can_fix(s, uid) and (_att_fix_all(s, uid) or _is_parent)):
+            return JSONResponse({"ok": False, "error": "forbidden (jen plný scope / rodič)"}, status_code=403)
         # dvojice (employee, den) s pohybem v rozsahu — z docházky NEBO z výkazu
         pairs = s.execute(_t(
             "SELECT DISTINCT e.employee_id AS emp, e.entry_date AS den "

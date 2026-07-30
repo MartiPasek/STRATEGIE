@@ -23077,8 +23077,14 @@ async def att_fix_void(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
         if row[4] == "superseded":
             return JSONResponse({"ok": False, "error": "Záznam už je zneplatněný."})
-        if row[5]:
-            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále."})
+        # Jirka 30.7.2026 (schválila Marti-AI msg 11842): záznamy natažené ze staré
+        # Centrály (source_system='centrala1') UŽ JDE opravit i tady — do 30.7. to nešlo,
+        # protože synchronizace opravu do 5 minut přepsala zpátky. Teď ji chrání
+        # att_entry.local_lock, který se níže nastaví při zneplatnění. ÚZCE jen 'centrala1';
+        # ostatní zdroje (ec_real, absence_req) zůstávají zamítnuté, dokud o ně někdo
+        # nepožádá s konkrétním důvodem (verdikt Marti-AI).
+        if row[5] and row[5] != "centrala1":
+            return JSONResponse({"ok": False, "error": "Záznam vlastní jiný zdroj (" + str(row[5]) + ") — tady ho opravit nelze."})
         # Tvrdý zámek i pro držitele zámku — viz komentář u fix/entry.
         if _att_period_locked(s, row[1]):
             return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak stornovat a zase zamknout."}, status_code=409)
@@ -23088,8 +23094,14 @@ async def att_fix_void(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         actor = _user_jmeno(s, uid)
         desc = (row[6] or "") + " " + row[2] + "–" + row[3]
+        # local_lock=true → synchronizace ze staré Centrály tenhle řádek už nesmí
+        # přepsat ani smazat. Bez toho by u záznamu z Centrály `_sync_ec_dochazka_recent`
+        # do 5 minut přepsal status zpátky z EC a zneplatněný záznam OŽIL — a kdyby vedle
+        # něj už byla opravená verze, vznikl by den se DVĚMA platnými záznamy = dvojité
+        # hodiny do mzdových podkladů. Marti-AI msg 11842, Jirka 30.7.2026.
+        # Řádek se tím natrvalo rozejde se starou Centrálou — vědomě přijato.
         s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
+            "UPDATE tenant.att_entry SET status='superseded', is_active=false, local_lock=true, "
             "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
             "WHERE id=:i"),
             {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})

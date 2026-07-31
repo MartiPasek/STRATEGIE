@@ -34523,41 +34523,9 @@ def _mzdy_predzprac_sql(cloud_db, idobd, rows):
 
 
 def _mzdy_predzprac_rows(firma):
-    """Mzdové podmínky ze STRATEGIE → per (číslo, Helios CisloMS): složka přes
-    wage_component_type.code → id → wage_system_mapping.ext_code (CisloMS).
-    K nejnovějšímu asof snapshotu (číslo+firma už vyřešené)."""
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        pr = s.execute(_t(
-            "SELECT sn.cislo, msm.ext_code AS cislo_ms, SUM(sn.castka) AS koruny "
-            "FROM tenant.helios_wage_snapshot sn "
-            "JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
-            "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
-            "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true)=true "
-            "WHERE sn.tenant_id=2 AND sn.firma=:f AND sn.asof=("
-            "  SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f) "
-            "GROUP BY sn.cislo, msm.ext_code"), {"f": firma}).fetchall()
-    finally:
-        s.close()
-    out = []
-    for r in pr:
-        try:
-            c = int(str(r[0]).strip()); ms = int(r[1]); kc = int(r[2] or 0)
-        except Exception:
-            continue
-        if kc != 0:
-            out.append((c, ms, kc, 0))  # (cislo, cislo_ms, koruny, dny)
-    return out
-
-
-# Stravenky (Marti 28.6.): nárok = odpracované dny >4 h v docházce × konstanta 82 Kč.
-# Helios složka 793 (Stravenkový paušál do limitu), Dny = počet dní, Koruny = Dny×82.
-# Sazba 85→82 Kč (Marti 30.6.2026).
-_STRAVENKA_KC = 82
-_STRAVENKA_MS = 793
-_JEDNATELE_CISLA = {2, 41, 47}  # plne stravne + odmena 693 jen tihle; ostatni 693->651 (Peta 8.7.2026)
+    """DB-driven delegate (g2007.python kod=mzdy_predzprac_rows). Puvodni telo migrovano do DB dne 31.7.2026, Faze A."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_predzprac_rows", firma)
 
 
 def _mzdy_stravenky_rows(firma, rok, mesic):
@@ -34794,140 +34762,17 @@ _LOAJALITA_KOEF = 1.25
 
 
 def _mzdy_loajalita_rows(firma, rok, mesic):
-    """Vrací řádky (cislo, 651, koruny, 0) pro loajalitu výrobních (přesčas nad fond).
-    Přičítá se do složky 651 (prémie). Kancelář (skup24) loajalitu nemá."""
-    import calendar as _cal
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    fk_sm = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'
-    ry = int(rok); rm = int(mesic)
-    ld = _cal.monthrange(ry, rm)[1]
-    workdays = sum(1 for x in range(1, ld + 1) if _cal.weekday(ry, rm, x) < 5)
-    s = _g()
-    try:
-        skup24 = set(int(r[0]) for r in s.execute(_t(
-            "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
-            "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
-            "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
-        _pstart = "%04d-%02d-01" % (ry, rm)
-        _pend = "%04d-%02d-%02d" % (ry, rm, ld)
-        emp = {}
-        for r in s.execute(_t(
-            "SELECT sm.helios_cislo, sm.user_id, COALESCE(ge.uvazek_tyden_h,40) "
-            "FROM tenant.user_smlouva sm "
-            "LEFT JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
-            "LEFT JOIN LATERAL (SELECT g.uvazek_tyden_h FROM tenant.engagement g "
-            "  WHERE g.employee_id=e.id "
-            "    AND (g.valid_from IS NULL OR g.valid_from <= CAST(:pend AS date)) "
-            "    AND (g.valid_to IS NULL OR g.valid_to >= CAST(:pstart AS date)) "
-            "  ORDER BY (g.valid_from IS NULL) ASC, g.valid_from DESC NULLS LAST, g.is_current DESC "
-            "  LIMIT 1) ge ON true "
-            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND COALESCE(sm.typ_smlouvy,'')<>'osvc' "  # uvazek dle platnosti vymeru k mesici (Peta 8.7.2026)
-            "  AND sm.helios_cislo IS NOT NULL"),
-                {"fk": fk_sm, "pstart": _pstart, "pend": _pend}).fetchall():
-            try:
-                emp[int(r[0])] = (int(r[1]), float(r[2] or 40) / 5.0)
-            except Exception:
-                pass
-        celkem = {}
-        for r in s.execute(_t(
-            "SELECT cislo_zam, COALESCE(SUM(cas_celkem),0) FROM tenant.att_day_summary "
-            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo GROUP BY cislo_zam"),
-                {"y": ry, "mo": rm}).fetchall():
-            try:
-                celkem[int(r[0])] = float(r[1] or 0)
-            except Exception:
-                pass
-    finally:
-        s.close()
-    if not emp:
-        return []
-    sazba = {}
-    try:
-        rr = _mssql188_query(
-            "SELECT s.CisloZam, s.HodSazbaPrescas FROM UCTO_EC.dbo.EC_Mzdy_SumaMesic s "
-            "JOIN (SELECT CisloZam, MAX(Rok*100+Mesic) mx FROM UCTO_EC.dbo.EC_Mzdy_SumaMesic "
-            "      WHERE HodSazbaPrescas>0 GROUP BY CisloZam) t "
-            "  ON t.CisloZam=s.CisloZam AND (s.Rok*100+s.Mesic)=t.mx")
-        for v in (rr.get("rows") or []):
-            try:
-                sazba[int(v[0])] = float(v[1] or 0)
-            except Exception:
-                pass
-    except Exception:
-        return []
-    out = []
-    for cislo, (user_id, daily_h) in emp.items():
-        if user_id in skup24:
-            continue
-        c = celkem.get(cislo)
-        if c is None:
-            continue
-        fond = daily_h * workdays
-        prescas = c - fond
-        if prescas <= 0.05:
-            continue
-        sz = sazba.get(cislo, 0.0)
-        if sz <= 0:
-            continue
-        loaj = int(round(prescas * sz * _LOAJALITA_KOEF))
-        if loaj > 0:
-            out.append((cislo, 651, loaj, 0))
-    return out
+    """DB-driven delegate (g2007.python kod=mzdy_loajalita_rows). Puvodni telo migrovano do DB dne 31.7.2026, Faze A."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_loajalita_rows", firma, rok, mesic)
 
 
-# ── Prémie ze zakázek (OdmenazFinanciZak) → složka 651 (prémie). Peta 7.7.2026 ────────────
-#  Zdroj = tenant.att_finance_zakazek (zrcadlo SUM(OdmenazFinanciZak) z EC_Dochazka/DB_EC,
-#  plněno při @@DOCHSUM). Stejná logika, jakou starý systém plnil PremieFinanceZam do
-#  EC_Mzdy_SumaMesic (Tynčin select). Přičítá se do 651 stejně jako loajalita/prémie ze snapshotu
-#  (consolidate je sečte). Filtrujeme na firmu přes smlouvu, ať ES nesebere EC data.
 def _mzdy_finance_zakazek_rows(firma, rok, mesic):
-    """Vrací řádky (cislo, 651, koruny, 0) pro prémie ze zakázek za dané období.
-    Čte tenant.att_finance_zakazek (naše zrcadlo). Může být i záporné (korekce, např. -20)."""
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    fk_sm = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'
-    ry = int(rok); rm = int(mesic)
-    s = _g()
-    try:
-        emp = set()
-        for r in s.execute(_t(
-            "SELECT sm.helios_cislo FROM tenant.user_smlouva sm "
-            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND sm.helios_cislo IS NOT NULL"),
-                {"fk": fk_sm}).fetchall():
-            try:
-                emp.add(int(r[0]))
-            except Exception:
-                pass
-        fin = {}
-        try:
-            for r in s.execute(_t(
-                "SELECT cislo_zam, COALESCE(SUM(castka),0) FROM tenant.att_finance_zakazek "
-                "WHERE tenant_id=2 AND rok=:y AND mesic=:mo GROUP BY cislo_zam"),
-                    {"y": ry, "mo": rm}).fetchall():
-                try:
-                    fin[int(r[0])] = float(r[1] or 0)
-                except Exception:
-                    pass
-        except Exception:
-            s.rollback()  # tabulka ještě neexistuje (před prvním @@DOCHSUM) → prázdné
-    finally:
-        s.close()
-    out = []
-    for cislo, castka in fin.items():
-        if emp and cislo not in emp:
-            continue  # jen lidé dané firmy (EC data ES nebere)
-        kc = int(round(castka))
-        if kc != 0:
-            out.append((cislo, 651, kc, 0))
-    return out
+    """DB-driven delegate (g2007.python kod=mzdy_finance_zakazek_rows). Puvodni telo migrovano do DB dne 31.7.2026, Faze A."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_finance_zakazek_rows", firma, rok, mesic)
 
 
-# ── Odměny z Centrály (DPP typ 1/3 → 700, jednatel typ 17 → 693) → mzda. Peta 7.7.2026 ──────
-#  Zdroj = tenant.att_odmena_centrala (zrcadlo EC_FinPriplatkySrazkyDefinice, plněno při @@DOCHSUM).
-#  Routing firmy přes user_smlouva (helios_cislo→firma), takže EC i ES dostane jen své lidi.
-#  Pozor na dvojí započtení: pokud má člověk odměnu i ručně (mzdy_rucni_slozka), sečte se —
-#  proto ruční složku u lidí, co jedou z Centrály, deaktivovat.
 def _mzdy_odmeny_rows(firma, rok, mesic):
     """Vrací řádky (cislo, cislo_ms, koruny, 0) pro odměny z Centrály (att_odmena_centrala),
     filtrované na danou firmu přes user_smlouva. DPP→700, jednatel→693."""
@@ -35081,30 +34926,9 @@ def _mzdy_absence_rows(firma, rok, mesic):
 
 
 def _mzdy_consolidate(prows):
-    """Sečte koruny + dny + hodiny per (cislo, cislo_ms) — víc zdrojů do jedné Helios složky
-    (např. 651 ze snapshotu premie/vedení + příplatků odměny). 5. prvek = hodiny (absence).
-    Řádky S OBDOBÍM (7-tuple s datum_od = lékař/OČR) NEKONSOLIDUJEME — každé období/den má
-    vlastní řádek s vlastním DatumOd/DatumDo (Kristý 8.7.2026)."""
-    agg = {}
-    order = []
-    dated = []
-    for row in prows:
-        if len(row) >= 7 and row[5]:  # má DatumOd → propustit beze změny (nekonsolidovat)
-            dated.append(tuple(row))
-            continue
-        try:
-            c = int(row[0]); ms = int(row[1]); kc = int(row[2] or 0)
-            dny = int(row[3] if len(row) > 3 else 0)
-            hod = float(row[4]) if len(row) > 4 else 0.0
-        except Exception:
-            continue
-        if (c, ms) not in agg:
-            agg[(c, ms)] = [0, 0, 0.0]
-            order.append((c, ms))
-        agg[(c, ms)][0] += kc
-        agg[(c, ms)][1] += dny
-        agg[(c, ms)][2] += hod
-    return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1], round(agg[(c, ms)][2], 2)) for (c, ms) in order] + dated
+    """DB-driven delegate (g2007.python kod=mzdy_consolidate). Puvodni telo migrovano do DB dne 31.7.2026, Faze A."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_consolidate", prows)
 
 
 def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
@@ -35174,96 +34998,15 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
 
 
 def _mzdy_status_check(rok, mesic):
-    """Monitor výplatnic (Marti 28.6.2026): co je potřeba dořešit v Heliosu.
-    (a) Helios Status != 1 (nespočítáno čistě). (b) Absence v NAŠEM registru (OČR/nemoc)
-    bez odpovídající dávky na pásce (ošetřovné 205 / nemocenská 203) → 'doplnit dávky'.
-    Vrací seznam k řešení (firma, číslo, jméno, problém, detail)."""
-    import datetime as _dt
-    import calendar as _cal
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    m_first = _dt.date(int(rok), int(mesic), 1)
-    m_last = _dt.date(int(rok), int(mesic), _cal.monthrange(int(rok), int(mesic))[1])
-    today = _dt.date.today()
-    out = []
-    for firma in ("EC", "ES"):
-        try:
-            _src, cdb = _zrc_dbs(firma)
-            ro = _mssql188_query("SELECT IdObdobi FROM " + cdb + ".dbo.TabMzdObd WHERE Rok=%d AND Mesic=%d"
-                                 % (int(rok), int(mesic)))
-            if not (ro.get("ok") and ro.get("rows")):
-                continue
-            idobd = int(ro["rows"][0][0])
-            st = _mssql188_query(
-                "SELECT c.Cislo, RTRIM(c.Prijmeni)+' '+RTRIM(ISNULL(c.Jmeno,'')), v.Status, v.Info "
-                "FROM " + cdb + ".dbo.TabZamVyp v JOIN " + cdb + ".dbo.TabCisZam c ON c.ID=v.ZamestnanecId "
-                "WHERE v.IdObdobi=%d AND ISNULL(v.Status,0)<>1" % idobd)
-            for r in (st.get("rows") or []):
-                out.append({"firma": firma, "cislo": r[0], "jmeno": (r[1] or "").strip(),
-                            "problem": "status", "detail": "Helios status %s (Info %s)" % (r[2], r[3])})
-            # nemoc: prvních 14 dní = náhrada zaměstnavatele (213/106/882), od 15. dne ČSSZ (203);
-            # docházkové 200/201 taky beru jako "řešeno". OČR = ošetřovné 205 (+201 docházka).
-            # POZOR: 200/201 jsou NAŠE docházkové markery (krmíme je z předzpracování) — NEpočítají
-            # se jako „dávka". Skutečná dávka = ošetřovné 205 / náhrada nemoci 213,106,882 / ČSSZ 203.
-            for tbl, ms_in, label in (("att_ocr_case", "205", "ošetřovné"),
-                                      ("att_sick_case", "203,213,882,106", "nemocenská/náhrada")):
-                cm, s = _att_session()
-                try:
-                    cases = s.execute(_t(
-                        "SELECT DISTINCT e.cislo_zam FROM tenant." + tbl + " c "
-                        "JOIN tenant.att_employee e ON e.id=c.employee_id "
-                        "WHERE c.tenant_id=2 AND c.company=:f "
-                        "  AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
-                        "  AND c.datum_od <= :ml AND COALESCE(c.datum_do, :tod) >= :mf"),
-                        {"f": firma, "ml": m_last, "mf": m_first, "tod": today}).fetchall()
-                finally:
-                    cm.__exit__(None, None, None)
-                for cr in cases:
-                    try:
-                        cislo = int(str(cr[0]).strip())
-                    except Exception:
-                        continue
-                    chk = _mssql188_query(
-                        "SELECT COUNT(*) FROM " + cdb + ".dbo.TabMzSloz m "
-                        "JOIN " + cdb + ".dbo.TabCisZam c ON c.ID=m.ZamestnanecId "
-                        "WHERE m.IdObdobi=%d AND c.Cislo=%d AND m.CisloMS IN (%s)" % (idobd, cislo, ms_in))
-                    has = int(chk["rows"][0][0]) if (chk.get("ok") and chk.get("rows")) else 0
-                    if not has:
-                        out.append({"firma": firma, "cislo": cislo, "jmeno": "",
-                                    "problem": "davka",
-                                    "detail": "absence v registru (%s) — chybí dávka na pásce, DOPLNIT v Heliosu" % label})
-        except Exception as _e:
-            out.append({"firma": firma, "cislo": 0, "jmeno": "",
-                        "problem": "chyba", "detail": str(_e)[:160]})
-    return {"ok": True, "rok": int(rok), "mesic": int(mesic), "pocet": len(out), "polozky": out}
+    """DB-driven delegate (g2007.python kod=mzdy_status_check). Puvodni telo migrovano do DB dne 31.7.2026, Faze A."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_status_check", rok, mesic)
 
 
 def _mzdy_rucni_rows(firma):
-    """Ruční mzdové složky (tenant.mzdy_rucni_slozka) → předzpracování. Durable — přežije
-    přegenerování i refresh snapshotu. Marti 28.6.: odměna jednatele MS 693, DPP MS 700,
-    stravenkový paušál MS 793 ap. (cislo, cislo_ms, koruny, dny)."""
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        rr = s.execute(_t(
-            "SELECT cislo, cislo_ms, castka, COALESCE(dny,0) FROM tenant.mzdy_rucni_slozka "
-            "WHERE tenant_id=2 AND firma=:f AND aktivni=true"), {"f": str(firma).upper()}).fetchall()
-    finally:
-        s.close()
-    out = []
-    for r in rr:
-        try:
-            c = int(str(r[0]).strip()); ms = int(r[1]); kc = int(r[2] or 0); dny = int(r[3] or 0)
-        except Exception:
-            continue
-        if kc or dny:
-            out.append((c, ms, kc, dny))
-    return out
-
-
-# (stará case-based _mzdy_absence_rows OČR/nemoc nahrazena komplexní att_entry verzí výše —
-#  att_entry je autoritativní a obsahuje VŠECHNY typy absencí vč. dovolené/lékaře. 30.6.2026)
+    """DB-driven delegate (g2007.python kod=mzdy_rucni_rows). Puvodni telo migrovano do DB dne 31.7.2026, Faze A."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_rucni_rows", firma)
 
 
 def _mzdy_refresh_zrcadla(rok, mesic):

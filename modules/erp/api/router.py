@@ -28285,6 +28285,31 @@ async def att_real(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _att_denni_fond(s, emp, default_h=8.0):
+    """Denní fond člověka = úvazek/týden ÷ dny v týdnu (fallback 8 h).
+
+    Jirka 31.7.2026: appka zapisovala absenci natvrdo 8 h/den bez ohledu na úvazek,
+    takže kdo má denní fond 7 h, dostal stejně 8. Stejný vzorec už používá „Opravy
+    docházky" (úvazek/`work_mode.dny_v_tydnu`, výchozí 5). Zatím se z něj bere JEN
+    sick day — dovolená/nemoc/lékař/OČR jdou do mzdového podkladu, tam změnu hodin
+    musí odsouhlasit Petra (viz g2007 doc-dochazka-sickday-po-hodinach).
+    """
+    from sqlalchemy import text as _t
+    try:
+        h = s.execute(_t(
+            "SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
+            "FROM tenant.engagement g "
+            "LEFT JOIN tenant.work_mode wm ON wm.id = g.work_mode_id "
+            "WHERE g.tenant_id = :t AND g.employee_id = :e AND g.is_current = true "
+            "  AND g.uvazek_tyden_h IS NOT NULL "
+            "ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1"),
+            {"t": _ATT_TENANT, "e": emp}).scalar()
+        h = float(h or 0)
+        return h if 0 < h <= 24 else float(default_h)
+    except Exception:
+        return float(default_h)
+
+
 def _sickday_lekar_apply(s, emp, code, days_hours, uid, note):
     """Čerpání sick day PŘEDNOSTNĚ (Marti 28.6.). days_hours=[(date,hours)].
     - sickday: hodiny čerpá z balance (cap na zbytek nároku).
@@ -28340,6 +28365,18 @@ def _sickday_lekar_apply(s, emp, code, days_hours, uid, note):
                              "WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d AND entry_type_id=:t"),
                           {"h": draw, "n": (note or "sickday")[:250], "e": emp, "d": d, "t": sd_tid})
             cerp += draw
+    # Čerpáno NEinkrementujeme, ale PŘEPOČÍTÁME ze skutečných záznamů — stejný vzorec
+    # jako údržbový `_abs_recalc_balances` (dochazka_absence_sprava.py). Jirka 31.7.2026:
+    # inkrement dvojitě počítal, když člověk tentýž den zadal sick day znovu (`_upsert`
+    # je idempotentní, řádek se přepíše, ale `cerp += draw` přičetlo podruhé). S novou
+    # volbou hodin v appce se to dá vyklikat snadno, tak ať je zůstatek vždy pravda.
+    cerp = float(s.execute(_t(
+        "SELECT COALESCE(SUM(en.hours),0) FROM tenant.att_entry en "
+        "JOIN tenant.att_entry_type ty ON ty.id = en.entry_type_id "
+        "WHERE en.tenant_id = 2 AND en.employee_id = :e AND ty.code = 'sickday' "
+        "  AND COALESCE(en.status,'') <> 'superseded' "
+        "  AND EXTRACT(YEAR FROM en.entry_date) = :r"),
+        {"e": emp, "r": rok}).scalar() or 0)
     s.execute(_t("UPDATE tenant.sick_day_balance SET cerpano_h=:c WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
               {"c": cerp, "g": eng, "r": rok})
     return {"narok_h": narok, "cerpano_h": cerp, "zbyva_h": max(0.0, narok - cerp)}
@@ -28405,6 +28442,12 @@ async def att_absence(req: Request) -> JSONResponse:
                     {"t": _ATT_TENANT, "e": emp, "d": ds, "et": tid, "h": hrs, "n": note, "u": uid})
                 created += 1
 
+        # Celý den = denní fond člověka, ne natvrdo 8 h — ale ZATÍM JEN u sick day
+        # (Jirka 31.7.2026, podnět V. Vápeník). Dovolená/nemoc/lékař/OČR jdou přes
+        # `_mzdy_absence_rows` do mzdového podkladu, takže tam změnu hodin u zkrácených
+        # úvazků musí nejdřív odsouhlasit Petra — jinak by se lidem tiše změnily
+        # mzdové hodiny. Až rozhodne, stačí sem pustit i ostatní typy.
+        _cely_den = _att_denni_fond(s, emp) if code == "sickday" else 8
         if mode == "hours":
             try:
                 hrs = round(float(body.get("hours") or 0), 2)
@@ -28417,7 +28460,7 @@ async def att_absence(req: Request) -> JSONResponse:
             day = d0
             while day <= d1:
                 if day.weekday() < 5:  # Po–Pá
-                    _upsert(day.isoformat(), None if code == "homeoffice" else 8)
+                    _upsert(day.isoformat(), None if code == "homeoffice" else _cely_den)
                 day += _td(days=1)
         # sickday/lékař: čerpání sick day přednostně, hned ten den (Marti 28.6.)
         if code in ("medical", "sickday"):
@@ -28429,7 +28472,7 @@ async def att_absence(req: Request) -> JSONResponse:
                     dd = d0
                     while dd <= d1:
                         if dd.weekday() < 5:
-                            dh.append((dd, 8.0))
+                            dh.append((dd, float(_cely_den)))
                         dd += _td(days=1)
                 _sickday_lekar_apply(s, emp, code, dh, uid, note)
             except Exception:

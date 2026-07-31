@@ -1648,6 +1648,8 @@ setTimeout(function(){
         +'<br><span style="color:#60a5fa;font-size:12px;">otevřít →</span></div></div>';
     }).catch(function(){ zbox.style.display="none"; });
     // 🛟 Denní obnova zálohy (DR Plzeň) — stejný deník jako v cockpitu /marti. Endpoint gated (rodič/HR). C23 29.7.
+    // C28 31.7.2026: kód byl jen v mobile.html (commit 32c133cc psal rovnou do vygenerovaného
+    // souboru), takže ho každý `build_mobile.py` smazal. Přenesen sem, do zdrojového dílu.
     sec("🛟 OBNOVA (DR ZÁLOHA PLZEŇ)");
     var drbox=el('<div style="margin:2px 2px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:11px 13px;font-size:13px;color:var(--mut);">Načítám deník obnov…</div>');
     app.appendChild(drbox);
@@ -5813,12 +5815,37 @@ setTimeout(function(){
           });
         },_amberStyle);
         expOpt(box,"🤒 Je mi blbě… sick day","ghost",function(bx){
-          dirBtn(bx,"🤒 Dnes je mi blbě","ghost",function(b){
-            b.disabled=true; var today=_locDate(0);
-            absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
-              presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); },b);
-          },_amberStyle);
-          bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo sick day na konkrétní dny (i zpětně):</div>'));
+          // Jirka 31.7.2026 (podnět Václav Vápeník, rozhodl Marti: „sick day má jít
+          // zadávat po hodinách, ne jen po osmi"). Do teď appka posílala vždycky
+          // mode:"days" = celý den; ve staré Centrále lidi běžně zadávali 2/3/3,5/4/7 h.
+          // Server režim "hours" uměl už dřív — chybělo jen ovládání tady.
+          bx.appendChild(el('<div class="hint" style="margin:2px 0 2px;">Který den (jde i zpětně):</div>'));
+          var _sdDen=el('<input type="date" max="'+_locDate(0)+'" value="'+_locDate(0)+'" style="margin-top:4px;">');
+          bx.appendChild(_sdDen);
+          function _sdSend(h, b){
+            b.disabled=true;
+            var den=_sdDen.value||_locDate(0), dnes=_locDate(0), cely=!(h>0);
+            var p={type_code:"sickday",date_from:den,date_to:den,
+                   mode:(cely?"days":"hours"),note:"sick day (přes mobil)"};
+            if(!cely) p.hours=h;
+            absence(p,function(){
+              // celý den dnes = „dnes nedorazím"; část dne ne (člověk může ještě přijít)
+              if(cely && den===dnes) presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b);
+              else absOk(bx,"Sick day "+czDate(den)+(cely?" · celý den":(" · "+fmtHM(h))));
+            },b);
+          }
+          chipsIn(bx,"Kolik hodin?",function(h,b){ _sdSend(h,b); },
+            [["2 h",2],["3 h",3],["4 h — půl dne",4],["6 h",6],["Celý den",0]]);
+          var _sdR=el('<div style="display:flex;gap:8px;align-items:center;margin-top:8px;"></div>');
+          var _sdH=el('<input type="number" min="0.5" max="24" step="0.5" placeholder="vlastní počet hodin" style="flex:1;min-width:0;">');
+          var _sdB=el('<button class="ghost sm" style="border-color:var(--blue);color:var(--blue);">Zapsat</button>');
+          _sdB.addEventListener("click",function(){
+            var h=parseFloat(String(_sdH.value||"").replace(",","."));
+            if(!(h>0&&h<=24)){ _sdH.focus(); return; }
+            _sdSend(h,_sdB);
+          });
+          _sdR.appendChild(_sdH); _sdR.appendChild(_sdB); bx.appendChild(_sdR);
+          bx.appendChild(el('<div class="hint" style="margin-top:10px;">…nebo sick day na víc dnů po sobě (i zpětně):</div>'));
           dateRangePickIn(bx,"Sick day od – do:",function(od, dd, b){
             var today=_locDate(0);
             absence({type_code:"sickday",date_from:od,date_to:dd,mode:"days",note:"sick day (přes mobil)"},function(){

@@ -15031,22 +15031,15 @@ async def att_absence_request(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/absence/mine")
 async def att_absence_mine(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_absence_mine). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, typ, datum_od, datum_do, hours_per_day, stav, status_text, note "
-            "FROM tenant.att_absence_request WHERE user_id=:u "
-            "ORDER BY created_at DESC LIMIT 60"), {"u": uid}).fetchall()
-        out = [{"id": r[0], "typ": r[1], "typ_label": _ABS_TYP.get(r[1], r[1]),
-                "od": r[2].isoformat(), "do": r[3].isoformat(), "hpd": float(r[4]),
-                "stav": r[5], "status_text": r[6], "note": r[7]} for r in rows]
-        return JSONResponse({"ok": True, "zadosti": out})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence_mine", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.post("/app/attendance/absence/cancel")
@@ -16622,34 +16615,15 @@ async def hr_med_overview(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/absence/inbox")
 async def att_absence_inbox(req: Request) -> JSONResponse:
-    """Vedoucí: čekající žádosti, které mám rozhodnout (manager_user_id=já, nebo rodič vidí vše)."""
+    """DB-driven delegate (g2007.python kod=att_absence_inbox). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        parent = _is_parent(s, uid)
-        if parent:
-            cond = "r.stav='pending'"
-            par = {}
-        else:
-            cond = "r.stav='pending' AND r.manager_user_id=:u"
-            par = {"u": uid}
-        rows = s.execute(_t(
-            "SELECT r.id, r.typ, r.datum_od, r.datum_do, r.hours_per_day, r.note, "
-            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
-            "FROM tenant.att_absence_request r "
-            "JOIN tenant.att_employee em ON em.id=r.employee_id "
-            "LEFT JOIN public.users u ON u.id=em.user_id "
-            "WHERE " + cond + " ORDER BY r.datum_od LIMIT 100"), par).fetchall()
-        out = [{"id": r[0], "typ": r[1], "typ_label": _ABS_TYP.get(r[1], r[1]),
-                "od": r[2].isoformat(), "do": r[3].isoformat(), "hpd": float(r[4]),
-                "note": r[5], "zadatel": r[6]} for r in rows]
-        return JSONResponse({"ok": True, "zadosti": out, "statusy": list(_ABS_STATUSY.keys()),
-                             "je_vedouci": parent or len(out) > 0})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence_inbox", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.post("/app/attendance/absence/decide")
@@ -17892,63 +17866,15 @@ async def app_plan_scope_delete(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/whereabouts")
 async def att_whereabouts(req: Request) -> JSONResponse:
-    """Marti 12.6.: Kdo kde dnes/týden — pro daný den status každého člověka:
-    v práci / na dovolené / nemoc / lékař / OČR / home office / —. Agreguje na osobu
-    (1 člověk může mít víc att_employee záznamů). Čte importované absence i živá píchnutí."""
+    """DB-driven delegate (g2007.python kod=att_whereabouts). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    den = (req.query_params.get("den") or "").strip()[:10]
-    try:
-        d = _dt.date.fromisoformat(den) if den else _dt.date.today()
-    except Exception:
-        d = _dt.date.today()
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t("""
-            WITH ppl AS (
-              SELECT e.user_id uid,
-                     COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),
-                              max(e.full_name)) nm
-              FROM tenant.att_employee e LEFT JOIN public.users u ON u.id=e.user_id
-              WHERE e.tenant_id=2 AND e.user_id IS NOT NULL AND COALESCE(e.is_active,true)=true
-              GROUP BY e.user_id, u.first_name, u.last_name
-            ),
-            den AS (
-              SELECT e.user_id uid,
-                bool_or(t.category='presence') worked,
-                bool_or(en.is_active AND t.category='presence') running,
-                (array_agg(t.code  ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,
-                (array_agg(t.label ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_label,
-                bool_or(t.code='homeoffice') ho
-              FROM tenant.att_entry en
-              JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2
-              JOIN tenant.att_entry_type t ON t.id=en.entry_type_id
-              WHERE en.entry_date=:d AND COALESCE(en.status,'') NOT IN ('superseded','announced')
-              GROUP BY e.user_id
-            )
-            SELECT p.uid, p.nm, COALESCE(d.worked,false), COALESCE(d.running,false),
-                   d.abs_code, d.abs_label, COALESCE(d.ho,false)
-            FROM ppl p LEFT JOIN den d ON d.uid=p.uid
-            ORDER BY p.nm
-        """), {"d": d}).fetchall()
-        out = []
-        for r in rows:
-            abs_code, abs_label, ho, worked, running = r[4], r[5], r[6], r[2], r[3]
-            if abs_code:
-                kind, label = abs_code, abs_label
-            elif ho:
-                kind, label = "homeoffice", "Home office"
-            elif worked:
-                kind, label = "prace", ("Právě v práci" if running else "V práci")
-            else:
-                kind, label = "nic", "—"
-            out.append({"uid": r[0], "jmeno": r[1], "kind": kind, "label": label})
-        return JSONResponse({"ok": True, "den": d.isoformat(), "lide": out})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_whereabouts", uid, req.query_params.get("den"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 # ── Marti 12.6.: Podmínky skupin zaměstnanců (3vrstvý resolver system/group/user) ──
@@ -20408,53 +20334,15 @@ def _att_unconfirmed_days(s, emp) -> list:
 
 @api_router.get("/app/attendance/unconfirmed")
 async def att_unconfirmed(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_unconfirmed). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        days = _att_unconfirmed_days(s, emp)
-        # Marti 7.6. večer: dnešek „odmakáno a nepotvrzeno" — pro pulz rámečku
-        # i nabídku ke schválení. JEN při statusu konce dne („nepočítej" /
-        # „dnes už nedorazím") — normální pauza s tím neprudí.
-        from sqlalchemy import text as _t
-        tod = s.execute(_t(
-            "SELECT 1 FROM tenant.att_entry e "
-            "JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = current_date "
-            "  AND et.category = 'presence' AND e.started_at IS NOT NULL "
-            "  AND e.status NOT IN ('superseded','announced') "
-            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry o WHERE o.tenant_id = :t "
-            "       AND o.employee_id = :e AND o.is_active = true) "
-            "  AND EXISTS (SELECT 1 FROM tenant.att_entry a2 WHERE a2.tenant_id = :t "
-            "       AND a2.employee_id = :e AND a2.entry_date = current_date "
-            "       AND a2.status = 'announced' "
-            "       AND (a2.note ILIKE '%nepočítej%' OR a2.note ILIKE '%nedorazím%')) "
-            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c WHERE c.tenant_id = :t "
-            "       AND c.employee_id = :e AND c.day = current_date) LIMIT 1"),
-            {"t": _ATT_TENANT, "e": emp}).first() is not None
-        # Marti 7.6. večer: „dnes odmakáno" → dnešek NABÍDNOUT ke schválení
-        # (jen v kartě — záchytka před píchnutím hlídá pouze minulé dny,
-        # jinak by návrat z pauzy vyžadoval potvrzení rozdělaného dne).
-        if tod:
-            r2 = s.execute(_t(
-                "SELECT current_date::text, "
-                "  min(to_char(e.started_at,'HH24:MI')), "
-                "  max(COALESCE(to_char(e.ended_at,'HH24:MI'),'…')), "
-                "  round(sum(COALESCE(e.hours,0))::numeric,2), count(*) "
-                "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-                "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = current_date "
-                "AND et.category = 'presence' AND e.started_at IS NOT NULL "
-                "AND e.status NOT IN ('superseded','announced')"),
-                {"t": _ATT_TENANT, "e": emp}).first()
-            if r2 and r2[4]:
-                days.append({"day": r2[0], "od": r2[1], "do": r2[2],
-                             "hodin": float(r2[3] or 0), "zaznamu": int(r2[4] or 0)})
-        s.commit()
-        return JSONResponse({"ok": True, "days": days, "today_unconfirmed": tod})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_unconfirmed", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.post("/app/attendance/confirm-day")
@@ -21107,25 +20995,15 @@ async def app_apid_restore(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/announced-future")
 async def att_announced_future(req: Request) -> JSONResponse:
-    """Marti 7.6. večer: budoucí ohlášení (skončím dříve / přijdu později /
-    statusy dopředu) — pro sekci „Tak tady budu jinde…"."""
+    """DB-driven delegate (g2007.python kod=att_announced_future). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        rows = s.execute(_t(
-            "SELECT id, entry_date::text, note FROM tenant.att_entry "
-            "WHERE tenant_id = :t AND employee_id = :e AND status = 'announced' "
-            "AND entry_date > current_date ORDER BY entry_date, id"),
-            {"t": _ATT_TENANT, "e": emp}).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "items": [
-            {"id": r[0], "d": r[1], "note": r[2]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_announced_future", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 # ── Návrhy plánu ke schválení (Marti 14.6.: plán → korekce → realita) ────────
@@ -21489,41 +21367,15 @@ async def att_announce_delete(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/day-detail")
 async def att_day_detail(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_day_detail). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
-    try:
-        day = _dt.strptime(str(req.query_params.get("day") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
-    cm, s = _att_session()
-    try:
-        # Marti 19.6.: lze zobrazit i denní joby jiného člověka (👁 v panelu skupin).
-        # Stejná viditelnost jako /app/skupina/lidi ("zatím vidí všichni vše") — read-only seznam jobů.
-        target = uid
-        tu = req.query_params.get("user_id")
-        if tu and int(tu) != uid:
-            target = int(tu)
-        emp = _att_employee(s, target)
-        rows = s.execute(_t(
-            "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
-            "       e.hours, e.project_ref, e.note, et.label, et.code, et.category "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
-            "AND e.status NOT IN ('superseded','announced') "
-            "AND et.code <> 'day_end' "  # day_end = interní marker do 23:59, nezobrazovat lidem (Marti 19.6.)
-            "ORDER BY e.started_at NULLS LAST, e.id"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "entries": [
-            {"id": r[0], "zac": r[1], "kon": r[2],
-             "hours": (float(r[3]) if r[3] is not None else None),
-             "project_ref": r[4], "note": r[5], "typ": r[6],
-             "code": r[7], "cat": r[8]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_day_detail", uid, req.query_params.get("day"), req.query_params.get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.post("/app/attendance/entry-trim")
@@ -21954,272 +21806,67 @@ def _att_fix_notify(s, emp_id, actor_uid, actor_name, title, msg):
 
 @api_router.get("/app/attendance/fix/allowed")
 async def att_fix_allowed(req: Request) -> JSONResponse:
-    """Pro UI: smí přihlášený opravovat docházku / spravovat zámek období?"""
+    """DB-driven delegate (g2007.python kod=att_fix_allowed). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    cm, s = _att_session()
-    try:
-        sc = _att_fix_scope(s, uid)
-        out = {"ok": True, "can_fix": sc is not None, "scope": sc, "can_lock": _att_can_lock(s, uid)}
-        s.commit()
-        return JSONResponse(out)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_allowed", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/fix/cinnosti")
 async def att_fix_cinnosti(req: Request) -> JSONResponse:
-    """Cinnosti pro formular opravy (jen editori) - aktivni vyroba_cinnost."""
+    """DB-driven delegate (g2007.python kod=att_fix_cinnosti). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT id, name, COALESCE(icon,'') FROM tenant.vyroba_cinnost "
-            "WHERE tenant_id=2 AND active ORDER BY sort_order, name")).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "cinnosti": [{"id": r[0], "name": r[1], "icon": r[2]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_cinnosti", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/fix/zakazky")
 async def att_fix_zakazky(req: Request) -> JSONResponse:
-    """Pichatelne zakazky pro formular opravy (jen editori)."""
+    """DB-driven delegate (g2007.python kod=att_fix_zakazky). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT cislo, COALESCE(nazev,''), COALESCE(typ,'') FROM tenant.zakazka "
-            "WHERE tenant_id=2 AND pichatelna=true ORDER BY (typ='REZIE') DESC, cislo")).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "zakazky": [{"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_zakazky", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/fix/queue")
 async def att_fix_queue(req: Request) -> JSONResponse:
-    """Fronta „K vyřešení": nevyřešené anomálie (mimo nepotvrzený den — to je
-    osobní zodpovědnost) + rozporované dny (✋). S návrhem konce u zapomenutého
-    odchodu (poslední aktivita na zakázce)."""
+    """DB-driven delegate (g2007.python kod=att_fix_queue). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        _sc = _att_fix_scope(s, uid)
-        if _sc is None:
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = _att_fix_scope_emps(s, _sc)
-        anom = s.execute(_t(
-            "SELECT a.id, a.rule, a.detail, a.entry_id, a.employee_id, e.entry_date::text, "
-            "       em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       (SELECT to_char(max(w.konec),'HH24:MI') FROM tenant.vyroba_work w "
-            "         WHERE w.user_id = em.user_id AND w.datum = e.entry_date AND w.konec IS NOT NULL "
-            "           AND COALESCE(w.source_system,'')<>'centrala1'), "
-            # „opraveno" (Peťa 21.7.2026): dřív se zelený štítek rozsvítil, jen když na dni
-            # vznikl OPRAVNÝ záznam. Po STORNU ale žádný nevzniká — jen se zneplatní staré —
-            # takže smazaný den zůstal ve frontě bez označení. Nově stačí, že na tom dni
-            # editor cokoliv udělal (oprava / doplnění / storno / sloučení) → audit.
-            "       (EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
-            "        OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=a.employee_id AND aa.old_entry_date=e.entry_date)) "
-            "FROM tenant.att_anomaly a "
-            "JOIN tenant.att_entry e ON e.id = a.entry_id "
-            "JOIN tenant.att_employee em ON em.id = a.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            # Peťa 22.7.2026: opravená anomálie zůstává ve frontě zeleně (jako rozpor),
-            # dokud ji editor neodklikne „Hotovo — z fronty". Zobraz proto i tu, jejíž
-            # záznam je po opravě/stornu superseded — ale JEN když byl den fakt opraven
-            # (manual_fix / audit) a je z posledních 60 dnů. Starší opravené se schovají
-            # (viz dotaz „stare" níže) a hlásí se jako drobná červená poznámka.
-            "WHERE a.tenant_id = :t AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
-            "  AND (e.status <> 'superseded' "
-            "       OR (e.entry_date >= current_date - 60 AND ("
-            "            EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
-            "            OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=a.employee_id AND aa.old_entry_date=e.entry_date)))) "
-            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 200"),
-            {"t": _ATT_TENANT}).fetchall()
-        # Staré OPRAVENÉ anomálie (superseded, >60 dnů), které nikdo neodklikl — schované
-        # z fronty, ale hlásíme jejich počet drobným červeným písmem, ať se pak nikdo
-        # nevymluví, že „se mu to ztratilo" (Peťa 22.7.2026).
-        stare = s.execute(_t(
-            "SELECT a.id, a.employee_id, e.entry_date::text, "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       a.detail "
-            "FROM tenant.att_anomaly a "
-            "JOIN tenant.att_entry e ON e.id = a.entry_id "
-            "JOIN tenant.att_employee em ON em.id = a.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE a.tenant_id = :t AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
-            "  AND e.status = 'superseded' AND e.entry_date < current_date - 60 "
-            "  AND (EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=a.employee_id AND fe.entry_date=e.entry_date AND fe.source='manual_fix' AND fe.status<>'superseded') "
-            "       OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=a.employee_id AND aa.old_entry_date=e.entry_date)) "
-            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 200"),
-            {"t": _ATT_TENANT}).fetchall()
-        disp = s.execute(_t(
-            "SELECT c.id, c.employee_id, c.day::text, COALESCE(c.note,''), em.user_id, "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       (EXISTS(SELECT 1 FROM tenant.att_entry fe WHERE fe.tenant_id=:t AND fe.employee_id=c.employee_id AND fe.entry_date=c.day AND fe.source='manual_fix' AND fe.status<>'superseded') "
-            "        OR EXISTS(SELECT 1 FROM tenant.att_audit aa WHERE aa.tenant_id=:t AND aa.employee_id=c.employee_id AND aa.old_entry_date=c.day)) "
-            "FROM tenant.att_day_confirm c "
-            "JOIN tenant.att_employee em ON em.id = c.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE c.tenant_id = :t AND c.disputed = true AND c.day >= current_date - 60 "
-            "ORDER BY c.day DESC LIMIT 60"),
-            {"t": _ATT_TENANT}).fetchall()
-        s.commit()
-        if _emps is not None:  # působnost editora (kancelář/výroba)
-            anom = [r for r in anom if int(r[4]) in _emps]
-            disp = [r for r in disp if int(r[1]) in _emps]
-            stare = [r for r in stare if int(r[1]) in _emps]
-        return JSONResponse({"ok": True,
-            "anomalie": [{"id": r[0], "rule": r[1], "detail": r[2], "entry_id": r[3],
-                          "employee_id": r[4], "day": r[5], "user_id": r[6], "name": r[7],
-                          "navrh_konec": r[8], "opraveno": bool(r[9])} for r in anom],
-            "rozpory": [{"id": r[0], "employee_id": r[1], "day": r[2], "note": r[3],
-                         "user_id": r[4], "name": r[5], "opraveno": bool(r[6])} for r in disp],
-            "stare_skryte": [{"id": r[0], "employee_id": r[1], "day": r[2],
-                              "name": r[3], "detail": r[4]} for r in stare]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_queue", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/fix/day")
 async def att_fix_day(req: Request) -> JSONResponse:
-    """Detail dne pro editora — VŠECHNY záznamy vč. superseded (šedě) a day_end,
-    s příznakem editovatelnosti (jen STRATEGIE řádky, neuzamčené období)."""
+    """DB-driven delegate (g2007.python kod=att_fix_day). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
-    cm, s = _att_session()
-    try:
-        _sc = _att_fix_scope(s, uid)
-        if _sc is None:
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        try:
-            day = _dt.strptime(str(req.query_params.get("day") or "")[:10], "%Y-%m-%d").date()
-            tuid = int(req.query_params.get("uid") or 0)
-        except Exception:
-            return JSONResponse({"ok": False, "error": "invalid_params"}, status_code=400)
-        emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
-                        {"t": _ATT_TENANT, "u": tuid}).scalar()
-        if not emp:
-            return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
-        if _emps is not None and int(emp) not in _emps:
-            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-        locked = _att_period_locked(s, day)
-        # can_unlock: držitel zámku sice v zamčeném měsíci NEopravuje (tvrdé 409,
-        # Jirka 20.7.), ale UI mu má nabídnout, že období smí odemknout.
-        _can_unlock = _att_can_lock(s, uid)
-        rows = s.execute(_t(
-            "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
-            "       e.hours, e.project_ref, e.note, et.label, et.code, et.category, "
-            "       e.status, e.is_active, COALESCE(e.source_system,''), COALESCE(e.source,''), "
-            # C24 29.7.2026 (krok 5-kód, rozhodnutí 4): činnost z vyroba_work — přednostně
-            # přes vazbu att_entry_id=e.id, fallback časové okno na `od`. Jen naše nativní
-            # úseky (source_system<>'centrala1') = stejná množina jako dřív work_alloc.
-            "       (SELECT c.name FROM tenant.vyroba_work w JOIN tenant.vyroba_cinnost c ON c.id=w.cinnost_id "
-            "          WHERE COALESCE(w.source_system,'')<>'centrala1' AND w.cinnost_id IS NOT NULL "
-            "          AND (w.att_entry_id=e.id OR (w.att_entry_id IS NULL AND w.user_id=:u "
-            "               AND w.od >= e.started_at - interval '1 minute' AND w.od < COALESCE(e.ended_at, e.started_at + interval '1 minute'))) "
-            "          ORDER BY (w.att_entry_id=e.id) DESC, w.od LIMIT 1), "
-            "       (SELECT w.cinnost_id FROM tenant.vyroba_work w "
-            "          WHERE COALESCE(w.source_system,'')<>'centrala1' AND w.cinnost_id IS NOT NULL "
-            "          AND (w.att_entry_id=e.id OR (w.att_entry_id IS NULL AND w.user_id=:u "
-            "               AND w.od >= e.started_at - interval '1 minute' AND w.od < COALESCE(e.ended_at, e.started_at + interval '1 minute'))) "
-            "          ORDER BY (w.att_entry_id=e.id) DESC, w.od LIMIT 1) "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
-            "AND e.status <> 'announced' "
-            "ORDER BY e.started_at ASC NULLS LAST, e.id ASC"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": tuid}).fetchall()
-        jm = _user_jmeno(s, tuid)
-        # Jirka 12.7.: rozpor dne (co člověk napsal přes ✋ Nesedí) — do panelu nad tabulkou
-        disp = s.execute(_t(
-            "SELECT COALESCE(note,''), disputed FROM tenant.att_day_confirm "
-            "WHERE tenant_id=:t AND employee_id=:e AND day=:d"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).first()
-        # Peťa 22.7.2026: „co systému nesedělo" (nevyřešené anomálie dne) taky do panelu
-        # nad tabulkou — ať editor v detailu vidí důvod stejně jako zprávu od člověka.
-        anom = s.execute(_t(
-            "SELECT a.detail FROM tenant.att_anomaly a "
-            "JOIN tenant.att_entry ae ON ae.id = a.entry_id "
-            "WHERE a.tenant_id=:t AND a.employee_id=:e AND ae.entry_date=:d "
-            "  AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
-            "ORDER BY a.id"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
-        # Peťa 22.7.2026: denní fond člověka (jen pro kancelářské kategorie s dopichávat_fond),
-        # ať součet dne umí ukázat „z toho nad fond X h" hned, i než automat řádek dopíše.
-        # Stejný výpočet jako docházkový automat: úvazek/dny, fallback fond kategorie.
-        fond_den = s.execute(_t(
-            "SELECT CASE WHEN EXISTS(SELECT 1 FROM tenant.att_user_kategorie uk "
-            "     JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
-            "     WHERE uk.user_id=:u AND k.dopichavat_fond=true AND k.aktivni=true) "
-            "  THEN COALESCE("
-            "     (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
-            "      FROM tenant.engagement g JOIN tenant.att_employee em2 ON em2.id=g.employee_id "
-            "      LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
-            "      WHERE em2.user_id=:u AND em2.tenant_id=:t AND g.is_current=true AND g.uvazek_tyden_h IS NOT NULL "
-            "      ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
-            "     (SELECT max(k.fond_h_den) FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
-            "      WHERE uk.user_id=:u AND k.dopichavat_fond=true)) "
-            "  ELSE NULL END"),
-            {"t": _ATT_TENANT, "u": tuid}).scalar()
-        # C24 31.7.2026: rozpad po zakázkách (položky z vyroba_work) ke každému pracovnímu
-        # segmentu — READ ONLY. Aby Opravy ukázaly totéž co Docházka new (jen navíc pauzy).
-        # Vazba přes att_entry_id (dělené vlastnictví: činnost vlastní vyroba_work). Kristý 31.7.
-        _pol = {}
-        for _pr in s.execute(_t(
-            "SELECT w.att_entry_id, to_char(w.od,'HH24:MI') AS od, COALESCE(to_char(w.konec,'HH24:MI'),'') AS kon, "
-            "w.hodiny, w.zakazka_ref, (SELECT c.name FROM tenant.vyroba_cinnost c WHERE c.id=w.cinnost_id) AS cinnost, "
-            "w.id, w.cinnost_id, COALESCE(w.source_system,'') AS src "
-            "FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d AND w.is_active "
-            "AND w.att_entry_id IS NOT NULL ORDER BY w.od NULLS LAST, w.id"),
-            {"t": _ATT_TENANT, "u": tuid, "d": day.isoformat()}).fetchall():
-            _pol.setdefault(_pr[0], []).append({
-                "pid": _pr[6], "od": _pr[1], "kon": _pr[2],
-                "hours": (float(_pr[3]) if _pr[3] is not None else None),
-                "zak": _pr[4] or "", "cinnost": _pr[5] or "", "cin_id": _pr[7],
-                # centrálské položky se opravují v Centrále (jako u hlavičky) → tady jen ke čtení
-                "editable": (_pr[8] != "centrala1")})
-        s.commit()
-        return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": False, "can_unlock": bool(locked and _can_unlock),
-            "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
-            "anomalie": [a[0] for a in anom if a[0]],
-            "fond_den": (float(fond_den) if fond_den is not None else None),
-            "entries": [
-            {"id": r[0], "zac": r[1], "kon": r[2],
-             "hours": (float(r[3]) if r[3] is not None else None),
-             "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
-             "status": r[9], "running": bool(r[10] and not r[2]),
-             "source_system": r[11], "source": r[12], "cin_name": r[13], "cin_id": r[14],
-             "polozky": _pol.get(r[0], []),
-             "editable": (not locked) and (not r[11]) and r[9] != "superseded",
-             # STORNO smí i řádek ze staré Centrály (Jirka 30.7.2026, commit b05c15ed):
-             # `fix/void` ho propouští a chrání local_lockem. `editable` zůstává
-             # přísnější — OPRAVIT (fix/entry) centrálské řádky pořád nejde, jen
-             # STORNOVAT. Bez tohohle příznaku stránka schovávala obě tlačítka
-             # najednou a Peťa neměla jak přebytečný řádek z Centrály odstranit.
-             "stornable": ((not locked) and r[9] != "superseded"
-                           and ((not r[11]) or r[11] in ("centrala1", "absence_req")))}
-            for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_day", uid, req.query_params.get("day"), req.query_params.get("uid"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 def _att_fix_parse_hhmm(v):
@@ -23141,100 +22788,41 @@ async def att_fix_resync(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/fix/audit")
 async def att_fix_audit_list(req: Request) -> JSONResponse:
-    """Přehled oprav (att_audit) pro editory — kdo, komu, kdy, co, před→po."""
+    """DB-driven delegate (g2007.python kod=att_fix_audit_list). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        _sc = _att_fix_scope(s, uid)
-        if _sc is None:
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
-        rows = s.execute(_t(
-            "SELECT a.id, a.action, a.entry_id, "
-            # den: u oprav je v old_entry_date; u „Vyřízeno" (resolve) tam není,
-            # tak ho dopočítáme ze záznamu, kterého se týká — aby i u něj šlo
-            # otevřít den (Peťa 22.7.2026).
-            "       COALESCE(a.old_entry_date, "
-            "                (SELECT e2.entry_date FROM tenant.att_entry e2 WHERE e2.id=a.entry_id))::text, "
-            "       a.old_note, a.new_note, "
-            "       a.detail, a.actor_text, to_char(a.created_at,'DD.MM. HH24:MI'), "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       a.employee_id, em.user_id "  # + user_id (Peťa 22.7.: aby šlo z historie otevřít den)
-            "FROM tenant.att_audit a "
-            "LEFT JOIN tenant.att_employee em ON em.id = a.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE a.tenant_id = :t AND a.action IN ('fix','add','void','merge','resolve','period_lock','period_unlock') "
-            "ORDER BY a.id DESC LIMIT 200"),
-            {"t": _ATT_TENANT}).fetchall()
-        s.commit()
-        if _emps is not None:  # působnost: cizí lidi nezobrazovat (řádky bez osoby, např. zámek, zůstávají)
-            rows = [r for r in rows if r[10] is None or int(r[10]) in _emps]
-        return JSONResponse({"ok": True, "items": [
-            {"id": r[0], "action": r[1], "entry_id": r[2], "day": r[3], "old": r[4],
-             "new": r[5], "detail": r[6], "actor": r[7], "ts": r[8], "person": r[9],
-             "user_id": r[11]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_audit_list", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/fix/lide")
 async def att_fix_lide(req: Request) -> JSONResponse:
-    """Seznam lidí pro editory oprav — JEN v působnosti editora (kancelář/výroba/vše).
-    Zdroj = aktivní docházkové karty (att_employee) s napojeným userem."""
+    """DB-driven delegate (g2007.python kod=att_fix_lide). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        _sc = _att_fix_scope(s, uid)
-        if _sc is None:
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
-        rows = s.execute(_t(
-            "SELECT e.id, e.user_id, "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), e.full_name, '?') "
-            "FROM tenant.att_employee e LEFT JOIN public.users u ON u.id = e.user_id "
-            "WHERE e.tenant_id = :t AND e.is_active AND e.user_id IS NOT NULL "
-            "ORDER BY 3"),
-            {"t": _ATT_TENANT}).fetchall()
-        s.commit()
-        if _emps is not None:
-            rows = [r for r in rows if int(r[0]) in _emps]
-        return JSONResponse({"ok": True, "scope": _sc,
-                             "lide": [{"user_id": r[1], "jmeno": r[2]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_lide", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/period-lock")
 async def att_period_lock_list(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_period_lock). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not (_att_can_fix(s, uid) or _att_can_lock(s, uid)):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        try:
-            rows = s.execute(_t(
-                "SELECT l.rok, l.mesic, to_char(l.locked_at,'DD.MM.YYYY'), l.note, "
-                "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), 'user '||l.locked_by) "
-                "FROM tenant.att_period_lock l LEFT JOIN public.users u ON u.id = l.locked_by "
-                "WHERE l.tenant_id=:t ORDER BY l.rok DESC, l.mesic DESC"),
-                {"t": _ATT_TENANT}).fetchall()
-        except Exception:
-            s.rollback()
-            rows = []
-        s.commit()
-        return JSONResponse({"ok": True, "can_lock": _att_can_lock(s, uid), "items": [
-            {"rok": r[0], "mesic": r[1], "od": r[2], "note": r[3], "kdo": r[4]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_period_lock", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.post("/app/attendance/period-lock")
@@ -27557,111 +27145,41 @@ async def cockpit_access(req: Request) -> JSONResponse:
 
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_list). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    days = 14
-    try:
-        days = max(1, min(120, int(req.query_params.get("days", "14"))))
-    except Exception:
-        days = 14
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        # Marti 19.6.: lze zobrazit i docházku jiného člověka (👁 „Dnešek" v panelu skupin).
-        # Stejná viditelnost jako /app/skupina/lidi ("zatím vidí všichni vše") — read-only seznam jobů.
-        target = uid
-        tu = req.query_params.get("user_id")
-        if tu and int(tu) != uid:
-            target = int(tu)
-        emp = _att_employee(s, target)
-        rows = s.execute(_t(
-            "SELECT e.id, e.note, to_char(e.entry_date,'YYYY-MM-DD') d, et.label typ, e.hours, e.project_ref, "
-            "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon, "
-            "et.code, et.category cat "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
-            "AND e.status IS DISTINCT FROM 'superseded' AND e.status IS DISTINCT FROM 'announced' "
-            "AND et.code <> 'day_end' "  # day_end = interní 'konec dne do 23:59', nezobrazovat lidem jako job (Marti 19.6.)
-            "ORDER BY e.entry_date DESC, e.id DESC LIMIT 200"),
-            {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
-        s.commit()
-        return JSONResponse(jsonable_encoder({"ok": True, "entries": [dict(r) for r in rows]}))
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_list", uid, req.query_params.get("days", "14"), req.query_params.get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/daily")
 async def att_daily(req: Request) -> JSONResponse:
-    """Přehled po dnech: kolik odpracováno / nepřítomnost za každý den. Marti 6.6.2026."""
+    """DB-driven delegate (g2007.python kod=att_daily). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    days = 14
-    try:
-        days = max(1, min(120, int(req.query_params.get("days", "14"))))
-    except Exception:
-        days = 14
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        # Hodiny za den bere SDÍLENÁ funkce tenant.att_den_hodiny — táž definice jako
-        # ERP „Správa docházky — opravy" (Kristý 30.7. 8:57 + Marti-AI msg 11818).
-        # Dřív tu byl prostý součet presence BEZ filtru stavu → počítal i stornované
-        # záznamy i nenárokovou práci (ta je ČÁST už odpracovaných hodin) a za
-        # 1.–29.7.2026 tím ukazoval o 644,9 h víc, než člověk odpracoval.
-        rows = s.execute(_t(
-            "SELECT to_char(f.den,'YYYY-MM-DD') d, f.hodiny_mzdove worked, "
-            "COALESCE((SELECT round(sum(e.hours)::numeric,2) "
-            "          FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "          WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date=f.den "
-            "            AND et.category<>'presence' "
-            "            AND e.status IS DISTINCT FROM 'superseded' "
-            "            AND e.status IS DISTINCT FROM 'announced'),0) absence, "
-            "COALESCE((SELECT bool_or(e.is_active) FROM tenant.att_entry e "
-            "          WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date=f.den),false) active "
-            "FROM tenant.att_den_hodiny(:t, current_date - :dd, NULL) f "
-            "WHERE f.emp_id=:e2 ORDER BY f.den DESC"),
-            {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
-        s.commit()
-        return JSONResponse(jsonable_encoder({"ok": True, "days": [dict(r) for r in rows]}))
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_daily", uid, req.query_params.get("days", "14"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 @api_router.get("/app/attendance/real")
 async def att_real(req: Request) -> JSONResponse:
-    """Reálná docházka po dnech v rozsahu from..to: reálný čas příchodu (první
-    presence start) + odpracované hodiny. Pro kartu 'Realita tento týden'. Marti 14.6."""
+    """DB-driven delegate (g2007.python kod=att_real). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    d_from = req.query_params.get("from") or None
-    d_to = req.query_params.get("to") or None
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        # Hodiny bere SDÍLENÁ funkce tenant.att_den_hodiny (viz att_daily výše).
-        # Dřív prostý součet presence → přičítal i nenárokovou práci, což je ČÁST už
-        # odpracovaných hodin; za 1.–29.7.2026 o 375,4 h víc, než člověk odpracoval.
-        sql = ("SELECT to_char(f.den,'YYYY-MM-DD') d, "
-               "(SELECT to_char(min(e.started_at),'HH24:MI') "
-               "   FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-               "  WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date=f.den "
-               "    AND et.category='presence' "
-               "    AND e.status IS DISTINCT FROM 'superseded' "
-               "    AND e.status IS DISTINCT FROM 'announced') zac, "
-               "f.hodiny_mzdove worked "
-               "FROM tenant.att_den_hodiny(:t, CAST(:df AS date), CAST(:dt AS date)) f "
-               "WHERE f.emp_id=:e2 ORDER BY f.den")
-        par = {"t": _ATT_TENANT, "e2": emp, "df": d_from, "dt": d_to}
-        rows = s.execute(_t(sql), par).mappings().all()
-        s.commit()
-        return JSONResponse(jsonable_encoder({"ok": True, "days": [dict(r) for r in rows]}))
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_real", uid, req.query_params.get("from"), req.query_params.get("to"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
 
 
 def _att_denni_fond(s, emp, default_h=8.0):

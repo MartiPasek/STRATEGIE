@@ -600,12 +600,30 @@ function projde(r){
       if(col.exact){if(nv!==nq)return false;}else{if(nv.indexOf(nq)<0)return false;}continue;}
     if(_norm(v).indexOf(_norm(q))<0)return false;
   }
-  // datumové rozsahy (OD/DO) na datumových sloupcích
-  for(var j=0;j<COLS.length;j++){var c=COLS[j];if(!c.date)continue;
-    var od=FIL[c.k+'_od'],dv=FIL[c.k+'_do'];if(!od&&!dv)continue;
-    var dn=_dnum(r[c.k]);if(dn===null)return false;
-    if(od){var o=_inum(od);if(o!==null&&dn<o)return false;}
-    if(dv){var vv=_inum(dv);if(vv!==null&&dn>vv)return false;}
+  // ── datumové rozsahy (OD/DO) ────────────────────────────────────────────
+  // Ve SPRÁVĚ DOCHÁZKY je jeden řádek OBDOBÍ (Od–Do), ne jeden den. Peťa 31.7.2026:
+  // „když potřebuju vyfiltrovat období, tak to nefunguje" — zadala Od ≥ 3.8. a
+  // Do ≤ 7.8. a nevrátilo to nic, protože dovolená 27.7.–7.8. tou podmínkou propadne,
+  // ačkoliv do toho týdne zasahuje. Proto se tady filtruje PŘEKRYVEM období:
+  // ukáže se vše, co do zadaného rozsahu jakkoli spadá. V ostatních pohledech
+  // (jeden řádek = jeden den) zůstává prosté porovnání data.
+  if(OBD==='budoucnost'){
+    var mez_od=FIL['DatumOd_od']||FIL['DatumDo_od'];
+    var mez_do=FIL['DatumOd_do']||FIL['DatumDo_do'];
+    if(mez_od||mez_do){
+      var rOd=_dnum(r['DatumOd']), rDo=_dnum(r['DatumDo']);
+      if(rOd===null&&rDo===null)return false;
+      if(rOd===null)rOd=rDo; if(rDo===null)rDo=rOd;
+      if(mez_od){var mo=_inum(mez_od); if(mo!==null&&rDo<mo)return false;}
+      if(mez_do){var md=_inum(mez_do); if(md!==null&&rOd>md)return false;}
+    }
+  } else {
+    for(var j=0;j<COLS.length;j++){var c=COLS[j];if(!c.date)continue;
+      var od=FIL[c.k+'_od'],dv=FIL[c.k+'_do'];if(!od&&!dv)continue;
+      var dn=_dnum(r[c.k]);if(dn===null)return false;
+      if(od){var o=_inum(od);if(o!==null&&dn<o)return false;}
+      if(dv){var vv=_inum(dv);if(vv!==null&&dn>vv)return false;}
+    }
   }
   return true;
 }

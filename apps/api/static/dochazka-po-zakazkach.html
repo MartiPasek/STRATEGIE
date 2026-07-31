@@ -982,8 +982,14 @@ function _xlsCell(c, v){
   var t=_cellTxt(v);
   if(c.num){
     var n=String(t).replace(/\s/g,'').replace(',','.');
-    if(n!==''&&!isNaN(n))
-      return '<td style="mso-number-format:\'0.00\'" x:num="'+esc(n)+'">'+esc(n)+'</td>';
+    if(n!==''&&!isNaN(n)){
+      // DESETINNÁ ČÁRKA (Peťa 31.7.2026, druhý pokus). `mso-number-format` samo
+      // nestačilo — Excel čte text buňky podle MÍSTNÍHO nastavení, takže „3.42"
+      // pochopil jako datum 3. září a čísla nešla sečíst. S čárkou je český Excel
+      // přečte jako číslo. (Kdyby to někdy někdo otevíral v anglickém Excelu,
+      // je potřeba naopak tečka — tohle je vědomě šité na české prostředí.)
+      return '<td>'+esc(n.replace('.',','))+'</td>';
+    }
   }
   return '<td style="mso-number-format:\'\\@\'">'+esc(t)+'</td>';   // \@ = text
 }

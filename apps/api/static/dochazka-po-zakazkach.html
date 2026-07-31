@@ -373,14 +373,23 @@ function openDateFilter(inp,key){
   pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-246))+'px';
   pop.style.top=(r.bottom+4)+'px';
   pop.innerHTML='<div style="font-weight:700;margin-bottom:8px">Výběr období</div>'+
-    '<label style="display:block;margin-bottom:6px">Jeden den:<br><input type="date" id="dp-one" style="width:100%"></label>'+
+    // Peťa 31.7.2026: když je OD i DO týž den, byl to zadaný „Jeden den" — vrátit
+    // ho do horního pole, ne ho ukazovat rozepsaný v rozsahu (mátlo to: „po chvíli
+    // mi to spadne do datum OD").
+    '<label style="display:block;margin-bottom:6px">Jeden den:<br><input type="date" id="dp-one" value="'+esc((od&&od===dv)?od:'')+'" style="width:100%"></label>'+
     '<div style="text-align:center;color:#8fa3bd;font-size:11px;margin:4px 0">— nebo rozsah —</div>'+
-    '<label style="display:block;margin-bottom:6px">Datum OD:<br><input type="date" id="dp-od" value="'+esc(od)+'" style="width:100%"></label>'+
-    '<label style="display:block;margin-bottom:10px">Datum DO:<br><input type="date" id="dp-do" value="'+esc(dv)+'" style="width:100%"></label>'+
+    '<label style="display:block;margin-bottom:6px">Datum OD:<br><input type="date" id="dp-od" value="'+esc((od===dv)?'':od)+'" style="width:100%"></label>'+
+    '<label style="display:block;margin-bottom:10px">Datum DO:<br><input type="date" id="dp-do" value="'+esc((od===dv)?'':dv)+'" style="width:100%"></label>'+
     '<div style="display:flex;gap:6px;justify-content:flex-end"><span class="chip" id="dp-clear">vymazat</span><span class="chip" id="dp-cancel">zrušit</span><span class="chip on" id="dp-ok">OK</span></div>';
   document.body.appendChild(pop);
-  $('dp-one').onchange=function(){$('dp-od').value=this.value;$('dp-do').value=this.value;};
-  $('dp-ok').onclick=function(){FIL[key+'_od']=$('dp-od').value;FIL[key+'_do']=$('dp-do').value;inp.value=_dateSummary(key);pop.remove();render();};
+  $('dp-one').onchange=function(){$('dp-od').value='';$('dp-do').value='';};
+  $('dp-od').onchange=function(){$('dp-one').value='';};
+  $('dp-do').onchange=function(){$('dp-one').value='';};
+  $('dp-ok').onclick=function(){
+    var one=$('dp-one').value;                       // „Jeden den" má přednost
+    FIL[key+'_od']=one||$('dp-od').value;
+    FIL[key+'_do']=one||$('dp-do').value;
+    inp.value=_dateSummary(key);pop.remove();render();};
   $('dp-cancel').onclick=function(){pop.remove();};
   $('dp-clear').onclick=function(){delete FIL[key+'_od'];delete FIL[key+'_do'];inp.value='';pop.remove();render();};
   setTimeout(function(){document.addEventListener('click',function _cl(e){if(!pop.contains(e.target)&&e.target!==inp){pop.remove();document.removeEventListener('click',_cl);}});},0);

@@ -22100,6 +22100,24 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
             "VALUES (:t, :e, :d, :u, true, :n) "
             "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true"),
             {"t": _ATT_TENANT, "e": int(row[4]), "d": str(row[1]), "u": uid, "n": note[:300]})
+        # Rozporovaný den je vyřešený → zhasni vlastní připomínku i anomálii.
+        # Jirka 31.7.2026 (případ Erika Sedláčková 30.7.): tenhle úklid tu CHYBĚL,
+        # jako jediný ze čtyř způsobů uzavření dne (confirm-day / dispute-day /
+        # fix-request ho mají). Důsledek: den zmizel z _att_unconfirmed_days (protože
+        # att_day_confirm už existuje), ale notifikace „🖊 Potvrď si docházku" zůstala
+        # pending → appka prudila s potvrzením a v potvrzování nebylo nic k vidění.
+        _den = str(row[1])                            # 'YYYY-MM-DD'
+        _dp = _den[8:10] + "." + _den[5:7] + ".%"     # 'DD.MM.%' = prefix zprávy notifikace
+        s.execute(_t(
+            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
+            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
+            "  AND e.id = a.entry_id AND e.entry_date = CAST(:d AS date)"),
+            {"t": _ATT_TENANT, "e": int(row[4]), "d": _den})
+        s.execute(_t(
+            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
+            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
+            {"u": uid, "dp": _dp})
         who = _user_jmeno(s, uid)
         # Marti 10.7.: rozpor na jobu → editorům oprav dle působnosti, ne Martimu.
         targets = _att_fix_editors_for_emp(s, int(row[4])) or {20}  # fallback = Jirka (admin), NE rodič (Jirka 21.7.)

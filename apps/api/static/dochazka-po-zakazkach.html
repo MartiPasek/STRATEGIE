@@ -517,17 +517,16 @@ function vfiltApply(){var out=[];
 function vfiltClearAll(){VFILT=null;closeCustomFilter();render();}
 function closeFilterMenu(){var m=document.getElementById('filtm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
 document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#filtm'))closeFilterMenu();});
-/* Po přepnutí pohledu nechat jen filtry sloupců, které v nové sadě existují. */
-function filtryProSadu(){
-  var ok={}; COLS.forEach(function(c){ok[c.k]=1;});
-  Object.keys(FIL).forEach(function(k){
-    var base=k.replace(/_(od|do)$/,'');           // datumové filtry mají příponu _od/_do
-    if(!ok[base]&&!ok[k])delete FIL[k];});
-  Object.keys(FILMODE).forEach(function(k){if(!ok[k])delete FILMODE[k];});
-  if(VFILT){
-    VFILT=VFILT.filter(function(p){return ok[p.k];});
-    if(!VFILT.length)VFILT=null;
-  }
+/* Filtry si drží každý pohled zvlášť (klíč = 'vse' / 'all' / 'budoucnost'). */
+var FILTRY={};
+function filtryUloz(o){
+  FILTRY[o]={fil:FIL, mode:FILMODE, vf:VFILT,
+             sort:{k:SORT.k, dir:SORT.dir}};
+}
+function filtryNacti(o){
+  var u=FILTRY[o];
+  FIL=(u&&u.fil)||{}; FILMODE=(u&&u.mode)||{}; VFILT=(u&&u.vf)||null;
+  SORT.k=(u&&u.sort)?u.sort.k:null; SORT.dir=(u&&u.sort)?u.sort.dir:1;
 }
 /* hlavicka() staví filtrovací řádek načisto — vrátit do políček, co zůstalo. */
 function doplnFiltryDoPolicek(){
@@ -1232,11 +1231,13 @@ function init(){
   $('tabs').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     var o=b.getAttribute('data-o'); if(o===OBD)return;
     [].forEach.call($('tabs').children,function(x){x.classList.remove('on');});b.classList.add('on');
-    // Peťa 31.7.2026 (mění dřívější přání z 27.7. „přepnutí režimu = zrušit filtr"):
-    // filtry mají přepnutí PŘEŽÍT — člověk si vyfiltruje jednoho člověka a chce ho
-    // vidět ve všech třech pohledech, ne ho pokaždé psát znovu. Zahodí se jen filtry
-    // sloupců, které v nové sadě nejsou (jinak by neviditelně filtrovaly).
-    OBD=o; setCols(); filtryProSadu(); hlavicka(); doplnFiltryDoPolicek(); load();});
+    // KAŽDÝ POHLED MÁ SVŮJ VLASTNÍ FILTR (Peťa 31.7.2026: „ten filtr nemá být
+    // společnej — v jednom okně můžu mít vyfiltrovanýho Hájka a v druhém někoho
+    // jinýho, ale když přepnu, aby mi tam to co mám vyfiltrovaný zůstalo").
+    // Mění to jak původní chování (27.7. se filtr při přepnutí mazal), tak můj
+    // první pokus z dnešního rána (filtr byl společný pro všechny tři pohledy).
+    filtryUloz(OBD); OBD=o; filtryNacti(o);
+    setCols(); hlavicka(); doplnFiltryDoPolicek(); load();});
   // dokreslování po částech při scrollu ke spodku
   var _tw=document.querySelector('.tw');
   if(_tw)_tw.addEventListener('scroll',function(){if(_tw.scrollTop+_tw.clientHeight>_tw.scrollHeight-500)appendChunk();});

@@ -410,14 +410,29 @@ def dochazka_zak_tab_zamestnanci(req: Request) -> JSONResponse:
         from core.database_data import get_data_session as _g
         s = _g()
         try:
+            # ŘAZENÍ PODLE PŘÍJMENÍ (Peťa 31.7.2026). `full_name` na to nestačí —
+            # je zapsané nejednotně: většinou „Jméno Příjmení" (Dušan Havlát), ale
+            # i obráceně (Vlková Klára, Senft Ondřej) a s dovětky (Šafránková ml).
+            # Spolehlivé příjmení je na účtu (public.users.last_name), proto join.
+            # Fallback na full_name, kdyby účet příjmení neměl.
             rows = s.execute(_t(
-                "SELECT cislo_zam, COALESCE(full_name,'') AS jmeno "
-                "FROM tenant.att_employee "
-                "WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam ~ '^[0-9]+$' "
-                "ORDER BY full_name")).mappings().all()
+                "SELECT em.cislo_zam, COALESCE(em.full_name,'') AS jmeno, "
+                "       COALESCE(NULLIF(TRIM(u.last_name),''), em.full_name, '') AS prijmeni, "
+                "       COALESCE(NULLIF(TRIM(u.first_name),''), '') AS krestni "
+                "FROM tenant.att_employee em "
+                "LEFT JOIN public.users u ON u.id = em.user_id "
+                "WHERE em.tenant_id=2 AND em.user_id IS NOT NULL "
+                "  AND em.cislo_zam ~ '^[0-9]+$' "
+                "ORDER BY lower(COALESCE(NULLIF(TRIM(u.last_name),''), em.full_name, '')), "
+                "         lower(COALESCE(u.first_name,''))")).mappings().all()
         finally:
             s.close()
-        out = [{"cislo": r["cislo_zam"], "jmeno": r["jmeno"]} for r in rows]
+        out = [{"cislo": r["cislo_zam"], "jmeno": r["jmeno"],
+                "prijmeni": r["prijmeni"], "krestni": r["krestni"],
+                # co se ukazuje v seznamu: „Příjmení Jméno" (jako v Centrále)
+                "popis": (str(r["prijmeni"] or "").strip()
+                          + ((" " + str(r["krestni"]).strip()) if r["krestni"] else "")).strip()
+                         or (r["jmeno"] or "")} for r in rows]
         return JSONResponse({"ok": True, "zamestnanci": out})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)

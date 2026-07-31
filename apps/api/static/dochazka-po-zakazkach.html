@@ -1370,7 +1370,10 @@ function absBox(){
     +'<h3 id="abs_t">Absence</h3><div class="bd">'
     +'<div id="abs_warn" style="display:none;margin:0 0 10px;padding:8px 10px;border-radius:6px;'
     +'background:#3a2a12;border:1px solid #7a5a20;color:#e6c67f;font-size:12px"></div>'
-    +'<div class="fld full"><label>Pracovník</label><div id="abs_prac_w"></div></div>'
+    +'<div class="fld full"><label>Pracovník</label><div class="two" id="abs_prac_w">'
+    +'<input type="text" id="abs_prac" readonly placeholder="vyber přes ▤" style="flex:1;min-width:0">'
+    +'<button type="button" class="zakpick" id="abs_pracbtn" title="Vybrat pracovníka ze seznamu">▤</button>'
+    +'</div></div>'
     +'<div class="frow2" style="margin-top:10px">'
     +'<div class="fld"><label>Druh absence</label><select id="abs_typ"></select></div>'
     +'<div class="fld"><label>Hodin za den</label>'
@@ -1383,6 +1386,10 @@ function absBox(){
     +'<div class="fld full" style="margin-top:10px"><label id="abs_rl">Důvod '
     +'<span class="soon">povinné — kvůli auditu</span></label>'
     +'<input type="text" id="abs_reason" maxlength="300" autocomplete="off"></div>'
+    // Peťa 31.7.2026: co zakládá správce, je rovnou schválené — nemá na co čekat.
+    +'<label class="chk" style="margin-top:10px;display:flex;align-items:center;gap:6px">'
+    +'<input type="checkbox" id="abs_schv" checked> Schváleno '
+    +'<span class="soon">zadáno správcem = platí rovnou</span></label>'
     +'</div><div class="dmsg" id="abs_msg"></div>'
     +'<div class="dbtn"><div class="r">'
     +'<button class="b-cn" id="abs_storno">Storno</button>'
@@ -1390,6 +1397,8 @@ function absBox(){
   document.body.appendChild(b);
   b.addEventListener('mousedown',function(e){if(e.target===b)absClose();});
   document.getElementById('abs_storno').addEventListener('click',absClose);
+  document.getElementById('abs_pracbtn').addEventListener('click',function(){
+    if(!document.getElementById('abs_pracbtn').disabled)absPracOpen();});
   document.getElementById('abs_ok').addEventListener('click',absSave);
   document.getElementById('abs_od').addEventListener('input',function(){
     var d=document.getElementById('abs_do'); if(!d.value||d.value<this.value)d.value=this.value;});
@@ -1398,6 +1407,64 @@ function absBox(){
   return b;
 }
 function absClose(){var b=document.getElementById('absov'); if(b)b.classList.remove('on');}
+/* Výběr pracovníka přes ▤ — vlastní okno se seznamem, řazené podle PŘÍJMENÍ
+   (Peťa 31.7.2026, „jako v Centrále"). Seznam chodí ze serveru už seřazený
+   a s polem `popis` = „Příjmení Jméno"; tady se jen filtruje a vybírá. */
+var ABSZAM=null;
+function absPracBox(){
+  var b=document.getElementById('absprac'); if(b)return b;
+  b=document.createElement('div'); b.className='ov'; b.id='absprac'; b.style.zIndex='55';
+  b.innerHTML='<div class="dlg" role="dialog" style="width:min(460px,92vw)">'
+    +'<h3>▤ Výběr pracovníka<span class="muted" id="absprac_info" '
+    +'style="margin-left:auto;font-weight:400"></span></h3><div class="bd">'
+    +'<input type="text" id="absprac_fil" placeholder="🔎 hledat příjmení nebo číslo…" '
+    +'style="width:100%;background:#0b0d10;border:1px solid #363b43;border-radius:5px;'
+    +'color:#e9eef5;padding:6px 8px;font-size:13px">'
+    +'<div id="absprac_list" style="margin-top:8px;max-height:46vh;overflow:auto"></div>'
+    +'</div><div class="dbtn"><div class="r">'
+    +'<button class="b-cn" id="absprac_storno">Storno</button></div></div></div>';
+  document.body.appendChild(b);
+  b.addEventListener('mousedown',function(e){if(e.target===b)absPracClose();});
+  document.getElementById('absprac_storno').addEventListener('click',absPracClose);
+  document.getElementById('absprac_fil').addEventListener('input',absPracRender);
+  document.getElementById('absprac_list').addEventListener('click',function(e){
+    var r=e.target.closest('.zakrow'); if(!r)return;
+    absSetPrac(r.getAttribute('data-c'), r.getAttribute('data-j'));
+    absPracClose();
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&b.classList.contains('on'))absPracClose();});
+  return b;
+}
+function absPracClose(){var b=document.getElementById('absprac'); if(b)b.classList.remove('on');}
+function absSetPrac(cislo,popis){
+  var i=document.getElementById('abs_prac');
+  if(i){i.value=(popis||'')+(cislo?(' ('+cislo+')'):''); i.setAttribute('data-c',cislo||'');}
+}
+function absPracRender(){
+  var box=document.getElementById('absprac_list');
+  var q=(document.getElementById('absprac_fil').value||'').trim().toLowerCase();
+  var list=(ABSZAM||[]);
+  var f=q?list.filter(function(z){
+    return ((z.popis||'')+' '+(z.jmeno||'')+' '+(z.cislo||'')).toLowerCase().indexOf(q)>=0;}):list;
+  document.getElementById('absprac_info').textContent=f.length+' os.';
+  box.innerHTML=f.length?f.map(function(z){
+    return '<div class="zakrow" data-c="'+esc(z.cislo)+'" data-j="'+esc(z.popis||z.jmeno)+'">'
+      +esc(z.popis||z.jmeno)+' <span class="muted">('+esc(z.cislo)+')</span></div>';}).join('')
+    :'<div class="ld">Nikdo neodpovídá filtru.</div>';
+}
+function absPracOpen(){
+  var b=absPracBox();
+  function ukaz(){document.getElementById('absprac_fil').value='';absPracRender();
+    b.classList.add('on');
+    setTimeout(function(){try{document.getElementById('absprac_fil').focus();}catch(_e){}},30);}
+  if(ABSZAM){ukaz();return;}
+  document.getElementById('absprac_list')&&0;
+  fetch('/api/v1/erp/app/dochazka-zak-tab/zamestnanci',{credentials:'include'})
+    .then(function(r){return r.json();})
+    .then(function(j){ABSZAM=(j&&j.ok&&j.zamestnanci)||[];ukaz();})
+    .catch(function(){ABSZAM=[];ukaz();});
+}
 function _absD(t){ // 'DD.MM.YYYY' → 'YYYY-MM-DD'
   var m=/^(\d{2})\.(\d{2})\.(\d{4})/.exec(String(t||'')); return m?(m[3]+'-'+m[2]+'-'+m[1]):'';
 }
@@ -1427,23 +1494,21 @@ function absOpen(mode,i){
     document.getElementById('abs_msg').textContent='';
     document.getElementById('abs_msg').className='dmsg';
     document.getElementById('abs_reason').value='';
-    var pw=document.getElementById('abs_prac_w');
+    var pb=document.getElementById('abs_pracbtn');
     if(mode==='new'){
       document.getElementById('abs_t').textContent='➕ Nová absence';
       document.getElementById('abs_rl').innerHTML='Důvod <span class="muted">nepovinné</span>';
-      loadZam(function(){
-        pw.innerHTML='<select id="abs_prac">'+((ZAML)||[]).map(function(z){
-          return '<option value="'+esc(z.cislo)+'"'+(String(z.cislo)===String(r.CisloZam)?' selected':'')
-            +'>'+esc(z.jmeno)+' ('+esc(z.cislo)+')</option>';}).join('')+'</select>';
-      });
+      pb.disabled=false;
+      // přednabídnutý člověk z řádku, na kterém stojíš — jde změnit přes ▤
+      absSetPrac(r.CisloZam||'', r.JmenoPrijmeni||'');
       sel.value=''; document.getElementById('abs_od').value=''; document.getElementById('abs_do').value='';
       document.getElementById('abs_h').value='8'; document.getElementById('abs_pozn').value='';
       _absVarovani('');
     } else {
       document.getElementById('abs_t').textContent='✏ Úprava absence';
       document.getElementById('abs_rl').innerHTML='Důvod úpravy <span class="muted">povinné — kvůli auditu</span>';
-      pw.innerHTML='<input type="text" value="'+esc((r.JmenoPrijmeni||'')+' '+(r.CisloZam||''))
-        +'" disabled title="U existujícího záznamu se pracovník nemění">';
+      pb.disabled=true;   // u existujícího záznamu se pracovník nemění
+      absSetPrac(r.CisloZam||'', r.JmenoPrijmeni||'');
       sel.value=_absKod(r.Druh);
       document.getElementById('abs_od').value=_absD(r.DatumOd);
       document.getElementById('abs_do').value=_absD(r.DatumDo);
@@ -1470,17 +1535,20 @@ function _absSave(){
   if(!od||!dd)return chyba('Vyplň období od–do.');
   if(dd<od)return chyba('Datum „do" nesmí být dřív než „od".');
   var url,body;
+  var _schv=document.getElementById('abs_schv');
+  var schv=!!(_schv&&_schv.checked);
   if(ABS_MODE==='new'){
-    var ps=document.getElementById('abs_prac');
-    if(!ps||!ps.value)return chyba('Vyber pracovníka.');
+    var pi=document.getElementById('abs_prac');
+    var pc=(pi&&pi.getAttribute('data-c'))||'';
+    if(!pc)return chyba('Vyber pracovníka (tlačítko ▤).');
     url='/api/v1/erp/app/dochazka-abs/new';
-    body={cislo_zam:ps.value,typ:typ,datum_od:od,datum_do:dd,hodin_den:h,poznamka:pozn};
+    body={cislo_zam:pc,typ:typ,datum_od:od,datum_do:dd,hodin_den:h,poznamka:pozn,schvaleno:schv};
   } else {
     if(!duv)return chyba('Důvod úpravy je povinný — kvůli auditu.');
     if(!ABS_ROW||!ABS_ROW.RadekId)return chyba('Řádek nemá číslo řádku — obnov stránku (Ctrl+F5).');
     url='/api/v1/erp/app/dochazka-abs/save';
     body={radek_id:ABS_ROW.RadekId,typ:typ,datum_od:od,datum_do:dd,hodin_den:h,
-          poznamka:pozn,reason:duv};
+          poznamka:pozn,reason:duv,schvaleno:schv};
   }
   m.className='dmsg';m.textContent='Ukládám…';
   document.getElementById('abs_ok').disabled=true;

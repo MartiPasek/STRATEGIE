@@ -367,7 +367,8 @@ def _typ_id(s, code):
                      {"t": _TEN, "c": code}).scalar()
 
 
-def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix", zad_id=None):
+def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix", zad_id=None,
+               schvaleno=True):
     """Založí absenční denní záznamy na pracovní dny rozsahu. Vrací počet dnů.
     Rámec dne 06:00 → 06:00+hodiny (stejně jako materializace schválené žádosti),
     aby s nimi uměly pracovat i „Opravy docházky" (ty odmítají záznamy bez času)."""
@@ -380,15 +381,17 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
         return 0
     konec_min = min(1439, 360 + int(round(float(hpd) * 60)))
     konec = "%02d:%02d:00" % (konec_min // 60, konec_min % 60)
+    # `ved_schvaleno` = zaškrtnutí „Schváleno" v okně (Peťa 31.7.2026). Co zadává
+    # správce, platí rovnou — v přehledu se to hned ukáže s ✓ ve sloupci S.
     par = [{"e": emp, "d": d, "ti": ti, "h": float(hpd), "u": uid, "et": konec,
             "n": (pozn or "")[:250], "src": zdroj, "ss": ("absence_req" if zad_id else None),
-            "si": zad_id} for d in dny]
+            "si": zad_id, "sch": bool(schvaleno)} for d in dny]
     s.execute(_t(
         "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
         "started_at,ended_at,status,source,source_system,source_id,is_active,note,"
-        "created_by_id,created_at,updated_at) "
+        "ved_schvaleno,created_by_id,created_at,updated_at) "
         "VALUES (%d,:e,:d,:ti,:h,:d + time '06:00',:d + CAST(:et AS time),"
-        "'confirmed',:src,:ss,:si,false,:n,:u,now(),now())" % _TEN), par)
+        "'confirmed',:src,:ss,:si,false,:n,:sch,:u,now(),now())" % _TEN), par)
     return len(dny)
 
 
@@ -536,7 +539,8 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         actor = _user_jmeno(s, uid)
         _znic_dny(s, [int(r[0]) for r in rows], emp, uid, actor, duvod)
         dnu = _zapis_dny(s, emp, typ, d_od, d_do, hpd,
-                         (pozn or "") + (" · " if pozn else "") + "úprava: " + duvod, uid)
+                         (pozn or "") + (" · " if pozn else "") + "úprava: " + duvod, uid,
+                         schvaleno=bool((b or {}).get("schvaleno", True)))
         roky = {d.year for d in stare} | {d_od.year, d_do.year}
         zust = _abs_recalc_balances(s, emp, roky)
         s.commit()
@@ -585,6 +589,7 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         hpd = float((b or {}).get("hodin_den") or 8)
     except (TypeError, ValueError):
         hpd = 8.0
+    schvaleno = bool((b or {}).get("schvaleno", True))
     if not cislo:
         return _chyba("Vyber pracovníka.")
     if not (d_od and d_do):
@@ -617,12 +622,14 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
             "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,"
             "datum_do,hours_per_day,note,stav,status_text,decided_by_user_id,decided_at,"
             "materialized,created_at) "
-            "VALUES (:t,:e,:u,:ty,:od,:do,:h,:n,'approved',:st,:by,now(),true,now()) RETURNING id"),
+            "VALUES (:t,:e,:u,:ty,:od,:do,:h,:n,:stv,:st,:by,now(),true,now()) RETURNING id"),
             {"t": _TEN, "e": emp, "u": (zam_uid or uid), "ty": typ, "od": d_od, "do": d_do,
              "h": hpd, "n": pozn or None, "by": uid,
-             "st": ("Zadáno ve Správě docházky (" + actor + ")")[:500]}).scalar()
+             "stv": ("approved" if schvaleno else "pending"),
+             "st": ("Zadáno ve Správě docházky (" + actor + ")"
+                    + ("" if schvaleno else " — čeká na schválení"))[:500]}).scalar()
         dnu = _zapis_dny(s, emp, typ, d_od, d_do, hpd, pozn or "zadáno ve Správě docházky",
-                         uid, zdroj="absence", zad_id=zid)
+                         uid, zdroj="absence", zad_id=zid, schvaleno=schvaleno)
         _att_fix_audit(s, "absence_add", None, emp, uid, actor,
                        new_note="%s %s–%s (%d dnů)" % (typ, d_od, d_do, dnu),
                        detail="Správa docházky — nová absence #%s" % zid, old_date=d_od)

@@ -23667,32 +23667,21 @@ async def app_vyroba_todo_list(req: Request) -> JSONResponse:
 
 @api_router.post("/app/vyroba/todo")
 async def app_vyroba_todo_create(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=app_vyroba_todo_create). Puvodni telo migrovano do DB
+    dne 31.7.2026, Faze E - prvni POST/zapisovy endpoint (overeno pres /erp_registry/run pred
+    nasazenim, Marti potvrdil 2x uspesny insert do tenant.vyroba_todo)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    txt = str((body or {}).get("text") or "").strip()[:500]
-    refu = (body or {}).get("ref_user_id")
-    refz = str((body or {}).get("ref_zakazka") or "").strip()[:40] or None
-    if not txt:
-        return JSONResponse({"ok": False, "error": "Napiš text úkolu."})
-    cm, s = _att_session()
-    try:
-        s.execute(_t(
-            "INSERT INTO tenant.vyroba_todo (tenant_id, created_by_user_id, text, ref_user_id, ref_zakazka) "
-            "VALUES (2, :by, :t, :ru, :rz)"),
-            {"by": uid, "t": txt, "ru": refu, "rz": refz})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    text_param = (body or {}).get("text")
+    ref_user_id_param = (body or {}).get("ref_user_id")
+    ref_zakazka_param = (body or {}).get("ref_zakazka")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_todo_create", uid, text_param, ref_user_id_param, ref_zakazka_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/todo/{tid}/done")

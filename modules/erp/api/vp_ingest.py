@@ -2,8 +2,8 @@
 VP (vedoucí projektu) ingest — projects@ (tenant.mail_message) → tenant.vp_poptavka.
 
 Nervový systém vedoucích projektu (Marti 2.7.2026, návrh docs/vp_projekty_ingest_design.md,
-konzultace Marti-AI). Fáze 2: whitelist domén (GDPR gate) + dedup + založení raw záznamu.
-Triáž (AI klasifikace typ/zákazník/shrnutí) + thread grouping = fáze 3.
+konzultace Marti-AI). Fáze 2: dedup + založení raw záznamu. Triáž (AI klasifikace
+typ/zákazník/shrnutí) + thread grouping = fáze 3.
 
 OPRAVA 31.7.2026 (C23, schváleno Martim): původní verze četla z `mailboxes`/
 `email_inbox` — to je JINÝ systém (grant-based mailboxy AI person, viz
@@ -13,9 +13,14 @@ mechanismem jako lidské schránky (Eliška, faktury@): `public.users.ews_email`
 + EWS mirror do `tenant.mail_message` (mail_mirror.py). Přepojeno na tento
 zdroj — žádné čekání na IT, data (2280+ e-mailů) jsou živá už teď.
 
+OPRAVA 31.7.2026 č.2 (Marti): `tenant.vp_domain_whitelist` se týká JEN
+autonomního ODESÍLÁNÍ pošty (budoucí gate, zatím nepoužito — @@PP REPLY je
+draft-only, nic se neposílá samo). Na PŘÍJEM se whitelist nevztahuje — AI čte
+a zakládá záznamy ze všech příchozích e-mailů bez filtrace domény. Filtr
+odstraněn ze `sync_vp_poptavky()`.
+
 Bezpečné pustit i kdyby schránka nebyla nalezena — vrací no-op (ok=False,
-reason). GDPR (Marti-AI): sbíráme JEN příchozí maily z whitelistovaných
-domén; ostatní se přeskočí (nezakládáme záznam).
+reason).
 """
 from __future__ import annotations
 
@@ -52,6 +57,8 @@ VP_TRIAGE_SYSTEM = (
 
 
 def _domain_of(email: str | None) -> str | None:
+    """Rezervováno pro budoucí gate autonomního ODESÍLÁNÍ (vp_domain_whitelist);
+    na příjem se nepoužívá (Marti 31.7.2026 — AI čte všechny příchozí maily)."""
     if not email or "@" not in email:
         return None
     return email.rsplit("@", 1)[1].strip().lower().rstrip(">").strip()
@@ -68,10 +75,11 @@ def _vp_user_id(s, upn: str = VP_MAIL_EWS_UPN) -> int | None:
 def sync_vp_poptavky(tenant_id: int = DEFAULT_TENANT, limit: int = 200) -> dict:
     """
     Projde nové příchozí maily sběrné schránky projects@ (tenant.mail_message,
-    stejný EWS mirror jako u lidských schránek), aplikuje whitelist domén
-    odesílatele a založí raw záznamy do tenant.vp_poptavka (stav='nova',
-    typ='neurcen' — triáž doplní fáze 3). Idempotentní: dedup přes message_id
-    (= mail_message.ews_item_id).
+    stejný EWS mirror jako u lidských schránek) a založí raw záznamy do
+    tenant.vp_poptavka (stav='nova', typ='neurcen' — triáž doplní fáze 3) pro
+    VŠECHNY příchozí maily — bez filtrace domény (Marti 31.7.2026: whitelist
+    domén se týká jen autonomního odesílání, ne příjmu). Idempotentní: dedup
+    přes message_id (= mail_message.ews_item_id).
     """
     s = get_data_session()
     try:
@@ -79,15 +87,6 @@ def sync_vp_poptavky(tenant_id: int = DEFAULT_TENANT, limit: int = 200) -> dict:
         if not uid:
             return {"ok": False, "reason": "schranka projects@ (tenant.mail_message) nenalezena",
                     "ews_upn": VP_MAIL_EWS_UPN}
-
-        wl = {
-            r[0]
-            for r in s.execute(
-                _t("SELECT lower(domain) FROM tenant.vp_domain_whitelist "
-                   "WHERE tenant_id=:t AND active"),
-                {"t": tenant_id},
-            )
-        }
 
         rows = s.execute(
             _t("""
@@ -106,15 +105,7 @@ def sync_vp_poptavky(tenant_id: int = DEFAULT_TENANT, limit: int = 200) -> dict:
         ).mappings().all()
 
         created = 0
-        skip_domain = 0
-        skipped_examples: list[str] = []
         for r in rows:
-            dom = _domain_of(r["from_email"])
-            if not dom or dom not in wl:
-                skip_domain += 1
-                if len(skipped_examples) < 5 and dom:
-                    skipped_examples.append(dom)
-                continue
             s.execute(
                 _t("""
                     INSERT INTO tenant.vp_poptavka
@@ -133,10 +124,8 @@ def sync_vp_poptavky(tenant_id: int = DEFAULT_TENANT, limit: int = 200) -> dict:
             created += 1
 
         s.commit()
-        logger.info("VP ingest | user_id=%s | nova=%s | skip_domena=%s", uid, created, skip_domain)
-        return {"ok": True, "user_id": uid, "nova": created,
-                "skip_domena": skip_domain, "skip_priklady": skipped_examples,
-                "whitelist": sorted(wl)}
+        logger.info("VP ingest | user_id=%s | nova=%s", uid, created)
+        return {"ok": True, "user_id": uid, "nova": created}
     finally:
         s.close()
 

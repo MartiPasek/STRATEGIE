@@ -14538,21 +14538,9 @@ _DRUH_SKIP = {37, 54}
 
 
 def _ec_druh_entry_type(druh, rezie, type_ids, type_work, type_oh):
-    """DruhCinnosti (EC_Dochazka) → att_entry_type id. Vrátí None = záznam NEpatří do
-    docházky (přeskoč). Absence dle _DRUH_ABSENCE, 8=Home office, jinak práce/režie.
-    Sjednocuje klasifikaci recent-syncu i hr_migrate s měsíčním syncem — dřív oba braly
-    Rezie→overhead a zahazovaly dovolenou/nemoc do 'Režie'. Kristý 29.7.2026."""
-    try:
-        d = int(druh or 0)
-    except Exception:
-        d = 0
-    if d in _DRUH_SKIP:
-        return None
-    if d in _DRUH_ABSENCE:
-        return type_ids.get(_DRUH_ABSENCE[d]) or (type_oh if rezie else type_work)
-    if d == _DRUH_HO:
-        return type_ids.get("homeoffice") or type_work
-    return type_oh if rezie else type_work
+    """DB-driven delegate (g2007.python kod=att_ec_druh_entry_type). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_ec_druh_entry_type", druh, rezie, type_ids, type_work, type_oh)
 
 
 def _sync_dochazka_ec(rok, mesic):
@@ -14897,16 +14885,9 @@ _ABS_TYP = {"vacation": "Dovolená", "homeoffice": "Home office", "medical": "L�
 
 
 def _announce_absence_typ(note):
-    """Z volného textu presence-ohlášení rozpozná typ skutečné ABSENCE (ne HO/práce).
-    Marti 29.6.: ohlásit dovolenou/nemoc přes presence-status zakládalo 'work' → past."""
-    import unicodedata as _u
-    t = "".join(c for c in _u.normalize("NFKD", (note or "").lower()) if not _u.combining(c))
-    if any(k in t for k in ("dovolen", "dovca", "dovca")): return "vacation"
-    if any(k in t for k in ("osetrov", "ocr", "osetreni clena")): return "family_care"
-    if any(k in t for k in ("lekar", "doktor", "zubar", "obvodak")): return "medical"
-    if any(k in t for k in ("nemoc", "marod", "neschopen", "nemocensk")): return "sick"
-    if "neplacen" in t: return "unpaid"
-    return None
+    """DB-driven delegate (g2007.python kod=att_announce_absence_typ). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_announce_absence_typ", note)
 # přednastavené statusy vedoucího → výsledek (stav)
 _ABS_STATUSY = {
     "OK, beru na vědomí": "approved",
@@ -16461,27 +16442,9 @@ async def hr_np_overview(req: Request) -> JSONResponse:
 # ── Lísteček od lékaře — evidence návštěvy + foto + krytí sick day/lísteček ─
 
 def _sick_balance_h(s, user_id):
-    """Zůstatek sick day v hodinách = nárok (dní/rok × denní h) − vyčerpané (kryto_sick_h letos)."""
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    try:
-        days = float(_resolve_cond_num(s, user_id, "sick_days_rok", 0.0) or 0.0)
-    except Exception:
-        days = 0.0
-    try:
-        week = float(_resolve_cond_num(s, user_id, "uvazek_h_tyden", 40.0) or 40.0)
-    except Exception:
-        week = 40.0
-    daily = (week / 5.0) if week else 8.0
-    entitlement = days * daily
-    yr = _dt.date.today().year
-    consumed = s.execute(_t(
-        "SELECT COALESCE(SUM(kryto_sick_h),0) FROM tenant.att_med_note "
-        "WHERE tenant_id=2 AND user_id=:u AND EXTRACT(YEAR FROM datum)=:y AND stav<>'zamitnuto'"),
-        {"u": user_id, "y": yr}).scalar() or 0
-    rem = entitlement - float(consumed)
-    return {"entitlement_h": round(entitlement, 2), "consumed_h": round(float(consumed), 2),
-            "remaining_h": round(max(0.0, rem), 2), "daily_h": round(daily, 2)}
+    """DB-driven delegate (g2007.python kod=att_sick_balance_h). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_sick_balance_h", s, user_id)
 
 
 def _med_limit_h(s, user_id):
@@ -22277,174 +22240,46 @@ _ATT_LOCK_UIDS = frozenset({18, 13, 20})  # Peťa (mzdy/finance) + Šárka (HR) 
 # není rodič, takže mu bypass přes is_marti_parent práva nedal). Rodiče zůstávají.
 
 
-def _att_can_fix(s, uid) -> bool:
-    """Přístup do modulu Opravy docházky = členství ve skupině DOCHÁZKA - OPRAVY,
-    NEBO rodič (Jirka 21.7.2026). Rodiče vidí a mohou totéž co administrátor
-    (scope 'vse' — viz _att_fix_scope), ale do notifikací nikdy nespadnou
-    (nemají řádek v att_fix_scope → _att_fix_editors_for_emp je vynechá).
-    Editoři samotní jsou dál JEN členové skupiny bez parent bypassu — rodičovský
-    přístup je vědomé rozšíření viditelnosti pro dohled, ne editorská role."""
-    if not uid:
-        return False
-    from sqlalchemy import text as _t
-    m = s.execute(_t(
-        "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
-        "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false AND g.name=:g AND m.user_id=:u"),
-        {"g": _ATT_FIX_GROUP, "u": uid}).first()
-    if m is not None:
-        return True
-    try:
-        return bool(is_marti_parent(uid))
-    except Exception:
-        return False
+def _att_can_fix(s, uid):
+    """DB-driven delegate (g2007.python kod=att_can_fix). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_can_fix", s, uid)
 
 
 def _att_fix_scope(s, uid):
-    """Působnost editora oprav (rozhodl Marti, 10.7.2026): None = není editor;
-    'vse' (Jirka) / 'vyroba' (Míša, Dušan) / 'kancelar' (Peťa). Zdroj:
-    tenant.att_fix_scope; editor bez řádku = 'vse' (bezpečný default pilotu)."""
-    if not _att_can_fix(s, uid):
-        return None
-    from sqlalchemy import text as _t
-    try:
-        sc = s.execute(_t("SELECT scope FROM tenant.att_fix_scope WHERE user_id=:u"),
-                       {"u": uid}).scalar()
-        return (sc or "vse")
-    except Exception:
-        s.rollback()
-        return "vse"
+    """DB-driven delegate (g2007.python kod=att_fix_scope). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_scope", s, uid)
 
 
 def _att_fix_scope_emps(s, scope):
-    """None = bez omezení (vše). Jinak set employee_id v působnosti editora.
-
-    TREE (nasazeno 24.7.2026, Kristý — schváleno Peťou+Jirkou): působnost se bere
-    ze STROMU staff_group (parent_id), NE z org podstromu pod Dušanem. Kořeny:
-      • 'vyroba'   = členové větve pod kořenem VÝROBA (Výroba, Zkušebna)
-      • 'kancelar' = členové větve pod KANCELÁŘE (vč. VP, E-plan, PLC-koordinace, Úklid)
-      • EXTERNÍ větev (externí PLC kontraktoři) = MIMO docházku → nevidí je nikdo
-      • kdo není v žádné docházkové skupině → fallback kancelář (Peťa)
-      • dvojí zařazení přes obě větve = union (obě strany)
-    Nahrazuje org derivaci (org_post_assign pod user 41). Tím PADÁ pravidlo
-    „nezařazený → obě strany" a leak výroby (Dušan/Nosek) na Peťu. Znalost:
-    G2007 doc-dochazka-strom-skupin. Starou org logiku drží git historie.
-    (Dřív: 'vyroba'=podstrom pod Dušanem bez je_kvalifikace; 'kancelar'=aspoň
-    jeden post mimo; bez zařazení / dual = obě — Peťa 21.7., Marti 10.7.)"""
-    if scope in (None, "vse"):
-        return None
-    from sqlalchemy import text as _t
-    rows = s.execute(_t(
-        "WITH RECURSIVE tree AS ("
-        "  SELECT id, name AS root_name FROM tenant.staff_group"
-        "    WHERE tenant_id=2 AND parent_id IS NULL"
-        "  UNION ALL"
-        "  SELECT g.id, t.root_name FROM tenant.staff_group g"
-        "    JOIN tree t ON g.parent_id = t.id WHERE g.tenant_id=2"
-        "), memb AS ("
-        "  SELECT e.id AS emp,"
-        "    bool_or(t.root_name = 'VÝROBA')    AS vyr,"
-        "    bool_or(t.root_name = 'KANCELÁŘE') AS kanc,"
-        "    bool_or(t.root_name = 'EXTERNÍ')   AS ext,"
-        "    count(t.id) FILTER (WHERE t.root_name IN ('VÝROBA','KANCELÁŘE','EXTERNÍ')) AS n_doch"
-        "  FROM tenant.att_employee e"
-        "  LEFT JOIN tenant.staff_group_member m ON m.user_id = e.user_id AND m.tenant_id=2"
-        "  LEFT JOIN tree t ON t.id = m.group_id"
-        "  WHERE e.tenant_id=2 GROUP BY e.id"
-        ") "
-        "SELECT emp, COALESCE(vyr,false), COALESCE(kanc,false), "
-        "       COALESCE(ext,false), COALESCE(n_doch,0) FROM memb")).fetchall()
-    out = set()
-    for r in rows:
-        eid = int(r[0])
-        je_vyroba, je_kancelar, je_externi, n_doch = bool(r[1]), bool(r[2]), bool(r[3]), int(r[4])
-        if je_externi and not je_vyroba and not je_kancelar:
-            continue  # jen externí větev → mimo docházku, nevidí nikdo
-        if n_doch == 0:
-            if scope == "kancelar":
-                out.add(eid)  # bez docházkové skupiny → fallback kancelář (Peťa)
-            continue
-        if scope == "vyroba" and je_vyroba:
-            out.add(eid)
-        elif scope == "kancelar" and je_kancelar:
-            out.add(eid)
-    return out
+    """DB-driven delegate (g2007.python kod=att_fix_scope_emps). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_scope_emps", s, scope)
 
 
-def _att_fix_all(s, uid) -> bool:
-    """Vidí a opravuje VŠECHNY lidi, ne jen svou působnost (Peťa 30.7.2026:
-    mzdy potřebují kontrolu napříč firmou; Peťa 18 + Michaela Hladíková 16).
-    Fronta „K vyřešení" tím NENÍ dotčená — ta zůstává v působnosti editora.
-    Zdroj = tenant.att_fix_scope.fix_all (bez hardcoded ID)."""
-    if not uid:
-        return False
-    from sqlalchemy import text as _t
-    try:
-        return bool(s.execute(_t(
-            "SELECT COALESCE(fix_all,false) FROM tenant.att_fix_scope WHERE user_id=:u"),
-            {"u": int(uid)}).scalar())
-    except Exception:
-        s.rollback()
-        return False
+def _att_fix_all(s, uid):
+    """DB-driven delegate (g2007.python kod=att_fix_all). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_all", s, uid)
 
 
 def _att_fix_editors_for_emp(s, emp_id):
-    """Editoři oprav, do jejichž působnosti osoba spadá (Marti 10.7.: chyby
-    v docházce a rozpory lidí chodí Petře=kanceláře / Míše+Dušanovi=výroba,
-    už NE Martimu). Správce se scope 'vse' se nenotifikuje. Vrací set user_id
-    (může být prázdný — volající si řeší fallback)."""
-    out = set()
-    from sqlalchemy import text as _t
-    # Osobní výjimka (att_odpovednost, agenda='dochazka') má přednost před stromem
-    # (Šárka 24.7., handoff Kristý). Defenzivně — když tabulka ještě není, propadne na strom.
-    try:
-        ovr = s.execute(_t(
-            "SELECT o.odpovedny_user_id FROM tenant.att_employee ae "
-            "JOIN tenant.att_odpovednost o ON o.user_id=ae.user_id AND o.tenant_id=2 "
-            "  AND o.agenda='dochazka' AND o.aktivni=true "
-            "  AND (o.platnost_do IS NULL OR o.platnost_do >= CURRENT_DATE) "
-            "WHERE ae.id=:e AND ae.tenant_id=2"), {"e": int(emp_id)}).fetchall()
-        ovr = {int(x[0]) for x in ovr if x[0]}
-        if ovr:
-            return ovr
-    except Exception:
-        pass
-    try:
-        rows = s.execute(_t(
-            "SELECT f.user_id, f.scope FROM tenant.att_fix_scope f "
-            "JOIN tenant.staff_group_member m ON m.user_id = f.user_id AND m.tenant_id = 2 "
-            "JOIN tenant.staff_group g ON g.id = m.group_id AND g.tenant_id = 2 "
-            "  AND COALESCE(g.archived,false) = false AND g.name = :g "
-            "WHERE f.scope IN ('kancelar','vyroba')"),
-            {"g": _ATT_FIX_GROUP}).fetchall()
-        for sc in {r[1] for r in rows}:
-            emps = _att_fix_scope_emps(s, sc)
-            if emps is None or int(emp_id) in emps:
-                out |= {int(r[0]) for r in rows if r[1] == sc}
-    except Exception:
-        pass
-    return out
+    """DB-driven delegate (g2007.python kod=att_fix_editors_for_emp). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_editors_for_emp", s, emp_id)
 
 
-def _att_can_lock(s, uid) -> bool:
-    """Zámek období smí Peťa/Šárka (Jirka 9.7. „obě") + rodiče."""
-    if uid in _ATT_LOCK_UIDS:
-        return True
-    try:
-        return bool(is_marti_parent(uid))
-    except Exception:
-        return False
+def _att_can_lock(s, uid):
+    """DB-driven delegate (g2007.python kod=att_can_lock). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_can_lock", s, uid)
 
 
-def _att_period_locked(s, d) -> bool:
-    """True = měsíc dne d je uzamčen (mzdy zpracovány). Bez tabulky (před DDL) → False."""
-    from sqlalchemy import text as _t
-    try:
-        r = s.execute(_t("SELECT 1 FROM tenant.att_period_lock WHERE tenant_id=:t AND rok=:r AND mesic=:m"),
-                      {"t": _ATT_TENANT, "r": d.year, "m": d.month}).first()
-        return r is not None
-    except Exception:
-        s.rollback()
-        return False
+def _att_period_locked(s, d):
+    """DB-driven delegate (g2007.python kod=att_period_locked). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_period_locked", s, d)
 
 
 def _att_fix_audit(s, action, entry_id, emp_id, actor_uid, actor_name,
@@ -22744,25 +22579,15 @@ async def att_fix_day(req: Request) -> JSONResponse:
 
 
 def _att_fix_parse_hhmm(v):
-    import re as _re
-    v = str(v or "").strip()[:5]
-    return v if _re.fullmatch(r"[0-2][0-9]:[0-5][0-9]", v) else None
+    """DB-driven delegate (g2007.python kod=att_fix_parse_hhmm). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_parse_hhmm", v)
 
 
 def _att_fix_overlap(s, emp, new_start, new_end, exclude_id):
-    """Vrátí popis kolidujícího záznamu, nebo None. Porovnává jen presence
-    segmenty s oběma časy; day_end marker se nepočítá."""
-    from sqlalchemy import text as _t
-    r = s.execute(_t(
-        "SELECT to_char(e.started_at,'HH24:MI') || CHR(8211) || to_char(e.ended_at,'HH24:MI') || ' ' || et.label "
-        "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-        "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.id <> :x "
-        "  AND e.status NOT IN ('superseded','announced') AND et.code <> 'day_end' "
-        "  AND et.category IN ('presence','break','travel') AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
-        "  AND date_trunc('minute', e.started_at) < CAST(:ne AS timestamp) AND date_trunc('minute', e.ended_at) > CAST(:ns AS timestamp) LIMIT 1"),
-        {"t": _ATT_TENANT, "e": emp, "x": exclude_id or 0,
-         "ne": new_end.isoformat(sep=" "), "ns": new_start.isoformat(sep=" ")}).scalar()
-    return r
+    """DB-driven delegate (g2007.python kod=att_fix_overlap). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_overlap", s, emp, new_start, new_end, exclude_id)
 
 
 @api_router.post("/app/attendance/fix/entry")
@@ -23375,48 +23200,9 @@ async def att_fix_polozka(req: Request) -> JSONResponse:
 
 
 def _att_fix_merge_candidate(s, emp, day, x_start, x_end, exclude_id):
-    """Po stornu přerušení X najdi navazující segmenty: A končí ~u začátku X,
-    B začíná ~u konce X (tolerance 3 min). Kandidát na sloučení JEN při přesné
-    shodě typu i zakázky (Jirka 10.7.: práce×režie se neslučuje). Vrací dict
-    {a_id, b_id, popis} nebo None."""
-    from sqlalchemy import text as _t
-    if x_start is None:
-        return None
-    xe = x_end or x_start
-    try:
-        a = s.execute(_t(
-            "SELECT e.id, e.entry_type_id, COALESCE(e.project_ref,''), et.label, "
-            "       to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI') "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d AND e.id<>:x "
-            "  AND e.status NOT IN ('superseded','announced') AND COALESCE(e.source_system,'')='' "
-            "  AND et.category='presence' AND et.code NOT IN ('day_end','break') "
-            "  AND e.ended_at IS NOT NULL "
-            "  AND abs(EXTRACT(EPOCH FROM (e.ended_at - CAST(:xs AS timestamp)))) <= 180 "
-            "ORDER BY e.ended_at DESC LIMIT 1"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "x": exclude_id,
-             "xs": x_start.isoformat(sep=" ")}).first()
-        b = s.execute(_t(
-            "SELECT e.id, e.entry_type_id, COALESCE(e.project_ref,''), et.label, "
-            "       to_char(e.started_at,'HH24:MI'), COALESCE(to_char(e.ended_at,'HH24:MI'),'…') "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d AND e.id<>:x "
-            "  AND e.status NOT IN ('superseded','announced') AND COALESCE(e.source_system,'')='' "
-            "  AND et.category='presence' AND et.code NOT IN ('day_end','break') "
-            "  AND e.started_at IS NOT NULL "
-            "  AND abs(EXTRACT(EPOCH FROM (e.started_at - CAST(:xe AS timestamp)))) <= 180 "
-            "ORDER BY e.started_at LIMIT 1"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "x": exclude_id,
-             "xe": xe.isoformat(sep=" ")}).first()
-    except Exception:
-        return None
-    if not (a and b) or a[0] == b[0]:
-        return None
-    if a[1] != b[1] or a[2] != b[2]:
-        return None  # jiný typ nebo zakázka → neslučovat
-    return {"a_id": a[0], "b_id": b[0],
-            "popis": (a[3] or "") + " " + (a[4] or "?") + "–" + (a[5] or "?")
-                     + "  +  " + (b[3] or "") + " " + (b[4] or "?") + "–" + (b[5] or "…")}
+    """DB-driven delegate (g2007.python kod=att_fix_merge_candidate). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_merge_candidate", s, emp, day, x_start, x_end, exclude_id)
 
 
 @api_router.post("/app/attendance/fix/merge")
@@ -27272,15 +27058,10 @@ def _wa_open(s, uid: int, project_ref=None, project_nazev=None,
         {"t": _ATT_TENANT, "u": uid, "st": st_override, "zak": _zak, "ci": cinnost_id})
 
 
-def _att_is_working(s, emp: int) -> bool:
-    """True = běží pracovní/režijní směna (ne pauza / konec dne / cesta)."""
-    from sqlalchemy import text as _t
-    r = s.execute(_t(
-        "SELECT COALESCE(et.code,'') FROM tenant.att_entry a "
-        "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-        "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true ORDER BY a.id DESC LIMIT 1"),
-        {"t": _ATT_TENANT, "e": emp}).first()
-    return bool(r) and (r[0] in ("work", "overhead", ""))
+def _att_is_working(s, emp):
+    """DB-driven delegate (g2007.python kod=att_is_working). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_is_working", s, emp)
 
 
 _REZIE_REF = "Rezie"
@@ -28262,28 +28043,9 @@ async def att_real(req: Request) -> JSONResponse:
 
 
 def _att_denni_fond(s, emp, default_h=8.0):
-    """Denní fond člověka = úvazek/týden ÷ dny v týdnu (fallback 8 h).
-
-    Jirka 31.7.2026: appka zapisovala absenci natvrdo 8 h/den bez ohledu na úvazek,
-    takže kdo má denní fond 7 h, dostal stejně 8. Stejný vzorec už používá „Opravy
-    docházky" (úvazek/`work_mode.dny_v_tydnu`, výchozí 5). Zatím se z něj bere JEN
-    sick day — dovolená/nemoc/lékař/OČR jdou do mzdového podkladu, tam změnu hodin
-    musí odsouhlasit Petra (viz g2007 doc-dochazka-sickday-po-hodinach).
-    """
-    from sqlalchemy import text as _t
-    try:
-        h = s.execute(_t(
-            "SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
-            "FROM tenant.engagement g "
-            "LEFT JOIN tenant.work_mode wm ON wm.id = g.work_mode_id "
-            "WHERE g.tenant_id = :t AND g.employee_id = :e AND g.is_current = true "
-            "  AND g.uvazek_tyden_h IS NOT NULL "
-            "ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1"),
-            {"t": _ATT_TENANT, "e": emp}).scalar()
-        h = float(h or 0)
-        return h if 0 < h <= 24 else float(default_h)
-    except Exception:
-        return float(default_h)
+    """DB-driven delegate (g2007.python kod=att_denni_fond). Puvodni telo migrovano do DB dne 31.7.2026, Faze B."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_denni_fond", s, emp, default_h)
 
 
 def _sickday_lekar_apply(s, emp, code, days_hours, uid, note):

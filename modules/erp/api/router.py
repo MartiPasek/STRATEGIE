@@ -67698,5 +67698,84 @@ async def erp_registry_selftest_ep(req: Request):
     return JSONResponse(out, status_code=200)
 
 
+
+# ── erp_registry OBECNY spousteci endpoint (C23 31.7.2026, Marti OK) ──────
+# Na rozdil od /selftest tohle SKUTECNE SPOUSTI aktivni DB-driven skript (vc.
+# skriptu s vedlejsim ucinkem) a vraci jeho vystup - primy provozni vstupni
+# bod pro NOVE skripty, ktere v router.py nikdy nemely a nemusi mit zadnou
+# obdobu (na rozdil od migrovanych pilotu vyse). Pristup je RIZENY PER SKRIPT
+# sloupcem g2007.python.min_pravo ('clen' default = kdokoli prihlaseny,
+# 'rodic' = _require_parent, 'admin' = _require_admin) - autor skriptu pri
+# aktivaci rozhoduje, jak citlivy dany kod je. Kazde spusteni se audituje do
+# g2007.python_run_audit (append-only, kdo/kdy/co/jak dopadlo).
+@api_router.post("/app/erp_registry/run")
+async def erp_registry_run_ep(req: Request):
+    """Spusti aktivni DB-driven skript z g2007.python. Body: {kod, args:[...]}.
+    Pristup dle g2007.python.min_pravo (clen/rodic/admin, per-radek). Auditovano
+    do g2007.python_run_audit. C23 31.7.2026."""
+    import time as _time
+    uid = _get_uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "nejsi prihlasen"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    kod = str((b or {}).get("kod") or "").strip()
+    args = (b or {}).get("args") or []
+    if not kod or not isinstance(args, list):
+        return JSONResponse({"ok": False, "error": "chybi kod nebo args neni pole"}, status_code=200)
+
+    from core.database_data import get_data_session as _gd_run
+    from sqlalchemy import text as _t_run
+    sd = _gd_run()
+    try:
+        row = sd.execute(_t_run(
+            "SELECT min_pravo, verze FROM g2007.python WHERE kod=:k AND stav_zivota='active'"),
+            {"k": kod}).fetchone()
+    finally:
+        sd.close()
+    if not row:
+        return JSONResponse({"ok": False, "error": "kod '%s' nema aktivni implementaci" % kod}, status_code=200)
+    min_pravo, verze = (row[0] or "clen"), row[1]
+    try:
+        if min_pravo == "admin":
+            _require_admin(uid)
+        elif min_pravo == "rodic":
+            _require_parent(uid)
+        # 'clen' -> staci byt prihlaseny (uid uz overen vyse)
+    except HTTPException:
+        raise
+
+    from starlette.concurrency import run_in_threadpool as _rtp_run
+    from modules.erp.api import erp_registry as _ereg_run
+    t0 = _time.monotonic()
+    ok, chyba, vysledek = True, None, None
+    try:
+        vysledek = await _rtp_run(_ereg_run.call, kod, *args)
+    except Exception as _e:
+        ok = False
+        chyba = "%s: %s" % (type(_e).__name__, _e)
+    trvani_ms = int((_time.monotonic() - t0) * 1000)
+
+    import json as _json_run
+    sd2 = _gd_run()
+    try:
+        sd2.execute(_t_run(
+            "INSERT INTO g2007.python_run_audit (kod, verze, uid, args, ok, chyba, trvani_ms) "
+            "VALUES (:k, :v, :u, CAST(:a AS jsonb), :ok, :ch, :ms)"),
+            {"k": kod, "v": verze, "u": uid, "a": _json_run.dumps(args),
+             "ok": ok, "ch": chyba, "ms": trvani_ms})
+        sd2.commit()
+    except Exception:
+        sd2.rollback()
+    finally:
+        sd2.close()
+
+    if not ok:
+        return JSONResponse({"ok": False, "error": "spusteni selhalo: %s" % chyba}, status_code=200)
+    return JSONResponse({"ok": True, "verze": verze, "vysledek": vysledek}, status_code=200)
+
+
 # ec.* action runner (Vyhodnoceni zakazek) -> POST /api/v1/erp/action/run
 from modules.erp.api import vyhodnoceni_actions as _vyh_act  # noqa: E402,F401

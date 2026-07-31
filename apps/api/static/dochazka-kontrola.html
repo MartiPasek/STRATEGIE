@@ -45,9 +45,16 @@ function load(){
       COLS=j.columns||[]; ROWS=j.rows||[];
       $('title').textContent=j.title||'Kontrolní přehled';
       document.title=j.title||'Kontrolní přehled';
-      $('sub').textContent=(REPORT==='fpd')
-        ? 'Kdo za měsíc neodpracoval svůj fond (jen HPP). Odpracováno = práce na zakázkách + placená absence. Pravý klik na filtr = Jen prázdné / Vlastní…'
-        : 'Časové překryvy záznamů téhož člověka (práce×práce, přestávka×přestávka).';
+      $('sub').textContent=({
+        fpd:'Kdo za měsíc neodpracoval svůj fond (jen HPP). Odpracováno = práce na zakázkách + placená absence. Pravý klik na filtr = Jen prázdné / Vlastní…',
+        prekryv:'Časové překryvy záznamů téhož člověka (práce×práce, přestávka×přestávka).',
+        rozpad:'Dny, kde nesedí součet hodin mezi docházkou (Opravy) a rozpadem na zakázky (Docházka new). Poslední dva měsíce, nejdřív od 1. 7. 2026, bez dneška. PRÁZDNÝ PŘEHLED = VŠE V POŘÁDKU.'
+      })[REPORT]||'';
+      if(REPORT==='rozpad'&&(j.rows||[]).length===0){
+        $('info').innerHTML='<div style="margin:10px 0;padding:10px 12px;border:1px solid #2dd4bf;'
+          +'background:#0f2a22;color:#4fe0aa;border-radius:9px;font-weight:600">'
+          +'✓ Vše sedí — docházka a rozpad se za sledované období nikde nerozcházejí.</div>';
+      }
       hlavicka(); render();
     }).catch(function(){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">Chyba spojení.</td></tr>';});
 }

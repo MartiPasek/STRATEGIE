@@ -1046,9 +1046,10 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
-      // Kontrolní přehledy (Peťa 30.7.2026): jádra dochazka.kontrola.fpd / .prekryv = iframe generické stránky.
-      if (String(coreCode) === 'dochazka.kontrola.fpd' || String(coreCode) === 'dochazka.kontrola.prekryv') {
-        var _kRep = (String(coreCode) === 'dochazka.kontrola.prekryv') ? 'prekryv' : 'fpd';
+      // Kontrolní přehledy (Peťa 30.7.2026): jádra dochazka.kontrola.* = iframe generické stránky.
+      // .rozpad doplněn 31.7.2026 (zadala Týnka): kontrola, že součty docházka × rozpad sedí.
+      if (String(coreCode).indexOf('dochazka.kontrola.') === 0) {
+        var _kRep = String(coreCode).slice('dochazka.kontrola.'.length) || 'fpd';
         mainContent.innerHTML = '<iframe src="/dochazka-kontrola?report=' + _kRep + '" title="Kontrolní přehled" '
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;

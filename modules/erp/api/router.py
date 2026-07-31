@@ -67796,6 +67796,7 @@ async def g2007_znalost_upsert(req: Request):
 # data-bez-restartu (Faze 1) + doc-system-g2007-expected-version-implementace-pripraveno.
 _ERP_REGISTRY_LEGACY = {
     "mzdy_absence_rows": _mzdy_absence_rows,
+    "mzdy_stravenky_rows": _mzdy_stravenky_rows,
 }
 
 

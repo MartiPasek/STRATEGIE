@@ -14559,6 +14559,13 @@ def _sync_dochazka_ec(rok, mesic):
     """SROVNANÁ docházka z EC_Dochazka (REÁLNÝ zdroj, ne sparse SumaDen) → att_entry + att_day_summary.
     Klasifikace DruhCinnosti (práce/HO/absence), fond per úvazek (úvazek_tyden_h/5, JEN Po–Pá, víkend=0),
     dopíchat schodek / odpíchat přebytek práce, absence DOTÁHNOUT jako att_entry. Marti 28.6.2026."""
+    # ⛔ POJISTKA (C24 + Kristý 31.7.2026): @@DOCHAZKA / _sync_dochazka_ec je ZRUŠENÝ import.
+    # Zdvojoval att_entry proti centrala1 — vkládal vlastní vrstvu source='ec_import' (SROVNANÁ
+    # docházka s dopíchnutím do fondu) VEDLE centrala1 → dvojité hodiny. ec_import za leden–květen
+    # zneaktivněn 31.7.2026 (req #1620). ZDROJ PRAVDY = centrala1 (@@DOCHRESYNC). NEPOUŠTĚT — znovu
+    # by to zdvojilo. Obnovení = smazat tenhle return + deploy (a nejdřív promyslet dedup vůči centrala1).
+    return {"ok": False, "error": "zruseno: _sync_dochazka_ec (@@DOCHAZKA) zdvojovalo att_entry (ec_import). "
+                                   "Zdroj pravdy = centrala1 (@@DOCHRESYNC). Pojistka C24/Kristy 31.7.2026."}
     import datetime as _dt
     import calendar as _cal
     from sqlalchemy import text as _t
@@ -28862,6 +28869,37 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
             "  WHERE app.tenant_id=:t AND app.employee_id=ec.employee_id AND app.entry_date=current_date "
             "  AND app.is_active=true AND COALESCE(app.source_system,'')<>'centrala1')"),
             {"t": tenant})
+        # DEDUP ABSENCÍ proti plánu/ČSSZ (C24 + Kristý 31.7.2026, prevence zdvojení).
+        # Centrála = zdroj pravdy pro DOVOLENOU → plánovou kopii (plan_ec/absence_req) na tentýž
+        # den supersede. ČSSZ = zdroj pravdy pro NEMOC → centrální (centrala1) kopii supersede,
+        # když je neschopenka cssz_dpn. Párování přes employee_id (centrala1 má user_id často NULL!).
+        # Jen v importovaném rozsahu (frm..to) a NEsahá na local_lock (ruční opravy). Neschopenka×
+        # neschopenka a manual×manual se tu neřeší (jiná vada, viz handoff Péťa).
+        _ddp = {"t": tenant, "f": frm, "to": to}
+        sess.execute(_t(
+            "UPDATE tenant.att_entry pe SET status='superseded', updated_at=now(), "
+            "note=left(COALESCE(pe.note,'')||' [auto-dedup 31.7.: Centrala=pravda dovolena]',500) "
+            "FROM tenant.att_entry_type ty "
+            "WHERE pe.entry_type_id=ty.id AND ty.code='vacation' AND pe.tenant_id=:t "
+            "AND pe.status<>'superseded' AND COALESCE(pe.source_system,'')<>'centrala1' "
+            "AND COALESCE(pe.local_lock,false)=false "
+            "AND pe.entry_date>=:f AND (:to IS NULL OR pe.entry_date<=:to) "
+            "AND EXISTS (SELECT 1 FROM tenant.att_entry c WHERE c.tenant_id=:t "
+            "  AND c.source_system='centrala1' AND c.status<>'superseded' "
+            "  AND c.employee_id=pe.employee_id AND c.entry_date=pe.entry_date "
+            "  AND c.entry_type_id=pe.entry_type_id)"), _ddp)
+        sess.execute(_t(
+            "UPDATE tenant.att_entry ce SET status='superseded', updated_at=now(), "
+            "note=left(COALESCE(ce.note,'')||' [auto-dedup 31.7.: CSSZ=pravda nemoc]',500) "
+            "FROM tenant.att_entry_type ty "
+            "WHERE ce.entry_type_id=ty.id AND ty.code='sick' AND ce.tenant_id=:t "
+            "AND ce.status<>'superseded' AND ce.source_system='centrala1' "
+            "AND COALESCE(ce.local_lock,false)=false "
+            "AND ce.entry_date>=:f AND (:to IS NULL OR ce.entry_date<=:to) "
+            "AND EXISTS (SELECT 1 FROM tenant.att_entry z WHERE z.tenant_id=:t "
+            "  AND z.source='cssz_dpn' AND z.status<>'superseded' "
+            "  AND z.employee_id=ce.employee_id AND z.entry_date=ce.entry_date "
+            "  AND z.entry_type_id=ce.entry_type_id)"), _ddp)
         sess.commit()
         ec_closed = 0
         for _row in app_active:

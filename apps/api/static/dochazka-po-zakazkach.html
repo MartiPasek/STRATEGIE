@@ -1563,6 +1563,14 @@ function absOpen(mode,i){
       }
     }
     b.classList.add('on');
+    // U NOVÉHO záznamu rovnou označ jméno (Peťa 31.7.2026): předvyplní se člověk
+    // z řádku, na kterém stojíš — když zakládáš nad někým jiným, stačí psát a
+    // jméno se přepíše. Bez označení by se psalo ZA něj a vznikla by hybridní změť.
+    if(mode==='new'){
+      setTimeout(function(){
+        try{var pi=document.getElementById('abs_prac');pi.focus();pi.select();}catch(_e){}
+      },40);
+    }
   });
 }
 function absSave(){ try{ _absSave(); }catch(e){ _absErr('abs_msg', e); } }

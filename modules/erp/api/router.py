@@ -26816,7 +26816,8 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
     # sg[5] = konec dopsal automat o půlnoci (zapomenutý odchod) — viz níže bod 5
     segs = s.execute(_t(
         "SELECT e.id, et.code, e.started_at, e.ended_at, e.project_ref, "
-        "       (COALESCE(e.note,'') ILIKE '%%auto-odhlášení%%') AS auto_konec "
+        "       (COALESCE(e.note,'') ILIKE '%%auto-odhlášení%%' "
+        "        AND to_char(e.ended_at,'HH24:MI') = '23:59') AS auto_konec "
         "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
         "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d "
         "  AND e.status <> 'superseded' "

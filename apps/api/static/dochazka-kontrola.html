@@ -48,7 +48,7 @@ function load(){
       $('sub').textContent=({
         fpd:'Kdo za měsíc neodpracoval svůj fond (jen HPP). Odpracováno = práce na zakázkách + placená absence. Pravý klik na filtr = Jen prázdné / Vlastní…',
         prekryv:'Časové překryvy záznamů téhož člověka (práce×práce, přestávka×přestávka).',
-        rozpad:'Dny, kde nesedí součet hodin mezi docházkou (Opravy) a rozpadem na zakázky (Docházka new). Poslední dva měsíce, nejdřív od 1. 7. 2026, bez dneška. PRÁZDNÝ PŘEHLED = VŠE V POŘÁDKU.'
+        rozpad:'Dny, kde nesedí součet hodin mezi docházkou (Opravy) a rozpadem na zakázky (Docházka new). Běžící měsíc (plus předchozí, dokud není zamčený), bez dneška. PRÁZDNÝ PŘEHLED = VŠE V POŘÁDKU.'
       })[REPORT]||'';
       if(REPORT==='rozpad'&&(j.rows||[]).length===0){
         $('info').innerHTML='<div style="margin:10px 0;padding:10px 12px;border:1px solid #2dd4bf;'

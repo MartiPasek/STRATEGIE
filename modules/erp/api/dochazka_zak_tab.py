@@ -342,8 +342,17 @@ ORDER BY "JmenoPrijmeni", od DESC
 # Dnešek vynechán schválně (rozdělané směny nejsou chyba).
 _KONTROLA_ROZPAD_SQL = """
 WITH obd AS (
-  SELECT GREATEST((date_trunc('month', current_date) - interval '1 month')::date,
-                  DATE '2026-07-01') AS od,
+  -- Peťa 31.7.2026: stačí BĚŽÍCÍ měsíc — starší je ve mzdách a zamčený. Předchozí
+  -- měsíc se ale ukáže, dokud zamčený NENÍ (přelom měsíce: 1.8. ještě potřebuješ
+  -- vidět červenec, než ho zamkneš). Nikdy před 1.7.2026 (dřív se jelo z Centrály).
+  SELECT GREATEST(
+           CASE WHEN EXISTS (SELECT 1 FROM tenant.att_period_lock l
+                              WHERE l.tenant_id=2
+                                AND make_date(l.rok, l.mesic, 1)
+                                    = (date_trunc('month', current_date) - interval '1 month')::date)
+                THEN date_trunc('month', current_date)::date
+                ELSE (date_trunc('month', current_date) - interval '1 month')::date END,
+           DATE '2026-07-01') AS od,
          (current_date - 1) AS do),
 vw AS (
   SELECT em.user_id, w.datum, sum(COALESCE(w.hodiny,0)) AS h

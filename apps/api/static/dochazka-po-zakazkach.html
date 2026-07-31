@@ -1371,7 +1371,9 @@ function absBox(){
     +'<div id="abs_warn" style="display:none;margin:0 0 10px;padding:8px 10px;border-radius:6px;'
     +'background:#3a2a12;border:1px solid #7a5a20;color:#e6c67f;font-size:12px"></div>'
     +'<div class="fld full"><label>Pracovník</label><div class="two" id="abs_prac_w">'
-    +'<input type="text" id="abs_prac" readonly placeholder="vyber přes ▤" style="flex:1;min-width:0">'
+    +'<input type="text" id="abs_prac" list="abs_praclist" autocomplete="off" '
+    +'placeholder="piš příjmení nebo číslo… (nebo vyber přes ▤)" style="flex:1;min-width:0">'
+    +'<datalist id="abs_praclist"></datalist>'
     +'<button type="button" class="zakpick" id="abs_pracbtn" title="Vybrat pracovníka ze seznamu">▤</button>'
     +'</div></div>'
     +'<div class="frow2" style="margin-top:10px">'
@@ -1399,6 +1401,11 @@ function absBox(){
   document.getElementById('abs_storno').addEventListener('click',absClose);
   document.getElementById('abs_pracbtn').addEventListener('click',function(){
     if(!document.getElementById('abs_pracbtn').disabled)absPracOpen();});
+  // Psaní jména (Peťa 31.7.2026: „u nového nemůže být zamčené"). Napovídá se
+  // z téhož seznamu jako ▤; po každém úhozu se zkusí text spárovat na člověka.
+  document.getElementById('abs_prac').addEventListener('input',function(){
+    this.removeAttribute('data-c'); absPracZTextu(this.value);});
+  absZamNacti();
   document.getElementById('abs_ok').addEventListener('click',absSave);
   document.getElementById('abs_od').addEventListener('input',function(){
     var d=document.getElementById('abs_do'); if(!d.value||d.value<this.value)d.value=this.value;});
@@ -1437,6 +1444,36 @@ function absPracBox(){
   return b;
 }
 function absPracClose(){var b=document.getElementById('absprac'); if(b)b.classList.remove('on');}
+function absZamNacti(cb){
+  if(ABSZAM){absNaplnDatalist();if(cb)cb();return;}
+  fetch('/api/v1/erp/app/dochazka-zak-tab/zamestnanci',{credentials:'include'})
+    .then(function(r){return r.json();})
+    .then(function(j){ABSZAM=(j&&j.ok&&j.zamestnanci)||[];absNaplnDatalist();if(cb)cb();})
+    .catch(function(){ABSZAM=[];if(cb)cb();});
+}
+function absNaplnDatalist(){
+  var dl=document.getElementById('abs_praclist'); if(!dl)return;
+  dl.innerHTML=(ABSZAM||[]).map(function(z){
+    return '<option value="'+esc((z.popis||z.jmeno)+' ('+z.cislo+')')+'"></option>';}).join('');
+}
+/* Text z pole → číslo pracovníka. Bere: „Příjmení Jméno (105)", samotné číslo,
+   nebo jednoznačný kousek jména. Když to nesedí jednoznačně, číslo se nenastaví
+   a uložení na to upozorní — radši nic než někoho spárovat špatně. */
+function absPracZTextu(txt){
+  var i=document.getElementById('abs_prac'); if(!i)return null;
+  var t=String(txt||'').trim(); if(!t)return null;
+  var m=/\((\d+)\)\s*$/.exec(t);
+  if(m){i.setAttribute('data-c',m[1]);return m[1];}
+  if(/^\d+$/.test(t)){
+    var byc=(ABSZAM||[]).filter(function(z){return String(z.cislo)===t;});
+    if(byc.length===1){i.setAttribute('data-c',t);return t;}
+  }
+  var q=t.toLowerCase();
+  var f=(ABSZAM||[]).filter(function(z){
+    return ((z.popis||z.jmeno||'')+' '+z.cislo).toLowerCase().indexOf(q)>=0;});
+  if(f.length===1){i.setAttribute('data-c',String(f[0].cislo));return String(f[0].cislo);}
+  return null;
+}
 function absSetPrac(cislo,popis){
   var i=document.getElementById('abs_prac');
   if(i){i.value=(popis||'')+(cislo?(' ('+cislo+')'):''); i.setAttribute('data-c',cislo||'');}
@@ -1499,7 +1536,10 @@ function absOpen(mode,i){
       document.getElementById('abs_t').textContent='➕ Nová absence';
       document.getElementById('abs_rl').innerHTML='Důvod <span class="muted">nepovinné</span>';
       pb.disabled=false;
-      // přednabídnutý člověk z řádku, na kterém stojíš — jde změnit přes ▤
+      var _pi=document.getElementById('abs_prac');
+      _pi.readOnly=false; _pi.title='Piš příjmení nebo číslo, nebo vyber tlačítkem ▤';
+      absZamNacti();
+      // přednabídnutý člověk z řádku, na kterém stojíš — jde přepsat i vybrat přes ▤
       absSetPrac(r.CisloZam||'', r.JmenoPrijmeni||'');
       sel.value=''; document.getElementById('abs_od').value=''; document.getElementById('abs_do').value='';
       document.getElementById('abs_h').value='8'; document.getElementById('abs_pozn').value='';
@@ -1508,6 +1548,8 @@ function absOpen(mode,i){
       document.getElementById('abs_t').textContent='✏ Úprava absence';
       document.getElementById('abs_rl').innerHTML='Důvod úpravy <span class="muted">povinné — kvůli auditu</span>';
       pb.disabled=true;   // u existujícího záznamu se pracovník nemění
+      var _pi2=document.getElementById('abs_prac');
+      _pi2.readOnly=true; _pi2.title='U existujícího záznamu se pracovník nemění';
       absSetPrac(r.CisloZam||'', r.JmenoPrijmeni||'');
       sel.value=_absKod(r.Druh);
       document.getElementById('abs_od').value=_absD(r.DatumOd);
@@ -1539,8 +1581,8 @@ function _absSave(){
   var schv=!!(_schv&&_schv.checked);
   if(ABS_MODE==='new'){
     var pi=document.getElementById('abs_prac');
-    var pc=(pi&&pi.getAttribute('data-c'))||'';
-    if(!pc)return chyba('Vyber pracovníka (tlačítko ▤).');
+    var pc=(pi&&pi.getAttribute('data-c'))||absPracZTextu(pi&&pi.value)||'';
+    if(!pc)return chyba('Pracovníka jsem nepoznal — vyber ho tlačítkem ▤ nebo dopiš přesněji.');
     url='/api/v1/erp/app/dochazka-abs/new';
     body={cislo_zam:pc,typ:typ,datum_od:od,datum_do:dd,hodin_den:h,poznamka:pozn,schvaleno:schv};
   } else {

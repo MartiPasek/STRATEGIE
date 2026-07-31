@@ -21209,428 +21209,48 @@ async def att_fix_entry(req: Request) -> JSONResponse:
     source='manual_fix'. Povinný důvod. Srovná úseky ve vyroba_work, uklidí
     anomálie, audituje a notifikuje dotčeného."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt, timedelta as _td
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    zac = _att_fix_parse_hhmm((body or {}).get("zac"))
-    kon = _att_fix_parse_hhmm((body or {}).get("kon"))
-    tcode = str((body or {}).get("type_code") or "").strip() or None
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    try:
-        cin_new = int((body or {}).get("cinnost_id") or 0) or None
-    except Exception:
-        cin_new = None
-    # Jirka 12.7.: volitelná změna zakázky — klíč chybí = nechat původní (zpětně kompatibilní)
-    pref_sent = isinstance(body, dict) and ("project_ref" in body)
-    pref_new = (str((body or {}).get("project_ref") or "").strip()[:40] or None) if pref_sent else None
-    if not (eid and zac and kon):
-        return JSONResponse({"ok": False, "error": "Zadej platné časy od–do (HH:MM)."})
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod opravy je povinný."})
-    if tcode and tcode not in _ATT_FIX_TYPES:
-        return JSONResponse({"ok": False, "error": "Nepovolený typ záznamu."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        row = s.execute(_t(
-            "SELECT e.id, e.employee_id, e.entry_date, e.started_at, e.ended_at, "
-            "       e.entry_type_id, et.code, e.project_ref, COALESCE(e.break_minutes,0), "
-            "       e.status, COALESCE(e.source_system,''), e.is_active, "
-            "       to_char(e.started_at,'HH24:MI'), COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), et.label "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.id = :i AND e.tenant_id = :t"),
-            {"i": eid, "t": _ATT_TENANT}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        if row[9] == "superseded":
-            return JSONResponse({"ok": False, "error": "Záznam už byl nahrazen novější opravou."})
-        if row[10]:
-            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále, sem se přezrcadlí."})
-        if row[11] and row[4] is None:
-            return JSONResponse({"ok": False, "error": "Běžící záznam nelze opravit — člověk zrovna maká (počkej na odchod)."})
-        if row[3] is None:
-            return JSONResponse({"ok": False, "error": "Záznam bez času začátku (absence) — oprav přes absence, ne tady."})
-        # Zámek je TVRDÝ i pro držitele zámku (Jirka 20.7.2026, varianta A).
-        # Od 15.7. tu byl override (Peťa/Šárka/rodiče mohli psát do zamčeného
-        # měsíce, jen se do reason přilepilo „[oprava v uzavřeném období]").
-        # Audit ukázal, že ho NIKDO ani jednou nepoužil (0 oprav se dnem před
-        # červencem), zatímco správná cesta odemkni→oprav→zamkni proběhla 2×
-        # (Marešová 15.7., Šafránková 16.7., obojí 6/2026, do minuty). Zámek nad
-        # zpracovanými mzdami má být brána, ne štítek v poznámce: odemčení je
-        # vědomý akt a je vidět v auditu, override byl neviditelný.
-        if _att_period_locked(s, row[2]):
-            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak opravit a zase zamknout."}, status_code=409)
-        emp = int(row[1])
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
-        if _emps is not None and emp not in _emps:
-            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-        sd = row[3].date()
-        ed = row[4].date() if row[4] is not None else sd
-        # konec se drží na dni PŮVODNÍHO konce (job přes půlnoc — vzor entry-trim, Marti 7.6.)
-        new_start = _dt.combine(sd, _dt.strptime(zac, "%H:%M").time())
-        new_end = _dt.combine(ed, _dt.strptime(kon, "%H:%M").time())
-        if new_end <= new_start:
-            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
-        if (new_end - new_start) > _td(hours=20):
-            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
-        ovl = _att_fix_overlap(s, emp, new_start, new_end, eid)
-        if ovl:
-            return JSONResponse({"ok": False, "error": "Nové časy se překrývají se záznamem " + str(ovl) + "."})
-        new_code = tcode or row[6]
-        tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                        {"t": _ATT_TENANT, "c": new_code}).scalar()
-        if not tid:
-            return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
-        # Peťa + Marti 20.7.2026: u režie (overhead) drž v kolonce zakázka 'Rezie',
-        # ať je vidět v přehledech; dřív se u jiného typu než 'work' mazala na NULL.
-        pref = row[7] if new_code == "work" else (_REZIE_REF if new_code == "overhead" else None)
-        if pref_sent and new_code in ("work", "overhead"):
-            if pref_new and _norm_zakazka(pref_new) != _REZIE_REF:
-                zk = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
-                               {"t": _ATT_TENANT, "c": pref_new}).first()
-                if not zk:
-                    return JSONResponse({"ok": False, "error": "Zakázka " + pref_new + " není píchatelná / neexistuje."})
-            pref = _norm_zakazka(pref_new) or (_REZIE_REF if new_code == "overhead" else None)
-        brk = int(row[8])
-        hrs = round(max((new_end - new_start).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
-        actor = _user_jmeno(s, uid)
-        old_desc = (row[14] or "") + " " + (row[12] or "?") + "–" + (row[13] or "…")
-        nn = "🛠 OPRAVA (" + actor + "): " + reason + " (původně " + old_desc.strip() + ", #" + str(eid) + ")"
-        nid = s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
-            "started_at, ended_at, break_minutes, project_ref, note, status, source, is_active, "
-            "created_by_id, created_at, updated_at) "
-            "VALUES (:t,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:b,:pr,:n,"
-            "'approved','manual_fix',false,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "d": sd.isoformat(), "ti": tid, "h": hrs,
-             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-             "b": brk, "pr": pref, "n": nn, "u": uid}).scalar()
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
-            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
-            "WHERE id=:i"),
-            {"i": eid, "nn": "nahrazeno opravou #" + str(nid) + " (" + actor + ")"})
-        # C24 30.7.2026: časy a životní cyklus položek vyroba_work srovnává KANONICKÁ
-        # KASKÁDA _att_sync_vyroba_work (G2007 doc-dochazka-att-entry-vyroba-work-kaskada).
-        # Nahrazuje dřívější dílčí „krok 5" časové okno, které navíc běželo jen pro PŮVODNÍ
-        # typ work/overhead (HO opravy nechávalo stát → stale fragmenty) a převod na absenci
-        # sázelo absenci do výkazu (regres). Kaskáda vezme VŠECHNY platné úseky dne, dorovná
-        # časy/životní cyklus a absence z výkazu vyřadí (superseded úsek už není platný).
-        # Zakázku/činnost, které editor v opravě VĚDOMĚ změnil, propíšeme až PO kaskáde na
-        # položky NOVÉ hlavičky (vazba att_entry_id=nid) — kaskáda je dle modelu nechává být.
-        # Chyba se loguje i zapíše do auditu (_wa_fail) — nesmí ale shodit opravu.
-        _wa_fail = []
-        try:
-            _att_sync_vyroba_work(s, emp, sd)
-            tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-            if tu and pref_sent and new_code == "work" and pref != row[7]:
-                s.execute(_t(
-                    "UPDATE tenant.vyroba_work SET zakazka_ref=:np, updated_at=now() "
-                    "WHERE tenant_id=:t AND user_id=:u AND att_entry_id=:nid AND is_active=true "
-                    "  AND zakazka_ref IS NOT DISTINCT FROM :op"),
-                    {"t": _ATT_TENANT, "u": tu, "np": pref, "op": row[7], "nid": nid})
-            if tu and cin_new and new_code in ("work", "overhead"):
-                _cn = s.execute(_t("SELECT id FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"),
-                                {"c": cin_new}).first()
-                if _cn:
-                    _eff_pref = pref if (pref_sent and new_code == "work" and pref != row[7]) else row[7]
-                    s.execute(_t(
-                        "UPDATE tenant.vyroba_work SET cinnost_id=:ci, updated_at=now() "
-                        "WHERE tenant_id=:t AND user_id=:u AND att_entry_id=:nid AND is_active=true "
-                        "  AND zakazka_ref IS NOT DISTINCT FROM :ep"),
-                        {"t": _ATT_TENANT, "u": tu, "ci": cin_new, "ep": _eff_pref, "nid": nid})
-        except Exception:
-            logger.error("att fix/entry: kaskáda/propis vyroba_work selhala (entry=%s, emp=%s)",
-                         nid, emp, exc_info=True)
-            _wa_fail.append("úseky")
-        # Peťa 22.7.2026: anomálii po opravě UŽ NEVYŘEŠOVAT automaticky. Dřív se tím
-        # řádek z fronty rovnou ztratil; Peťa chce, aby zůstal jako u rozporů od lidí —
-        # zeleně „✓ opraveno" s tlačítkem „Hotovo — z fronty", a zmizel až po odkliknutí
-        # (endpoint /fix/resolve). Proto tady žádný resolved_at.
-        zm_zak = (" | zakázka " + (row[7] or "—") + " → " + (pref or "—")) if (pref_sent and new_code == "work" and pref != row[7]) else ""
-        # Selhání zápisu do work_alloc patří do auditu — den může být rozejitý
-        # s výkazem a ten, kdo ho bude řešit, se to musí dozvědět odsud.
-        wa_err = (" | ⚠ úseky (vyroba_work) NEsrovnány (" + ", ".join(_wa_fail) + ") — výkaz může nesedět") if _wa_fail else ""
-        _att_fix_audit(s, "fix", nid, emp, uid, actor,
-                       old_note=old_desc.strip(), new_note=(new_code + " " + zac + "–" + kon + ((" 🧾 " + pref) if pref else "")),
-                       detail=reason + zm_zak + wa_err + " | původní #" + str(eid), old_date=sd.isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Oprava docházky",
-                        actor + " opravil(a) tvou docházku " + sd.strftime("%d.%m.") + ": "
-                        + old_desc.strip() + " → " + zac + "–" + kon
-                        + ((" (zakázka → " + pref + ")") if (pref_sent and new_code == "work" and pref != row[7] and pref) else "")
-                        + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        # Doplnění do fondu spočtené před opravou už neplatí — přepočítat hned,
-        # ať Peťa po uložení vidí správný den (20.7.2026). Oprava mohla záznam
-        # přesunout i na jiné datum, proto oba dny.
-        _att_automat_recalc_day(emp, sd)
-        if new_start.date() != sd:
-            _att_automat_recalc_day(emp, new_start.date())
-        return JSONResponse({"ok": True, "id": nid, "hours": hrs})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_entry", uid,
+                         (body or {}).get("id"), (body or {}).get("zac"), (body or {}).get("kon"),
+                         (body or {}).get("type_code"), (body or {}).get("reason"), (body or {}).get("cinnost_id"),
+                         (body or {}).get("project_ref"), isinstance(body, dict) and ("project_ref" in body))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/fix/add")
 async def att_fix_add(req: Request) -> JSONResponse:
     """Doplnění chybějícího záznamu (zapomenutý příchod) editorem."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt, timedelta as _td, date as _date
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        tuid = int((body or {}).get("uid") or 0)
-    except Exception:
-        tuid = 0
-    zac = _att_fix_parse_hhmm((body or {}).get("zac"))
-    kon = _att_fix_parse_hhmm((body or {}).get("kon"))
-    tcode = str((body or {}).get("type_code") or "work").strip()
-    try:
-        cin_add = int((body or {}).get("cinnost_id") or 0) or None
-    except Exception:
-        cin_add = None
-    pref = str((body or {}).get("project_ref") or "").strip()[:40] or None
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    try:
-        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatné datum."})
-    if not (tuid and zac and kon):
-        return JSONResponse({"ok": False, "error": "Zadej osobu a časy od–do (HH:MM)."})
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod je povinný."})
-    if tcode not in _ATT_FIX_TYPES:
-        return JSONResponse({"ok": False, "error": "Nepovolený typ záznamu."})
-    if day > _date.today():
-        return JSONResponse({"ok": False, "error": "Do budoucnosti se nedoplňuje — na to je Výhled/ohlášení."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        # Tvrdý zámek i pro držitele zámku — viz komentář u fix/entry.
-        if _att_period_locked(s, day):
-            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak přidat záznam a zase zamknout."}, status_code=409)
-        emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
-                        {"t": _ATT_TENANT, "u": tuid}).scalar()
-        if not emp:
-            return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
-        if _emps is not None and int(emp) not in _emps:
-            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-        new_start = _dt.combine(day, _dt.strptime(zac, "%H:%M").time())
-        new_end = _dt.combine(day, _dt.strptime(kon, "%H:%M").time())
-        if new_end <= new_start:
-            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
-        if (new_end - new_start) > _td(hours=20):
-            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
-        ovl = _att_fix_overlap(s, emp, new_start, new_end, None)
-        if ovl:
-            return JSONResponse({"ok": False, "error": "Časy se překrývají se záznamem " + str(ovl) + "."})
-        # Peťa + Marti 20.7.2026: režie se do kolonky zakázka zapisuje jako 'Rezie'
-        # (dřív se mazala na NULL a v přehledech nebyla vidět).
-        if tcode == "overhead" or (pref and _norm_zakazka(pref) == _REZIE_REF):
-            pref = _REZIE_REF if tcode in ("work", "overhead") else None
-        elif pref and tcode == "work":
-            zk = s.execute(_t("SELECT typ FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
-                           {"t": _ATT_TENANT, "c": pref}).first()
-            if not zk:
-                return JSONResponse({"ok": False, "error": "Zakázka " + pref + " není píchatelná / neexistuje."})
-        else:
-            pref = None
-        tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                        {"t": _ATT_TENANT, "c": tcode}).scalar()
-        if not tid:
-            return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
-        hrs = round((new_end - new_start).total_seconds() / 3600.0, 2)
-        actor = _user_jmeno(s, uid)
-        nn = "🛠 DOPLNĚNO (" + actor + "): " + reason
-        nid = s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
-            "started_at, ended_at, project_ref, note, status, source, is_active, "
-            "created_by_id, created_at, updated_at) "
-            "VALUES (:t,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:pr,:n,"
-            "'approved','manual_fix',false,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "ti": tid, "h": hrs,
-             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-             "pr": pref, "n": nn, "u": uid}).scalar()
-        if tcode in ("work", "overhead"):
-            try:
-                _tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-                if _tu:
-                    # C24 29.7.2026 (krok 5-kód): doplněný úsek rovnou do vyroba_work
-                    # (ne work_alloc). Vazba att_entry_id=nid, režie = zakazka_ref='Rezie'
-                    # (pref už je 'Rezie' pro overhead), denorm názvy joinem v přehledech.
-                    s.execute(_t(
-                        "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
-                        "zakazka_ref,cinnost_id,hodiny,source_system,att_entry_id,created_at,updated_at) "
-                        "VALUES (:t,:u,"
-                        "(SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=:u AND e.tenant_id=:t AND e.cislo_zam IS NOT NULL LIMIT 1),"
-                        ":d,CAST(:ns AS timestamptz),CAST(:ne AS timestamptz),"
-                        ":pr,(SELECT id FROM tenant.vyroba_cinnost WHERE id=:ci LIMIT 1),:h,'manual_fix',:aid,now(),now())"),
-                        {"t": _ATT_TENANT, "u": _tu, "d": day.isoformat(),
-                         "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-                         "pr": pref, "ci": cin_add, "h": hrs, "aid": nid})
-                    # C24 30.7.2026: po založení položky srovná den KANONICKÁ KASKÁDA
-                    # (dedup/ořez/životní cyklus vůči všem platným úsekům). Nově založená
-                    # položka kryje nový úsek → kaskáda ji nechá, jen uklidí okolí.
-                    _att_sync_vyroba_work(s, emp, day)
-            except Exception:
-                # Jirka 20.7.2026: nemlčet — bez segmentu jsou hodiny v docházce,
-                # ale ve výkazu/vytížení chybí. Musí být vidět v logu i v auditu.
-                logger.error("att fix/add: založení vyroba_work segmentu selhalo (entry=%s, emp=%s, zakazka=%s)",
-                             nid, emp, pref, exc_info=True)
-                _wa_add_fail = True
-        _att_fix_audit(s, "add", nid, emp, uid, actor,
-                       new_note=(tcode + " " + zac + "–" + kon),
-                       detail=reason + (" | ⚠ úsek (vyroba_work) NEzaložen — výkaz může nesedět"
-                                        if locals().get("_wa_add_fail") else ""),
-                       old_date=day.isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Doplnění docházky",
-                        actor + " doplnil(a) do tvé docházky " + day.strftime("%d.%m.") + " záznam "
-                        + zac + "–" + kon + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        _att_automat_recalc_day(emp, day)   # doplnění do fondu po zásahu (20.7.2026)
-        return JSONResponse({"ok": True, "id": nid, "hours": hrs})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_add", uid,
+                         (body or {}).get("uid"), (body or {}).get("zac"), (body or {}).get("kon"),
+                         (body or {}).get("type_code"), (body or {}).get("cinnost_id"), (body or {}).get("project_ref"),
+                         (body or {}).get("reason"), (body or {}).get("day"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/fix/void")
 async def att_fix_void(req: Request) -> JSONResponse:
     """Storno omylného záznamu editorem (supersede, nikdy DELETE)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    if not eid:
-        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod storna je povinný."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        row = s.execute(_t(
-            "SELECT e.employee_id, e.entry_date, COALESCE(to_char(e.started_at,'HH24:MI'),'?'), "
-            "       COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), e.status, COALESCE(e.source_system,''), et.label, "
-            "       e.started_at, e.ended_at "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.id=:i AND e.tenant_id=:t"),
-            {"i": eid, "t": _ATT_TENANT}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        if row[4] == "superseded":
-            return JSONResponse({"ok": False, "error": "Záznam už je zneplatněný."})
-        # Jirka 30.7.2026 (schválila Marti-AI msg 11842): záznamy natažené ze staré
-        # Centrály (source_system='centrala1') UŽ JDE opravit i tady — do 30.7. to nešlo,
-        # protože synchronizace opravu do 5 minut přepsala zpátky. Teď ji chrání
-        # att_entry.local_lock, který se níže nastaví při zneplatnění. ÚZCE jen 'centrala1';
-        # ostatní zdroje (ec_real, absence_req) zůstávají zamítnuté, dokud o ně někdo
-        # nepožádá s konkrétním důvodem (verdikt Marti-AI).
-        # Peťa 30.7.2026 — POŽÁDÁNO S DŮVODEM (podmínka Marti-AI z 30.7. byla, že se
-        # ostatní zdroje otevřou, „až o ně někdo požádá s konkrétním důvodem"):
-        # `absence_req` se povoluje, protože schválený HOME OFFICE se propisoval do
-        # docházky jako celodenní blok, ačkoli podle pravidla firmy je home office ve
-        # Správě docházky JEN INFORMACE („všechno se schvalovalo, ale pořád platilo,
-        # že HO ve správě byla jen informace"). Vznikaly tím překryvy s reálným
-        # píchnutím — doloženo u Marešové 29.6., Zemana 10.7., Hladíkové 16.7.
-        # Editor musí mít jak ten blok odstranit. Zbylé zdroje (ec_real…) dál zamítáme.
-        if row[5] and row[5] not in ("centrala1", "absence_req"):
-            return JSONResponse({"ok": False, "error": "Záznam vlastní jiný zdroj (" + str(row[5]) + ") — tady ho opravit nelze."})
-        # Tvrdý zámek i pro držitele zámku — viz komentář u fix/entry.
-        if _att_period_locked(s, row[1]):
-            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak stornovat a zase zamknout."}, status_code=409)
-        emp = int(row[0])
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
-        if _emps is not None and emp not in _emps:
-            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-        actor = _user_jmeno(s, uid)
-        desc = (row[6] or "") + " " + row[2] + "–" + row[3]
-        # local_lock=true → synchronizace ze staré Centrály tenhle řádek už nesmí
-        # přepsat ani smazat. Bez toho by u záznamu z Centrály `_sync_ec_dochazka_recent`
-        # do 5 minut přepsal status zpátky z EC a zneplatněný záznam OŽIL — a kdyby vedle
-        # něj už byla opravená verze, vznikl by den se DVĚMA platnými záznamy = dvojité
-        # hodiny do mzdových podkladů. Marti-AI msg 11842, Jirka 30.7.2026.
-        # Řádek se tím natrvalo rozejde se starou Centrálou — vědomě přijato.
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, local_lock=true, "
-            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
-            "WHERE id=:i"),
-            {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
-        # POZOR — navázanou ŽÁDOST tady SCHVÁLNĚ NERUŠÍME (Peťa 30.7.2026:
-        # „tu žádost tam zatím necháme, ale musíme to smazat z docházky").
-        # Storno v Opravách řeší jen docházkový záznam; žádost zůstane ve Správě
-        # docházky jako informace (u home office je to celý smysl — HO je ohlášení,
-        # ne docházka). Kdo sem bude sahat: nedoplňovat rušení žádosti bez Peti.
-        # C24 30.7.2026: storno sjednoceno pod KANONICKOU KASKÁDU
-        # _att_sync_vyroba_work (G2007 doc-dochazka-att-entry-vyroba-work-kaskada) —
-        # „jeden zdroj pravdy". Nejdřív vždy zneplatníme položky vlastní stornovanému
-        # úseku (pevná vazba att_entry_id=eid), pak den srovná kaskáda: co po stornu
-        # nekryje žádný platný úsek → is_active=false, co kryje jiný platný úsek →
-        # připne se k němu (reassign/dedup/ořez). Nahrazuje dřívější minutový fallback
-        # (kaskáda řeší i řádky bez vazby přes časový překryv). Best-effort — nikdy
-        # nesmí shodit storno (Marti-AI 23.7.2026 + Jirka 24.7.2026).
-        try:
-            s.execute(_t(
-                "UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
-                "WHERE tenant_id=:t AND att_entry_id=:i AND is_active=true"),
-                {"i": eid, "t": _ATT_TENANT})
-            _att_sync_vyroba_work(s, emp, row[1])
-        except Exception:
-            logger.error("att fix/void: kaskáda vyroba_work selhala (entry=%s, emp=%s)",
-                         eid, emp, exc_info=True)
-        # Peťa 22.7.2026: po stornu anomálii NEVYŘEŠOVAT — ať zůstane ve frontě zeleně
-        # „opraveno" s tlačítkem „Hotovo — z fronty" (maže se až odkliknutím). Viz fix/entry.
-        _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=desc.strip(),
-                       detail=reason, old_date=row[1].isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Storno záznamu docházky",
-                        actor + " stornoval(a) v tvé docházce " + row[1].strftime("%d.%m.")
-                        + " záznam " + desc.strip() + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        # Jirka 10.7.: storno přerušení (odchod/omyl) může nechat den rozstřižený —
-        # když na sebe okolní záznamy navazují a mají STEJNÝ typ i zakázku, nabídni
-        # sloučení (UI se zeptá, sešití dělá /fix/merge).
-        offer = _att_fix_merge_candidate(s, emp, row[1], row[7], row[8], eid)
-        s.commit()
-        _att_automat_recalc_day(emp, row[1])   # doplnění do fondu po zásahu (20.7.2026)
-        return JSONResponse({"ok": True, "merge_offer": offer})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_void", uid, (body or {}).get("id"), (body or {}).get("reason"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 def _att_recompute_header_from_items(s, att_id):
@@ -21660,156 +21280,17 @@ async def att_fix_polozka(req: Request) -> JSONResponse:
     se řeší na položkách. Povinný důvod, audit + notifikace dotčenému. Kombinuje se
     s kanonickou kaskádou hlavička→položky (needituje ji)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt, timedelta as _td
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        wid = int((body or {}).get("id") or 0)
-    except Exception:
-        wid = 0
-    action = str((body or {}).get("action") or "edit").strip().lower()
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    if not wid:
-        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod je povinný."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        w = s.execute(_t(
-            "SELECT w.id, w.user_id, w.datum, w.od, w.konec, w.att_entry_id, "
-            "       COALESCE(w.zakazka_ref,''), w.cinnost_id, w.is_active, COALESCE(w.source_system,''), "
-            "       to_char(w.od,'HH24:MI'), COALESCE(to_char(w.konec,'HH24:MI'),'…') "
-            "FROM tenant.vyroba_work w WHERE w.id=:i AND w.tenant_id=:t"),
-            {"i": wid, "t": _ATT_TENANT}).first()
-        if not w:
-            return JSONResponse({"ok": False, "error": "Položka nenalezena."})
-        if not w[8]:
-            return JSONResponse({"ok": False, "error": "Položka už je zneplatněná."})
-        if not w[5]:
-            return JSONResponse({"ok": False, "error": "Položka bez vazby na docházkový záznam — oprav v Docházce new."})
-        if w[9] == "centrala1":
-            return JSONResponse({"ok": False, "error": "Položka vlastní stará Centrála — oprav ji v Centrále, sem se přezrcadlí."})
-        att_id = int(w[5])
-        # hlavička kvůli působnosti, zámku měsíce a dni; sloužit musí i pro přepočet
-        h = s.execute(_t(
-            "SELECT e.employee_id, e.entry_date, e.status "
-            "FROM tenant.att_entry e WHERE e.id=:a AND e.tenant_id=:t"),
-            {"a": att_id, "t": _ATT_TENANT}).first()
-        if not h:
-            return JSONResponse({"ok": False, "error": "Hlavička nenalezena."})
-        if h[2] == "superseded":
-            return JSONResponse({"ok": False, "error": "Záznam už byl nahrazen novější opravou — obnov přehled."})
-        emp = int(h[0])
-        den = h[1]
-        if _att_period_locked(s, den):
-            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak opravit a zase zamknout."}, status_code=409)
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
-        if _emps is not None and emp not in _emps:
-            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-        actor = _user_jmeno(s, uid)
-        old_desc = (w[6] or "—") + " " + w[10] + "–" + w[11]
-
-        # ── STORNO POLOŽKY ───────────────────────────────────────────────────
-        if action == "void":
-            s.execute(_t("UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
-                         "WHERE id=:i AND tenant_id=:t"), {"i": wid, "t": _ATT_TENANT})
-            _att_recompute_header_from_items(s, att_id)
-            _att_fix_audit(s, "polozka_void", att_id, emp, uid, actor,
-                           old_note=old_desc.strip(),
-                           detail=reason + " | položka #" + str(wid), old_date=den.isoformat())
-            _att_fix_notify(s, emp, uid, actor, "🛠 Storno položky rozpadu",
-                            actor + " stornoval(a) v tvé docházce " + den.strftime("%d.%m.")
-                            + " položku " + old_desc.strip() + " (" + reason + "). "
-                            "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-            s.commit()
-            _att_automat_recalc_day(emp, den)
-            return JSONResponse({"ok": True})
-
-        # ── OPRAVA POLOŽKY (čas / zakázka / činnost) ─────────────────────────
-        zac = _att_fix_parse_hhmm((body or {}).get("od"))
-        kon = _att_fix_parse_hhmm((body or {}).get("konec"))
-        if not (zac and kon):
-            return JSONResponse({"ok": False, "error": "Zadej platné časy od–do (HH:MM)."})
-        pref_sent = isinstance(body, dict) and ("project_ref" in body)
-        pref_new = (str((body or {}).get("project_ref") or "").strip()[:40] or None) if pref_sent else None
-        try:
-            cin_new = int((body or {}).get("cinnost_id") or 0) or None
-        except Exception:
-            cin_new = None
-        new_start = _dt.combine(den, _dt.strptime(zac, "%H:%M").time())
-        new_end = _dt.combine(den, _dt.strptime(kon, "%H:%M").time())
-        if new_end <= new_start:
-            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
-        if (new_end - new_start) > _td(hours=20):
-            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
-        # 1) položka se nesmí překrýt s JINOU aktivní položkou téhož člověka/dne (dvojí počítání)
-        ovl_p = s.execute(_t(
-            "SELECT to_char(w.od,'HH24:MI')||'–'||COALESCE(to_char(w.konec,'HH24:MI'),'…') "
-            "FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d "
-            "  AND w.id<>:i AND w.is_active=true AND w.konec IS NOT NULL "
-            "  AND w.od < CAST(:ne AS timestamptz) AND w.konec > CAST(:ns AS timestamptz) LIMIT 1"),
-            {"t": _ATT_TENANT, "u": w[1], "d": den.isoformat(), "i": wid,
-             "ne": new_end.isoformat(sep=" "), "ns": new_start.isoformat(sep=" ")}).scalar()
-        if ovl_p:
-            return JSONResponse({"ok": False, "error": "Nové časy položky se překrývají s jinou položkou (" + str(ovl_p) + ")."})
-        # 2) zakázka: validace píchatelnosti (Rezie povolena bez kontroly)
-        pref_final = w[6] or None
-        if pref_sent:
-            if pref_new and _norm_zakazka(pref_new) != _REZIE_REF:
-                zk = s.execute(_t("SELECT 1 FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
-                               {"t": _ATT_TENANT, "c": pref_new}).first()
-                if not zk:
-                    return JSONResponse({"ok": False, "error": "Zakázka " + pref_new + " není píchatelná / neexistuje."})
-            pref_final = _norm_zakazka(pref_new) if pref_new else None
-        # 3) činnost: validace aktivní
-        cin_final = w[7]
-        if cin_new:
-            _cn = s.execute(_t("SELECT 1 FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"),
-                            {"c": cin_new}).first()
-            if not _cn:
-                return JSONResponse({"ok": False, "error": "Neznámá/neaktivní činnost."})
-            cin_final = cin_new
-        hrs = round((new_end - new_start).total_seconds() / 3600.0, 3)
-        s.execute(_t(
-            "UPDATE tenant.vyroba_work SET od=CAST(:ns AS timestamptz), konec=CAST(:ne AS timestamptz), "
-            "hodiny=:h, zakazka_ref=:zk, cinnost_id=:ci, updated_at=now() "
-            "WHERE id=:i AND tenant_id=:t"),
-            {"ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "), "h": hrs,
-             "zk": pref_final, "ci": cin_final, "i": wid, "t": _ATT_TENANT})
-        # přepočet hlavičky z položek (obálka + hodiny)
-        _att_recompute_header_from_items(s, att_id)
-        # obálka hlavičky se po přepočtu nesmí překrýt se sousedním záznamem (mzdy)
-        env = s.execute(_t("SELECT started_at, ended_at FROM tenant.att_entry WHERE id=:a AND tenant_id=:t"),
-                        {"a": att_id, "t": _ATT_TENANT}).first()
-        if env and env[0] is not None and env[1] is not None:
-            clash = _att_fix_overlap(s, emp, env[0], env[1], att_id)
-            if clash:
-                s.rollback()
-                return JSONResponse({"ok": False, "error": "Po úpravě by úsek přesáhl do sousedního záznamu (" + str(clash) + ") — uprav nejdřív ten."})
-        _att_fix_audit(s, "polozka_fix", att_id, emp, uid, actor,
-                       old_note=old_desc.strip(),
-                       new_note=((pref_final or "—") + " " + zac + "–" + kon),
-                       detail=reason + " | položka #" + str(wid), old_date=den.isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Oprava položky rozpadu",
-                        actor + " upravil(a) v tvé docházce " + den.strftime("%d.%m.") + ": "
-                        + old_desc.strip() + " → " + (pref_final or "—") + " " + zac + "–" + kon
-                        + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        _att_automat_recalc_day(emp, den)
-        return JSONResponse({"ok": True, "hours": hrs})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_polozka", uid,
+                         (body or {}).get("id"), (body or {}).get("action"), (body or {}).get("reason"),
+                         (body or {}).get("od"), (body or {}).get("konec"), (body or {}).get("project_ref"),
+                         isinstance(body, dict) and ("project_ref" in body), (body or {}).get("cinnost_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 def _att_fix_merge_candidate(s, emp, day, x_start, x_end, exclude_id):
@@ -21824,114 +21305,14 @@ async def att_fix_merge(req: Request) -> JSONResponse:
     zneplatní, A převezme jeho konec (běžící B → A se znovu otevře jako běžící).
     Jen při přesné shodě typu i zakázky. Auditované, dotčený dostane notifikaci."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        a_id = int((body or {}).get("a_id") or 0)
-        b_id = int((body or {}).get("b_id") or 0)
-    except Exception:
-        a_id = b_id = 0
-    reason = str((body or {}).get("reason") or "sloučení navazujících záznamů po stornu").strip()[:300]
-    if not (a_id and b_id) or a_id == b_id:
-        return JSONResponse({"ok": False, "error": "missing_ids"}, status_code=400)
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = {}
-        for rid in (a_id, b_id):
-            rows[rid] = s.execute(_t(
-                "SELECT e.id, e.employee_id, e.entry_date, e.started_at, e.ended_at, "
-                "       e.entry_type_id, COALESCE(e.project_ref,''), COALESCE(e.break_minutes,0), "
-                "       e.status, COALESCE(e.source_system,''), e.is_active, et.label, e.project_ref "
-                "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-                "WHERE e.id=:i AND e.tenant_id=:t"), {"i": rid, "t": _ATT_TENANT}).first()
-        A, B = rows[a_id], rows[b_id]
-        if not (A and B):
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        if A[1] != B[1]:
-            return JSONResponse({"ok": False, "error": "Záznamy nepatří stejné osobě."})
-        if A[8] == "superseded" or B[8] == "superseded":
-            return JSONResponse({"ok": False, "error": "Jeden ze záznamů už je zneplatněný."})
-        if A[9] or B[9]:
-            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — sloučení tady nejde."})
-        if A[5] != B[5] or A[6] != B[6]:
-            return JSONResponse({"ok": False, "error": "Záznamy nemají stejný typ a zakázku — neslučuji."})
-        if A[4] is None or B[3] is None:
-            return JSONResponse({"ok": False, "error": "Chybí časy pro sešití."})
-        gap = (B[3] - A[4]).total_seconds()
-        if gap < -60 or gap > 900:
-            return JSONResponse({"ok": False, "error": "Záznamy na sebe nenavazují (mezera přes 15 min)."})
-        if _att_period_locked(s, A[2]):
-            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány)."}, status_code=409)
-        emp = int(A[1])
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
-        if _emps is not None and emp not in _emps:
-            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-        actor = _user_jmeno(s, uid)
-        b_running = bool(B[10]) and B[4] is None
-        brk = int(A[7]) + int(B[7])
-        if b_running:
-            new_end = None
-            hrs = None
-        else:
-            new_end = B[4]
-            hrs = round(max((B[4] - A[3]).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
-        a_zac = A[3].strftime("%H:%M")
-        a_kon = A[4].strftime("%H:%M")
-        b_kon = B[4].strftime("%H:%M") if B[4] is not None else "…"
-        nn = "🛠 SLOUČENO (" + actor + "): " + reason + " (navázán #" + str(b_id) + ", původně do " + a_kon + ")"
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET ended_at=CAST(:ne AS timestamp), is_active=:ia, hours=:h, "
-            "break_minutes=:b, note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, "
-            "updated_at=now() WHERE id=:i"),
-            {"ne": (new_end.isoformat(sep=" ") if new_end is not None else None),
-             "ia": b_running, "h": hrs, "b": brk, "nn": nn, "i": a_id})
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
-            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
-            "WHERE id=:i"),
-            {"i": b_id, "nn": "sloučeno do #" + str(a_id) + " (" + actor + ")"})
-        # C24 30.7.2026: sešití položek vyroba_work přebírá KANONICKÁ KASKÁDA
-        # _att_sync_vyroba_work — A je po sloučení jeden platný úsek, B je superseded;
-        # kaskáda položky A i B nad novým rozsahem A připne k A, ořízne a sloučí do spanu
-        # (stejná zakázka+činnost). U BĚŽÍCÍHO sloučení (A se znovu otevřela, konec NULL)
-        # kaskáda úsek A míjí (chybí konec) → běžící položku B přepneme pod A ručně, ať
-        # „Makat" jede dál (zbytek dorovná kaskáda po zavření). Best-effort.
-        try:
-            _att_sync_vyroba_work(s, emp, A[2])
-            if b_running:
-                s.execute(_t(
-                    "UPDATE tenant.vyroba_work SET att_entry_id=:a, updated_at=now() "
-                    "WHERE tenant_id=:t AND att_entry_id=:b AND is_active=true AND konec IS NULL"),
-                    {"t": _ATT_TENANT, "a": a_id, "b": b_id})
-        except Exception:
-            logger.error("att fix/merge: kaskáda vyroba_work selhala (a=%s, b=%s)", a_id, b_id, exc_info=True)
-        # Peťa 22.7.2026: po sloučení anomálii NEVYŘEŠOVAT — zůstane ve frontě zeleně
-        # „opraveno" a maže se až tlačítkem „Hotovo — z fronty". Viz fix/entry.
-        _att_fix_audit(s, "merge", a_id, emp, uid, actor,
-                       old_note=(A[11] or "") + " " + a_zac + "–" + a_kon + " + " + B[3].strftime("%H:%M") + "–" + b_kon,
-                       new_note=(A[11] or "") + " " + a_zac + "–" + (new_end.strftime("%H:%M") if new_end else "běží"),
-                       detail=reason + " | sloučen #" + str(b_id) + " do #" + str(a_id),
-                       old_date=A[2].isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Sloučení záznamů docházky",
-                        actor + " sloučil(a) v tvé docházce " + A[2].strftime("%d.%m.")
-                        + " navazující záznamy do jednoho: " + (A[11] or "") + " " + a_zac + "–"
-                        + (new_end.strftime("%H:%M") if new_end else "běží") + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        _att_automat_recalc_day(emp, A[2])   # doplnění do fondu po zásahu (20.7.2026)
-        return JSONResponse({"ok": True, "id": a_id, "running": b_running})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_merge", uid, (body or {}).get("a_id"), (body or {}).get("b_id"), (body or {}).get("reason"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/fix/resolve")
@@ -24786,178 +24167,9 @@ def _vw_recalc_hodiny(s, uid, day) -> None:
 # dry_run=True nic nezapisuje, jen vrátí plán (pro DRY-RUN ověření). Vždy vrací dict
 # se souhrnem změn. best-effort volající si chytá výjimky sám (nesmí shodit fix).
 def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=True):
-    from sqlalchemy import text as _t
-    den_s = den.isoformat() if hasattr(den, "isoformat") else str(den)[:10]
-    uid = s.execute(_t(
-        "SELECT user_id FROM tenant.att_employee WHERE id=:e AND tenant_id=:t"),
-        {"e": employee_id, "t": _ATT_TENANT}).scalar()
-    plan = {"employee_id": employee_id, "user_id": uid, "den": den_s,
-            "deactivate": [], "clip": [], "dedup_off": [], "create": [],
-            "skip_exists": [], "segs": 0, "rows": 0}
-    if not uid:
-        return plan
-    # 1) platné úseky work/overhead/homeoffice s časy
-    # sg[5] = konec dopsal automat o půlnoci (zapomenutý odchod) — viz níže bod 5
-    segs = s.execute(_t(
-        "SELECT e.id, et.code, e.started_at, e.ended_at, e.project_ref, "
-        "       (COALESCE(e.note,'') ILIKE '%%auto-odhlášení%%' "
-        "        AND to_char(e.ended_at,'HH24:MI') = '23:59') AS auto_konec "
-        "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-        "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d "
-        "  AND e.status <> 'superseded' "
-        "  AND et.code IN ('work','overhead','homeoffice') "
-        "  AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
-        "ORDER BY e.started_at"),
-        {"t": _ATT_TENANT, "e": employee_id, "d": den_s}).fetchall()
-    # 2) aktivní naše položky dne (ne EC agregát, ne běžící)
-    rows = s.execute(_t(
-        "SELECT w.id, w.od, w.konec, w.zakazka_ref, w.cinnost_id, w.att_entry_id "
-        "FROM tenant.vyroba_work w "
-        "WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d "
-        "  AND w.is_active=true AND w.konec IS NOT NULL "
-        "  AND COALESCE(w.source_system,'') <> 'centrala1' "
-        "ORDER BY w.od, w.id"),
-        {"t": _ATT_TENANT, "u": uid, "d": den_s}).fetchall()
-    plan["segs"] = len(segs)
-    plan["rows"] = len(rows)
-    if not segs and not rows:
-        return plan
-
-    def _ovl(a_od, a_kon, s_od, s_kon):
-        lo = a_od if a_od > s_od else s_od
-        hi = a_kon if a_kon < s_kon else s_kon
-        return (hi - lo).total_seconds() if hi > lo else 0.0
-
-    # „settled" = den je uzavřený (žádný BĚŽÍCÍ platný úsek). Když někdo zrovna maká
-    # (běžící work/overhead/homeoffice bez konce), běžíme konzervativně: NEdeaktivujeme
-    # nekryté řádky a NEzakládáme placeholdery (běžící úsek je z segs vyloučen kvůli
-    # chybějícímu konci → jinak by kaskáda omylem shodila zavřené položky živého dne).
-    # Ořez a dedup zavřených položek nad zavřenými úseky běží pořád (bezpečné).
-    _run = s.execute(_t(
-        "SELECT 1 FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-        "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d AND e.status<>'superseded' "
-        "  AND et.code IN ('work','overhead','homeoffice') "
-        "  AND e.started_at IS NOT NULL AND e.ended_at IS NULL LIMIT 1"),
-        {"t": _ATT_TENANT, "e": employee_id, "d": den_s}).first()
-    settled = _run is None
-    plan["settled"] = settled
-
-    seg_by_id = {sg[0]: sg for sg in segs}
-    # přiřazení řádku k úseku s největším překryvem (úseky se nepřekrývají navzájem)
-    assign = {}
-    for w in rows:
-        best = None
-        best_ov = 0.0
-        for sg in segs:
-            ov = _ovl(w[1], w[2], sg[2], sg[3])
-            if ov > best_ov:
-                best_ov = ov
-                best = sg
-        if best is None:
-            if settled:
-                plan["deactivate"].append(w[0])      # 2) bez překryvu → off (jen uzavřený den)
-        else:
-            assign[w[0]] = best[0]
-    # 3)+4) přiřazené řádky → per úsek, seřaď dle času a slučuj JEN SOUVISLÉ běhy stejné
-    # (zakázka, činnost). Nesouvislý běh (mezi je jiná činnost/zakázka) se neslučuje —
-    # span by ji jinak překryl a zdvojil hodiny. Ořízne se do úseku, přepočte hodiny.
-    by_seg = {}
-    for w in rows:
-        if w[0] in assign:
-            by_seg.setdefault(assign[w[0]], []).append(w)
-    covered = set()
-    for seg_id, lst in by_seg.items():
-        covered.add(seg_id)
-        sg = seg_by_id[seg_id]
-        lst.sort(key=lambda w: (w[1], w[0]))     # dle od
-        runs = []
-        for w in lst:
-            key = ((w[3] or None), w[4])
-            if runs and runs[-1]["key"] == key:
-                r = runs[-1]
-                r["od"] = min(r["od"], w[1])
-                r["konec"] = max(r["konec"], w[2])
-                plan["dedup_off"].append(w[0])   # 4) sousední duplicita → off
-            else:
-                runs.append({"keep": w, "od": w[1], "konec": w[2], "key": key})
-        # 5b) VYPLŇ OKRAJE ÚSEKU (Kristý 30.7.2026): když oprava prodlouží úsek za
-        # poslední/před první nap. položku, dorovnej první položku k začátku úseku a
-        # poslední (dle max konec) k jeho konci → rozpad na zakázky sedí s hlavičkou
-        # (Docházka new = Opravy), přidaný čas připadne na krajní zakázku. Vnitřní
-        # mezery mezi různými činnostmi se NEvyplňují (nejednoznačné, komu patří).
-        if runs:
-            runs[0]["od"] = sg[2]
-            max(runs, key=lambda r: r["konec"])["konec"] = sg[3]
-        for r in runs:
-            keep = r["keep"]
-            new_od = r["od"] if r["od"] > sg[2] else sg[2]
-            new_kon = r["konec"] if r["konec"] < sg[3] else sg[3]
-            # jen skutečná změna (no-op řádky se nezapisují — čistý souhrn backfillu)
-            if new_od != keep[1] or new_kon != keep[2] or seg_id != keep[5]:
-                plan["clip"].append({"id": keep[0], "att": seg_id,
-                                     "od": new_od, "konec": new_kon})
-    # 5) platný úsek bez pokrytí → prázdný řádek (jen uzavřený den; create_missing=False
-    #    ho vypne — backfill nechce zakládat placeholdery lidem bez rozpadu na zakázky)
-    if settled and create_missing:
-        for sg in segs:
-            if sg[0] in covered:
-                continue
-            # POJISTKA (Claude-26 / Peťa 31.7.2026): dotaz na „naše" položky výše
-            # schválně vynechává source_system='centrala1', takže u lidí, kteří píchají
-            # na tabletu staré Centrály, vypadá KAŽDÝ úsek jako nepokrytý → založila se
-            # DRUHÁ kopie k řádku, který už existoval. Reálně: Jiří Hájek 13.7.2026,
-            # vyroba_work 15095/15096 (source 'sync') = duplicity k 12692/12738
-            # ('centrala1') se STEJNÝM att_entry_id i časy → Docházka new 16,90 h
-            # místo 8,45. Před založením proto koukneme na rozpad NAPŘÍČ VŠEMI zdroji.
-            # Řádky z Centrály dál needitujeme (deactivate/clip se jich netýká) — jen
-            # je bereme jako existující pokrytí. Doktrína „plná identita záznamu"
-            # (G2007 doc-dochazka-storno-vyroba-kaskada): raději nezaložit než zdvojit.
-            uz_je = s.execute(_t(
-                "SELECT 1 FROM tenant.vyroba_work "
-                "WHERE tenant_id=:t AND user_id=:u AND datum=:d AND is_active "
-                "  AND konec IS NOT NULL "
-                "  AND (att_entry_id = :a "
-                "       OR (od < CAST(:kon AS timestamptz) AND konec > CAST(:od AS timestamptz))) "
-                "LIMIT 1"),
-                {"t": _ATT_TENANT, "u": uid, "d": den_s, "a": sg[0],
-                 "od": sg[2], "kon": sg[3]}).first()
-            if uz_je is not None:
-                plan["skip_exists"].append(sg[0])
-                continue
-            # ZAPOMENUTÝ ODCHOD (Peťa 31.7.2026): když konec dopsal automat o půlnoci,
-            # NEPŘEBÍRÁME ho — do rozpadu jde řádek se začátkem a PRÁZDNÝM koncem
-            # (hodiny 0), přesně jak to dělala Centrála. Docházka new nemá posuzovat,
-            # co je nesmysl; ukáže rozdělaný záznam a člověk ho v Opravách dorovná.
-            # Jinak by se do podkladů dostalo např. 11,01 h (Beneš 3.7. 12:58–23:59).
-            plan["create"].append({"att": sg[0], "od": sg[2],
-                                   "konec": (None if sg[5] else sg[3]),
-                                   "zak": _norm_zakazka(sg[4]) or None})
-    if dry_run:
-        return plan
-    # ── zápis ────────────────────────────────────────────────────────────────
-    for rid in plan["deactivate"] + plan["dedup_off"]:
-        s.execute(_t("UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
-                     "WHERE tenant_id=:t AND id=:i"), {"t": _ATT_TENANT, "i": rid})
-    for c in plan["clip"]:
-        s.execute(_t(
-            "UPDATE tenant.vyroba_work SET att_entry_id=:a, od=CAST(:od AS timestamptz), "
-            "konec=CAST(:kon AS timestamptz), "
-            "hodiny=round((EXTRACT(EPOCH FROM (CAST(:kon AS timestamptz) - CAST(:od AS timestamptz)))/3600.0)::numeric,3), "
-            "updated_at=now() WHERE tenant_id=:t AND id=:i"),
-            {"t": _ATT_TENANT, "a": c["att"], "od": c["od"], "kon": c["konec"], "i": c["id"]})
-    for c in plan["create"]:
-        s.execute(_t(
-            "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
-            "zakazka_ref,cinnost_id,hodiny,source_system,att_entry_id,created_at,updated_at) "
-            "VALUES (:t,:u,"
-            "(SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=:u AND e.tenant_id=:t AND e.cislo_zam IS NOT NULL LIMIT 1),"
-            ":d,CAST(:od AS timestamptz),CAST(:kon AS timestamptz),:zak,NULL,"
-            # konec NULL (zapomenutý odchod) → 0 h, ne vymyšlený čas do půlnoci
-            "COALESCE(round((EXTRACT(EPOCH FROM (CAST(:kon AS timestamptz) - CAST(:od AS timestamptz)))/3600.0)::numeric,3), 0),"
-            "'sync',:a,now(),now())"),
-            {"t": _ATT_TENANT, "u": uid, "d": den_s, "od": c["od"], "kon": c["konec"],
-             "zak": c["zak"], "a": c["att"]})
-    return plan
+    """DB-driven delegate (g2007.python kod=att_sync_vyroba_work). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_sync_vyroba_work", s, employee_id, den, dry_run=dry_run, create_missing=create_missing)
 
 
 # C24 29.7.2026 (krok 5-kód): mobil „Makat" píše/čte JEDNU položkovou tabulku

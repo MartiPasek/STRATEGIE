@@ -1280,8 +1280,14 @@ function init(){
   $('tab').getElementsByTagName('tbody')[0].addEventListener('click',function(e){
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     var i=parseInt(tr.getAttribute('data-i'),10), now=Date.now();
-    if(_lastClick.i===i && (now-_lastClick.t)<600){_lastClick={i:-1,t:0};openEdit(i);return;}  // dvojklik = otevřít formulář
-    _lastClick={i:i,t:now};
+    // Peťa 31.7.2026: Ctrl/Shift+klik NESMÍ počítat do dvojkliku. Když člověk rychle
+    // dvakrát Ctrl+klikne na tentýž řádek (označit → odznačit), vyhodnotilo se to
+    // jako dvojklik a místo odznačení se otevřel formulář — vypadalo to, že Ctrl
+    // nefunguje. Dvojklik pro otevření platí jen u prostého kliknutí.
+    var _mod=(e.ctrlKey||e.metaKey||e.shiftKey);
+    if(!_mod && _lastClick.i===i && (now-_lastClick.t)<600){
+      _lastClick={i:-1,t:0};openEdit(i);return;}  // dvojklik = otevřít formulář
+    _lastClick=_mod?{i:-1,t:0}:{i:i,t:now};
     var touched={}, oldCUR=CUR;
     // Označování JEN na Ctrl/Shift (jako Přijaté faktury). Prostý klik = jen aktuální řádek (▶).
     if(e.shiftKey && CUR!=null){  // Shift+klik = označit úsek CUR..i JEN po viditelných řádcích (po filtru)
@@ -1298,6 +1304,7 @@ function init(){
     for(var k in touched)paintRow(parseInt(k,10)); updInfo();});
   // Záloha: nativní dvojklik (kdyby překreslení nevadilo) — na jistotu
   $('tab').getElementsByTagName('tbody')[0].addEventListener('dblclick',function(e){
+    if(e.ctrlKey||e.metaKey||e.shiftKey)return;   // viz výše — modifikátor = výběr, ne otevření
     if(e.target.closest('input,select'))return;var tr=e.target.closest('tr[data-i]');if(!tr)return;
     openEdit(parseInt(tr.getAttribute('data-i'),10));});
   ['d_od_d','d_od_t','d_kon_d','d_kon_t'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',recalcH);});

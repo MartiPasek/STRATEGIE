@@ -15104,36 +15104,10 @@ async def att_absence_cancel(req: Request) -> JSONResponse:
 # Fáze 2 (až bude certifikát): ověření identifikátoru + stažení dokumentů +
 # podání NEMPRI přes VREP. Složka + podklad pro účetní = Fáze 1b.
 
-def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr", code="family_care") -> int:
-    """Absence (family_care/sick) → docházka att_entry na každý pracovní den d0..d1 (Po–Pá), idempotentně.
-    **Absenční den = ŽÁDNÉ jiné záznamy** (Marti 28.6.: kdo je na OČR/nemocenské nesmí mít docházku — úklid).
-    Na těch dnech SMAŽE všechny ostatní att_entry (práce/režie/pauza/…) a nechá jen daný absenční typ."""
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code=:c"), {"c": code}).first()
-    if not tr:
-        return 0
-    tid = tr[0]
-    created = 0
-    day = d0
-    while day <= d1:
-        if day.weekday() < 5:
-            # OČR den = jen OČR → smaž vše ostatní (práce/režie/pauza/nenároková/automat…)
-            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e "
-                         "AND entry_date=:d AND entry_type_id<>:et"), {"e": emp, "d": day, "et": tid})
-            res = s.execute(_t(
-                "UPDATE tenant.att_entry SET hours=8, status='pending', source=:src, note=:n, updated_at=now() "
-                "WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
-                {"src": source, "n": note, "e": emp, "d": day, "et": tid})
-            if (res.rowcount or 0) == 0:
-                s.execute(_t(
-                    "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                    "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                    "VALUES (2,:e,:d,:et,8,'pending',:src,:n,false,:u,now(),now())"),
-                    {"e": emp, "d": day, "et": tid, "src": source, "n": note, "u": uid})
-                created += 1
-        day = day + _dt.timedelta(days=1)
-    return created
+def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr", code="family_care"):
+    """DB-driven delegate (g2007.python kod=att_ocr_fill_dochazka). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_ocr_fill_dochazka", s, emp, d0, d1, uid, note, source=source, code=code)
 
 
 _OCR_EXTEND_LAST = [0.0]  # self-gate (1×/hod)
@@ -15188,79 +15162,9 @@ def _ocr_extend_active():
 
 
 def _eneschopenka_to_sick():
-    """AUTOMAT (Marti 28.6.2026): ČSSZ DPN z datovky (tenant.eneschopenka) → registr nemocí
-    (att_sick_case) → docházka (sick). OBECNĚ přes VŠECHNY řádky, párování přes RODNÉ ČÍSLO
-    (ne jméno): emp_rc → cloud Helios TabCisZam.RodCislo → firma+číslo → att_employee.
-    Idempotentní na cislo_dpn=id_pripadu. Uzavřené DPN rovnou naplní docházku za celý rozsah;
-    otevřené dobíhá _ocr_extend_active. Odtud teče do plánu (vytížení) i do monitoru mezd."""
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    created = updated = skipped = filled = 0
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, id_pripadu, emp_rc, datum_od, datum_do, druh_nemoci "
-            "FROM tenant.eneschopenka WHERE tenant_id=2 AND COALESCE(emp_rc,'')<>'' "
-            "AND datum_od IS NOT NULL")).fetchall()
-        for r in rows:
-            dpn = str(r[1] or "").strip()
-            rc = str(r[2]).replace("/", "").replace(" ", "").strip()
-            if not dpn or not rc:
-                skipped += 1
-                continue
-            firma = cislo = None
-            for f, cdb in (("EC", "UCTO_EC"), ("ES", "UCTO_ES")):
-                q = _mssql188_query("SELECT TOP 1 Cislo FROM " + cdb +
-                                    ".dbo.TabCisZam WHERE RodneCisloBezLomitka='" + rc + "'")
-                if q.get("ok") and q.get("rows"):
-                    try:
-                        firma, cislo = f, int(q["rows"][0][0])
-                    except Exception:
-                        firma = cislo = None
-                    if cislo:
-                        break
-            if not cislo:
-                skipped += 1
-                continue
-            emp = s.execute(_t("SELECT id, user_id FROM tenant.att_employee "
-                               "WHERE tenant_id=2 AND cislo_zam=:c LIMIT 1"), {"c": str(cislo)}).first()
-            if not emp:
-                skipped += 1
-                continue
-            eid, uid = emp[0], emp[1]
-            d_od, d_do = r[3], r[4]
-            stav = "ukonceno" if d_do else "probiha"
-            ex = s.execute(_t("SELECT id FROM tenant.att_sick_case WHERE tenant_id=2 AND cislo_dpn=:d"),
-                           {"d": dpn}).first()
-            if ex:
-                s.execute(_t("UPDATE tenant.att_sick_case SET employee_id=:e, user_id=:u, company=:f, "
-                             "datum_od=:od, datum_do=:dd, stav=:st, updated_at=now() WHERE id=:i"),
-                          {"e": eid, "u": uid, "f": firma, "od": d_od, "dd": d_do, "st": stav, "i": ex[0]})
-                updated += 1
-            else:
-                s.execute(_t("INSERT INTO tenant.att_sick_case "
-                             "(tenant_id, employee_id, user_id, company, cislo_dpn, datum_od, datum_do, stav, created_at, updated_at) "
-                             "VALUES (2,:e,:u,:f,:d,:od,:dd,:st, now(), now())"),
-                          {"e": eid, "u": uid, "f": firma, "d": dpn, "od": d_od, "dd": d_do, "st": stav})
-                created += 1
-            # uzavřené DPN → rovnou doplnit docházku za celý rozsah (otevřené dobíhá _ocr_extend_active)
-            try:
-                end = d_do if d_do else _dt.date.today()
-                filled += _ocr_fill_dochazka(s, eid, d_od, end, uid,
-                                             "Nemocenská (DPN " + dpn + ")", "cssz_dpn", "sick")
-            except Exception:
-                pass
-        s.commit()
-    except Exception as _e:
-        try:
-            s.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(_e)[:200]}
-    finally:
-        cm.__exit__(None, None, None)
-    return {"ok": True, "vytvoreno": created, "aktualizovano": updated,
-            "preskoceno": skipped, "dochazka_dnu": filled}
+    """DB-driven delegate (g2007.python kod=att_eneschopenka_to_sick). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_eneschopenka_to_sick")
 
 
 def _ocr_company(s, emp) -> str | None:
@@ -21168,29 +21072,10 @@ def _ec_vypni_dochazku(cislo, actor_uid=None, actor_name=None):
         return (False, str(exc))
 
 
-def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None,
-                actor_uid=None, actor_name=None, approver_uid=None, approver_name=None,
-                via=None, schema="dbo", db_name="DB_EC"):
-    """Append-only audit našich DML zápisů do DB_EC (Marti 19.6.). Nikdy nevyhazuje."""
-    try:
-        from sqlalchemy import text as _t_l
-        import json as _j_l
-        cm, s = _att_session()
-        try:
-            s.execute(_t_l(
-                "INSERT INTO fw.ec_dml_log (db_name,schema_name,table_name,op,pk_where,data,"
-                "actor_user_id,actor_name,approver_user_id,approver_name,via,rows_affected,ok,error) "
-                "VALUES (:db,:sch,:tbl,:op,CAST(:w AS jsonb),CAST(:d AS jsonb),:au,:an,:pu,:pn,:via,:r,:ok,:err)"),
-                {"db": db_name, "sch": schema, "tbl": table, "op": op,
-                 "w": (_j_l.dumps(where, default=str) if where is not None else None),
-                 "d": (_j_l.dumps(data, default=str) if data is not None else None),
-                 "au": actor_uid, "an": actor_name, "pu": approver_uid, "pn": approver_name,
-                 "via": via, "r": int(rows or 0), "ok": bool(ok), "err": error})
-            s.commit()
-        finally:
-            cm.__exit__(None, None, None)
-    except Exception:
-        logger.exception("[ec_dml_log] zápis auditu selhal")
+def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None, actor_uid=None, actor_name=None, approver_uid=None, approver_name=None, via=None, schema="dbo", db_name="DB_EC"):
+    """DB-driven delegate (g2007.python kod=att_ec_dml_log). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_ec_dml_log", table, op, where=where, data=data, rows=rows, ok=ok, error=error, actor_uid=actor_uid, actor_name=actor_name, approver_uid=approver_uid, approver_name=approver_name, via=via, schema=schema, db_name=db_name)
 
 
 def _ec_close_open_shift(cislo, end_ts=None, actor_uid=None, actor_name=None, via="app_checkin"):
@@ -22282,30 +22167,16 @@ def _att_period_locked(s, d):
     return _ereg.call("att_period_locked", s, d)
 
 
-def _att_fix_audit(s, action, entry_id, emp_id, actor_uid, actor_name,
-                   old_note=None, new_note=None, detail=None, old_date=None):
-    from sqlalchemy import text as _t
-    s.execute(_t(
-        "INSERT INTO tenant.att_audit (tenant_id, entry_id, employee_id, action, "
-        "actor_user_id, actor_text, old_entry_date, old_note, new_note, detail, created_at) "
-        "VALUES (:t,:i,:e,:a,:u,:at,CAST(:d AS date),:onn,:nnn,:dt,now())"),
-        {"t": _ATT_TENANT, "i": entry_id, "e": emp_id, "a": action, "u": actor_uid,
-         "at": actor_name, "d": old_date, "onn": old_note, "nnn": new_note, "dt": detail})
+def _att_fix_audit(s, action, entry_id, emp_id, actor_uid, actor_name, old_note=None, new_note=None, detail=None, old_date=None):
+    """DB-driven delegate (g2007.python kod=att_fix_audit). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_audit", s, action, entry_id, emp_id, actor_uid, actor_name, old_note=old_note, new_note=new_note, detail=detail, old_date=old_date)
 
 
 def _att_fix_notify(s, emp_id, actor_uid, actor_name, title, msg):
-    """Notifikace dotčenému (fw.mobile_command). Sám sobě editor nenotifikuje."""
-    from sqlalchemy import text as _t
-    try:
-        r = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp_id}).first()
-        emp_uid = int(r[0]) if (r and r[0]) else None
-        if emp_uid and emp_uid != actor_uid:
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, :by)"),
-                {"uid": emp_uid, "ti": title, "msg": msg[:600], "by": actor_uid})
-    except Exception:
-        pass
+    """DB-driven delegate (g2007.python kod=att_fix_notify). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_fix_notify", s, emp_id, actor_uid, actor_name, title, msg)
 
 
 @api_router.get("/app/attendance/fix/allowed")
@@ -28502,244 +28373,25 @@ def _maybe_sync_ec_dochazka():
 
 
 def _do_att_action(payload, uid, decision):
-    """Reakce na interaktivní docházkovou notifikaci (Ano/Ne). Marti 26.6.2026.
-    payload.att_action: 'checkin' (Ano = píchni příchod) / 'checkout' (Ano = odhlásit).
-    Akce běží jen při 'accept' (Ano); 'reject' (Ne) = nech být."""
-    from sqlalchemy import text as _t
-    act = (payload or {}).get("att_action") if isinstance(payload, dict) else None
-    if not act:
-        return None
-    # Semantika tlačítek: checkin/checkout se provádí na Ano (accept);
-    # resume_work (přetažená pauza „ještě na pauze? Ano/Ne") se provádí na Ne (reject).
-    do_it = ((decision == "accept" and act in ("checkin", "checkout"))
-             or (decision == "reject" and act == "resume_work"))
-    if not do_it:
-        return {"att_action": act, "done": False, "note": "ponecháno"}
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        if act == "checkin":
-            ex = s.execute(_t(
-                "SELECT 1 FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e "
-                "AND entry_date=current_date AND started_at IS NOT NULL AND is_active=true "
-                "AND status NOT IN ('superseded') LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
-            if ex:
-                s.commit()
-                return {"att_action": "checkin", "done": False, "note": "už máš otevřenou směnu"}
-            wt = _att_work_type(s)
-            s.execute(_t(
-                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-                "status,source,is_active,note,created_by_id,created_at,updated_at) "
-                "VALUES (:t,:e,current_date,:ty,now(),'pending','notif_confirm',true,:n,:u,now(),now())"),
-                {"t": _ATT_TENANT, "e": emp, "ty": wt, "n": "[příchod potvrzen přes notifikaci]", "u": uid})
-            s.commit()
-            return {"att_action": "checkin", "done": True, "note": "příchod píchnut"}
-        if act == "checkout":
-            opn = s.execute(_t(
-                "SELECT id FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e "
-                "AND is_active=true ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
-            if not opn:
-                s.commit()
-                return {"att_action": "checkout", "done": False, "note": "nemáš otevřenou směnu"}
-            s.execute(_t(
-                "UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
-                "hours=round(GREATEST(EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
-                "- COALESCE(break_minutes,0)/60.0, 0)::numeric, 2), "
-                "note=CASE WHEN note IS NULL OR note='' THEN :n ELSE note||' / '||:n END, "
-                "updated_at=now() WHERE id=:id"),
-                {"id": opn[0], "n": "[odhlášeno přes notifikaci]"})
-            s.commit()
-            return {"att_action": "checkout", "done": True, "note": "odhlášeno"}
-        if act == "resume_work":
-            # Ano(=ještě na pauze) řeší kód výš (decision!=accept → ponecháno). Sem se
-            # dostaneme jen při accept; ale u resume je „akce" = Ne. Proto resume_work
-            # provádíme při decision=='reject' (Ne = už pracuju) — viz dispatch.
-            opn = s.execute(_t(
-                "SELECT id FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e "
-                "AND is_active=true ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
-            if not opn:
-                s.commit()
-                return {"att_action": "resume_work", "done": False, "note": "nemáš otevřenou pauzu"}
-            s.execute(_t(
-                "UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
-                "hours=round(GREATEST(EXTRACT(EPOCH FROM (now()-started_at))/3600.0,0)::numeric,2), "
-                "note=CASE WHEN note IS NULL OR note='' THEN :n ELSE note||' / '||:n END, updated_at=now() "
-                "WHERE id=:id"), {"id": opn[0], "n": "[návrat do práce přes notifikaci]"})
-            wt = _att_work_type(s)
-            s.execute(_t(
-                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-                "status,source,is_active,note,created_by_id,created_at,updated_at) "
-                "VALUES (:t,:e,current_date,:ty,now(),'pending','notif_confirm',true,:n,:u,now(),now())"),
-                {"t": _ATT_TENANT, "e": emp, "ty": wt, "n": "[návrat z pauzy přes notifikaci]", "u": uid})
-            s.commit()
-            return {"att_action": "resume_work", "done": True, "note": "vráceno do práce"}
-        return {"att_action": act, "done": False, "note": "neznámá akce"}
-    except Exception as e:
-        try:
-            s.rollback()
-        except Exception:
-            pass
-        return {"att_action": act, "done": False, "error": str(e)[:200]}
-    finally:
-        cm.__exit__(None, None, None)
+    """DB-driven delegate (g2007.python kod=att_do_att_action). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_do_att_action", payload, uid, decision)
 
 
 # Jemné připomenutí dlouhé běžící směny (hlasem Marti-AI) — Marti 9.6.2026.
 _LAST_NUDGE = [0.0]
 
 
-def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3) -> dict:
-    """Lidem, kterým běží směna > `hours` h v kuse, pošle vlídnou notifikaci
-    hlasem Marti-AI: potvrď že makáš, nebo oprav odchod v Docházce. Dedup —
-    nepřipomínat, když už přišla notifikace v posledních `renag_hours` h."""
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    sent = 0
-    try:
-        # SAMO-LÉČENÍ KONZISTENCE (Marti 26.6.2026): záznam s vyplněným ended_at NEMŮŽE být
-        # „aktivní/běžící" — import (source='import', overhead) občas nechá is_active=true
-        # i u zavřeného → tím vznikaly bogus „dlouhá směna" i „zapomenutý odchod". Srovnej.
-        s.execute(_t("UPDATE tenant.att_entry SET is_active=false, updated_at=now() "
-                     "WHERE tenant_id=:t AND is_active=true "
-                     "AND (ended_at IS NOT NULL OR started_at > now())"), {"t": tenant})
-        s.commit()
-        # ROBUSTNOST (Marti 26.6.2026): „když funguje odhlášení po půlnoci, nemůže vzniknout
-        # směna delší než 23 h" → existence 36/50/60h směn = důkaz, že půlnoční job občas
-        # minul okno (deploy/restart). Záchytka: zavři KAŽDOU aktivní směnu z PŘEDCHOZÍHO dne
-        # ke konci jejího dne (23:59), nezávisle na půlnočním okně. Tím žádná směna nepřekročí
-        # ~23 h a zmizí i bogus „dlouhá směna 36h+". day_end (záměrný konec) tiše, bez noty.
-        s.execute(_t(
-            "UPDATE tenant.att_entry e SET "
-            "  ended_at = ((e.started_at AT TIME ZONE 'Europe/Prague')::date + time '23:59') AT TIME ZONE 'Europe/Prague', "
-            "  hours = round(GREATEST(EXTRACT(EPOCH FROM (((e.started_at AT TIME ZONE 'Europe/Prague')::date + time '23:59') AT TIME ZONE 'Europe/Prague' - e.started_at))/3600.0 - COALESCE(e.break_minutes,0)/60.0, 0)::numeric, 2), "
-            "  is_active=false, "
-            "  note = CASE WHEN e.note IS NULL OR e.note='' THEN :n ELSE e.note || ' / ' || :n END, "
-            "  updated_at=now() "
-            "FROM tenant.att_entry_type et "
-            "WHERE et.id=e.entry_type_id AND et.code <> 'day_end' "
-            "  AND e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL AND e.started_at IS NOT NULL "
-            "  AND (e.started_at AT TIME ZONE 'Europe/Prague')::date < (now() AT TIME ZONE 'Europe/Prague')::date"),
-            {"t": tenant, "n": "[auto-odhlášení — záchytka po minutém půlnočním jobu]"})
-        s.commit()
-        rows = s.execute(_t(
-            "SELECT em.user_id, "
-            "  (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
-            "   FROM public.users u WHERE u.id=em.user_id) AS jmeno, "
-            "  round(MAX(EXTRACT(EPOCH FROM (now()-e.started_at))/3600.0)) AS hod "
-            "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id=e.employee_id "
-            "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "LEFT JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
-            "LEFT JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.aktivni=true "
-            "WHERE e.tenant_id=:t AND e.is_active=true AND e.started_at IS NOT NULL "
-            "  AND e.ended_at IS NULL "                 # Marti 26.6.: jen SKUTEČNĚ otevřené (import nech)
-            "  AND et.code IN ('work','homeoffice') AND em.user_id IS NOT NULL "   # jen reálné směny, ne overhead/režie
-            # Marti 26.6.: monitor respektuje KATEGORII — hlídat dlouhou směnu (default ano),
-            # práh hodin dle kategorie (volna_kancelar 16, prescasy 14, pevna 12); bez_automatu=false → vypadne.
-            "  AND COALESCE(k.hlidat_dlouhou_smenu, true) = true "
-            "  AND e.started_at < now() - (COALESCE(k.dlouha_smena_h, :h) * interval '1 hour') "
-            "GROUP BY em.user_id"), {"t": tenant, "h": hours}).fetchall()
-        for r in rows:
-            uid = int(r[0])
-            jm = ((r[1] or "").split(" ")[0]) or "ahoj"
-            hod = int(r[2] or 0)
-            recent = s.execute(_t(
-                "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:u "
-                "AND title LIKE '⏰ Dlouhá směna%%' "
-                "AND created_at > now() - (:rn * interval '1 hour') LIMIT 1"),
-                {"u": uid, "rn": renag_hours}).first()
-            if recent:
-                continue
-            msg = ("Ahoj %s, koukám, že ti směna běží už %s hodin v kuse. 🙂 "
-                   "Vypadá to, že ses možná zapomněl/a odhlásit. Mám tě odhlásit? "
-                   "Ano = odhlásím tě teď (čas pak můžeš upravit v Docházce), "
-                   "Ne = pořád makáš, nech to běžet. — Tvoje Marti") % (jm, hod)
-            # Interaktivní (Marti 26.6.): Ano/Ne → Ano reálně odhlásí (uzavře směnu).
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, payload, created_by) "
-                "VALUES ('mobile', :u, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
-                {"u": uid, "ti": "⏰ Dlouhá směna (%s h)" % hod, "msg": msg,
-                 "pl": '{"att_action":"checkout"}'})
-            sent += 1
-        s.commit()
-        return {"ok": True, "sent": sent}
-    except Exception as exc:
-        try:
-            s.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(exc)}
-    finally:
-        cm.__exit__(None, None, None)
+def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3):
+    """DB-driven delegate (g2007.python kod=att_long_shift_nudge). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_long_shift_nudge", tenant=tenant, hours=hours, renag_hours=renag_hours)
 
 
-def _att_break_overrun_nudge(tenant: int = 2) -> dict:
-    """Interaktivně hlídá přetažené pauzy/oběd/jednání (Marti 26.6.2026). Práh dle note:
-    oběd 40 min, jednání/schůzka/lékař 75 min, ostatní (krátká pauza) 20 min. Když aktivní
-    break job přeteče → claude_confirm „ještě X? Ano/Ne" (Ne = resume_work → vrátí do práce).
-    day_end (záměrný konec dne) se nehlídá. Dedup 20 min."""
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    sent = 0
-    try:
-        rows = s.execute(_t(
-            "SELECT e.id, em.user_id, "
-            "  COALESCE(split_part(NULLIF(TRIM((SELECT first_name FROM public.users u WHERE u.id=em.user_id)),''),' ',1),'ahoj') jm, "
-            "  lower(COALESCE(e.note,'')) note, "
-            "  round(EXTRACT(EPOCH FROM (now()-e.started_at))/60.0) min, "
-            "  COALESCE(k.hlidat_pauzy, false) hp "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "JOIN tenant.att_employee em ON em.id=e.employee_id "
-            "LEFT JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
-            "LEFT JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.aktivni=true "
-            "WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL "
-            "  AND et.code='break' AND em.user_id IS NOT NULL "
-            # Marti 26.6.: jemné prahy (oběd/jednání/pauza) jen u kategorií s hlidat_pauzy.
-            # Marti 29.6.: ALE univerzální tvrdý strop 2 h platí pro VŠECHNY (i bez kategorie,
-            # i OSVČ) — zapomenutá pauza nesmí projít. Filtr proto pryč, rozhoduje práh v Pythonu.
-            "  AND e.started_at < now() - interval '20 minutes' AND e.started_at <= now()"),
-            {"t": tenant}).fetchall()
-        for r in rows:
-            uid2, jm, note, mins, hp = int(r[1]), r[2], (r[3] or ''), int(r[4] or 0), bool(r[5])
-            if hp:
-                # jemné prahy jen u kategorií, co mají hlídání pauz zapnuté
-                if 'oběd' in note or 'obed' in note:
-                    thr, lab = 40, 'na obědě'
-                elif 'jedn' in note or 'schůz' in note or 'schuz' in note or 'porad' in note:
-                    thr, lab = 75, 'na jednání'
-                elif 'lékař' in note or 'lekar' in note:
-                    thr, lab = 75, 'u lékaře'
-                else:
-                    thr, lab = 20, 'na pauze'
-            else:
-                # Marti 29.6.: univerzální tvrdý strop 2 h pro všechny ostatní (i OSVČ).
-                thr, lab = 120, 'na pauze'
-            if mins < thr:
-                continue
-            recent = s.execute(_t(
-                "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:u "
-                "AND title LIKE '⏱ Přetažen%%' AND created_at > now()-interval '20 minutes' LIMIT 1"),
-                {"u": uid2}).first()
-            if recent:
-                continue
-            msg = ("Ahoj %s, koukám, že jsi %s už %s min. Jsi pořád %s, nebo ses zapomněl/a "
-                   "připíchnout zpátky do práce? Ano = pořád %s, Ne = už makám (vrať mě do práce). "
-                   "— Tvoje Marti") % (jm, lab, mins, lab, lab)
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, payload, created_by) "
-                "VALUES ('mobile', :u, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
-                {"u": uid2, "ti": "⏱ Přetažená pauza (%s min)" % mins, "msg": msg,
-                 "pl": '{"att_action":"resume_work"}'})
-            sent += 1
-        s.commit()
-        return {"ok": True, "sent": sent}
-    except Exception as exc:
-        try:
-            s.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(exc)}
-    finally:
-        cm.__exit__(None, None, None)
+def _att_break_overrun_nudge(tenant: int = 2):
+    """DB-driven delegate (g2007.python kod=att_break_overrun_nudge). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_break_overrun_nudge", tenant=tenant)
 
 
 def _att_automat_fond_fill(tenant: int = 2, days_back: int = 14) -> dict:
@@ -28908,155 +28560,10 @@ def _att_automat_fond_odpich(tenant: int = 2, days_back: int = 14) -> dict:
         cm.__exit__(None, None, None)
 
 
-def _att_automat_level_day(tenant: int = 2, days_back: int = 4,
-                           employee_id=None, day=None) -> dict:
-    """DOCHÁZKOVÝ AUTOMAT — denní srovnání na úvazek (Marti 26.6.2026). Sjednocuje
-    dopíchnutí i odpíchnutí do JEDNÉ přesné logiky (stejné jako měsíční dorovnání):
-    reálná přítomnost dne = SLOUČENÉ intervaly presence MINUS pauzy (řeší duplicitní
-    zdroje tablet/mobil, kde se work a overhead časově překrývají). Pak srovná na
-    OSOBNÍ úvazek (engagement úvazek/dny, fallback fond kategorie): pod fond → dopíchne
-    (fond_doplneni, pending), nad fond → přebytek do nenárokové (nenarokova, approved).
-    Jen lidé v kategorii s dopichavat_fond, jen dokončené dny, ne při schválené absenci.
-    Idempotentní: okno se přepočítá (smaž automat joby okna → vlož znovu)."""
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        nt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='nenarokova'"),
-                       {"t": tenant}).scalar()
-        ft = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='fond_doplneni'"),
-                       {"t": tenant}).scalar()
-        if not nt or not ft:
-            return {"ok": False, "error": "typy fond_doplneni/nenarokova chybí"}
-        # Cílený přepočet JEDNOHO dne jednoho člověka (po ručním zásahu do docházky,
-        # Peťa 20.7.2026) vs. původní noční okno posledních `days_back` dnů.
-        # Cílený režim záměrně nemá podmínku `< current_date` — dnešek musí jít
-        # srovnat hned po opravě; že den neběží, hlídá _att_automat_recalc_day.
-        targeted = bool(employee_id and day)
-        p = {"t": tenant, "ft": ft, "nt": nt}
-        if targeted:
-            p["emp"] = int(employee_id)
-            p["day"] = str(day)
-            dcond = " AND e.entry_date = CAST(:day AS date) AND e.employee_id = :emp "
-        else:
-            p["db"] = days_back
-            dcond = (" AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') "
-                     " AND e.entry_date < current_date ")
-        # 1) přepočet okna — smaž stávající automat joby (idempotence)
-        s.execute(_t(
-            "DELETE FROM tenant.att_entry e USING tenant.att_entry_type et "
-            "WHERE et.id=e.entry_type_id AND e.tenant_id=:t AND e.source='automat' "
-            "  AND et.code IN ('fond_doplneni','nenarokova') "
-            + dcond), p)
-        # 2) srovnání dne (merged net minus pauzy, per-osobu fond) — dopíchnutí i odpíchnutí
-        r = s.execute(_t(
-            "WITH iv AS ("
-            "  SELECT e.employee_id, e.entry_date, e.started_at AS s, e.ended_at AS en "
-            "  FROM tenant.att_entry e "
-            "  JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "  JOIN tenant.att_employee em ON em.id=e.employee_id "
-            "  JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
-            "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.dopichavat_fond=true AND k.aktivni=true "
-            "  WHERE e.tenant_id=:t AND et.category='presence' "
-            + dcond +
-            "    AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL AND e.ended_at > e.started_at "
-            "    AND e.status NOT IN ('superseded')), "
-            "ordd AS (SELECT employee_id, entry_date, s, en, "
-            "  max(en) OVER (PARTITION BY employee_id, entry_date ORDER BY s, en "
-            "    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_max FROM iv), "
-            "grp AS (SELECT employee_id, entry_date, s, en, "
-            "  sum(CASE WHEN prev_max IS NULL OR s > prev_max THEN 1 ELSE 0 END) "
-            "    OVER (PARTITION BY employee_id, entry_date ORDER BY s, en) AS g FROM ordd), "
-            "merged AS (SELECT employee_id, entry_date, min(s) AS s, max(en) AS en "
-            "  FROM grp GROUP BY employee_id, entry_date, g), "
-            "pres AS (SELECT employee_id, entry_date, sum(EXTRACT(EPOCH FROM (en - s))/3600.0) AS presence_h "
-            "  FROM merged GROUP BY employee_id, entry_date), "
-            # PAUZY (opraveno Peťa 21.7.2026 — dvě chyby najednou):
-            #  1) sčítaly se i STORNOVANÉ pauzy → odečetlo se víc, než člověk odpočíval;
-            #  2) pauza se odečítala vždy celá, i když leží MIMO pracovní záznam.
-            #     Když je práce rozdělená (09:40–13:09 / pauza / 13:24–16:04), je pauza
-            #     z práce už vynechaná mezerou a druhé odečtení ubere hodiny dvakrát.
-            #  Nově: odečteme jen PRŮNIK pauzy se sloučenou pracovní dobou. Pauza bez
-            #  časů (jen hodiny, typicky import z Centrály) se odečte celá — u ní
-            #  nevíme, kde leží, a předpokládáme, že je uvnitř směny.
-            "brk AS (SELECT q.employee_id, q.entry_date, sum(q.h) AS break_h FROM ("
-            "  SELECT b.employee_id, b.entry_date, "
-            "    GREATEST(EXTRACT(EPOCH FROM (LEAST(b.en,m.en) - GREATEST(b.s,m.s)))/3600.0, 0) AS h "
-            "  FROM (SELECT e.employee_id, e.entry_date, e.started_at AS s, e.ended_at AS en "
-            "        FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "        WHERE e.tenant_id=:t AND et.code='break' AND e.status NOT IN ('superseded') "
-            "          AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL AND e.ended_at > e.started_at "
-            + dcond +
-            "       ) b JOIN merged m ON m.employee_id=b.employee_id AND m.entry_date=b.entry_date "
-            "  UNION ALL "
-            "  SELECT e.employee_id, e.entry_date, COALESCE(e.hours,0) "
-            "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "  WHERE e.tenant_id=:t AND et.code='break' AND e.status NOT IN ('superseded') "
-            "    AND (e.started_at IS NULL OR e.ended_at IS NULL) "
-            + dcond +
-            ") q GROUP BY q.employee_id, q.entry_date), "
-            "fondp AS (SELECT em.id AS employee_id, COALESCE("
-            "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
-            "     FROM tenant.engagement g JOIN tenant.att_employee em2 ON em2.id=g.employee_id "
-            "     LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
-            "     WHERE em2.user_id=em.user_id AND em2.tenant_id=:t AND g.is_current=true AND g.uvazek_tyden_h IS NOT NULL "
-            "     ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
-            "    (SELECT max(k.fond_h_den) FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
-            "     WHERE uk.user_id=em.user_id AND k.dopichavat_fond=true)) AS fond "
-            "  FROM tenant.att_employee em WHERE em.tenant_id=:t), "
-            "netf AS (SELECT p.employee_id, p.entry_date, "
-            "  GREATEST(p.presence_h - COALESCE(b.break_h,0),0) AS net, f.fond "
-            "  FROM pres p LEFT JOIN brk b ON b.employee_id=p.employee_id AND b.entry_date=p.entry_date "
-            "  JOIN fondp f ON f.employee_id=p.employee_id WHERE f.fond IS NOT NULL) "
-            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-            "status,source,is_active,note,created_at,updated_at) "
-            "SELECT :t, nf.employee_id, nf.entry_date, "
-            "  CASE WHEN nf.net < nf.fond THEN :ft ELSE :nt END, "
-            "  round(abs(nf.fond - nf.net)::numeric,2), "
-            "  CASE WHEN nf.net < nf.fond THEN 'pending' ELSE 'approved' END, "
-            "  'automat', false, "
-            "  CASE WHEN nf.net < nf.fond THEN '[automat: doplnění do fondu '||round((nf.fond-nf.net)::numeric,2)||' h]' "
-            "       ELSE '[automat: nad fond '||round((nf.net-nf.fond)::numeric,2)||' h → nenárokové]' END, "
-            "  now(), now() "
-            "FROM netf nf "
-            "WHERE nf.net > 0.1 AND abs(nf.fond - nf.net) >= 0.1 "
-            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type a2 ON a2.id=a.entry_type_id "
-            "     WHERE a.tenant_id=:t AND a.employee_id=nf.employee_id AND a.entry_date=nf.entry_date "
-            "       AND a2.category='absence' AND a.status IN ('pending','approved')) "
-            # O VÍKENDU A O SVÁTKU SE NEDOPLŇUJE (Peťa 21.7.2026). Dřív automat kalendář
-            # vůbec nečetl a počítal i v sobotu/neděli/o svátku s denním fondem 8 h —
-            # kdo si v neděli odpíchl 2 h, dostal dopsáno 6 h „do fondu". Pracovní den
-            # říká tenant.att_calendar_day (plní Kristý). Odpis nad fond (nenárokové)
-            # necháváme běžet i o víkendu — ten hodiny nikomu nepřidává.
-            "  AND (nf.net >= nf.fond OR EXISTS ("
-            "     SELECT 1 FROM tenant.att_calendar_day cd "
-            "     WHERE cd.tenant_id=:t AND cd.day=nf.entry_date "
-            "       AND cd.is_workday=true AND COALESCE(cd.is_holiday,false)=false))"), p)
-        cnt = r.rowcount
-        # Pojistka (Peťa 21.7.2026): doplnění do fondu teď stojí na kalendáři
-        # tenant.att_calendar_day. Kdyby ho někdo nezaložil na další rok, automat by
-        # od ledna potichu přestal doplňovat. Ať to je aspoň vidět v logu.
-        try:
-            chybi = s.execute(_t(
-                "SELECT count(*) FROM (SELECT DISTINCT nf.entry_date FROM tenant.att_entry nf "
-                "  WHERE nf.tenant_id=:t " + dcond.replace("e.", "nf.") + ") d "
-                "WHERE NOT EXISTS (SELECT 1 FROM tenant.att_calendar_day cd "
-                "  WHERE cd.tenant_id=:t AND cd.day=d.entry_date)"), p).scalar()
-            if chybi:
-                logger.warning("[automat] POZOR: %s dnů nemá záznam v kalendáři "
-                               "(tenant.att_calendar_day) — pro ty dny se NEDOPLŇUJE do fondu. "
-                               "Je potřeba kalendář založit (Kristý).", chybi)
-        except Exception:
-            pass
-        s.commit()
-        return {"ok": True, "leveled": cnt}
-    except Exception as exc:
-        try:
-            s.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(exc)}
-    finally:
-        cm.__exit__(None, None, None)
+def _att_automat_level_day(tenant: int = 2, days_back: int = 4, employee_id=None, day=None):
+    """DB-driven delegate (g2007.python kod=att_automat_level_day). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_automat_level_day", tenant=tenant, days_back=days_back, employee_id=employee_id, day=day)
 
 
 def _att_automat_recalc_day(employee_id, day, tenant: int = 2) -> None:
@@ -29147,84 +28654,10 @@ _ATT_SYNC_STOP = [False]
 _LAST_AUTO_CO = [None]   # poslední Praha-den, kdy proběhlo půlnoční auto-odhlášení
 
 
-def _att_auto_checkout_midnight(tenant: int = 2, notify: bool = True) -> dict:
-    """Marti 10.6.2026: kdo se zapomněl odhlásit, toho před půlnocí automaticky
-    odhlásíme — uzavřeme otevřenou směnu odchodem na 23:59 lokálního (Europe/Prague)
-    dne, kdy začala. Spočítáme hodiny (minus pauza), zapíšeme poznámku a vlídně
-    dáme vědět, ať si případně opraví čas odchodu. Idempotentní (zavřené už nemají
-    ended_at IS NULL)."""
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        # A) Marti 22.6.: „Dnes už se mnou nepočítej" (day_end) běží do půlnoci, ale
-        #    uzavře se TIŠE — 0 h, bez poznámky o auto-odhlášení a BEZ notifikace.
-        #    Je to záměrný konec dne, ne zapomenutý odchod → nesmí dělat problém v kontrole.
-        s.execute(_t(
-            "UPDATE tenant.att_entry e SET"
-            "  ended_at = ((e.started_at AT TIME ZONE 'Europe/Prague')::date + time '23:59')"
-            "    AT TIME ZONE 'Europe/Prague',"
-            "  hours = 0, is_active = false, updated_at = now() "
-            "FROM tenant.att_entry_type et "
-            "WHERE et.id = e.entry_type_id AND et.code = 'day_end'"
-            "  AND e.tenant_id = :t AND e.is_active = true AND e.ended_at IS NULL"
-            "  AND e.started_at IS NOT NULL"), {"t": tenant})
-        # B) Ostatní otevřené směny (skutečně zapomenutý odchod) — uzavři a vlídně upozorni.
-        rows = s.execute(_t(
-            "WITH targ AS ("
-            "  SELECT e.id, e.started_at,"
-            "    ((e.started_at AT TIME ZONE 'Europe/Prague')::date + (:endt)::time)"
-            "      AT TIME ZONE 'Europe/Prague' AS new_end"
-            "  FROM tenant.att_entry e"
-            "  WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL"
-            "    AND e.started_at IS NOT NULL"
-            "    AND e.entry_type_id NOT IN (SELECT id FROM tenant.att_entry_type"
-            "       WHERE tenant_id=:t AND code='day_end')"
-            ") "
-            "UPDATE tenant.att_entry e SET"
-            "  ended_at = t.new_end,"
-            "  hours = round(GREATEST(EXTRACT(EPOCH FROM (t.new_end - e.started_at))/3600.0"
-            "    - COALESCE(e.break_minutes,0)/60.0, 0)::numeric, 2),"
-            "  is_active = false,"
-            "  note = CASE WHEN e.note IS NULL OR e.note='' THEN :n ELSE e.note || ' / ' || :n END,"
-            "  updated_at = now() "
-            "FROM targ t "
-            "WHERE e.id = t.id AND t.new_end > e.started_at "
-            "RETURNING e.employee_id"), {
-                "t": tenant, "endt": "23:59", "n": "[auto-odhlášení o půlnoci]"}).fetchall()
-        s.commit()
-        closed = len(rows)
-        sent = 0
-        if notify and rows:
-            for eid in sorted({int(r[0]) for r in rows}):
-                u = s.execute(_t(
-                    "SELECT em.user_id, (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '"
-                    "||COALESCE(u.last_name,'')),'') FROM public.users u WHERE u.id=em.user_id) "
-                    "FROM tenant.att_employee em WHERE em.id=:e"), {"e": eid}).first()
-                if not u or not u[0]:
-                    continue
-                if s.execute(_t("SELECT 1 FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k "
-                                "ON k.id=uk.kategorie_id WHERE uk.user_id=:u AND k.kod='bez_automatu'"),
-                             {"u": int(u[0])}).first():
-                    continue  # Marti 26.6.: kategorie bez_automatu → žádné automat zprávy
-                jm = ((u[1] or "").split(" ")[0]) or "ahoj"
-                msg = ("Ahoj %s, večer ses zapomněl/a odhlásit z docházky, tak jsem ti směnu "
-                       "uzavřela o půlnoci (23:59). 🙂 Jestli to nesedí, mrkni prosím do Docházky "
-                       "a oprav čas odchodu. — Tvoje Marti") % jm
-                s.execute(_t(
-                    "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                    "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, NULL)"),
-                    {"u": int(u[0]), "ti": "🌙 Odhlášení o půlnoci", "msg": msg})
-                sent += 1
-            s.commit()
-        return {"ok": True, "closed": closed, "notified": sent}
-    except Exception as exc:
-        try:
-            s.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(exc)}
-    finally:
-        cm.__exit__(None, None, None)
+def _att_auto_checkout_midnight(tenant: int = 2, notify: bool = True):
+    """DB-driven delegate (g2007.python kod=att_auto_checkout_midnight). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_auto_checkout_midnight", tenant=tenant, notify=notify)
 
 
 def _maybe_auto_checkout_midnight():
@@ -49156,143 +48589,10 @@ def _sync_deti(preview: bool = False) -> dict:
         cm.__exit__(None, None, None)
 
 
-def _att_anomaly_scan(notify: bool = True) -> dict:
-    """Marti 7.6.2026: „systém si má všímat nestandardností a sám upozorňovat."
-    Pravidla (z reálných nálezů — Petra: píchnuto v budoucnosti, 23h směny):
-      R1 budouci_zaznam  — presence záznam s časem v budoucnosti
-      R2 dlouha_smena    — hours > 12
-      R3 zapomenuty_odchod — otevřená směna ze včerejška a starší
-      R4 prace_pri_absenci — presence záznam v den schválené absence
-    Dedup přes tenant.att_anomaly (UNIQUE rule+entry). Notifikace: dotyčný
-    + kontrola docházky (resolve_role attendance_supervisor)."""
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    found = 0
-    notified = 0
-    try:
-        rows = s.execute(_t("""
-            WITH kand AS (
-              SELECT e.id, e.employee_id, 'budouci_zaznam' AS rule,
-                     to_char(e.entry_date, 'DD.MM.') || ' záznam v budoucnosti ('
-                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
-                       || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '…') || ')' AS detail
-              FROM tenant.att_entry e
-              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req','centrala1') AND et.category = 'presence'
-                AND e.entry_date > current_date AND e.started_at IS NOT NULL
-                AND e.status NOT IN ('superseded','announced')
-              UNION ALL
-              SELECT e.id, e.employee_id, 'dlouha_smena',
-                     to_char(e.entry_date, 'DD.MM.') || ' směna ' || round(e.hours::numeric,1) || ' h ('
-                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
-                       || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '?') || ')'
-              FROM tenant.att_entry e
-              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req','centrala1') AND et.category = 'presence'
-                AND e.hours > 12 AND e.status NOT IN ('superseded','announced')
-              UNION ALL
-              SELECT e.id, e.employee_id, 'zapomenuty_odchod',
-                     to_char(e.entry_date, 'DD.MM.') || ' otevřená směna od '
-                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
-                       || ' — chybí odchod'
-              FROM tenant.att_entry e
-              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND e.is_active = true AND e.ended_at IS NULL
-                AND e.entry_date < current_date
-                -- Marti 27.6.: import z Centrály (centrala1) a režie (overhead) NEJSOU zapomenutý
-                -- odchod → jinak supervizor (Marti) dostával bogus notifikace o cizích směnách.
-                AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req','centrala1','import')
-                AND et.code IN ('work','homeoffice')
-              UNION ALL
-              SELECT min(e.id), e.employee_id, 'nepotvrzeny_den',
-                     to_char(e.entry_date, 'DD.MM.') || ' nepotvrzená docházka'
-              FROM tenant.att_entry e
-              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req','centrala1') AND et.category = 'presence' AND e.started_at IS NOT NULL
-                AND e.status NOT IN ('superseded','announced')
-                AND e.entry_date < current_date
-                AND e.entry_date >= GREATEST(current_date - 14, DATE '2026-06-06')
-                AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c
-                                WHERE c.tenant_id = 2 AND c.employee_id = e.employee_id
-                                  AND c.day = e.entry_date)
-              GROUP BY e.employee_id, e.entry_date
-              UNION ALL
-              SELECT e.id, e.employee_id, 'prace_pri_absenci',
-                     to_char(e.entry_date, 'DD.MM.') || ' píchnutá práce v den nahlášené nepřítomnosti'
-              FROM tenant.att_entry e
-              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req','centrala1') AND et.category = 'presence' AND e.started_at IS NOT NULL
-                AND e.status NOT IN ('superseded','announced')
-                AND EXISTS (SELECT 1 FROM tenant.att_entry a2
-                            JOIN tenant.att_entry_type t2 ON t2.id = a2.entry_type_id
-                            WHERE a2.tenant_id = 2 AND a2.employee_id = e.employee_id
-                              AND a2.entry_date = e.entry_date AND t2.category = 'absence'
-                              AND a2.status IN ('pending','approved'))
-              UNION ALL
-              -- R6 dlouha_pauza (Marti 29.6.): zapomenuté přepnutí z pauzy zpět → break > 2 h
-              -- tiše sežere odpracované hodiny (Petra 25.6.: 6,3h break). Záchranná síť pro VŠECHNY
-              -- (vč. OSVČ — pauzy jim necháváme, jen hlídáme zapomenuté). Práh 2 h = nad legitimní oběd.
-              SELECT e.id, e.employee_id, 'dlouha_pauza',
-                     to_char(e.entry_date, 'DD.MM.') || ' dlouhá pauza ' || round(e.hours::numeric,1) || ' h ('
-                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
-                       || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '…')
-                       || ') — zapomenuté přepnutí zpět do práce?'
-              FROM tenant.att_entry e
-              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND et.code = 'break'
-                AND e.hours > 2 AND e.status NOT IN ('superseded','announced')
-                AND e.entry_date >= GREATEST(current_date - 14, DATE '2026-06-06')
-            )
-            INSERT INTO tenant.att_anomaly (tenant_id, employee_id, entry_id, rule, detail)
-            SELECT 2, k.employee_id, k.id, k.rule, k.detail FROM kand k
-            ON CONFLICT (tenant_id, rule, entry_id) DO NOTHING
-            RETURNING employee_id, rule, detail
-        """)).fetchall()
-        found = len(rows)
-        if rows and notify:
-            for r in rows:
-                emp_id, rule, detail = r[0], r[1], r[2]
-                info = s.execute(_t(
-                    "SELECT em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "
-                    "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id "
-                    "WHERE em.id = :e"), {"e": emp_id}).first()
-                emp_uid = info[0] if info else None
-                emp_name = (info[1] if info else None) or ("zaměstnanec " + str(emp_id))
-                targets = set()
-                if emp_uid:
-                    targets.add(int(emp_uid))
-                # nepotvrzený den = osobní zodpovědnost (Fáze 1) → jen dotyčný.
-                # Marti 10.7.: ostatní nesrovnalosti chodí EDITORŮM oprav dle
-                # působnosti (Peťa=kanceláře, Míša+Dušan=výroba), už NE supervizorovi.
-                if rule != "nepotvrzeny_den":
-                    eds = _att_fix_editors_for_emp(s, emp_id)
-                    if eds:
-                        targets |= eds
-                    else:
-                        targets.add(20)  # fallback = Jirka (admin), NE rodič — ať se chyba nikdy neztratí (Jirka 21.7.)
-                for uid2 in sorted(targets):
-                    mine = (emp_uid is not None and uid2 == int(emp_uid))
-                    if rule == "nepotvrzeny_den":
-                        ti = "🖊 Potvrď si docházku"
-                        msg = (detail + " — otevři Docházku, zkontroluj den a potvrď ho. "
-                               "Bez potvrzení tě nepustím píchnout další příchod. — Tvoje Marti")
-                    else:
-                        ti = "⚠ Docházka — nesrovnalost"
-                        msg = (("V docházce mám nesrovnalost: " + detail + " — mrkni na to, nebo mi napiš a opravíme to spolu.")
-                               if mine else
-                               (emp_name + ": " + detail))
-                    s.execute(_t(
-                        "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                        "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                        {"uid": uid2, "ti": ti, "msg": msg[:600]})
-                    notified += 1
-        s.commit()
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
-    return {"found": found, "notified": notified}
+def _att_anomaly_scan(notify: bool = True):
+    """DB-driven delegate (g2007.python kod=att_anomaly_scan). Puvodni telo migrovano do DB dne 31.7.2026, Faze C."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_anomaly_scan", notify=notify)
 
 
 def _sync_org_from_ec() -> dict:

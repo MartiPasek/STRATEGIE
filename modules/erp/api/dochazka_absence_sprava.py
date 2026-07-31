@@ -682,7 +682,8 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
     try:
         if kind == "zadost":
             zid = ids[0]
-            r = s.execute(_t("SELECT employee_id, datum_od, datum_do FROM tenant.att_absence_request "
+            r = s.execute(_t("SELECT employee_id, datum_od, datum_do, typ "
+                             "FROM tenant.att_absence_request "
                              "WHERE id=:i AND tenant_id=:t"), {"i": zid, "t": _TEN}).first()
             if not r:
                 return _chyba("Žádost nenalezena.", 404)
@@ -700,11 +701,28 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
                             {"t": _TEN, "z": zid}).fetchall()
             if dny:
                 _znic_dny(s, [int(x[0]) for x in dny], emp, uid, actor, duvod)
-            s.execute(_t("UPDATE tenant.att_absence_request SET stav='cancelled', materialized=false, "
-                         "status_text=:st, decided_by_user_id=:u, decided_at=now() "
-                         "WHERE id=:i AND tenant_id=:t"),
-                      {"i": zid, "t": _TEN, "u": uid,
-                       "st": ("Zrušeno ve Správě docházky (" + actor + "): " + duvod)[:500]})
+            # RUŠÍ SE CELÁ SKUPINA STEJNÝCH ŽÁDOSTÍ (Peťa 31.7.2026).
+            # Přehled slučuje shodné žádosti (týž člověk + druh + období) do JEDNOHO
+            # řádku — Duspivová měla 21.7. „lékař" ČTYŘIKRÁT (appka je založila
+            # v jedné minutě). Zrušení jedné proto vypadalo, že se nic nestalo:
+            # na její místo se hned posunula další. Uživatel vidí jeden řádek a čeká,
+            # že zmizí, takže rušíme všechny jeho sourozence.
+            # (Vznik duplicit v appce je samostatná věc — patří Jirkovi/Kristý.)
+            _txt = ("Zrušeno ve Správě docházky (" + actor + "): " + duvod)[:500]
+            _n = s.execute(_t(
+                "UPDATE tenant.att_absence_request SET stav='cancelled', materialized=false, "
+                "status_text=:st, decided_by_user_id=:u, decided_at=now() "
+                "WHERE tenant_id=:t AND employee_id=:e AND typ=:ty "
+                "  AND datum_od=:od AND datum_do=:do "
+                "  AND COALESCE(materialized,false)=false "
+                "  AND COALESCE(stav,'') NOT IN ('cancelled','rejected')"),
+                {"t": _TEN, "e": emp, "ty": r[3], "od": r[1], "do": r[2],
+                 "u": uid, "st": _txt}).rowcount or 0
+            if not _n:   # kdyby skupinový zápis nic nechytil, zruš aspoň vybranou
+                s.execute(_t("UPDATE tenant.att_absence_request SET stav='cancelled', "
+                             "materialized=false, status_text=:st, decided_by_user_id=:u, "
+                             "decided_at=now() WHERE id=:i AND tenant_id=:t"),
+                          {"i": zid, "t": _TEN, "u": uid, "st": _txt})
             _att_fix_audit(s, "absence_del", None, emp, uid, actor,
                            old_note="%s–%s" % (r[1], r[2]),
                            detail="Správa docházky — zrušení žádosti #%d: %s" % (zid, duvod),

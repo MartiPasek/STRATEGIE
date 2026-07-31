@@ -20966,110 +20966,17 @@ async def app_whoami(req: Request) -> JSONResponse:
 
 
 def _ec_set_block_dochazka(cislo, block: bool, actor_uid=None, actor_name=None):
-    """Marti 16.6.: zapne/vypne _BlokovatDochazku v Centrále (DB_EC) pro osobu dle
-    Cisla zaměstnance. Reverzibilní (block=False → zase povolí píchat). Vrací
-    (ok: bool, error: str|None). Používá nativní EC mechanismus (TabCisZam_EXT).
-    Zapisuje se do fw.ec_dml_log (Marti 19.6.)."""
-    import json as _j_eb
-    from datetime import datetime as _dt_eb
-    try:
-        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-        mcp = get_eurosoft_mcp_client()
-        if mcp is None:
-            return (False, "mcp_unavailable")
-        cz = str(cislo).strip().replace("'", "''")
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": "SELECT ID FROM TabCisZam WHERE Cislo='" + cz + "'",
-                                  "db_name": "DB_EC"}, conversation_id=None)
-        r = _j_eb.loads(raw) if isinstance(raw, str) else raw
-        rows = []
-        if isinstance(r, dict):
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    rows = r[k]; break
-        elif isinstance(r, list):
-            rows = r
-        if not rows:
-            return (False, "zam_not_found")
-        zid = rows[0].get("ID")
-        data = {"_BlokovatDochazku": 1 if block else 0}
-        if block:
-            data["_DatBlokaceDochazkyOD"] = _dt_eb.now().strftime("%Y-%m-%d %H:%M:%S")
-        upd = mcp.call_tool_sync("eurosoft_strategie_update_row",
-                                 {"schema": "dbo", "table": "TabCisZam_EXT",
-                                  "data": data, "where": {"ID": zid}, "db_name": "DB_EC"},
-                                 conversation_id=None)
-        u = _j_eb.loads(upd) if isinstance(upd, str) else upd
-        _ok = bool(isinstance(u, dict) and u.get("ok"))
-        _err = None if _ok else str((u or {}).get("error") if isinstance(u, dict) else u)
-        _ec_dml_log("TabCisZam_EXT", "update", where={"ID": zid}, data=data, rows=(1 if _ok else 0),
-                    ok=_ok, error=_err, actor_uid=actor_uid, actor_name=actor_name, via="att_source")
-        return (True, None) if _ok else (False, _err)
-    except Exception as exc:
-        _ec_dml_log("TabCisZam_EXT", "update", ok=False, error=str(exc),
-                    actor_uid=actor_uid, actor_name=actor_name, via="att_source")
-        return (False, str(exc))
+    """DB-driven delegate (g2007.python kod=ec_set_block_dochazka). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("ec_set_block_dochazka", cislo, block, actor_uid, actor_name)
+
 
 
 def _ec_vypni_dochazku(cislo, actor_uid=None, actor_name=None):
-    """Jirka 30.6.2026 (schválil Marti osobně): TRVALE vypne docházku ve staré Centrále
-    (DB_EC) pro osobu dle Čísla zaměstnance. Dvě nativní pole Centrály:
-    TabCisZam_EXT._AuthDochazka='' (docházkový terminál) + EC_GlobKonstUziv.
-    PovolitDochVCentrale=0 (ERP, přes LoginId↔LoginName). JEDNOSMĚRNÉ (zpět se nevrací).
-    Liší se od _ec_set_block_dochazka (to je jen reverzibilní blok). Loguje do
-    fw.ec_dml_log. Vrací (ok: bool, error: str|None)."""
-    import json as _j_vd
-    try:
-        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-        mcp = get_eurosoft_mcp_client()
-        if mcp is None:
-            return (False, "mcp_unavailable")
-        cz = str(cislo).strip().replace("'", "''")
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": "SELECT ID, LoginId FROM TabCisZam WHERE Cislo='" + cz + "'",
-                                  "db_name": "DB_EC"}, conversation_id=None)
-        r = _j_vd.loads(raw) if isinstance(raw, str) else raw
-        rows = []
-        if isinstance(r, dict):
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    rows = r[k]; break
-        elif isinstance(r, list):
-            rows = r
-        if not rows:
-            return (False, "zam_not_found")
-        zid = rows[0].get("ID")
-        loginid = str(rows[0].get("LoginId") or "").strip()
-        # 1) Docházkový TERMINÁL: TabCisZam_EXT._AuthDochazka = '' (dle ID)
-        upd1 = mcp.call_tool_sync("eurosoft_strategie_update_row",
-                                  {"schema": "dbo", "table": "TabCisZam_EXT",
-                                   "data": {"_AuthDochazka": ""}, "where": {"ID": zid},
-                                   "db_name": "DB_EC"}, conversation_id=None)
-        u1 = _j_vd.loads(upd1) if isinstance(upd1, str) else upd1
-        ok1 = bool(isinstance(u1, dict) and u1.get("ok"))
-        _ec_dml_log("TabCisZam_EXT", "update", where={"ID": zid}, data={"_AuthDochazka": ""},
-                    rows=(1 if ok1 else 0), ok=ok1,
-                    error=None if ok1 else str((u1 or {}).get("error") if isinstance(u1, dict) else u1),
-                    actor_uid=actor_uid, actor_name=actor_name, via="vypni_dochazka")
-        # 2) ERP CENTRÁLA: EC_GlobKonstUziv.PovolitDochVCentrale = 0 (LoginName = LoginId).
-        #    Kdo nemá Centrála login (prázdný LoginId) → GU řádek není, přeskoč (ok).
-        ok2 = True
-        if loginid:
-            upd2 = mcp.call_tool_sync("eurosoft_strategie_update_row",
-                                      {"schema": "dbo", "table": "EC_GlobKonstUziv",
-                                       "data": {"PovolitDochVCentrale": 0}, "where": {"LoginName": loginid},
-                                       "db_name": "DB_EC"}, conversation_id=None)
-            u2 = _j_vd.loads(upd2) if isinstance(upd2, str) else upd2
-            ok2 = bool(isinstance(u2, dict) and u2.get("ok"))
-            _ec_dml_log("EC_GlobKonstUziv", "update", where={"LoginName": loginid},
-                        data={"PovolitDochVCentrale": 0}, rows=(1 if ok2 else 0), ok=ok2,
-                        error=None if ok2 else str((u2 or {}).get("error") if isinstance(u2, dict) else u2),
-                        actor_uid=actor_uid, actor_name=actor_name, via="vypni_dochazka")
-        return (ok1 and ok2, None if (ok1 and ok2) else "ec_update_failed")
-    except Exception as exc:
-        _ec_dml_log("TabCisZam_EXT", "update", ok=False, error=str(exc),
-                    actor_uid=actor_uid, actor_name=actor_name, via="vypni_dochazka")
-        return (False, str(exc))
+    """DB-driven delegate (g2007.python kod=ec_vypni_dochazku). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("ec_vypni_dochazku", cislo, actor_uid, actor_name)
+
 
 
 def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None, actor_uid=None, actor_name=None, approver_uid=None, approver_name=None, via=None, schema="dbo", db_name="DB_EC"):
@@ -21078,72 +20985,11 @@ def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None, a
     return _ereg.call("att_ec_dml_log", table, op, where=where, data=data, rows=rows, ok=ok, error=error, actor_uid=actor_uid, actor_name=actor_name, approver_uid=approver_uid, approver_name=approver_name, via=via, schema=schema, db_name=db_name)
 
 
-def _ec_close_open_shift(cislo, end_ts=None, actor_uid=None, actor_name=None, via="app_checkin"):
-    """Marti 19.6.: kdo se píchne v NAŠÍ appce → silově ukončit jeho OTEVŘENOU směnu
-    ve staré Centrále (EC_Dochazka): PraceAktivni=0 + CasKonec.
-    `end_ts` ('YYYY-MM-DD HH24:MI:SS') = ZAČÁTEK naší app směny → starý job skončí
-    přesně tam, kde náš začíná (žádný překryv). Není-li zadán, použije se teď.
-    Nikdy nenastaví konec před začátek staré směny. Loguje do fw.ec_dml_log.
-    Vrací (closed:int, error:str|None)."""
-    import json as _j_cs
-    from datetime import datetime as _dt_cs
-    try:
-        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-        mcp = get_eurosoft_mcp_client()
-        if mcp is None:
-            return (0, "mcp_unavailable")
-        cz = str(cislo).strip().replace("'", "''")
-        # Otevřené směny (zavřít) + když známe start naší směny, i UŽ UZAVŘENÉ, které
-        # překrývají náš začátek (trim konce na náš start — žádný překryv). Marti 19.6.
-        _es = (end_ts or "").replace("'", "")
-        _overlap = ""
-        if _es:
-            _overlap = (" OR (CasKonec IS NOT NULL "
-                        "AND CONVERT(varchar(19),CasKonec,120) > '" + _es + "' "
-                        "AND CONVERT(varchar(19),CasZacatek,120) < '" + _es + "')")
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": "SELECT ID, CONVERT(varchar(19),CasZacatek,120) AS z "
-                                         "FROM EC_Dochazka WHERE CisloZam='" + cz + "' "
-                                         "AND CONVERT(date,DatumPripadu)=CONVERT(date,GETDATE()) "
-                                         "AND ( (ISNULL(PraceAktivni,0)=1 AND CasKonec IS NULL)" + _overlap + " )",
-                                  "db_name": "DB_EC"}, conversation_id=None)
-        r = _j_cs.loads(raw) if isinstance(raw, str) else raw
-        rows = []
-        if isinstance(r, dict):
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    rows = r[k]; break
-        elif isinstance(r, list):
-            rows = r
-        now = _dt_cs.now().strftime("%Y-%m-%d %H:%M:%S")
-        n = 0
-        for row in rows:
-            rid = row.get("ID")
-            if rid is None:
-                continue
-            zac = (row.get("z") or "")
-            _kon = (end_ts or now)
-            if zac and _kon < zac:   # konec nikdy před začátek staré směny
-                _kon = zac
-            _data = {"PraceAktivni": 0, "CasKonec": _kon}
-            _where = {"ID": rid}
-            upd = mcp.call_tool_sync("eurosoft_strategie_update_row",
-                                     {"schema": "dbo", "table": "EC_Dochazka",
-                                      "data": _data, "where": _where, "db_name": "DB_EC"},
-                                     conversation_id=None)
-            u = _j_cs.loads(upd) if isinstance(upd, str) else upd
-            _ok = bool(isinstance(u, dict) and u.get("ok"))
-            _err = None if _ok else str((u or {}).get("error") if isinstance(u, dict) else u)
-            if _ok:
-                n += 1
-            _ec_dml_log("EC_Dochazka", "update", where=_where, data=_data, rows=(1 if _ok else 0),
-                        ok=_ok, error=_err, actor_uid=actor_uid, actor_name=actor_name,
-                        via=via)
-        return (n, None)
-    except Exception as exc:
-        _ec_dml_log("EC_Dochazka", "update", ok=False, error=str(exc),
-                    actor_uid=actor_uid, actor_name=actor_name, via=via)
-        return (0, str(exc))
+def _ec_close_open_shift(cislo, end_ts=None, actor_uid=None, actor_name=None, via='app_checkin'):
+    """DB-driven delegate (g2007.python kod=ec_close_open_shift). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("ec_close_open_shift", cislo, end_ts, actor_uid, actor_name, via)
+
 
 
 @api_router.get("/app/ec-dml-log")
@@ -28068,146 +27914,11 @@ async def att_absence(req: Request) -> JSONResponse:
 _LAST_DOCH_SYNC = [0.0]
 
 
-def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
-                         to: str = None, dry_run: bool = False) -> dict:
-    """Přídavný sync EC_Dochazka → tenant.vyroba_work = ODDĚLENÝ zakázkový systém
-    (zakázka + činnost + čas jako joby). NESahá na att_entry (docházka/mzdy zůstávají
-    beze změny). Nese DruhCinnosti (drátování/zkoušení/...), kterou att_entry mirror
-    zahazuje → z tohohle Petra/MD2-VP i Dušan vidí reálný stav výroby po činnostech.
-    Idempotentní přes source_system='centrala1'+source_id (EC ID). Claude ID23 4.7.2026."""
-    import json as _json_d
-    from datetime import date as _date_d, timedelta as _td_d
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        return {"ok": False, "error": "mcp_unavailable"}
+def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None, to: str = None, dry_run: bool = False) -> dict:
+    """DB-driven delegate (g2007.python kod=sync_vyroba_work_ec). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_vyroba_work_ec", days, tenant, frm, to, dry_run)
 
-    def _rows(sql):
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-        r = _json_d.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(r, dict):
-            if r.get("ok") is False:
-                raise RuntimeError(str(r.get("error")))
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    return r[k]
-        return r if isinstance(r, list) else []
-
-    if not frm:
-        frm = (_date_d.today() - _td_d(days=days)).isoformat()
-    _wh = "DatumPripadu >= '" + frm + "'"
-    if to:
-        _to_excl = (_date_d.fromisoformat(to) + _td_d(days=1)).isoformat()
-        _wh += " AND DatumPripadu < '" + _to_excl + "'"
-    sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
-           "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
-           "CisloZakazky, DruhCinnosti, ISNULL(CasCelkemZakazka,0) hod "
-           "FROM EC_Dochazka WHERE " + _wh + " "
-           # C24 + Kristý 30.7.2026: importujeme i REŽII (dřív se '<>rezie' přeskakovala),
-           # aby měla ve vyroba_work činnost (jinak byla v Docházka new prázdná). zakazka_ref
-           # se normalizuje na 'Rezie' níže. Nadále jen záznamy s činností (DruhCinnosti>0).
-           "AND ISNULL(DruhCinnosti,0)>0 "
-           # C24 30.7.2026 (fix regrese): NEimportovat ABSENCE do vyroba_work. Ta drží jen
-           # práci/režii/HO; dovolená/nemoc/lékař/OČR jsou JEN v att_entry (a odtud jdou do mezd
-           # přes att_day_summary). Při zrušení filtru '<>rezie' začaly absence prosakovat sem
-           # (druh 20/21/22… má taky DruhCinnosti>0). Absenční kódy = klíče _DRUH_ABSENCE.
-           "AND ISNULL(DruhCinnosti,0) NOT IN (" + ",".join(str(_k) for _k in _DRUH_ABSENCE) + ") "
-           # C24 31.7.2026 (systémová oprava dedupu): NEimportuj zpět naše vlastní zrcadlené
-           # řádky (Autor='STRATEGIE', _mirror_att_to_ec). att_entry import (_sync_ec_dochazka_recent)
-           # to už dělá; vyroba_work import to dosud NEMĚL. Diagnostika Jirka+C28 31.7.
-           "AND ISNULL(Autor,'')<>'STRATEGIE' "
-           "ORDER BY ID")
-
-    cm = _pg.get_session()
-    sess = cm.__enter__()
-    ins = upd = total = 0
-    try:
-        # 100 % Z CENTRÁLY (C24 + Kristý 31.7.2026). Dřív (31.7. ráno) se app-kryté EC úseky
-        # přeskakovaly prahem 50 % kvůli obavě z dvojího započtení. Kristý (doména): lidi se
-        # píchli buď v APPCE, NEBO v Centrále, nikdy ne naráz — reálný časový překryv nevzniká.
-        # Jediná skutečná duplicita jsou NAŠE zrcadlené řádky (Autor='STRATEGIE'), a ty se
-        # vyřazují už v SQL WHERE výše. Proto bereme VŠECHNY ostatní EC úseky, nic nezahazujeme.
-        # (Ověřeno na červnu: po tomto = 100 % Centrály. Případné vzácné překryvy z náběhu appky
-        # se řeší samostatně, ne zahazováním záznamů Centrály.) Odstraněn práh + _app_covers/_appseg.
-        _dry_ins = []  # dry_run: vzorek/souhrn toho, co by se NOVĚ vložilo
-        for r in _rows(sql):
-            rid = int(r["ID"]); total += 1
-            cz = str(r.get("CisloZam") or "").strip()
-            _zak_raw = (r.get("CisloZakazky") or "").strip()
-            # C24 + Kristý 30.7.2026: režie (i prázdná zakázka) → jednotně 'Rezie'; jinak číslo zakázky.
-            zak = _REZIE_REF if (not _zak_raw or _zak_raw.lower() == "rezie") else (_norm_zakazka(_zak_raw) or _REZIE_REF)
-            try:
-                cin = int(r.get("DruhCinnosti") or 0) or None
-            except Exception:
-                cin = None
-            p = {"t": tenant, "cz": cz or None, "zak": zak, "cin": cin,
-                 "d": r.get("d"), "z": r.get("z"), "k": r.get("k"),
-                 "h": r.get("hod"), "sid": rid}
-            if dry_run:
-                # NIC nezapisuj — jen klasifikuj (existuje řádek se stejným EC id?) a u NOVÝCH
-                # sčítej hodiny + osobo-dny, ať jde ověřit proti diagnostice před ostrým během.
-                _ex = sess.execute(_t(
-                    "SELECT 1 FROM tenant.vyroba_work WHERE tenant_id=:t "
-                    "AND source_system='centrala1' AND source_id=:sid LIMIT 1"), p).first()
-                if _ex:
-                    upd += 1
-                else:
-                    ins += 1
-                    try:
-                        _hh = float(r.get("hod") or 0)
-                    except Exception:
-                        _hh = 0.0
-                    _dry_ins.append((r.get("d"), cz, zak, _hh))
-                continue
-            res = sess.execute(_t(
-                # Peťa 22.7.2026: činnost páruj přes ec_cislo (centrálské číslo), NE přes
-                # naše id — Centrála a náš číselník nejsou zarovnané (jen 1-5), takže id=:cin
-                # trefovalo špatnou činnost. ec_cislo je most na 1046/1047. Orphan (např. 27
-                # Odměny fin.zakázek) → NULL, ať radši prázdno než špatná činnost.
-                "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
-                "cinnost_id=(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin), "
-                "datum=:d, od=:z, konec=:k, hodiny=:h, cislo_zam=:cz, "
-                "user_id=(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1), "
-                # Krok 3 (Jirka + Marti Pasek 27.7.2026, "jeden zdroj pravdy"): vazba na att_entry
-                # pres shodne EC id (source_system='centrala1' + source_id). COALESCE = NIKDY neprepise
-                # uz vyplnenou vazbu na NULL (kdyby att_entry docasne chybel, drz stavajici).
-                "att_entry_id=COALESCE((SELECT ae.id FROM tenant.att_entry ae WHERE ae.tenant_id=:t AND ae.source_system='centrala1' AND ae.source_id=:sid LIMIT 1), att_entry_id), "
-                "updated_at=now() "
-                "WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
-            if (res.rowcount or 0) == 0:
-                sess.execute(_t(
-                    "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
-                    "zakazka_ref,cinnost_id,hodiny,source_system,source_id,att_entry_id,created_at,updated_at) "
-                    "VALUES (:t,(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1),"
-                    ":cz,:d,:z,:k,:zak,(SELECT MIN(id) FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND ec_cislo=:cin),:h,'centrala1',:sid,"
-                    "(SELECT ae.id FROM tenant.att_entry ae WHERE ae.tenant_id=:t AND ae.source_system='centrala1' AND ae.source_id=:sid LIMIT 1),now(),now())"), p)
-                ins += 1
-            else:
-                upd += 1
-        if dry_run:
-            try:
-                sess.rollback()
-            except Exception:
-                pass
-            cm.__exit__(None, None, None)
-            _sum_h = round(sum(x[3] for x in _dry_ins), 2)
-            _osd = len({(x[0], x[1]) for x in _dry_ins})
-            return {"ok": True, "dry_run": True, "total": total, "would_ins": ins,
-                    "would_upd": upd, "ins_hours": _sum_h, "ins_osobodnu": _osd,
-                    "sample": [{"d": x[0], "cz": x[1], "zak": x[2], "h": round(x[3], 2)}
-                               for x in _dry_ins[:40]], "frm": frm, "to": to}
-        sess.commit()
-        cm.__exit__(None, None, None)
-        return {"ok": True, "total": total, "ins": ins, "upd": upd, "frm": frm, "to": to}
-    except Exception as exc:
-        try:
-            cm.__exit__(type(exc), exc, exc.__traceback__)
-        except Exception:
-            pass
-        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
 
 
 def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
@@ -28855,155 +28566,18 @@ _MIRROR_SCHED_TASK = [None]
 _MIRROR_EC_AUTOR = "STRATEGIE"  # tag našich zrcadlených EC_Dochazka řádků (idempotence + reverzibilita)
 
 
-def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=False):
-    """Přechodové ZRCADLO docházky STRATEGIE → EUROSOFT Helios (Marti 23.6.2026).
-    Lidé, co píchají JEN ve STRATEGII (source_system IS NULL) a mají numerické EC číslo,
-    se propíšou do EC_Dochazka (záznam/den) + EC_Dochazka_SumaDen (souhrn/den), aby byli
-    vidět i ve starém systému. Idempotentní (přeskočí den, který už v EC existuje),
-    reverzibilní (EC_Dochazka.Autor='STRATEGIE'; SumaDen dle fw.att_ec_mirror_log), auditované.
-    test_one=zapiš max 1 den (validace write-kanálu); dry=jen spočítej, nezapisuj."""
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    import json as _j, datetime as _dt
-    s = _g()
-    try:
-        rows = s.execute(_t(
-            "SELECT ae.cislo_zam cz, e.entry_date dt, "
-            " to_char(MIN(e.started_at) AT TIME ZONE 'Europe/Prague','YYYY-MM-DD HH24:MI:SS') zac, "
-            " to_char(MAX(e.ended_at) AT TIME ZONE 'Europe/Prague','YYYY-MM-DD HH24:MI:SS') kon, "
-            " ROUND(SUM(COALESCE(e.hours,0))::numeric,2) hod, MAX(e.project_ref) zak, "
-            " COALESCE((SELECT wr.relation FROM tenant.work_relation wr WHERE wr.user_id=ae.user_id LIMIT 1),'zamestnanec') vztah "
-            "FROM tenant.att_entry e JOIN tenant.att_employee ae ON ae.id=e.employee_id "
-            "WHERE e.tenant_id=2 AND e.source_system IS NULL AND e.entry_date < CURRENT_DATE "
-            " AND e.entry_date >= :od AND ae.cislo_zam ~ '^[0-9]+$' AND COALESCE(e.hours,0) > 0 "
-            "GROUP BY ae.cislo_zam, e.entry_date, ae.user_id ORDER BY e.entry_date DESC, ae.cislo_zam"),
-            {"od": datum_od}).mappings().all()
-    finally:
-        s.close()
-    if not rows:
-        return {"ok": True, "lidi": 0, "doch": 0, "suma": 0}
-    cisla = sorted({int(r["cz"]) for r in rows})
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        return {"ok": False, "error": "mcp_unavailable"}
+def _mirror_att_to_ec(_unused=None, datum_od='2026-06-01', test_one=False, dry=False):
+    """DB-driven delegate (g2007.python kod=mirror_att_to_ec). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mirror_att_to_ec", _unused, datum_od, test_one, dry)
 
-    def _ec(sql):
-        rj = mcp.call_tool_sync("eurosoft_strategie_query_raw", {"sql": sql, "db_name": "DB_EC"},
-                                conversation_id=None)
-        return (_j.loads(rj) if isinstance(rj, str) else rj) or {}
-
-    def _ecw(sql):
-        r = _ec(sql)
-        if not r.get("ok"):
-            raise RuntimeError("EC write blokován: " + str(r.get("message") or r.get("error"))[:240])
-        return r
-
-    inlist = ",".join(str(c) for c in cisla)
-
-    def _have(table):
-        r = _ec("SELECT DISTINCT CisloZam, CONVERT(varchar(10),DatumPripadu,23) d FROM %s "
-                "WHERE CisloZam IN (%s) AND DatumPripadu >= '%s'" % (table, inlist, datum_od))
-        out, cols = set(), (r.get("columns") or [])
-        for x in (r.get("rows") or []):
-            d = dict(zip(cols, x)) if isinstance(x, list) else x
-            try:
-                out.add((int(d["CisloZam"]), str(d["d"])[:10]))
-            except Exception:
-                pass
-        return out
-
-    have_d = _have("EC_Dochazka")
-
-    # EC denní souhrn s HODINAMI — klíč pro novou idempotenci (Marti 24.6.2026):
-    # den je v EC "kompletní", když souhrn >= náš počet hodin. Pak respektuj.
-    # Jinak (chybí nebo jen útržek z tabletu) nahradíme naším plným dnem.
-    def _have_sum_h():
-        r = _ec("SELECT CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, CasCelkem h "
-                "FROM EC_Dochazka_SumaDen WHERE CisloZam IN (%s) AND DatumPripadu >= '%s'"
-                % (inlist, datum_od))
-        out, cols = {}, (r.get("columns") or [])
-        for x in (r.get("rows") or []):
-            dd = dict(zip(cols, x)) if isinstance(x, list) else x
-            try:
-                out[(int(dd["CisloZam"]), str(dd["d"])[:10])] = float(dd["h"] or 0)
-            except Exception:
-                pass
-        return out
-    have_s_h = _have_sum_h()
-    dow = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-    nd = ns = did = 0
-    for r in rows:
-        if test_one and did >= 1:
-            break
-        cz = int(r["cz"]); dt = str(r["dt"])[:10]; hod = float(r["hod"] or 0)
-        zac = r["zac"] or (dt + " 08:00:00"); kon = r["kon"]
-        zak = (r["zak"] or "").replace("'", "").strip() or "Rezie"
-        je_zak = zak.upper().startswith(("VR", "SW", "PR"))
-        dc = 1 if je_zak else 6
-        do = _dt.date.fromisoformat(dt); dvt = dow[do.weekday()]
-        v = (r["vztah"] or "").lower()
-        hpp, dpp, osvc = (0, 0, 1) if v == "osvc" else (0, 1, 0) if v == "dohoda" else (1, 0, 0)
-        konv = ("'%s'" % kon) if kon else "NULL"
-        # Nová idempotence (Marti 24.6.2026): den je v EC "hotový", když souhrn
-        # >= náš počet hodin (tolerance 0.25 h) → respektuj a přeskoč. Jinak
-        # (chybí úplně NEBO je tam jen útržek z tabletu s méně hodinami) →
-        # nahraď naším plným dnem: smaž útržek/naše (cizí ruční Autor zůstane!),
-        # pak zapiš plný záznam + souhrn.
-        ec_h = have_s_h.get((cz, dt))
-        if ec_h is not None and ec_h >= (hod - 0.25):
-            continue
-        cmont = hod if je_zak else 0
-        crez = 0 if je_zak else hod
-        if not dry:
-            _ecw("DELETE FROM EC_Dochazka WHERE CisloZam=%d AND DatumPripadu='%s' "
-                 "AND (Autor='%s' OR Autor='DochazkaTablet' OR Autor IS NULL)"
-                 % (cz, dt, _MIRROR_EC_AUTOR))
-            _ecw("DELETE FROM EC_Dochazka_SumaDen WHERE CisloZam=%d AND DatumPripadu='%s'"
-                 % (cz, dt))
-            _ecw("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DruhCinnosti,"
-                "CisloZakazky,CasZacatek,CasKonec,Status,Import,Autor,DatPorizeni) VALUES "
-                "(%d,'%s',%d,'%s','%s',%s,0,1,'%s',GETDATE())"
-                % (cz, dt, dc, zak[:15], zac, konv, _MIRROR_EC_AUTOR))
-            _ecw("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,CasCelkem,CasMontaz,CasRezie,"
-                "CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
-                "(%d,'%s',%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
-                % (cz, dt, hod, cmont, crez, zac, konv, hpp, dpp, osvc))
-        nd += 1
-        ns += 1
-        if not dry:
-            s2 = _g()
-            try:
-                s2.execute(_t("INSERT INTO fw.att_ec_mirror_log (cislo_zam,datum,hodiny,doch_zapsano,suma_zapsano) "
-                              "VALUES (:c,:d,:h,:dd,:ss)"),
-                           {"c": cz, "d": dt, "h": hod, "dd": True, "ss": True})
-                s2.commit()
-            finally:
-                s2.close()
-        did += 1
-    return {"ok": True, "lidi": len(cisla), "doch": nd, "suma": ns,
-            "dry": bool(dry), "test_one": bool(test_one)}
 
 
 def _mirror_ec_probe(_unused=None):
-    """Diagnostika write-kanálu do DB_EC: zkusí 1 INSERT do EC_Dochazka_SumaDen
-    (cislo 999999, fiktivní) + čtení zpět + úklid. Vrací surové MCP odpovědi."""
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    import json as _j
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        return {"ok": False, "error": "mcp_unavailable"}
+    """DB-driven delegate (g2007.python kod=mirror_ec_probe). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mirror_ec_probe", _unused)
 
-    def _ec(sql):
-        rj = mcp.call_tool_sync("eurosoft_strategie_query_raw", {"sql": sql, "db_name": "DB_EC"},
-                                conversation_id=None)
-        return rj
-
-    ins = _ec("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,DatumPripadu_Y,DatumPripadu_M,"
-              "DatumPripadu_D,CasCelkem,Uzavreno) VALUES (999999,'2099-01-01',2099,1,1,1.0,0)")
-    rd = _ec("SELECT COUNT(*) c FROM EC_Dochazka_SumaDen WHERE CisloZam=999999")
-    cl = _ec("DELETE FROM EC_Dochazka_SumaDen WHERE CisloZam=999999")
-    return {"ok": True, "_msg": ("INS=%s | RD=%s | DEL=%s" % (str(ins)[:400], str(rd)[:150], str(cl)[:150]))}
 
 
 # ── Hlídač hlídače (Jirka 29.7.2026, návrh schválila Marti-AI msg 11765) ─────
@@ -47811,107 +47385,10 @@ def _refresh_employee_active() -> dict:
 
 
 def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dict:
-    """Plánované nepřítomnosti z Centrály (EC_Dochazka_PlanNepritomnost) →
-    tenant.att_planned_absence. Per den: kdo/datum/druh/hodiny/schváleno.
-    whole_year=True (default, Marti 28.6.: musíme mít celý rok) → od 1.1. aktuálního roku + dopředu;
-    jinak rolling okno (dnes - days_back). Název druhu z editovatelného číselníku
-    att_planned_absence_type (kód→název). Zrušené plány v okně zmizí (DELETE+INSERT)."""
-    import json as _j
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
-    if whole_year:
-        cutoff = "CONVERT(date, CONVERT(varchar(4), YEAR(GETDATE())) + '-01-01')"  # celý rok + dopředu
-    else:
-        cutoff = "DATEADD(day,-" + str(int(days_back)) + ",CONVERT(date,GETDATE()))"
-    sql = ("SELECT ID src, CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) d, "
-           "DruhCinnosti druh, PocetHodin hod, CAST(ISNULL(Schvaleno,0) AS int) schv "
-           "FROM EC_Dochazka_PlanNepritomnost "
-           "WHERE DatumPripadu >= " + cutoff + " AND CisloZam IS NOT NULL")
-    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-    r = _j.loads(raw) if isinstance(raw, str) else raw
-    rows = []
-    if isinstance(r, dict):
-        if r.get("ok") is False:
-            raise RuntimeError(str(r.get("error")))
-        for k in ("rows", "data", "result", "records"):
-            if isinstance(r.get(k), list):
-                rows = r[k]
-                break
-    elif isinstance(r, list):
-        rows = r
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    n = 0
-    try:
-        umap = {}
-        for er in s.execute(_t("SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
-                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
-            umap[str(er[0]).strip()] = er[1]
-        names = {}
-        for nr in s.execute(_t("SELECT kod, nazev FROM tenant.att_planned_absence_type WHERE tenant_id=2")).fetchall():
-            names[int(nr[0])] = nr[1]
-        # POZOR: maž jen EC-sourced řádky (src_id>=0). Naše app-absence ze schválených
-        # žádostí drží ZÁPORNÝ src_id (vlastní je fond automat) — EC-mirror je nesmí smazat. Marti 1.7.2026.
-        if whole_year:
-            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 AND src_id>=0 "
-                         "AND datum >= date_trunc('year', CURRENT_DATE)::date"))
-        else:
-            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 AND src_id>=0 "
-                         "AND datum >= CURRENT_DATE - make_interval(days => :db)"), {"db": int(days_back)})
-        for row in rows:
-            try:
-                src = int(row.get("src"))
-            except (TypeError, ValueError):
-                continue
-            d = row.get("d")
-            if not d:
-                continue
-            cz = str(row.get("cz")).strip()
-            try:
-                druh = int(row.get("druh"))
-            except (TypeError, ValueError):
-                druh = None
-            try:
-                hod = round(float(row.get("hod") or 0), 2)
-            except (TypeError, ValueError):
-                hod = 0.0
-            nz = names.get(druh) if druh is not None else None
-            if not nz:
-                nz = ("Druh " + str(druh)) if druh is not None else "—"
-            s.execute(_t(
-                "INSERT INTO tenant.att_planned_absence "
-                "(tenant_id,src_id,cislo_zam,user_id,datum,druh_kod,druh_nazev,hodiny,schvaleno,synced_at) "
-                "VALUES (2,:src,:cz,:uid,:d,:druh,:nz,:hod,:schv,now()) "
-                "ON CONFLICT (tenant_id,src_id) DO UPDATE SET cislo_zam=:cz,user_id=:uid,datum=:d,"
-                "druh_kod=:druh,druh_nazev=:nz,hodiny=:hod,schvaleno=:schv,synced_at=now()"),
-                {"src": src, "cz": cz, "uid": umap.get(cz), "d": d, "druh": druh,
-                 "nz": nz, "hod": hod, "schv": bool(int(row.get("schv") or 0))})
-            n += 1
-        s.commit()
-        out = {"ok": True, "rows": len(rows), "upserted": n}
-        # 2. krok: propis do docházky. Výsledek MUSÍ být vidět v hlášení jobu — dřív se
-        # schoval jen v out["propis"] (dict → plánovač bere jen čísla, takže ho ignoroval)
-        # a job hlásil "ok", i když měsíc nepropsal ani jeden den (i28 27.7.2026).
-        try:
-            _p = _sync_plan_to_dochazka()
-            out["propis"] = _p
-            out["propsano"] = int(_p.get("vlozeno") or 0)
-        except Exception as _pe:
-            out["propis"] = {"ok": False, "error": str(_pe)[:200]}
-            out["ok"] = False
-            out["_msg"] = ("naplánováno %s dní, ale PROPIS DO DOCHÁZKY SELHAL: %s"
-                           % (n, str(_pe)[:200]))
-        return out
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
+    """DB-driven delegate (g2007.python kod=sync_plan_nepritomnost). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_plan_nepritomnost", days_back, whole_year)
+
 
 
 # DruhCinnosti (číselník od Kristý 28.6.) → náš att_entry_type. Mapujeme jen ty s odpovídajícím
@@ -47940,271 +47417,24 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
 
 
 def _sync_dochazka_sumaden(year: int = 2026, month=None) -> dict:
-    """Marti 18.6.2026 — mzdové podklady: denní souhrn docházky z Centrály.
-    EC_Dochazka_SumaDen (per osoba × den: FPD, odpracováno montáž/režie/přesčas,
-    absence dovolená/nemoc/sickday/OČR/lékař/náhr.volno/nař.volno/absence, chybí/pauza,
-    uzavřeno) → tenant.att_day_summary (1:1 zrcadlo). CisloZam→user_id přes
-    tenant.att_employee. Idempotentní upsert. DB_EC zůstává zdroj pravdy."""
-    import json as _j
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
-    sql = ("SELECT CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) d, "
-           "DatumPripadu_Y y, DatumPripadu_M m, FPD fpd, CasCelkem celkem, "
-           "CasMontaz montaz, CasRezie rezie, CasPrescas prescas, CasDovolena dov, "
-           "CasNemoc nem, CasSickDay sick, CasOCR ocr, CasLekar lek, "
-           "CasNahradniVolno nahr, CasNarizenoVolno nariz, CasAbsence absc, "
-           "CasMaterska mat, CasPrekazkaVPraci prek, "
-           "CasChybi chybi, CasPauza pauza, CAST(ISNULL(Uzavreno,0) AS int) uz "
-           "FROM EC_Dochazka_SumaDen WHERE DatumPripadu_Y = " + str(int(year))
-           + ((" AND DatumPripadu_M = " + str(int(month))) if month else ""))
-    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-    r = _j.loads(raw) if isinstance(raw, str) else raw
-    rows = []
-    if isinstance(r, dict):
-        if r.get("ok") is False:
-            raise RuntimeError(str(r.get("error")))
-        for k in ("rows", "data", "result", "records"):
-            if isinstance(r.get(k), list):
-                rows = r[k]
-                break
-    elif isinstance(r, list):
-        rows = r
+    """DB-driven delegate (g2007.python kod=sync_dochazka_sumaden). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_dochazka_sumaden", year, month)
 
-    def f(v):
-        try:
-            return round(float(v), 2)
-        except (TypeError, ValueError):
-            return 0.0
-
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    n = 0
-    try:
-        # Scoped refresh (Marti 3.7.2026): jen daný měsíc = smaž celý měsíc PŘED upsertem,
-        # ať zmizí i staré nafouknuté dny navíc (fond-fill), co Helios SumaDen nemá.
-        # att_day_summary daného měsíce = čistá 1:1 pravda Heliosu. (červen NESAHAT — mzdy.)
-        if month:
-            s.execute(_t("DELETE FROM tenant.att_day_summary WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
-                      {"y": int(year), "m": int(month)})
-        umap = {}
-        for er in s.execute(_t("SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
-                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
-            umap[str(er[0]).strip()] = er[1]
-        for row in rows:
-            try:
-                cz = int(row.get("cz"))
-            except (TypeError, ValueError):
-                continue
-            d = row.get("d")
-            if not d:
-                continue
-            uid = umap.get(str(cz))
-            s.execute(_t(
-                "INSERT INTO tenant.att_day_summary (tenant_id, cislo_zam, user_id, datum, rok, mesic, "
-                " fpd, cas_celkem, cas_montaz, cas_rezie, cas_prescas, cas_dovolena, cas_nemoc, cas_sickday, "
-                " cas_ocr, cas_lekar, cas_nahr_volno, cas_nariz_volno, cas_absence, cas_materska, cas_prekazka, "
-                " cas_chybi, cas_pauza, "
-                " uzavreno, synced_at) "
-                "VALUES (2, :cz, :uid, :d, :y, :m, :fpd, :celkem, :montaz, :rezie, :prescas, :dov, :nem, :sick, "
-                " :ocr, :lek, :nahr, :nariz, :absc, :mat, :prek, :chybi, :pauza, :uz, now()) "
-                "ON CONFLICT (tenant_id, cislo_zam, datum) DO UPDATE SET "
-                " user_id=EXCLUDED.user_id, rok=EXCLUDED.rok, mesic=EXCLUDED.mesic, fpd=EXCLUDED.fpd, "
-                " cas_celkem=EXCLUDED.cas_celkem, cas_montaz=EXCLUDED.cas_montaz, cas_rezie=EXCLUDED.cas_rezie, "
-                " cas_prescas=EXCLUDED.cas_prescas, cas_dovolena=EXCLUDED.cas_dovolena, cas_nemoc=EXCLUDED.cas_nemoc, "
-                " cas_sickday=EXCLUDED.cas_sickday, cas_ocr=EXCLUDED.cas_ocr, cas_lekar=EXCLUDED.cas_lekar, "
-                " cas_nahr_volno=EXCLUDED.cas_nahr_volno, cas_nariz_volno=EXCLUDED.cas_nariz_volno, "
-                " cas_absence=EXCLUDED.cas_absence, cas_materska=EXCLUDED.cas_materska, cas_prekazka=EXCLUDED.cas_prekazka, "
-                " cas_chybi=EXCLUDED.cas_chybi, cas_pauza=EXCLUDED.cas_pauza, "
-                " uzavreno=EXCLUDED.uzavreno, synced_at=now()"),
-                {"cz": cz, "uid": uid, "d": d, "y": int(row.get("y") or 0), "m": int(row.get("m") or 0),
-                 "fpd": f(row.get("fpd")), "celkem": f(row.get("celkem")), "montaz": f(row.get("montaz")),
-                 "rezie": f(row.get("rezie")), "prescas": f(row.get("prescas")), "dov": f(row.get("dov")),
-                 "nem": f(row.get("nem")), "sick": f(row.get("sick")), "ocr": f(row.get("ocr")),
-                 "lek": f(row.get("lek")), "nahr": f(row.get("nahr")), "nariz": f(row.get("nariz")),
-                 "absc": f(row.get("absc")), "mat": f(row.get("mat")), "prek": f(row.get("prek")),
-                 "chybi": f(row.get("chybi")), "pauza": f(row.get("pauza")),
-                 "uz": bool(int(row.get("uz") or 0))})
-            n += 1
-        s.commit()
-        return {"ok": True, "rows": len(rows), "upserted": n}
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
 
 
 def _sync_finance_zakazek(year: int = 2026, month=None) -> dict:
-    """Peta 7.7.2026 — prémie ze zakázek: SUM(OdmenazFinanciZak) z EC_Dochazka (Centrála/DB_EC)
-    per osoba za období (DatumPripadu_Y/M) → tenant.att_finance_zakazek. Stejný výpočet, jakým
-    starý systém plnil sloupec PremieFinanceZam v EC_Mzdy_SumaMesic (Tynčin select). Idempotentní:
-    smaž období + upsert. Zdroj pravdy = DB_EC. Generátor mezd to pak přičítá do složky 651."""
-    import json as _j
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
-    sql = ("SELECT CisloZam cz, SUM(OdmenazFinanciZak) castka "
-           "FROM EC_Dochazka WHERE DatumPripadu_Y = " + str(int(year))
-           + ((" AND DatumPripadu_M = " + str(int(month))) if month else "")
-           + " GROUP BY CisloZam HAVING SUM(OdmenazFinanciZak) <> 0")
-    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-    r = _j.loads(raw) if isinstance(raw, str) else raw
-    rows = []
-    if isinstance(r, dict):
-        if r.get("ok") is False:
-            raise RuntimeError(str(r.get("error")))
-        for k in ("rows", "data", "result", "records"):
-            if isinstance(r.get(k), list):
-                rows = r[k]
-                break
-    elif isinstance(r, list):
-        rows = r
+    """DB-driven delegate (g2007.python kod=sync_finance_zakazek). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_finance_zakazek", year, month)
 
-    def f(v):
-        try:
-            return round(float(v), 2)
-        except (TypeError, ValueError):
-            return 0.0
-
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    n = 0
-    mm = int(month) if month else 0
-    try:
-        # Tabulku zakládá API (bridge je read-only) — idempotentně při každém zrcadlení.
-        s.execute(_t(
-            "CREATE TABLE IF NOT EXISTS tenant.att_finance_zakazek ("
-            " tenant_id integer NOT NULL,"
-            " cislo_zam text NOT NULL,"
-            " rok integer NOT NULL,"
-            " mesic integer NOT NULL,"
-            " castka numeric(14,2) NOT NULL DEFAULT 0,"
-            " synced_at timestamptz DEFAULT now(),"
-            " PRIMARY KEY (tenant_id, cislo_zam, rok, mesic))"))
-        if month:
-            s.execute(_t("DELETE FROM tenant.att_finance_zakazek WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
-                      {"y": int(year), "m": mm})
-        else:
-            s.execute(_t("DELETE FROM tenant.att_finance_zakazek WHERE tenant_id=2 AND rok=:y"),
-                      {"y": int(year)})
-        for row in rows:
-            try:
-                cz = int(row.get("cz"))
-            except (TypeError, ValueError):
-                continue
-            s.execute(_t(
-                "INSERT INTO tenant.att_finance_zakazek (tenant_id, cislo_zam, rok, mesic, castka, synced_at) "
-                "VALUES (2, :cz, :y, :m, :castka, now()) "
-                "ON CONFLICT (tenant_id, cislo_zam, rok, mesic) DO UPDATE SET "
-                " castka=EXCLUDED.castka, synced_at=now()"),
-                {"cz": str(cz), "y": int(year), "m": mm, "castka": f(row.get("castka"))})
-            n += 1
-        s.commit()
-        return {"ok": True, "rows": len(rows), "upserted": n}
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
 
 
 def _sync_odmeny_from_ec(year: int = 2026, month=None) -> dict:
-    """Peta 7.7.2026 — odměny z Centrály (EC_FinPriplatkySrazkyDefinice, DB_EC) → tenant.att_odmena_centrala.
-    Bere schválené záznamy AKTIVNÍ pro období (PlatnostOd<=konec, PlatnostDo IS NULL nebo >=začátek),
-    pokrývá i opakující se pod starším rokem. Mapa typ→složka: DPP typ 1 a 3 → 700 (typ 3 = hodinová,
-    částka = Hodiny×Sazba), jednatelská odměna typ 17 → 693. Idempotentní. Zdroj pravdy = Centrála."""
-    import json as _j
-    import calendar as _cal
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
-    ry = int(year); rm = int(month) if month else 1
-    ld = _cal.monthrange(ry, rm)[1]
-    d_start = "%04d-%02d-01" % (ry, rm)
-    d_end = "%04d-%02d-%02d" % (ry, rm, ld)
-    # typ→CisloMS: DPP (1,3)→700, jednatel (17)→693. částka = Castka, nebo Hodiny*Sazba (typ 3 hodinová).
-    sql = ("SELECT CisloZam cz, "
-           "  CASE WHEN Typ IN (1,3) THEN 700 WHEN Typ=17 THEN 693 END AS cms, "
-           "  SUM(CASE WHEN Castka IS NOT NULL AND Castka<>0 THEN Castka "
-           "           ELSE ISNULL(Hodiny,0)*ISNULL(Sazba,0) END) AS castka "
-           "FROM EC_FinPriplatkySrazkyDefinice "
-           "WHERE Typ IN (1,3,17) AND ISNULL(Schvaleno,0)=1 "
-           "  AND PlatnostOd <= '" + d_end + "' "
-           "  AND (PlatnostDo IS NULL OR PlatnostDo >= '" + d_start + "') "
-           "GROUP BY CisloZam, CASE WHEN Typ IN (1,3) THEN 700 WHEN Typ=17 THEN 693 END "
-           "HAVING SUM(CASE WHEN Castka IS NOT NULL AND Castka<>0 THEN Castka "
-           "               ELSE ISNULL(Hodiny,0)*ISNULL(Sazba,0) END) <> 0")
-    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-    r = _j.loads(raw) if isinstance(raw, str) else raw
-    rows = []
-    if isinstance(r, dict):
-        if r.get("ok") is False:
-            raise RuntimeError(str(r.get("error")))
-        for k in ("rows", "data", "result", "records"):
-            if isinstance(r.get(k), list):
-                rows = r[k]
-                break
-    elif isinstance(r, list):
-        rows = r
+    """DB-driven delegate (g2007.python kod=sync_odmeny_from_ec). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_odmeny_from_ec", year, month)
 
-    def f(v):
-        try:
-            return round(float(v), 2)
-        except (TypeError, ValueError):
-            return 0.0
-
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    n = 0
-    mm = int(month) if month else 0
-    try:
-        s.execute(_t(
-            "CREATE TABLE IF NOT EXISTS tenant.att_odmena_centrala ("
-            " tenant_id integer NOT NULL,"
-            " cislo_zam text NOT NULL,"
-            " rok integer NOT NULL,"
-            " mesic integer NOT NULL,"
-            " cislo_ms integer NOT NULL,"
-            " castka numeric(14,2) NOT NULL DEFAULT 0,"
-            " synced_at timestamptz DEFAULT now(),"
-            " PRIMARY KEY (tenant_id, cislo_zam, rok, mesic, cislo_ms))"))
-        if month:
-            s.execute(_t("DELETE FROM tenant.att_odmena_centrala WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
-                      {"y": ry, "m": mm})
-        else:
-            s.execute(_t("DELETE FROM tenant.att_odmena_centrala WHERE tenant_id=2 AND rok=:y"), {"y": ry})
-        for row in rows:
-            try:
-                cz = int(row.get("cz")); cms = int(row.get("cms"))
-            except (TypeError, ValueError):
-                continue
-            s.execute(_t(
-                "INSERT INTO tenant.att_odmena_centrala (tenant_id, cislo_zam, rok, mesic, cislo_ms, castka, synced_at) "
-                "VALUES (2, :cz, :y, :m, :cms, :castka, now()) "
-                "ON CONFLICT (tenant_id, cislo_zam, rok, mesic, cislo_ms) DO UPDATE SET "
-                " castka=EXCLUDED.castka, synced_at=now()"),
-                {"cz": str(cz), "y": ry, "m": mm, "cms": cms, "castka": f(row.get("castka"))})
-            n += 1
-        s.commit()
-        return {"ok": True, "rows": len(rows), "upserted": n}
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
 
 
 def _sync_deti(preview: bool = False) -> dict:
@@ -49037,176 +48267,17 @@ def _derive_kontakty() -> dict:
 
 
 def _sync_absence_to_ec_vytizeni(dnu_zpet: int = 14) -> dict:
-    """JEDNOSMĚRNÝ sync (Marti 28.6.2026): naše plánované absence
-    (tenant.att_planned_absence = NAŠE pravda, plněná naší appkou) →
-    st.EC_Vytizeni_NepritomnostSTRATEGIE v DB_EC, odkud (po přesměrování
-    dbo.ECv_Vytizeni_SeznamNepritomnost) čte Excel 'Plánování vytížení'.
-    Čteme jen z PG, píšeme jen do st — st nikdo nečte zpátky k nám → BEZ REKURZE.
-    Originál dbo.EC_Dochazka_PlanNepritomnost se nepoužívá (zakázán)."""
-    import json as _jv
-    import datetime as _dtv
-    from sqlalchemy import text as _tv
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        return {"ok": False, "error": "EUROSOFT MCP nedostupné"}
+    """DB-driven delegate (g2007.python kod=sync_absence_to_ec_vytizeni). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_absence_to_ec_vytizeni", dnu_zpet)
 
-    def _ecw(s):
-        rj = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                {"sql": s, "db_name": "DB_EC"}, conversation_id=None)
-        r = (_jv.loads(rj) if isinstance(rj, str) else rj) or {}
-        if r.get("ok") is False:
-            raise RuntimeError(str(r.get("error") or r.get("message"))[:200])
-        return r
-
-    # 1) NAŠE absence z PG (jen číselné EC cislo_zam; recent + budoucnost)
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_tv(
-            "SELECT (e.cislo_zam)::int AS cislo, pa.datum::text AS d, "
-            "       pa.druh_kod AS druh, COALESCE(pa.hodiny,0)::int AS hod "
-            "FROM tenant.att_planned_absence pa "
-            "JOIN tenant.att_employee e "
-            "  ON e.cislo_zam = pa.cislo_zam AND e.tenant_id = pa.tenant_id "
-            "WHERE pa.tenant_id = 2 AND pa.datum >= CURRENT_DATE - :db "
-            "  AND e.cislo_zam ~ '^[0-9]+$' "
-            "ORDER BY cislo, d"), {"db": int(dnu_zpet)}).fetchall()
-    finally:
-        cm.__exit__(None, None, None)
-
-    _DOW = {0: "Po", 1: "Út", 2: "St", 3: "Čt", 4: "Pá", 5: "So", 6: "Ne"}
-    # 1b) barva per DruhCinnosti = kanonická z EC originálu (EC_Dochazka_PlanNepritomnost.Barva,
-    # nejčastější barva na druh). Bez ní Excel „Plánování vytížení" nedobarví činnosti/druhy
-    # nepřítomnosti → rozpadlé statistiky (reklamace Pillár 30.6.). View bere pn.Barva → MUSÍME plnit.
-    _BARVA_DEF = "FFDCA5"
-    barva_by = {}
-    try:
-        rb = _ecw("SELECT DruhCinnosti, Barva FROM (SELECT DruhCinnosti, Barva, "
-                  "ROW_NUMBER() OVER (PARTITION BY DruhCinnosti ORDER BY COUNT(*) DESC) rn "
-                  "FROM dbo.EC_Dochazka_PlanNepritomnost WHERE Barva IS NOT NULL AND Barva<>'' "
-                  "GROUP BY DruhCinnosti, Barva) t WHERE rn=1")
-        for rr in (rb.get("rows") or []):
-            try:
-                barva_by[int(rr.get("DruhCinnosti"))] = (str(rr.get("Barva") or "").strip()[:10]) or _BARVA_DEF
-            except Exception:
-                pass
-    except Exception:
-        pass
-    # 2) přepiš st tabulku (jednosměrně): DELETE + batch INSERT
-    _ecw("DELETE FROM st.EC_Vytizeni_NepritomnostSTRATEGIE")
-    vals, n = [], 0
-
-    def _flush(vv):
-        if not vv:
-            return 0
-        _ecw("INSERT INTO st.EC_Vytizeni_NepritomnostSTRATEGIE"
-             "(CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,PocetHodin,Barva) VALUES "
-             + ",".join(vv))
-        return len(vv)
-
-    for r in rows:
-        try:
-            cislo = int(r[0]); d = str(r[1])[:10]; druh = int(r[2]); hod = int(r[3] or 0)
-        except Exception:
-            continue
-        wd = _dtv.date.fromisoformat(d).weekday()
-        barva = barva_by.get(druh, _BARVA_DEF) or _BARVA_DEF
-        vals.append("(%d,'%s',N'%s',%d,%d,N'%s')" % (cislo, d, _DOW.get(wd, ""), druh, hod, barva))
-        if len(vals) >= 200:
-            n += _flush(vals); vals = []
-    n += _flush(vals)
-    return {"ok": True, "vlozeno": n, "dnu_zpet": int(dnu_zpet), "barev": len(barva_by)}
 
 
 def _sync_vyroba_plan_from_ec() -> dict:
-    """Marti 8.6.2026: read-only zrcadlo plánu výroby (EC_Vytizeni_PlanMonteri,
-    živý systém za Excelem 'Plánování vytížení') → tenant.vyroba_plan. Řádek =
-    montér × zakázka × den × hodiny. Okno today..+60 dní (DELETE+reload).
-    CisloZam → user_id přes tenant.att_employee. DB_EC zůstává zdroj pravdy."""
-    import json as _json_v
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
-    sql = ("SELECT m.ID id, m.CisloZam cz, "
-           "LTRIM(RTRIM(ISNULL(z.Prijmeni,'') + ' ' + ISNULL(z.Jmeno,''))) zam, "
-           "m.CisloZakazky ck, LEFT(ISNULL(v.Nazev,''),200) nz, "
-           "CONVERT(varchar(10), m.Datum, 23) dt, m.PocetHodin hod, "
-           "CAST(ISNULL(m.JsemMonter,0) AS int) jm, m.Typ typ "
-           "FROM EC_Vytizeni_PlanMonteri m "
-           "LEFT JOIN EC_Vytizeni_Zakazky v ON v.CisloZakazky = m.CisloZakazky "
-           "LEFT JOIN TabCisZam z ON z.Cislo = m.CisloZam "
-           "WHERE m.Datum >= CAST(GETDATE() AS DATE) "
-           "AND m.Datum < DATEADD(day, 100, CAST(GETDATE() AS DATE))")
-    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-    r = _json_v.loads(raw) if isinstance(raw, str) else raw
-    rows = []
-    if isinstance(r, dict):
-        if r.get("ok") is False:
-            raise RuntimeError(str(r.get("error")))
-        for k in ("rows", "data", "result", "records"):
-            if isinstance(r.get(k), list):
-                rows = r[k]
-                break
-    elif isinstance(r, list):
-        rows = r
+    """DB-driven delegate (g2007.python kod=sync_vyroba_plan_from_ec). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_vyroba_plan_from_ec")
 
-    cm = _pg.get_session()
-    sess = cm.__enter__()
-    n = 0
-    try:
-        sess.execute(_t(
-            "CREATE TABLE IF NOT EXISTS tenant.vyroba_plan ("
-            " tenant_id bigint NOT NULL, ext_id bigint NOT NULL,"
-            " cislo_zam int, zam_jmeno text, user_id bigint, cislo_zakazky varchar(40),"
-            " zakazka_nazev text, datum date, pocet_hodin numeric(6,2),"
-            " je_monter boolean, typ varchar(20),"
-            " synced_at timestamptz DEFAULT now(),"
-            " PRIMARY KEY (tenant_id, ext_id))"))
-        sess.execute(_t(
-            "ALTER TABLE tenant.vyroba_plan ADD COLUMN IF NOT EXISTS zam_jmeno text"))
-        sess.execute(_t(
-            "CREATE INDEX IF NOT EXISTS ix_vyroba_plan_user_datum"
-            " ON tenant.vyroba_plan (tenant_id, user_id, datum)"))
-        # mapa CisloZam -> user_id z docházky
-        umap = {}
-        for er in sess.execute(_t(
-            "SELECT cislo_zam, user_id FROM tenant.att_employee"
-            " WHERE tenant_id = 2 AND user_id IS NOT NULL")).mappings().all():
-            umap[str(er["cislo_zam"]).strip()] = er["user_id"]
-        # okno today.. čistě přerovnat
-        sess.execute(_t("DELETE FROM tenant.vyroba_plan"
-                        " WHERE tenant_id = 2 AND datum >= CURRENT_DATE"))
-        for row in rows:
-            cz = row.get("cz")
-            uid = umap.get(str(cz).strip()) if cz is not None else None
-            sess.execute(_t(
-                "INSERT INTO tenant.vyroba_plan (tenant_id, ext_id, cislo_zam, zam_jmeno, user_id,"
-                " cislo_zakazky, zakazka_nazev, datum, pocet_hodin, je_monter, typ, synced_at)"
-                " VALUES (2, :eid, :cz, :zam, :uid, :ck, :nz, :dt, :hod, :jm, :typ, now())"
-                " ON CONFLICT (tenant_id, ext_id) DO UPDATE SET cislo_zam = EXCLUDED.cislo_zam,"
-                " zam_jmeno = EXCLUDED.zam_jmeno,"
-                " user_id = EXCLUDED.user_id, cislo_zakazky = EXCLUDED.cislo_zakazky,"
-                " zakazka_nazev = EXCLUDED.zakazka_nazev, datum = EXCLUDED.datum,"
-                " pocet_hodin = EXCLUDED.pocet_hodin, je_monter = EXCLUDED.je_monter,"
-                " typ = EXCLUDED.typ, synced_at = now()"),
-                {"eid": row.get("id"), "cz": cz,
-                 "zam": (str(row.get("zam")).strip() or None) if row.get("zam") is not None else None,
-                 "uid": uid,
-                 "ck": (str(row.get("ck")).strip() if row.get("ck") is not None else None),
-                 "nz": row.get("nz"), "dt": row.get("dt"), "hod": row.get("hod"),
-                 "jm": bool(int(row.get("jm") or 0)), "typ": row.get("typ")})
-            n += 1
-        sess.commit()
-    except Exception:
-        sess.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
-    return {"synced": n}
 
 
 def _sync_odvozy_from_ec() -> dict:

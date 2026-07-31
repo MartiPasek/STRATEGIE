@@ -20063,68 +20063,14 @@ async def att_unconfirmed(req: Request) -> JSONResponse:
 @api_router.post("/app/attendance/confirm-day")
 async def att_confirm_day(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
-    if day > _dt.now().date():
-        return JSONResponse({"ok": False, "error": "Budoucí den potvrdit nejde."}, status_code=400)
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        # Marti 7.6. večer: dnešek lze potvrdit, jen když je den UZAVŘENÝ —
-        # žádná běžící směna + status konce dne (nepočítej / dnes už nedorazím).
-        if day == _dt.now().date():
-            uzavren = s.execute(_t(
-                "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM tenant.att_entry o "
-                "  WHERE o.tenant_id = :t AND o.employee_id = :e AND o.is_active = true) "
-                "AND EXISTS (SELECT 1 FROM tenant.att_entry a2 WHERE a2.tenant_id = :t "
-                "  AND a2.employee_id = :e AND a2.entry_date = current_date "
-                "  AND a2.status = 'announced' "
-                "  AND (a2.note ILIKE '%nepočítej%' OR a2.note ILIKE '%nedorazím%'))"),
-                {"t": _ATT_TENANT, "e": emp}).first() is not None
-            if not uzavren:
-                s.commit()
-                return JSONResponse({"ok": False, "error": "Dnešek potvrdíš, až den ukončíš."}, status_code=400)
-        s.execute(_t(
-            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id) "
-            "VALUES (:t, :e, :d, :u) ON CONFLICT (tenant_id, employee_id, day) DO NOTHING"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid})
-        # Marti 7.7.2026: po potvrzení dne UKLIDIT jeho anomálii i mobilní notifikaci
-        # „🖊 Potvrď si docházku" — jinak notifikace svítí dál i po odsouhlasení.
-        s.execute(_t(
-            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
-            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
-            "  AND e.id = a.entry_id AND e.entry_date = :d"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()})
-        # notifikace nese v title '🖊 Potvrď si docházku' a message začíná 'DD.MM. …'
-        s.execute(_t(
-            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
-            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
-            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
-            {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
-        # když už žádný den nečeká na potvrzení, zhasni i případné zbylé připomínky
-        if not _att_unconfirmed_days(s, emp):
-            s.execute(_t(
-                "UPDATE fw.mobile_command SET status='done', decided_at=now() "
-                "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
-                "  AND title LIKE '%Potvrď si docházku%'"),
-                {"u": uid})
-        s.commit()
-        return JSONResponse({"ok": True, "day": day.isoformat()})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_confirm_day", uid, (body or {}).get("day"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── PIN pro výplatní pásku (Marti 7.6. večer) ────────────────────────────
@@ -20406,60 +20352,14 @@ async def att_dispute_day(req: Request) -> JSONResponse:
     místo potvrzení ROZPORUJE (s poznámkou) → odblokuje příchod (zodpovědnost
     splněna ozváním se), kontrola docházky dostane notifikaci a řeší."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
-    note = str((body or {}).get("note") or "").strip()[:500]
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        s.execute(_t(
-            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id, disputed, note) "
-            "VALUES (:t, :e, :d, :u, true, :n) "
-            "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true, note = EXCLUDED.note"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid, "n": note or None})
-        # Marti 7.7.: rozporovaný den je taky vyřešený → zhasni vlastní připomínku
-        # „🖊 Potvrď si docházku" a ukliď anomálii nepotvrzeného dne.
-        s.execute(_t(
-            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
-            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
-            "  AND e.id = a.entry_id AND e.entry_date = :d"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()})
-        s.execute(_t(
-            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
-            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
-            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
-            {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
-        # Marti 10.7.: rozpory chodí editorům oprav dle působnosti (kancelář/výroba),
-        # už NE Martimu/supervizorovi. Fallback {1}, kdyby editoři nebyli k nalezení.
-        who = s.execute(_t(
-            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "
-            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id WHERE em.id = :e"),
-            {"e": emp}).scalar() or ("zaměstnanec " + str(emp))
-        targets = _att_fix_editors_for_emp(s, emp) or {20}  # fallback = Jirka (admin), NE rodič (Jirka 21.7.)
-        msg = (who + " rozporoval docházku za " + str(day.day) + ". " + str(day.month) + "."
-               + ((" — „" + note + "“") if note else "") + " Mrkni na záznamy a doladěte to spolu.")
-        for uid2 in sorted(targets):
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                {"uid": uid2, "ti": "✋ Rozporovaná docházka", "msg": msg[:600]})
-        s.commit()
-        return JSONResponse({"ok": True, "day": day.isoformat(), "disputed": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_dispute_day", uid, (body or {}).get("day"), (body or {}).get("note"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/whoami")
@@ -21036,44 +20936,14 @@ async def att_announce_delete(req: Request) -> JSONResponse:
     """Marti 10.6.: smazání hlášené (budoucí) nepřítomnosti — supersedne řádek
     + zapíše do tenant.att_audit (kdo/co/kdy/původní hodnota). Jen vlastní."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    if eid <= 0:
-        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        row = s.execute(_t("SELECT entry_date::text, note FROM tenant.att_entry "
-                           "WHERE id=:i AND tenant_id=:t AND employee_id=:e"),
-                        {"i": eid, "t": _ATT_TENANT, "e": emp}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-        actor = s.execute(_t("SELECT trim(coalesce(first_name,'')||' '||coalesce(last_name,'')) "
-                             "FROM public.users WHERE id=:u"), {"u": uid}).scalar() or ("user " + str(uid))
-        s.execute(_t("INSERT INTO tenant.att_audit (tenant_id, entry_id, employee_id, action, "
-                     "actor_user_id, actor_text, old_entry_date, old_note, detail, created_at) "
-                     "VALUES (:t,:i,:e,'delete',:u,:at,CAST(:d AS date),:n,'smazano z mobilu',now())"),
-                  {"t": _ATT_TENANT, "i": eid, "e": emp, "u": uid, "at": actor,
-                   "d": row[0], "n": row[1]})
-        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', is_active=false, updated_at=now() "
-                     "WHERE id=:i AND tenant_id=:t AND employee_id=:e"),
-                  {"i": eid, "t": _ATT_TENANT, "e": emp})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_announce_delete", uid, (body or {}).get("id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── Detail dne + samoobsluha záznamů (Marti 7.6. večer) ──────────────────
@@ -21098,96 +20968,14 @@ async def att_entry_trim(req: Request) -> JSONResponse:
     """Redukce času záznamu (zapomenutý odchod apod.) — JEN zkrácení konce,
     mezi začátkem a původním koncem. Původní čas zůstává v poznámce."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import re as _re
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    endt = str((body or {}).get("end") or "").strip()[:5]
-    logger.warning("ENTRY-TRIM | start | uid=%s id=%s end=%r", uid, (body or {}).get("id"), endt)
-    if not (eid and _re.fullmatch(r"[0-2][0-9]\x3a[0-5][0-9]", endt)):
-        logger.warning("ENTRY-TRIM | invalid time | uid=%s end=%r", uid, endt)
-        return JSONResponse({"ok": False, "error": "Neplatný čas."})
-    cm, s = _att_session()
-    try:
-        row = s.execute(_t(
-            "SELECT e.id, to_char(e.ended_at,'HH24:MI'), et.code, e.employee_id, "
-            "       e.entry_date::text, to_char(e.ended_at,'YYYY-MM-DD HH24:MI:SS') "
-            "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id = e.employee_id "
-            "JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
-            {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
-        if not row:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        if not row[1]:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "Běžící záznam zkrátit nejde — nejdřív se odpíchni."})
-        nn = "zkráceno uživatelem (původně do " + row[1] + ")"
-        # Marti 7.6. večer fix: nový konec na DEN PŮVODNÍHO KONCE (ne entry_date) —
-        # job přes půlnoc (start 6.6. večer, konec 7.6. ráno) jinak nešel zkrátit.
-        upd = s.execute(_t(
-            "UPDATE tenant.att_entry e SET "
-            "  ended_at = (e.ended_at::date::text || ' ' || :endt)::timestamp, "
-            "  hours = round(GREATEST(EXTRACT(EPOCH FROM ((e.ended_at::date::text || ' ' || :endt)::timestamp - e.started_at))/3600.0 "
-            "        - COALESCE(e.break_minutes,0)/60.0, 0)::numeric,2), "
-            "  note = CASE WHEN COALESCE(e.note,'') = '' THEN :nn ELSE e.note || ' / ' || :nn END, "
-            "  updated_at = now() "
-            "WHERE e.id = :i "
-            "  AND (e.ended_at::date::text || ' ' || :endt)::timestamp > e.started_at "
-            "  AND (e.ended_at::date::text || ' ' || :endt)::timestamp < e.ended_at "
-            "RETURNING e.id"),
-            {"i": eid, "endt": endt, "nn": nn}).first()
-        if not upd:
-            s.commit()
-            logger.warning("ENTRY-TRIM | guard fail (ne-redukce) | uid=%s id=%s end=%s puvodni=%s", uid, eid, endt, row[1])
-            return JSONResponse({"ok": False, "error": "Čas jde jen ZKRÁTIT — mezi začátkem a původním koncem (" + row[1] + ")."})
-        # Peťa 22.7.2026: když se zkrátí PAUZA, navazující práce má začínat na novém
-        # konci pauzy — jinak zůstane mezera (Beneš 22.7.: pauzu zkrátil na 11:15, ale
-        # práce dál začínala na původních 13:09). Posuneme začátek práce, která
-        # navazovala na PŮVODNÍ konec pauzy, na nový konec. Bereme tu s nejdřívějším
-        # koncem (ošetří i nula-délkový „návrat z pauzy" marker, který se tím roztáhne
-        # na mezeru). Jen NAŠE needitovaná práce (ne z Centrály, ne superseded).
-        moved = None
-        if row[2] == 'break':
-            try:
-                new_ts = str(row[4]) + ' ' + endt + ':00'   # entry_date + nový konec pauzy
-                old_ts = row[5]                              # původní konec pauzy (timestamp)
-                moved = s.execute(_t(
-                    "UPDATE tenant.att_entry SET started_at = CAST(:nts AS timestamp), "
-                    "  hours = round(GREATEST(EXTRACT(EPOCH FROM (ended_at - CAST(:nts AS timestamp)))/3600.0 "
-                    "        - COALESCE(break_minutes,0)/60.0, 0)::numeric,2), "
-                    "  note = CASE WHEN COALESCE(note,'')='' THEN :nn2 ELSE note || ' / ' || :nn2 END, "
-                    "  updated_at = now() "
-                    "WHERE id = (SELECT e2.id FROM tenant.att_entry e2 "
-                    "   JOIN tenant.att_entry_type et2 ON et2.id = e2.entry_type_id "
-                    "   WHERE e2.tenant_id = :t AND e2.employee_id = :emp AND e2.entry_date = CAST(:d AS date) "
-                    "     AND et2.code IN ('work','overhead') "
-                    "     AND COALESCE(e2.status,'') NOT IN ('superseded','announced') "
-                    "     AND COALESCE(e2.source_system,'') = '' "
-                    "     AND e2.started_at = CAST(:ots AS timestamp) "
-                    "   ORDER BY e2.ended_at ASC NULLS LAST LIMIT 1) "
-                    "RETURNING id"),
-                    {"nts": new_ts, "ots": old_ts, "t": _ATT_TENANT, "emp": row[3], "d": str(row[4]),
-                     "nn2": "začátek posunut na konec zkrácené pauzy"}).first()
-            except Exception:
-                logger.exception("ENTRY-TRIM | posun navazujici prace selhal (id=%s)", eid)
-                moved = None
-        s.commit()
-        logger.warning("ENTRY-TRIM | OK | uid=%s id=%s end=%s posun_prace=%s", uid, eid, endt, bool(moved))
-        return JSONResponse({"ok": True, "id": eid})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_entry_trim", uid, (body or {}).get("id"), (body or {}).get("end"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/entry-project")
@@ -21196,61 +20984,14 @@ async def att_entry_project(req: Request) -> JSONResponse:
     Validace proti tenant.zakazka (píchatelné), typ REZIE → overhead. Původní
     zakázka zůstává v poznámce."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    ref = str((body or {}).get("project_ref") or "").strip()[:40]
-    if not (eid and ref):
-        return JSONResponse({"ok": False, "error": "Chybí zakázka."})
-    cm, s = _att_session()
-    try:
-        row = s.execute(_t(
-            "SELECT e.id, e.project_ref, COALESCE(e.note,''), COALESCE(et.label,'') FROM tenant.att_entry e "
-            "JOIN tenant.att_employee em ON em.id = e.employee_id "
-            "LEFT JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
-            {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
-        if not row:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        # Marti 11.6.: neproduktivní záznam (pauza/relax/oběd/jednání/pochůzka/lékař)
-        # nesmí nést číslo zakázky.
-        import re as _re_np
-        if _re_np.search(r"pauz|relax|energ|j[íi]dl|prov[ěe]tr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|l[ée]ka[řr]|doktor",
-                         ((row[2] or "") + " " + (row[3] or "")).lower()):
-            s.commit()
-            return JSONResponse({"ok": False, "error": "Neproduktivní záznam (pauza/relax) nemůže nést zakázku."})
-        zak = s.execute(_t(
-            "SELECT typ FROM tenant.zakazka WHERE tenant_id = :t AND cislo = :c AND pichatelna = true"),
-            {"t": _ATT_TENANT, "c": ref}).first()
-        if not zak:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "Zakázka " + ref + " není píchatelná / neexistuje."})
-        tcode = "overhead" if (zak[0] == "REZIE") else "work"
-        # Marti 12.6.: oprava na režii = skupina Režie, ale číslo zakázky do jobu necpat.
-        stored_ref = None if (zak[0] == "REZIE") else ref
-        nn = ("zakázka změněna uživatelem (původně " + (row[1] or "žádná") + ")")
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET project_ref = :c, "
-            "entry_type_id = COALESCE((SELECT id FROM tenant.att_entry_type WHERE tenant_id = :t AND code = :tc), entry_type_id), "
-            "note = CASE WHEN COALESCE(note,'') = '' THEN :nn ELSE note || ' / ' || :nn END, "
-            "updated_at = now() WHERE id = :i"),
-            {"c": stored_ref, "t": _ATT_TENANT, "tc": tcode, "nn": nn, "i": eid})
-        s.commit()
-        return JSONResponse({"ok": True, "id": eid, "project_ref": stored_ref})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_entry_project", uid, (body or {}).get("id"), (body or {}).get("project_ref"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/entry-dispute")
@@ -21258,78 +20999,14 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
     """„Na tomhle jobu je něco špatně" — poznámka na záznam + notifikace
     kontrole docházky (resolver) a tatínkovi jako anchor."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    note = str((body or {}).get("note") or "").strip()[:500]
-    if not (eid and note):
-        return JSONResponse({"ok": False, "error": "Napiš prosím, co nesedí."})
-    cm, s = _att_session()
-    try:
-        row = s.execute(_t(
-            "SELECT e.id, e.entry_date::text, to_char(e.started_at,'HH24:MI'), "
-            "       to_char(e.ended_at,'HH24:MI'), e.employee_id "
-            "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id = e.employee_id "
-            "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
-            {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
-        if not row:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        nn = "✋ ROZPOR: " + note
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET note = CASE WHEN COALESCE(note,'') = '' THEN :nn "
-            "ELSE note || ' / ' || :nn END, updated_at = now() WHERE id = :i"),
-            {"nn": nn, "i": eid})
-        # Rozpor na jobu = zodpovědnost za den splněna → den označit disputed
-        # (odblokuje nový příchod — denní tlačítko bylo zrušeno, tohle ho nahrazuje).
-        s.execute(_t(
-            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id, disputed, note) "
-            "VALUES (:t, :e, :d, :u, true, :n) "
-            "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true"),
-            {"t": _ATT_TENANT, "e": int(row[4]), "d": str(row[1]), "u": uid, "n": note[:300]})
-        # Rozporovaný den je vyřešený → zhasni vlastní připomínku i anomálii.
-        # Jirka 31.7.2026 (případ Erika Sedláčková 30.7.): tenhle úklid tu CHYBĚL,
-        # jako jediný ze čtyř způsobů uzavření dne (confirm-day / dispute-day /
-        # fix-request ho mají). Důsledek: den zmizel z _att_unconfirmed_days (protože
-        # att_day_confirm už existuje), ale notifikace „🖊 Potvrď si docházku" zůstala
-        # pending → appka prudila s potvrzením a v potvrzování nebylo nic k vidění.
-        _den = str(row[1])                            # 'YYYY-MM-DD'
-        _dp = _den[8:10] + "." + _den[5:7] + ".%"     # 'DD.MM.%' = prefix zprávy notifikace
-        s.execute(_t(
-            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
-            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
-            "  AND e.id = a.entry_id AND e.entry_date = CAST(:d AS date)"),
-            {"t": _ATT_TENANT, "e": int(row[4]), "d": _den})
-        s.execute(_t(
-            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
-            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
-            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
-            {"u": uid, "dp": _dp})
-        who = _user_jmeno(s, uid)
-        # Marti 10.7.: rozpor na jobu → editorům oprav dle působnosti, ne Martimu.
-        targets = _att_fix_editors_for_emp(s, int(row[4])) or {20}  # fallback = Jirka (admin), NE rodič (Jirka 21.7.)
-        msg = (who + " hlásí problém na záznamu " + str(row[1]) + " "
-               + (row[2] or "?") + "–" + (row[3] or "…") + " — „" + note + "“")
-        for uid2 in sorted(targets):
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                {"uid": uid2, "ti": "✋ Problém na záznamu docházky", "msg": msg[:600]})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_entry_dispute", uid, (body or {}).get("id"), (body or {}).get("note"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ---------------------------------------------------------------------------
@@ -24573,75 +24250,14 @@ async def att_announce(req: Request) -> JSONResponse:
     jednání do cca…"). Řádek status='announced' (hours NULL → nepočítá se),
     checkin ho supersedne. Může běžet i vedle otevřené směny (jednání)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    note = _att_presence_note(body)
-    # Marti 7.6. večer: volitelně i pro BUDOUCÍ den („v pátek končím dříve") —
-    # status se uloží na ten den a „Kdo kde dnes" ho ten den ukáže.
-    from datetime import datetime as _dta
-    day = None
-    draw = str((body or {}).get("day") or "").strip()[:10]
-    if draw:
-        try:
-            dd = _dta.strptime(draw, "%Y-%m-%d").date()
-            if dd < _dta.now().date():
-                return JSONResponse({"ok": False, "error": "Minulý den ohlásit nejde."}, status_code=400)
-            day = dd.isoformat()
-        except Exception:
-            return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        # Marti 29.6.: když ohlášení znamená ABSENCI (dovolená/nemoc/lékař/OČR/neplacené),
-        # NEzakládej 'work' ohlášení (vznikla past: Eliška ohlásila dovolenou → 'work' + automat
-        # dopíchal práci). Místo toho založ žádost o absenci → schválení vedoucím rovnou zapíše
-        # absenční job do docházky (/absence/decide materializuje att_entry).
-        _abs_typ = _announce_absence_typ(note)
-        if _abs_typ and emp:
-            _dd = day or _dta.now().date().isoformat()
-            _abs_apprs = _abs_resolve(s, emp, uid)
-            _mgr = _abs_apprs[0] if _abs_apprs else None
-            _rid = s.execute(_t(
-                "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
-                "hours_per_day,note,stav,manager_user_id) "
-                "VALUES (2,:e,:u,:ty,:d,:d,8,:n,'pending',:m) RETURNING id"),
-                {"e": emp, "u": uid, "ty": _abs_typ, "d": _dd, "n": note, "m": _mgr}).scalar()
-            _who = s.execute(_t(
-                "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
-                "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
-                {"e": emp}).scalar() or "Zaměstnanec"
-            try:
-                _abs_notify(s, _abs_apprs, "🗓️ Nová žádost o absenci",
-                            _who + " žádá o „" + _ABS_TYP[_abs_typ] + "“ na " + _dd + ((" — " + note) if note else "")
-                            + ". Rozhodni v Docházce → Žádosti o absenci (schválení rovnou zapíše do docházky).")
-            except Exception:
-                pass
-            s.commit()
-            return JSONResponse({"ok": True, "absence_request": _rid, "typ": _abs_typ,
-                                 "note": "Rozpoznal jsem absenci („" + _ABS_TYP[_abs_typ] + "“) — založil jsem žádost, "
-                                         "čeká na schválení vedoucím a pak se rovnou zapíše do docházky."})
-        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
-                     "WHERE tenant_id=:t AND employee_id=:e "
-                     "AND entry_date = COALESCE(CAST(:d AS date), current_date) AND status='announced'"),
-                  {"t": _ATT_TENANT, "e": emp, "d": day})
-        wt = _att_work_type(s)
-        s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-            "status,source,is_active,note,created_by_id,created_at,updated_at) "
-            "VALUES (:t,:e,COALESCE(CAST(:d AS date), current_date),:wt,now(),'announced','mobile_app',false,:n,:u,now(),now())"),
-            {"t": _ATT_TENANT, "e": emp, "d": day, "wt": wt, "n": note, "u": uid})
-        s.commit()
-        return JSONResponse({"ok": True, "note": note})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_announce", uid, body)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/clear-announce")
@@ -24649,23 +24265,10 @@ async def att_clear_announce(req: Request) -> JSONResponse:
     """Marti 10.6.: ukončení časovaného statusu (Konec jednání/pochůzky) —
     supersedne aktuální announced řádek dne, uživatel se vrací k běžné směně."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        r = s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
-                         "WHERE tenant_id=:t AND employee_id=:e "
-                         "AND entry_date=current_date AND status='announced'"),
-                      {"t": _ATT_TENANT, "e": emp})
-        s.commit()
-        return JSONResponse({"ok": True, "cleared": r.rowcount})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_clear_announce", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── Impersonace z mobilu (Marti 7.6.2026): „přihlásit jako" pro testování

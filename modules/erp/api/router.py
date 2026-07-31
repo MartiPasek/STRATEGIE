@@ -33029,127 +33029,13 @@ async def sw_faktura_delete(req: Request):
     return {"ok": True}
 
 
-# ════════════════════════════════════════════════════════════════════════
-# OBĚH ZAKÁZKY (Marti 19.6.2026): poptávka → kalkulace → nabídka → přijatá
-# objednávka → zakázka → vydaná objednávka → výroba → fakturace.
-# Řetězené doklady (každý vlastní tabulka + vazba na předchozí), typ SW/VR.
-# Univerzální pro divizi PLC (Zuzka/Mirek) i pozdější převzetí celého oběhu.
-# Stavíme stupeň po stupni; tady první stupeň = POPTÁVKA.
-# ════════════════════════════════════════════════════════════════════════
-_POPTAVKA_STAVY = ["nova", "zpracovava", "nabidnuto", "vyhrana", "zamitnuta"]
-
-@api_router.get("/app/poptavka/list")
-def poptavka_list(req: Request):
-    uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'read')):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        rows = s.execute(_t(
-            "SELECT p.id, p.cislo, p.typ, p.zakaznik, p.kontakt, p.popis, p.zdroj, "
-            "  to_char(p.datum_prijeti,'DD.MM.YYYY') AS datum, p.resitel_user_id, "
-            "  btrim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) AS resitel, "
-            "  p.stav, p.poznamka "
-            "FROM tenant.poptavka p LEFT JOIN public.users u ON u.id=p.resitel_user_id "
-            "WHERE p.active ORDER BY p.datum_prijeti DESC NULLS LAST, p.id DESC")).mappings().all()
-    finally:
-        s.close()
-    return {"ok": True, "stavy": _POPTAVKA_STAVY, "poptavky": [dict(r) for r in rows]}
-
-@api_router.get("/app/poptavka/detail")
-def poptavka_detail(req: Request):
-    uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'read')):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    try:
-        pid = int(req.query_params.get("id"))
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Chybí id"}, status_code=400)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        p = s.execute(_t(
-            "SELECT p.*, btrim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) AS resitel "
-            "FROM tenant.poptavka p LEFT JOIN public.users u ON u.id=p.resitel_user_id WHERE p.id=:i"),
-            {"i": pid}).mappings().first()
-        if not p:
-            return JSONResponse({"ok": False, "error": "Nenalezeno"}, status_code=404)
-    finally:
-        s.close()
-    return {"ok": True, "poptavka": dict(p), "stavy": _POPTAVKA_STAVY}
-
-@api_router.post("/app/poptavka/save")
-async def poptavka_save(req: Request):
-    uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'write')):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    try:
-        b = await req.json()
-    except Exception:
-        b = {}
-    def _int(x):
-        try: return int(x) if x not in (None, "") else None
-        except Exception: return None
-    dat = (b.get("datum_prijeti") or "").strip() or None   # ISO nebo DD.MM.RRRR
-    if dat and "." in dat:
-        try:
-            d, m, y = dat.split("."); dat = "%s-%s-%s" % (y.strip(), m.strip().zfill(2), d.strip().zfill(2))
-        except Exception:
-            dat = None
-    p = {"ci": (b.get("cislo") or "").strip() or None,
-         "ty": (b.get("typ") or "SW").strip() or "SW",
-         "zk": (b.get("zakaznik") or "").strip() or None,
-         "ko": (b.get("kontakt") or "").strip() or None,
-         "po": (b.get("popis") or "").strip() or None,
-         "zd": (b.get("zdroj") or "").strip() or None,
-         "ru": _int(b.get("resitel_user_id")),
-         "st": (b.get("stav") or "nova").strip(),
-         "pz": (b.get("poznamka") or "").strip() or None,
-         "dt": dat}
-    if p["st"] not in _POPTAVKA_STAVY:
-        p["st"] = "nova"
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        rid = b.get("id")
-        if rid:
-            p["id"] = int(rid)
-            s.execute(_t("UPDATE tenant.poptavka SET cislo=:ci, typ=:ty, zakaznik=:zk, kontakt=:ko, "
-                         "popis=:po, zdroj=:zd, resitel_user_id=:ru, stav=:st, poznamka=:pz, "
-                         "datum_prijeti=COALESCE(:dt::date, datum_prijeti), updated_at=now() WHERE id=:id"), p)
-        else:
-            rid = s.execute(_t("INSERT INTO tenant.poptavka (cislo, typ, zakaznik, kontakt, popis, zdroj, "
-                         "resitel_user_id, stav, poznamka, datum_prijeti) "
-                         "VALUES (:ci,:ty,:zk,:ko,:po,:zd,:ru,:st,:pz,COALESCE(:dt::date,current_date)) "
-                         "RETURNING id"), p).scalar()
-        s.commit()
-    finally:
-        s.close()
-    return {"ok": True, "id": rid}
-
-@api_router.post("/app/poptavka/delete")
-async def poptavka_delete(req: Request):
-    uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'write')):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    try:
-        b = await req.json()
-    except Exception:
-        b = {}
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        s.execute(_t("UPDATE tenant.poptavka SET active=false, updated_at=now() WHERE id=:i"),
-                  {"i": int(b.get("id"))})
-        s.commit()
-    finally:
-        s.close()
-    return {"ok": True}
+# ODSTRANĚNO 31.7.2026 (C23, schváleno Martim): prototyp "OBĚH ZAKÁZKY"
+# (tenant.poptavka/kalkulace/nabidka/objednavka, /app/poptavka/*) z 19.6.2026
+# nikdy nešel do provozu (0 řádků ve všech 4 tabulkách) a matl se s reálným
+# tokem poptávka→kalkulace→nabídka, který jde přes DB_EC TabDokladyZbozi
+# (EC_GenPoptavku/@@PP) + tenant.oz_* zrcadla (VP věž). SW/PLC divize
+# (Zuzka/Mirek) má svůj SAMOSTATNÝ a živý tenant.sw_zakazka/sw_faktura
+# (/app/sw/*) — ten zůstává beze změny. Tabulky dropnuty současně (SQL bridge).
 
 
 # ── CO OBJEDNAT / otevřené vydané objednávky (řada 800) — ze zrcadla Centrály ──

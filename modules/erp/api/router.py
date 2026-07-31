@@ -34862,58 +34862,12 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
     Vyloucene cinnosti (den bez stravenky): dovolena, lekar, nemoc, OCR, montaz, materska.
     SD (sick day) = pritomnost -> stravenka nalezi. Cte se z att_day_summary (cinnostni dle
     DruhCinnosti) - takze rezie s pritomnou cinnosti se pocita a schovana absence ne.
-    Pojistka: pocitame jen lidi s dochazkou v mesici (neaktivni bez dochazky vypadnou)."""
-    import calendar as _cal
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    ry = int(rok); rm = int(mesic)
-    _ld = _cal.monthrange(ry, rm)[1]
-    workdays = sum(1 for _x in range(1, _ld + 1) if _cal.weekday(ry, rm, _x) < 5)  # Po-Pa
-    _fd = "%04d-%02d-01" % (ry, rm)
-    _lastd = "%04d-%02d-%02d" % (ry, rm, _ld)
-    s = _g()
-    try:
-        # NAROK: HPP + po zkusebni (zkusebni_do < 1. den mesice NEBO = posl. den mesice) + uvazek >= 6 h/den
-        elig = set()
-        for r in s.execute(_t(
-            "SELECT DISTINCT sm.helios_cislo FROM tenant.user_smlouva sm "
-            "JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
-            "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
-            "WHERE sm.tenant_id=2 AND LOWER(COALESCE(sm.typ_smlouvy,''))='hpp' "
-            "  AND sm.helios_cislo IS NOT NULL "
-            "  AND (g.zkusebni_do IS NULL OR g.zkusebni_do < CAST(:fd AS date) "
-            "       OR g.zkusebni_do = CAST(:ld AS date)) "
-            "  AND COALESCE(g.uvazek_tyden_h,40)/5.0 >= 6.0"),
-                {"fd": _fd, "ld": _lastd}).fetchall():
-            try:
-                elig.add(int(r[0]))
-            except Exception:
-                pass
-        # vyloucene Po-Pa dny per clovek z att_day_summary (cinnostni). Klice dictu = lide, kteri
-        # v mesici maji dochazku (aktivni) -> neaktivni bez dochazky se do stravenek nedostanou.
-        excl = {}
-        for r in s.execute(_t(
-            "SELECT cislo_zam, COUNT(*) FILTER (WHERE ("
-            "   COALESCE(cas_dovolena,0)+COALESCE(cas_lekar,0)+COALESCE(cas_nemoc,0)"
-            "   +COALESCE(cas_ocr,0)+COALESCE(cas_montaz,0)+COALESCE(cas_materska,0))>0) "
-            "FROM tenant.att_day_summary "
-            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND EXTRACT(dow FROM datum) BETWEEN 1 AND 5 "
-            "GROUP BY cislo_zam"),
-            {"y": ry, "mo": rm}).fetchall():
-            try:
-                excl[int(r[0])] = int(r[1] or 0)
-            except Exception:
-                pass
-    finally:
-        s.close()
-    out = []
-    for c in elig:
-        if c not in excl:           # bez dochazky v mesici (neaktivni) -> bez stravenek
-            continue
-        dny = workdays - excl.get(c, 0)
-        if dny > 0:
-            out.append((c, _STRAVENKA_MS, dny * _STRAVENKA_KC, dny))
-    return out
+    Pojistka: pocitame jen lidi s dochazkou v mesici (neaktivni bez dochazky vypadnou).
+
+    C23 31.7.2026: DELEGOVÁNO do g2007.python (kod='mzdy_stravenky_rows') — viz poznámka
+    u _mzdy_absence_rows výše (stejný mechanismus, Fáze 1 vize "kód jako data")."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_stravenky_rows", firma, rok, mesic)
 
 
 # Benefity HO/OBL — sazby dle e-mailu Petra/Landmark (Marti 30.6.2026). Rule-based:
@@ -35410,99 +35364,16 @@ def _mzdy_absence_rows(firma, rok, mesic):
     jinak se NEkrátí základ (na rozdíl od dovolené). Generujeme je jako SOUVISLÁ OBDOBÍ —
     navazující dny (mezera jen přes víkend = pořád jedno období) v jednom řádku, nenavazující
     úsek = další řádek. NEMOCENSKÁ (sick/200) jede stejně jako lékař/OČR — souvislé období
-    s DatumOd/DatumDo (kvůli krácení základu); rozhodnutí DNP dopisuje účetní ručně. Kristý 8.7.2026."""
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    fkod = "EC" if str(firma).upper() in ("EC", "1") else "ES"
-    # Jednatelé (odměna 693, bez mzdového základu) VEN z absence — Helios neumí spočítat
-    # náhradu bez základu → výpočet padá. Detekce: aktivní ruční složka 693.
-    _jedn = ("   AND NOT EXISTS (SELECT 1 FROM tenant.mzdy_rucni_slozka jd WHERE jd.tenant_id=2 "
-             "        AND jd.firma=:f AND jd.cislo_ms=693 AND COALESCE(jd.aktivni,true)=true "
-             "        AND jd.cislo=sm.helios_cislo::text) ")
-    _join = ("FROM tenant.att_entry a "
-             "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id AND et.category='absence' "
-             "JOIN tenant.att_employee e ON e.id=a.employee_id "
-             "JOIN tenant.user_smlouva sm ON sm.user_id=e.user_id AND sm.tenant_id=2 "
-             "   AND sm.firma=:f AND sm.typ_smlouvy<>'osvc' AND sm.helios_cislo IS NOT NULL " + _jedn +
-             "WHERE a.tenant_id=2 "
-             "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo ")
-    s = _g()
-    out = []
-    try:
-        # (A) agregát bez období — dovolená/neplacené/mateřská.
-        # DOVOLENÁ (211) HODINY cinnostne z att_day_summary (cas_dovolena) — stejny zdroj jako
-        # nahrady/stravenky; att_entry obcas hodi "ocasek" (napr. Bernardova 30.6. 3,38 vs cinnostne 3,20).
-        # Dny + neplacene/materska zustavaji z att_entry. (Peta 8.7.2026)
-        _ads_dov = {}
-        for r in s.execute(_t(
-            "SELECT cislo_zam, COALESCE(SUM(COALESCE(cas_dovolena,0)),0) FROM tenant.att_day_summary "
-            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo GROUP BY cislo_zam"),
-                {"y": rok, "mo": mesic}).fetchall():
-            try:
-                _ads_dov[int(str(r[0]).strip())] = float(r[1] or 0)
-            except Exception:
-                pass
-        rows = s.execute(_t(
-            "SELECT sm.helios_cislo AS cislo, et.code AS code, "
-            "  COUNT(DISTINCT a.entry_date) AS dny, COALESCE(SUM(a.hours),0) AS hod " + _join +
-            "  AND et.code IN ('vacation','unpaid','maternity') "
-            "GROUP BY sm.helios_cislo, et.code"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
-        for r in rows:
-            try:
-                cislo = int(str(r[0]).strip()); ms = _ABS_CODE_TO_MS.get(r[1])
-                dny = float(r[2] or 0); hod = float(r[3] or 0)
-            except Exception:
-                continue
-            if r[1] == 'vacation' and _ads_dov.get(cislo, 0) > 0:  # dovolena cinnostne (ADS), ne att_entry (Peta 8.7.2026)
-                hod = _ads_dov[cislo]
-            if not ms or (dny <= 0 and hod <= 0):
-                continue
-            out.append((cislo, ms, 0, int(round(dny)), round(hod, 2)))
-        # (B) lékař + OČR + NEMOCENSKÁ — SOUVISLÁ OBDOBÍ do JEDNOHO řádku s DatumOd/DatumDo
-        # (Helios kvůli krácení základu potřebuje období). Navazující dny (mezera jen přes víkend)
-        # = jedno období; nenavazující úsek = další řádek. DNP u nemocenské řeší účetní. Kristý 8.7.2026.
-        import datetime as _dt
-        drows = s.execute(_t(
-            "SELECT sm.helios_cislo AS cislo, et.code AS code, a.entry_date AS den, "
-            "  COALESCE(SUM(a.hours),0) AS hod " + _join +
-            "  AND et.code IN ('medical','family_care','sick') "
-            "GROUP BY sm.helios_cislo, et.code, a.entry_date"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
-        by_key = {}
-        for r in drows:
-            try:
-                cislo = int(str(r[0]).strip()); ms = _ABS_CODE_TO_MS.get(r[1])
-                den = r[2]; hod = float(r[3] or 0)
-            except Exception:
-                continue
-            if not ms or hod <= 0 or not den:
-                continue
-            by_key.setdefault((cislo, ms), []).append((den, hod))
-        for (cislo, ms), items in by_key.items():
-            items.sort(key=lambda x: x[0])
-            p_od = p_do = None; p_hod = 0.0; p_dny = 0
-            for den, hod in items:
-                if p_od is None:
-                    p_od = p_do = den; p_hod = hod; p_dny = 1
-                    continue
-                # navazuje na běžící období? (mezi p_do a den jsou jen víkendové dny)
-                nav = den > p_do
-                if nav:
-                    d = p_do + _dt.timedelta(days=1)
-                    while d < den:
-                        if d.weekday() < 5:  # chybí pracovní den → nenavazuje
-                            nav = False
-                            break
-                        d += _dt.timedelta(days=1)
-                if nav:
-                    p_do = den; p_hod += hod; p_dny += 1
-                else:
-                    out.append((cislo, ms, 0, p_dny, round(p_hod, 2), p_od.isoformat(), p_do.isoformat()))
-                    p_od = p_do = den; p_hod = hod; p_dny = 1
-            if p_od is not None:
-                out.append((cislo, ms, 0, p_dny, round(p_hod, 2), p_od.isoformat(), p_do.isoformat()))
-        return out
-    finally:
-        s.close()
+    s DatumOd/DatumDo (kvůli krácení základu); rozhodnutí DNP dopisuje účetní ručně. Kristý 8.7.2026.
+
+    C23 31.7.2026: DELEGOVÁNO do g2007.python (kod='mzdy_absence_rows') — skutečná logika
+    žije jako DB řádek, natahovaný a spouštěný přes erp_registry.call() bez restartu API
+    (Fáze 1 vize "kód jako data", viz G2007 doc-system-strategie-vize-kod-jako-data-bez-
+    restartu). ÚPRAVY DĚLAT PŘES NOVÝ ŘÁDEK V g2007.python (self-test proti tomuto souboru
+    + schválení + aktivace), NE editací tohoto souboru — ta by se přepsala příštím pullem
+    a hlavně by ji tenhle delegát ignoroval. Funkce tu zůstává jako stabilní volací bod."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_absence_rows", firma, rok, mesic)
 
 
 def _mzdy_consolidate(prows):

@@ -33536,37 +33536,18 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn, only_zid=None):
 # Smaže JEN regenerovaný set (Automat=1/Uzavreno=0/StavES IN (0,1)) za období: jejich složky
 # (TabMzSloz) + výpočet (TabZamVyp). EC má triggery → DISABLE/ENABLE okolo (na ES no-op).
 def _mzdy_clean_sql(cloud_db, idobd):
-    o = str(int(idobd))
-    inset = ("(SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
-             " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1))")
-    return (
-        "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
-        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
-        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
-        "DELETE FROM dbo.TabMzSloz WHERE IdObdobi=" + o + " AND ZamestnanecId IN " + inset + ";\n"
-        "DELETE FROM dbo.TabZamVyp WHERE IdObdobi=" + o + " AND ZamestnanecId IN " + inset + ";\n"
-        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
-        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
-        "SELECT 1 AS cisto;\n")
+    """DB-driven delegate (g2007.python kod=mzdy_clean_sql). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (mzdy)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_clean_sql", cloud_db, idobd)
 
 
 # Vyčištění JEN JEDNOHO zaměstnance (přegenerovat jednoho člověka bez dotčení ostatních).
 # Smaže jeho složky (TabMzSloz) + výpočet (TabZamVyp) za období — jen pokud je v regenerovaném
 # setu (Automat=1/Uzavreno=0/StavES IN (0,1)), aby se uzavřená/ruční páska nikdy nesmazala.
 def _mzdy_clean_one_sql(cloud_db, idobd, zid):
-    o = str(int(idobd))
-    z = str(int(zid))
-    guard = (" AND ZamestnanecId IN (SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
-             " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1))")
-    return (
-        "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
-        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
-        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
-        "DELETE FROM dbo.TabMzSloz WHERE IdObdobi=" + o + " AND ZamestnanecId=" + z + guard + ";\n"
-        "DELETE FROM dbo.TabZamVyp WHERE IdObdobi=" + o + " AND ZamestnanecId=" + z + guard + ";\n"
-        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
-        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
-        "SELECT 1 AS cisto;\n")
+    """DB-driven delegate (g2007.python kod=mzdy_clean_one_sql). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (mzdy)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_clean_one_sql", cloud_db, idobd, zid)
 
 
 # PŘEDZPRACOVÁNÍ ze STRATEGIE (zdroj pravdy, Marti 28.6.). Každá složka má VLASTNÍ
@@ -33892,82 +33873,9 @@ def _mzdy_odmeny_rows(firma, rok, mesic):
 # příznaků (Přeneseno/DatVyplaceni). Závazek vůči zaměstnanci drží v saldu do vyplacení (Marti). Ledger
 # unese i kanály faktura/objednávka (OSVČ, na více firem) — to později; teď jen kanál mzda.
 def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
-    # only_cislo = přegenerování JEN jednoho člověka: výběr i čistá voda ledgeru se omezí
-    # na jeho číslo, aby se závazky ostatních (v_mzde) nepřepsaly.
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
-    fec = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'  # company.code = 'EC'/'ES'
-    oc = None
-    if only_cislo is not None:
-        try:
-            oc = int(str(only_cislo).strip())
-        except Exception:
-            oc = None
-    s = _g()
-    try:
-        # Výběr dle EC logiky (EC_Mzdy_PrepocetMesicZam): Schvaleno + platnost bracketing období,
-        # ne period_month (is_recurring v mirroru není spolehlivé). konec měsíce = make_date(y,mo,1)+1měsíc-1den.
-        sel_params = {"fec": fec, "y": rok, "mo": mesic}
-        sel_filter = ""
-        if oc is not None:
-            sel_filter = "  AND ae.cislo_zam = :oc "
-            sel_params["oc"] = str(oc)
-        rows = s.execute(_t(
-            "SELECT ae.cislo_zam AS cislo, msm.ext_code AS cislo_ms, wm.import_src_id AS ecid, "
-            "  COALESCE(wm.amount, wm.hours*wm.rate, 0) AS castka, wm.zakazka_ref AS zak, wct.code AS kod "
-            "FROM tenant.wage_movement wm "
-            "JOIN tenant.engagement e ON e.id=wm.engagement_id "
-            "JOIN tenant.company c ON c.id=e.company_id AND c.code=:fec "
-            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam ~ '^[0-9]+$' "
-            "JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
-            "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
-            "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') "
-            # VYJMA: HO/OBL/korekce (benefit systém). srazka_telefon už NEvyjímáme —
-            # promítá se jako srážka do složky 953 (znaménko otočíme níž). Peta 7.7.2026.
-            "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod') "
-            + sel_filter +
-            "  AND wm.valid_from <= (make_date(:y,:mo,1) + INTERVAL '1 month' - INTERVAL '1 day') "
-            "  AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))"),
-            sel_params).fetchall()
-        # čistá voda: smaž alokace ZÁVAZKŮ do mzdy za období+firma (re-run při ladění); 'vyplaceno' nech být.
-        # Při only_cislo se omezí jen na jeho číslo (ostatních se nedotkne).
-        del_params = {"f": fkod, "y": rok, "mo": mesic}
-        del_filter = ""
-        if oc is not None:
-            del_filter = " AND cislo=:oc"
-            del_params["oc"] = oc
-        s.execute(_t("DELETE FROM tenant.zamestnanecky_zavazek WHERE tenant_id=2 AND zdroj='EC_PRIPL' "
-                     "AND firma=:f AND rok=:y AND mesic=:mo AND kanal='mzda' AND stav<>'vyplaceno'" + del_filter),
-                  del_params)
-        agg = {}
-        for r in rows:
-            try:
-                cislo = int(str(r[0]).strip()); ms = int(r[1]); ecid = r[2]
-                kc = float(r[3] or 0); zak = r[4]; kod = r[5]
-            except Exception:
-                continue
-            if not kc:
-                continue
-            # Telefonní tarif (srazka_telefon): zdroj je záporný (−254), ale Helios srážku do
-            # složky 953 chce KLADNĚ a odečte ji sám dle typu složky. Otočíme znaménko. Peta 7.7.2026.
-            if kod == 'srazka_telefon':
-                kc = -kc
-            agg[(cislo, ms)] = agg.get((cislo, ms), 0) + kc
-            s.execute(_t(
-                "INSERT INTO tenant.zamestnanecky_zavazek (firma, cislo, rok, mesic, zdroj, zdroj_id, "
-                " kanal, cilova_firma, cislo_ms, zakazka_ref, castka, stav) "
-                "VALUES (:f,:c,:y,:mo,'EC_PRIPL',:zid,'mzda',:f,:ms,:zak,:kc,'v_mzde') "
-                "ON CONFLICT (tenant_id, zdroj, zdroj_id, rok, mesic, kanal, cilova_firma) "
-                "DO UPDATE SET castka=EXCLUDED.castka, cislo_ms=EXCLUDED.cislo_ms, stav='v_mzde', updated_at=now()"),
-                {"f": fkod, "c": cislo, "y": rok, "mo": mesic,
-                 "zid": (int(ecid) if ecid else None), "ms": ms,
-                 "zak": (str(zak)[:40] if zak else None), "kc": kc})
-        s.commit()
-        return [(c, ms, int(round(v)), 0) for (c, ms), v in agg.items()]
-    finally:
-        s.close()
+    """DB-driven delegate (g2007.python kod=mzdy_priplatky_rows). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (mzdy)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_priplatky_rows", firma, rok, mesic, only_cislo=only_cislo)
 
 
 # Mapování naší absence (att_entry.code) -> Helios mzdová složka (TabPredzp.CisloMS).
@@ -34008,69 +33916,9 @@ def _mzdy_consolidate(prows):
 
 
 def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
-    """Zapíše předzpracování PER-ŘÁDEK přes 3-part jména (bez USE/temp/cursor) — spolehlivé
-    přes API _mssql188_query a trigger-safe (single-row INSERT projde Helios triggerem).
-    rows=(cislo,cislo_ms,koruny[,dny,hodiny[,datum_od,datum_do]]). Když řádek nese datum_od/datum_do
-    (lékař/OČR), plníme i DatumOd/DatumDo/DochazkaOd/DochazkaDo (Helios pak ponížil základ).
-    Pevná 1 i na kartu. Vrací None=OK / chybový string.
-    only_zid = přegenerování JEN jednoho člověka: čistá voda předzpracování se omezí na jeho
-    ZamestnanecId, aby se STRATEGIE řádky ostatních nesmazaly."""
-    o = str(int(idobd))
-    nr = _mssql188_query("SELECT Cislo, ID FROM " + cloud_db + ".dbo.TabCisZam")
-    if not nr.get("ok"):
-        return "TabCisZam: " + str(nr.get("error"))
-    id_by_cislo = {}
-    for v in nr.get("rows") or []:
-        try:
-            id_by_cislo[int(v[0])] = int(v[1])
-        except Exception:
-            pass
-    # JEN lidé s mzdovým masterem období (TabZamMzd) = zaměstnanci s pracovním poměrem.
-    # Vylučuje OSVČ/subdodavatele (Voříšek, Havlát…), kteří mají jen docházku/mzdovou podmínku,
-    # ale NE mzdový master → jinak vznikne orphan TabPredzp a padne FK TabPredzp→TabZamMzd
-    # (pád Heliosu 7.7.2026). Marti 7.7.2026: "ověř, jsou to opravdu jen zaměstnanci, ne OSVČ".
-    _mr = _mssql188_query("SELECT ZamestnanecId FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + o)
-    masters = set()
-    for v in (_mr.get("rows") or []):
-        try:
-            masters.add(int(v[0]))
-        except Exception:
-            pass
-    del_sql = "DELETE FROM " + cloud_db + ".dbo.TabPredzp WHERE IdObdobi=" + o + " AND Autor='STRATEGIE'"
-    if only_zid:
-        del_sql += " AND ZamestnanecId=" + str(int(only_zid))
-    dw = _mssql188_query(del_sql)
-    if not dw.get("ok"):
-        return "DELETE: " + str(dw.get("error"))
-    stmts, kart = [], []
-    for row in rows:
-        c, ms, kc = row[0], row[1], row[2]
-        dny = row[3] if len(row) > 3 else 0
-        hod = float(row[4]) if len(row) > 4 else 0.0
-        dod = row[5] if len(row) > 5 else None  # DatumOd (lékař/OČR — kvůli krácení základu)
-        ddo = row[6] if len(row) > 6 else None  # DatumDo
-        zid = id_by_cislo.get(int(c))
-        if not zid or zid not in masters or (not kc and not dny and not hod):  # jen zaměstnanci s masterem; absence = Dny+Hodiny (náhradu dopočítá Helios)
-            continue
-        if dod and ddo:
-            # docházková absence s OBDOBÍM (lékař/OČR) → plníme DatumOd/DatumDo + DochazkaOd/DochazkaDo,
-            # aby Helios ponížil základ a spočítal správnou mzdu i před ručním DNP účetní. Kristý 8.7.2026.
-            stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,DatumOd,DatumDo,DochazkaOd,DochazkaDo,Sazba,Autor,DatPorizeni) "
-                         "VALUES(%s,%d,%d,%.2f,%d,%d,'%s','%s','%s','%s',0,'STRATEGIE',GETDATE());"
-                         % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc), dod, ddo, dod, ddo))
-        else:
-            stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
-                         "VALUES(%s,%d,%d,%.2f,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc)))
-        if int(ms) == 1:
-            kart.append("UPDATE " + cloud_db + ".dbo.TabZamMzd SET ZakladniPlat=%d WHERE ZamestnanecId=%d AND IdObdobi=%s;" % (int(kc), zid, o))
-    allstmts = stmts + kart
-    for i in range(0, len(allstmts), 25):
-        rw = _mssql188_query("SET NOCOUNT ON;\n" + "\n".join(allstmts[i:i + 25]) + "\nSELECT 1 AS done;")
-        if not rw.get("ok"):
-            err = str(rw.get("error"))
-            if "HY007" not in err:  # HY007 = pyodbc fetch nad bez-result batchem, DML ale proběhl
-                return "INSERT chunk %d: %s" % (i, err)
-    return None
+    """DB-driven delegate (g2007.python kod=mzdy_predzprac_apply). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (mzdy)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("mzdy_predzprac_apply", cloud_db, idobd, rows, only_zid=only_zid)
 
 
 def _mzdy_status_check(rok, mesic):

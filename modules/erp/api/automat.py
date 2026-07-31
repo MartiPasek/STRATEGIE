@@ -259,6 +259,15 @@ async def _automat_sched_loop():
             await _aio.sleep(60)
             if _SCHED_STOP[0]:
                 break
+            # Self-heal dozor nad mirror schedulerem (C23 31.7.): mirror loop občas
+            # tiše umře / nenaskočí po deploy-restartu → mirror joby stojí i 10 h.
+            # Automat loop je spolehlivý (běží po každém restartu), tak z něj mirror
+            # hlídáme a hned oživíme. Musí na event loopu (create_task v _mirror_sched_start).
+            try:
+                from modules.erp.api.router import _mirror_sched_ensure_alive
+                _mirror_sched_ensure_alive()
+            except Exception as _me:  # noqa: BLE001
+                _log.warning("[automat_sched] mirror ensure-alive selhal: %s", _me)
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _automat_sched_tick)
         except _aio.CancelledError:

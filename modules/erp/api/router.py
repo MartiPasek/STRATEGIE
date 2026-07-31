@@ -17359,38 +17359,16 @@ async def app_plan_day(req: Request) -> JSONResponse:
 # ── Výroba: osobní seznam činností (overlay nad master číselníkem) ───────────
 @api_router.get("/app/vyroba/my-cinnosti")
 async def app_vyroba_my_cinnosti(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=app_vyroba_my_cinnosti). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        target = uid
-        tu = req.query_params.get("user_id")
-        if tu and int(tu) != uid:
-            if not _hr_can_manage(s, uid):
-                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-            target = int(tu)
-        kind = (req.query_params.get("kind") or "standard").strip().lower()
-        if kind not in ("standard", "rezie"):
-            kind = "standard"
-        # Marti 19.6.: "Bez rozlišení činnosti" v režii = 1. místo všem KROMĚ skupiny Výroba (id 3),
-        # u Výroby na konec (oni používají konkrétní činnosti). Skupina 3 = Výroba.
-        is_vyr = bool(s.execute(_t(
-            "SELECT EXISTS(SELECT 1 FROM tenant.staff_group_member m "
-            "WHERE m.tenant_id=2 AND m.group_id=3 AND m.user_id=:u)"), {"u": target}).scalar())
-        rows = s.execute(_t(
-            "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, "
-            "  CASE WHEN c.code='bez_rozliseni' THEN (CASE WHEN :vyr THEN 100000 ELSE -1000 END) "
-            "       ELSE COALESCE(uc.sort_order, c.sort_order) END AS so, c.icon "
-            "FROM tenant.vyroba_cinnost c "
-            "LEFT JOIN tenant.vyroba_cinnost_user uc ON uc.cinnost_id=c.id AND uc.tenant_id=2 AND uc.user_id=:u "
-            "WHERE c.tenant_id=2 AND c.active=true AND c.kind=:k ORDER BY hid, so, c.name"),
-            {"u": target, "k": kind, "vyr": is_vyr}).fetchall()
-        out = [{"id": r[0], "name": r[1], "hidden": bool(r[2]), "so": int(r[3]), "icon": (r[4] or "🧩")} for r in rows]
-        return JSONResponse({"ok": True, "user_id": target, "cinnosti": out})
-    finally:
-        cm.__exit__(None, None, None)
+    user_id_param = req.query_params.get("user_id")
+    kind_param = req.query_params.get("kind")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_my_cinnosti", uid, user_id_param, kind_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/my-cinnosti/toggle")
@@ -17466,25 +17444,15 @@ async def app_vyroba_my_cinnosti_order(req: Request) -> JSONResponse:
 # ── Výroba: správa MASTER číselníku činností (rodiče/HR) ─────────────────────
 @api_router.get("/app/vyroba/cinnost-master")
 async def app_vyroba_cinnost_master(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=app_vyroba_cinnost_master). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        kind = (req.query_params.get("kind") or "standard").strip().lower()
-        if kind not in ("standard", "rezie"):
-            kind = "standard"
-        rows = s.execute(_t(
-            "SELECT id, code, name, sort_order, active, icon FROM tenant.vyroba_cinnost "
-            "WHERE tenant_id=2 AND kind=:k ORDER BY sort_order, name"), {"k": kind}).fetchall()
-        return JSONResponse({"ok": True, "cinnosti": [
-            {"id": r[0], "code": r[1], "name": r[2], "so": int(r[3]), "active": bool(r[4]),
-             "icon": (r[5] or "🧩")} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
+    kind_param = req.query_params.get("kind")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_cinnost_master", uid, kind_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/cinnost-master/save")
@@ -22948,127 +22916,26 @@ def _vyroba_can_manage(uid) -> bool:
 
 @api_router.get("/app/vyroba/can-manage")
 async def app_vyroba_can_manage(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=app_vyroba_can_manage). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    return JSONResponse({"ok": True, "can_manage": _vyroba_can_manage(uid)})
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_can_manage", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/vyroba/lidi")
 async def app_vyroba_lidi(req: Request) -> JSONResponse:
-    """Přehled pro vedoucího: lidé z plánu + jejich aktivní ruční přiřazení."""
+    """DB-driven delegate (g2007.python kod=app_vyroba_lidi). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        people = s.execute(_t(
-            "SELECT vp.user_id, COALESCE(vp.zam_jmeno,'#'||vp.cislo_zam) AS jmeno, "
-            " string_agg(DISTINCT vp.cislo_zakazky, ', ') FILTER (WHERE vp.datum = CURRENT_DATE) AS dnes "
-            "FROM tenant.vyroba_plan vp "
-            "WHERE vp.tenant_id=2 AND vp.user_id IS NOT NULL AND vp.cislo_zam < 10000 AND vp.datum >= CURRENT_DATE "
-            "GROUP BY vp.user_id, COALESCE(vp.zam_jmeno,'#'||vp.cislo_zam) "
-            "ORDER BY jmeno")).fetchall()
-        pr = s.execute(_t(
-            "SELECT id, user_id, cislo_zakazky, COALESCE(zakazka_nazev,''), COALESCE(pokyn,''), "
-            " COALESCE(kdy_ozvat,''), poradi "
-            "FROM tenant.vyroba_prirazeni WHERE tenant_id=2 AND status='active' "
-            "ORDER BY user_id, poradi, id")).fetchall()
-        amap = {}
-        for r in pr:
-            amap.setdefault(r[1], []).append({
-                "id": r[0], "cislo": r[2], "nazev": r[3], "pokyn": r[4],
-                "kdy_ozvat": r[5], "poradi": r[6]})
-        # plán zakázek per člověk (z EC plánu, read-only) + náš overlay
-        # (pořadí / skrytí / hotovo / poznámka navázané na člověka+zakázku)
-        plan_rows = s.execute(_t(
-            "SELECT g.user_id, g.cislo_zakazky, g.nazev, g.hod, "
-            " o.poradi, COALESCE(o.hidden,false), COALESCE(o.done,false), o.poznamka "
-            "FROM (SELECT user_id, cislo_zakazky, max(zakazka_nazev) AS nazev, "
-            "        round(sum(pocet_hodin)::numeric,1) AS hod "
-            "      FROM tenant.vyroba_plan "
-            "      WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam < 10000 AND datum >= CURRENT_DATE "
-            "      GROUP BY user_id, cislo_zakazky) g "
-            "LEFT JOIN tenant.vyroba_plan_overlay o "
-            "  ON o.tenant_id=2 AND o.user_id=g.user_id AND o.cislo_zakazky=g.cislo_zakazky "
-            "ORDER BY g.user_id, COALESCE(o.poradi,999), g.cislo_zakazky")).fetchall()
-        planmap = {}
-        for r in plan_rows:
-            planmap.setdefault(r[0], []).append({
-                "cislo": r[1], "nazev": r[2] or "",
-                "hod": (float(r[3]) if r[3] is not None else None),
-                "poradi": r[4], "hidden": bool(r[5]), "done": bool(r[6]),
-                "poznamka": r[7] or ""})
-        # stav z docházky (dnes) per člověk: makam / pauza / jedu / pryc / byl / ''
-        stavinfo = {}
-        try:
-            srows = s.execute(_t(
-                "SELECT e.user_id, "
-                " bool_or(a.is_active AND et.category IN ('presence','overhead') AND a.status NOT IN ('superseded','announced')) AS aktiv, "
-                " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
-                " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
-                " (array_agg(CASE WHEN a.project_ref IS NOT NULL THEN a.project_ref WHEN et.code='overhead' THEN 'Režie' END ORDER BY a.id DESC) FILTER (WHERE a.is_active AND (a.project_ref IS NOT NULL OR et.code='overhead')))[1] AS proj, "
-                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.code='overhead')) AS prace, "
-                " bool_or(a.is_active AND a.source_system='centrala1' AND a.status NOT IN ('superseded','announced')) AS ec_open "
-                "FROM tenant.att_entry a "
-                "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
-                "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-                "WHERE a.tenant_id=2 AND a.entry_date=CURRENT_DATE AND e.user_id IS NOT NULL "
-                "GROUP BY e.user_id")).fetchall()
-            for r in srows:
-                nl = (r[3] or "").lower()
-                if ("jedu" in nl) or ("cest" in nl):
-                    st = "jedu"
-                elif r[1]:
-                    # Marti 13.6.: ve směně + zakázka NEBO režie = Makám; ve směně bez práce = Čekám
-                    st = "makam" if r[5] else "cekam"
-                elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
-                    st = "pauza"
-                elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
-                    st = "pryc"
-                elif (r[2] or 0) > 0:
-                    st = "byl"
-                else:
-                    st = ""
-                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or ""), "ec": bool(r[6])}
-        except Exception:
-            stavinfo = {}
-        # Dnešní plán: kdo dle plánu vůbec nemá přijít (víkend/svátek/volno) → "mimo_plan"
-        planoff = set()
-        try:
-            for r in s.execute(_t(
-                "SELECT user_id, expected_hours, day_type FROM tenant.att_plan_effective "
-                "WHERE tenant_id=2 AND plan_date=CURRENT_DATE")).fetchall():
-                if float(r[1] or 0) <= 0 or (r[2] in ("weekend", "holiday", "off")):
-                    planoff.add(r[0])
-        except Exception:
-            planoff = set()
-        lidi = []
-        for p in people:
-            _plan = planmap.get(p[0], [])
-            _pr = amap.get(p[0], [])
-            _haswork = bool(_pr) or any((not o.get("hidden")) for o in _plan)
-            _si = stavinfo.get(p[0], {})
-            _st = _si.get("st", "")
-            if _st == "":
-                if p[0] in planoff:
-                    _st = "mimo_plan"
-                elif _haswork:
-                    _st = "chybi"
-            lidi.append({"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
-                         "plan": _plan, "prirazeni": _pr, "stav": _st,
-                         "stav_pozn": _si.get("note", ""), "stav_zak": _si.get("proj", ""),
-                         "ec_old": bool(_si.get("ec", False))})
-        s.commit()
-        return JSONResponse({"ok": True, "lidi": lidi})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_lidi", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/skupiny/bar")
@@ -23371,62 +23238,14 @@ async def app_helios_recon(req: Request) -> JSONResponse:
 
 @api_router.get("/app/vyroba/zakazky-lide")
 async def app_vyroba_zakazky_lide(req: Request) -> JSONResponse:
-    """Režim zakázek: zakázky (z plánu + ručních přiřazení) s lidmi na každé.
-    Source 'plan' = z Excelu (read-only), 'manual' = přiřazeno vedoucím (lze odebrat)."""
+    """DB-driven delegate (g2007.python kod=app_vyroba_zakazky_lide). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        zak = {}
-
-        def ent(cislo, nazev):
-            if cislo not in zak:
-                zak[cislo] = {"cislo": cislo, "nazev": nazev or "", "lide": []}
-            elif nazev and not zak[cislo]["nazev"]:
-                zak[cislo]["nazev"] = nazev
-            return zak[cislo]
-        # z plánu (read-only) + overlay (skryté plán-přiřazení = odebrané z naší view)
-        prows = s.execute(_t(
-            "SELECT g.cislo_zakazky, g.nazev, g.user_id, g.jmeno, g.hod, "
-            " COALESCE(o.hidden,false), COALESCE(o.done,false) "
-            "FROM (SELECT cislo_zakazky, max(zakazka_nazev) AS nazev, user_id, "
-            "        max(COALESCE(zam_jmeno,'#'||cislo_zam)) AS jmeno, round(sum(pocet_hodin)::numeric,1) AS hod "
-            "      FROM tenant.vyroba_plan "
-            "      WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam < 10000 AND datum >= CURRENT_DATE "
-            "      GROUP BY cislo_zakazky, user_id) g "
-            "LEFT JOIN tenant.vyroba_plan_overlay o "
-            "  ON o.tenant_id=2 AND o.user_id=g.user_id AND o.cislo_zakazky=g.cislo_zakazky")).fetchall()
-        for r in prows:
-            if bool(r[5]):
-                continue  # skryté = odebrané z naší view
-            ent(r[0], r[1])["lide"].append({
-                "user_id": r[2], "jmeno": r[3], "source": "plan",
-                "done": bool(r[6]),
-                "hod": (float(r[4]) if r[4] is not None else None)})
-        # ruční přiřazení (lze odebrat)
-        mrows = s.execute(_t(
-            "SELECT vp.cislo_zakazky, vp.zakazka_nazev, vp.user_id, "
-            " COALESCE(u.short_name, u.last_name, '#'||vp.user_id) AS jmeno, vp.id, COALESCE(vp.pokyn,'') "
-            "FROM tenant.vyroba_prirazeni vp LEFT JOIN public.users u ON u.id = vp.user_id "
-            "WHERE vp.tenant_id=2 AND vp.status='active'")).fetchall()
-        for r in mrows:
-            ent(r[0], r[1])["lide"].append({
-                "user_id": r[2], "jmeno": r[3], "source": "manual",
-                "prirazeni_id": r[4], "pokyn": r[5]})
-        s.commit()
-        out = sorted(zak.values(), key=lambda z: z["cislo"])
-        for z in out:
-            z["pocet"] = len(z["lide"])
-        return JSONResponse({"ok": True, "zakazky": out})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_zakazky_lide", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/plan-overlay")
@@ -23570,26 +23389,14 @@ async def app_vyroba_prirazeni_poradi(pid: int, req: Request) -> JSONResponse:
 
 @api_router.get("/app/vyroba/moje")
 async def app_vyroba_moje(req: Request) -> JSONResponse:
-    """Moje aktivní přiřazení (pro člověka), v pořadí."""
+    """DB-driven delegate (g2007.python kod=app_vyroba_moje). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, cislo_zakazky, COALESCE(zakazka_nazev,''), COALESCE(pokyn,''), "
-            " COALESCE(kdy_ozvat,''), poradi "
-            "FROM tenant.vyroba_prirazeni WHERE tenant_id=2 AND user_id=:u AND status='active' "
-            "ORDER BY poradi, id"), {"u": uid}).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "prirazeni": [
-            {"id": r[0], "cislo": r[1], "nazev": r[2], "pokyn": r[3], "kdy_ozvat": r[4], "poradi": r[5]}
-            for r in rows]})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_moje", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/zprava")
@@ -23635,60 +23442,26 @@ async def app_vyroba_zprava(req: Request) -> JSONResponse:
 
 @api_router.get("/app/vyroba/zpravy")
 async def app_vyroba_zpravy(req: Request) -> JSONResponse:
-    """Vedoucí: poslední zprávy z výroby (zpětná vazba lidí)."""
+    """DB-driven delegate (g2007.python kod=app_vyroba_zpravy). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT z.id, COALESCE(u.short_name, u.last_name, '#'||z.user_id) AS jmeno, "
-            " COALESCE(z.cislo_zakazky,''), z.text, "
-            " to_char(z.created_at,'DD.MM HH24')||':'||to_char(z.created_at,'MI') AS kdy, "
-            " COALESCE(z.typ,'pozadavek') AS typ, z.user_id, z.eta_min "
-            "FROM tenant.vyroba_zprava z LEFT JOIN public.users u ON u.id = z.user_id "
-            "WHERE z.tenant_id=2 AND z.resolved_at IS NULL "
-            "  AND COALESCE(z.smer,'clovek_vedouci')='clovek_vedouci' "
-            "ORDER BY z.created_at DESC LIMIT 80")).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "zpravy": [
-            {"id": r[0], "jmeno": r[1], "cislo": r[2], "text": r[3], "kdy": r[4],
-             "typ": r[5], "user_id": r[6], "eta_min": r[7]} for r in rows]})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_zpravy", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/vyroba/odvozy")
 async def app_vyroba_odvozy(req: Request) -> JSONResponse:
-    """Odvozy (read-only z Centrály) — nadcházející první, pak nedávné."""
+    """DB-driven delegate (g2007.python kod=app_vyroba_odvozy). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT o.ext_id, o.cislo_zakazky, to_char(o.datum_odvozu,'DD.MM.YYYY') AS dt, "
-            " COALESCE(o.poznamka,''), COALESCE(o.adresa,''), COALESCE(z.nazev,''), "
-            " (o.datum_odvozu < CURRENT_DATE) AS minulost, "
-            " (SELECT count(*) FROM tenant.vyroba_odvoz_pozn p WHERE p.tenant_id=2 AND p.odvoz_ext_id=o.ext_id) AS pc "
-            "FROM tenant.vyroba_odvoz o "
-            "LEFT JOIN tenant.zakazka z ON z.tenant_id=2 AND z.cislo=o.cislo_zakazky "
-            "WHERE o.tenant_id=2 "
-            "ORDER BY (o.datum_odvozu < CURRENT_DATE), o.datum_odvozu, o.cislo_zakazky")).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "odvozy": [
-            {"ext_id": r[0], "cislo": r[1], "datum": r[2], "poznamka": r[3], "adresa": r[4],
-             "nazev": r[5], "minulost": bool(r[6]), "pozn_count": r[7]} for r in rows]})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_odvozy", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/transcribe")
@@ -23736,28 +23509,15 @@ async def app_transcribe(req: Request) -> JSONResponse:
 
 @api_router.get("/app/vyroba/odvoz-pozn")
 async def app_vyroba_odvoz_pozn_list(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=app_vyroba_odvoz_pozn_list). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    try:
-        ext = int(req.query_params.get("ext_id") or 0)
-    except Exception:
-        ext = 0
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, COALESCE(oddeleni,''), text, COALESCE(created_by_name,''), "
-            " to_char(created_at,'DD.MM HH24')||':'||to_char(created_at,'MI') AS kdy "
-            "FROM tenant.vyroba_odvoz_pozn WHERE tenant_id=2 AND odvoz_ext_id=:e "
-            "ORDER BY created_at DESC LIMIT 50"), {"e": ext}).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "pozn": [
-            {"id": r[0], "oddeleni": r[1], "text": r[2], "kdo": r[3], "kdy": r[4]} for r in rows]})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    ext_id_param = req.query_params.get("ext_id")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_odvoz_pozn_list", uid, ext_id_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/odvoz-pozn")
@@ -23895,24 +23655,14 @@ async def app_vyroba_finish(req: Request) -> JSONResponse:
 
 @api_router.get("/app/vyroba/todo")
 async def app_vyroba_todo_list(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=app_vyroba_todo_list). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _vyroba_can_manage(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, text, COALESCE(ref_zakazka,''), "
-            " to_char(created_at,'DD.MM HH24')||':'||to_char(created_at,'MI') AS kdy "
-            "FROM tenant.vyroba_todo WHERE tenant_id=2 AND done=false "
-            "ORDER BY created_at DESC LIMIT 100")).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "todo": [
-            {"id": r[0], "text": r[1], "zakazka": r[2], "kdy": r[3]} for r in rows]})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_todo_list", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/todo")
@@ -32464,46 +32214,18 @@ def ucto_mzdy_zpracovani(req: Request):
 
 
 @api_router.get("/app/mzdy/vyplatnice")
-def mzdy_vyplatnice(req: Request):
-    """Výplatnice za období přímo z Helios cloud TabZamVyp (spočítané hodnoty). Parent-only."""
+async def mzdy_vyplatnice(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=mzdy_vyplatnice). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    finally:
-        s.close()
-    firma = (req.query_params.get("firma") or "ES").upper()
-    _src, cloud_db = _zrc_dbs(firma)
-    import datetime as _dt
-    _now = _dt.date.today()
-    try:
-        rok = int(req.query_params.get("rok") or _now.year)
-        mesic = int(req.query_params.get("mesic") or _now.month)
-    except Exception:
-        rok, mesic = _now.year, _now.month
-    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd "
-                          "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
-    if not (_ro.get("ok") and _ro.get("rows")):
-        return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "lidi": [], "pozn": "období v cloudu není"}
-    idobd = int(_ro["rows"][0][0])
-    q = ("SELECT z.Cislo, z.Prijmeni, z.Jmeno, v.ZamestnanecId, "
-         "ISNULL(v.HrubaMzda,0), ISNULL(v.SocPojZam,0), ISNULL(v.ZdrPojZam,0), "
-         "ISNULL(v.DanZakladni,0), ISNULL(v.DanovyBonus,0), ISNULL(v.CistaMzda,0), ISNULL(v.SocPojFirma,0) "
-         "FROM " + cloud_db + ".dbo.TabZamVyp v "
-         "JOIN " + cloud_db + ".dbo.TabCisZam z ON z.ID=v.ZamestnanecId "
-         "WHERE v.IdObdobi=" + str(idobd) + " ORDER BY z.Prijmeni, z.Jmeno")
-    r = _mssql188_query(q)
-    lidi = []
-    if r.get("ok") and r.get("rows"):
-        for v in r["rows"]:
-            lidi.append({"cislo": v[0], "prijmeni": v[1], "jmeno": (v[2] or "").strip(),
-                         "zam_id": int(v[3] or 0), "hruba": float(v[4] or 0),
-                         "sp_zam": float(v[5] or 0), "zp_zam": float(v[6] or 0),
-                         "dan": float(v[7] or 0), "bonus": float(v[8] or 0),
-                         "cista": float(v[9] or 0), "sp_firma": float(v[10] or 0)})
-    return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "idobdobi": idobd, "lidi": lidi}
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    firma_param = req.query_params.get("firma")
+    rok_param = req.query_params.get("rok")
+    mesic_param = req.query_params.get("mesic")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_vyplatnice", uid, firma_param, rok_param, mesic_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # Worker mzdového automatu na CLOUD Heliosu (rozluštěno z Profileru DB_EC 28.6.2026).
@@ -33612,247 +33334,36 @@ async def benefity_hr_save(req: Request):
 
 
 @api_router.get("/app/mzdy/vyplatnice-detail")
-def mzdy_vyplatnice_detail(req: Request):
-    """Plná výplatní páska jednoho člověka z cloud Heliosu: hlavička + rozpad mzdových
-    složek (TabMzSloz⋈TabCisMzSl⋈TabSkupMS) + souhrn (TabZamVyp). Parent-only.
-    Marti 28.6.2026 (výplatnice se vším všudy, ne jen seznam)."""
+async def mzdy_vyplatnice_detail(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=mzdy_vyplatnice_detail). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    finally:
-        s.close()
-    firma = (req.query_params.get("firma") or "ES").upper()
-    _src, cloud_db = _zrc_dbs(firma)
-    import datetime as _dt
-    _now = _dt.date.today()
-    try:
-        rok = int(req.query_params.get("rok") or _now.year)
-        mesic = int(req.query_params.get("mesic") or _now.month)
-        zam = int(req.query_params.get("zam"))
-    except Exception:
-        return {"ok": False, "error": "chybí zam / období"}
-    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd "
-                          "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
-    if not (_ro.get("ok") and _ro.get("rows")):
-        return {"ok": False, "error": "období v cloudu není"}
-    idobd = int(_ro["rows"][0][0])
-    o, z = str(idobd), str(zam)
-    h = _mssql188_query(
-        "SELECT c.Cislo, c.Prijmeni, c.Jmeno, m.Stredisko, m.DruhPP, ISNULL(m.ZakladniPlat,0), "
-        "ISNULL(v.HrubaMzda,0), ISNULL(v.SocPojZam,0), ISNULL(v.ZdrPojZam,0), "
-        "ISNULL(v.DanZakladni,0), ISNULL(v.DS_DanPoSleve,0), ISNULL(v.DanovyBonus,0), "
-        "ISNULL(v.CistaMzda,0), ISNULL(v.SocPojFirma,0), v.Status "
-        "FROM " + cloud_db + ".dbo.TabZamVyp v "
-        "JOIN " + cloud_db + ".dbo.TabCisZam c ON c.ID=v.ZamestnanecId "
-        "LEFT JOIN " + cloud_db + ".dbo.TabZamMzd m ON m.ZamestnanecId=v.ZamestnanecId AND m.IdObdobi=v.IdObdobi "
-        "WHERE v.IdObdobi=" + o + " AND v.ZamestnanecId=" + z)
-    if not (h.get("ok") and h.get("rows")):
-        return {"ok": False, "error": "výplatnice nenalezena (není spočítáno?)"}
-    r0 = h["rows"][0]
-    header = {"cislo": r0[0], "prijmeni": r0[1], "jmeno": (r0[2] or "").strip(),
-              "stredisko": r0[3], "druh_pp": r0[4], "zakladni_plat": float(r0[5] or 0)}
-    souhrn = {"hruba": float(r0[6] or 0), "sp_zam": float(r0[7] or 0), "zp_zam": float(r0[8] or 0),
-              "dan": float(r0[9] or 0), "dan_po_sleve": float(r0[10] or 0), "bonus": float(r0[11] or 0),
-              "cista": float(r0[12] or 0), "sp_firma": float(r0[13] or 0), "status": r0[14]}
-    sl = _mssql188_query(
-        "SELECT m.CisloMS, sl.NazevMS, ISNULL(sk.Typ,99) skup_typ, sk.Nazev skupina, "
-        "ISNULL(m.Hodiny,0), ISNULL(m.Dny,0), ISNULL(m.Koruny,0) "
-        "FROM " + cloud_db + ".dbo.TabMzSloz m "
-        "LEFT JOIN " + cloud_db + ".dbo.TabCisMzSl sl ON sl.CisloMzSl=m.CisloMS AND sl.IdObdobi=m.IdObdobi "
-        "LEFT JOIN " + cloud_db + ".dbo.TabSkupMS sk ON sk.SkupinaMS=sl.SkupinaMS AND sk.IdObdobi=sl.IdObdobi "
-        "WHERE m.IdObdobi=" + o + " AND m.ZamestnanecId=" + z + " ORDER BY ISNULL(sk.Typ,99), m.CisloMS")
-    slozky = []
-    if sl.get("ok") and sl.get("rows"):
-        for v in sl["rows"]:
-            _styp = int(v[2] or 99); _skup = (v[3] or "Ostatní").strip()
-            _nazev = (v[1] or "").strip()
-            # Landmark: složku 432 (os. ohodnocení / korekce) zobraz ve skupině
-            # "Nespecifikovaný příjem" u OBL(794)/HO(795) (Peta 7.7.2026) — jen zobrazení.
-            if int(v[0] or 0) == 432:
-                _styp = 5; _skup = "Nespecifikovaný příjem"
-                _nazev = (_nazev + " (osobní ohodnocení)") if _nazev else "Osobní ohodnocení"
-            # Kosmetika: "Fixní část platu" (složka 1) přejmenovat na "Základní plat" (Peta 7.7.2026).
-            if int(v[0] or 0) == 1:
-                _nazev = "Základní plat"
-            slozky.append({"cislo_ms": v[0], "nazev": _nazev,
-                           "skup_typ": _styp, "skupina": _skup,
-                           "hodiny": float(v[4] or 0), "dny": float(v[5] or 0), "koruny": float(v[6] or 0)})
-    # Korekce Landmark: informativní řádek do skupiny "Nespecifikovaný příjem" pod OBL/HO
-    # (Peta 7.7.2026). = neredukované os. ohodnocení, co zapisujeme (TabPredzp 432) − plné
-    # os. ohodnocení (snapshot). Ukazuje "srážku os. ohodnocení" (o kolik Landmark ponížil).
-    # NEmění hrubou (ta je v souhrnu z TabZamVyp) — jen zobrazení, jako srážka na staré pásce.
-    if any(int(x.get("cislo_ms") or 0) == 432 for x in slozky):
-        try:
-            from core.database_data import get_data_session as _g2
-            from sqlalchemy import text as _t2
-            _fec = 'EC' if firma in ('EC', '1') else 'ES'
-            _s2 = _g2()
-            try:
-                # Základ pro korekci = SOUČET VŠECH snapshotových složek mapovaných na 432
-                # (os_ohodnoceni + vedeni_lidi + individualni + vedeni_obchod), ne jen os_ohodnoceni.
-                # Jinak řádek "spolkne" přesunuté složky a ukáže špatnou korekci (Kristý 8.7.2026).
-                # Landmark korekce = predzp_432 (_ned) - tento základ (_v).
-                _v = float(_s2.execute(_t2(
-                    "SELECT COALESCE(SUM(sn.castka),0) FROM tenant.helios_wage_snapshot sn "
-                    "JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
-                    "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
-                    "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true)=true AND msm.ext_code='432' "
-                    "WHERE sn.tenant_id=2 AND sn.firma=:f AND sn.cislo::text=:c "
-                    "  AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f)"),
-                    {"f": _fec, "c": str(header.get("cislo") or "").strip()}).scalar() or 0)
-                # Prémie jednatel (odměna 693 přehozená na 432 u NE-jednatelů) je také součást
-                # základu 432 → přičti ji do _v, jinak řádek korekce "spolkne" i tuto prémii.
-                # Stejný zdroj (snapshot + pohyb 693) jako generátor/dopočet. Kristý 8.7.2026.
-                try:
-                    _ci_pj = int(str(header.get("cislo") or "").strip())
-                except Exception:
-                    _ci_pj = None
-                if _ci_pj is not None and _ci_pj not in _JEDNATELE_CISLA:
-                    _v += float(_s2.execute(_t2(
-                        "SELECT COALESCE((SELECT SUM(sn.castka) FROM tenant.helios_wage_snapshot sn "
-                        "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
-                        "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                        "  WHERE sn.tenant_id=2 AND sn.firma=:f AND sn.cislo::text=:c AND msm.ext_code='693' "
-                        "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f)),0)"
-                        "+COALESCE((SELECT SUM(COALESCE(wm.amount, wm.hours*wm.rate,0)) FROM tenant.wage_movement wm "
-                        "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
-                        "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:c "
-                        "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
-                        "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') AND msm.ext_code='693' "
-                        "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
-                        "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
-                        {"f": _fec, "c": str(_ci_pj), "y": rok, "mo": mesic}).scalar() or 0)
-            finally:
-                _s2.close()
-            _pz = _mssql188_query(
-                "SELECT ISNULL(SUM(Koruny),0) FROM " + cloud_db + ".dbo.TabPredzp "
-                "WHERE IdObdobi=" + o + " AND ZamestnanecId=" + z + " AND CisloMS=432")
-            _ned = float((_pz.get("rows") or [[0]])[0][0] or 0) if _pz.get("ok") else 0.0
-            _kor = round(_ned - _v)
-            if _v > 0 and abs(_kor) >= 1:
-                slozky.append({"cislo_ms": 4320, "nazev": "Korekce Landmark (srážka os. ohodnocení)",
-                               "skup_typ": 5, "skupina": "Nespecifikovaný příjem", "info": True,
-                               "hodiny": 0.0, "dny": 0.0, "koruny": float(_kor)})
-        except Exception:
-            pass
-    return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "zam": zam,
-            "idobdobi": idobd, "header": header, "souhrn": souhrn, "slozky": slozky}
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    firma_param = req.query_params.get("firma")
+    rok_param = req.query_params.get("rok")
+    mesic_param = req.query_params.get("mesic")
+    zam_param = req.query_params.get("zam")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_vyplatnice_detail", uid, firma_param, rok_param, mesic_param, zam_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/mzdy/vyplatnice-slozka-detail")
-def mzdy_vyplatnice_slozka_detail(req: Request):
-    """Z čeho se mzdová složka skládá (proklik z Prémie): rozpad na základ
-    (helios_wage_snapshot) + příplatky/srážky (wage_movement) per člověk+období+CisloMS.
-    Parent-only. Marti 29.6.2026."""
+async def mzdy_vyplatnice_slozka_detail(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=mzdy_vyplatnice_slozka_detail). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        firma = (req.query_params.get("firma") or "ES").upper()
-        fec = 'EC' if firma in ('EC', '1') else 'ES'
-        try:
-            rok = int(req.query_params.get("rok")); mesic = int(req.query_params.get("mesic"))
-            cislo = str(req.query_params.get("cislo") or "").strip()
-            cms = int(req.query_params.get("cislo_ms"))
-        except Exception:
-            return {"ok": False, "error": "chybí parametry (firma/rok/mesic/cislo/cislo_ms)"}
-        rows = s.execute(_t(
-            "SELECT kod, castka, zakazka, zdroj FROM ("
-            "  SELECT sn.slozka AS kod, SUM(sn.castka) AS castka, NULL::text AS zakazka, 'zaklad' AS zdroj "
-            "  FROM tenant.helios_wage_snapshot sn "
-            "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
-            "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
-            "    AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "  WHERE sn.tenant_id=2 AND sn.firma=:fec AND sn.cislo::text=:cislo "
-            "    AND msm.ext_code ~ '^[0-9]+$' AND msm.ext_code::int=:cms "
-            "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:fec) "
-            "  GROUP BY sn.slozka "
-            "  UNION ALL "
-            "  SELECT wct.code AS kod, COALESCE(wm.amount, wm.hours*wm.rate,0) AS castka, wm.zakazka_ref AS zakazka, 'pohyb' AS zdroj "
-            "  FROM tenant.wage_movement wm "
-            "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
-            "  JOIN tenant.company c ON c.id=e.company_id AND c.code=:fec "
-            "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
-            "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
-            "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
-            "    AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-            "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') "
-            "    AND msm.ext_code ~ '^[0-9]+$' AND msm.ext_code::int=:cms "
-            "    AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
-            "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
-            "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1)) "
-            ") q WHERE castka<>0 ORDER BY castka DESC"),
-            {"fec": fec, "cislo": cislo, "cms": cms, "y": rok, "mo": mesic}).fetchall()
-        pol = []
-        soucet = 0.0
-        for r in rows:
-            kc = float(r[1] or 0)
-            soucet += kc
-            pol.append({"typ": _WAGE_LABEL.get(r[0], r[0]), "kod": r[0], "castka": kc,
-                        "zakazka": (r[2] or None), "zdroj": r[3]})
-        # Loajalita (přesčas výroby) → dopočtený řádek do rozpisu složky 651 (Peta 7.7.2026).
-        # Generátor ji přičítá rovnou do heliosového součtu 651, ale neukládá ji jako
-        # wage_movement/snapshot, takže v rozpisu chyběla (součet položek < celková složka).
-        # Dopočteme ji tady toutéž funkcí jako generátor — NIC se nezapisuje, jen zobrazení,
-        # aby rozpis seděl na celek. Totéž platí pro prémie ze zakázek (dopočet z att_finance_zakazek).
-        if cms == 651:
-            try:
-                _ci = int(cislo)
-            except Exception:
-                _ci = None
-            if _ci is not None:
-                for (lc, lms, lkc, _lh) in _mzdy_loajalita_rows(firma, rok, mesic):
-                    # jen když loajalita má nenulovou hodnotu (Peta 7.7.2026)
-                    if int(lc) == _ci and int(lms) == 651 and float(lkc or 0) != 0:
-                        pol.append({"typ": "Loajalita (přesčas výroby)", "kod": "loajalita",
-                                    "castka": float(lkc), "zakazka": None, "zdroj": "dopocet"})
-                        soucet += float(lkc)
-                        break
-                # Prémie ze zakázek (OdmenazFinanciZak) → dopočtený řádek za prémie (Peta 7.7.2026)
-                for (fc, fms, fkc, _fh) in _mzdy_finance_zakazek_rows(firma, rok, mesic):
-                    if int(fc) == _ci and int(fms) == 651 and float(fkc or 0) != 0:
-                        pol.append({"typ": "Prémie ze zakázek", "kod": "finance_zakazek",
-                                    "castka": float(fkc), "zakazka": None, "zdroj": "dopocet"})
-                        soucet += float(fkc)
-                        break
-        # Prémie jednatel (dopočet z 693 pro NE-jednatele) → od 8.7.2026 na složce 432
-        # (osobní ohodnocení), dřív 651. Generator přehazuje 693→432, ale mapování drží
-        # zdroj na 693, takže v rozpisu 432 dopočteme. Kristý 8.7.2026.
-        if cms == 432:
-            try:
-                _ci432 = int(cislo)
-            except Exception:
-                _ci432 = None
-            if _ci432 is not None and _ci432 not in _JEDNATELE_CISLA:
-                _pj = s.execute(_t(
-                    "SELECT COALESCE((SELECT SUM(sn.castka) FROM tenant.helios_wage_snapshot sn "
-                    "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
-                    "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                    "  WHERE sn.tenant_id=2 AND sn.firma=:fec AND sn.cislo::text=:cislo AND msm.ext_code='693' "
-                    "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:fec)),0)"
-                    "+COALESCE((SELECT SUM(COALESCE(wm.amount, wm.hours*wm.rate,0)) FROM tenant.wage_movement wm "
-                    "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
-                    "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
-                    "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
-                    "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                    "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND coalesce(wm.import_src,'') NOT IN ('EC_PRIPL_HIST','TEST') AND msm.ext_code='693' "
-                    "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
-                    "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
-                    {"fec": fec, "cislo": cislo, "y": rok, "mo": mesic}).scalar()
-                if _pj and float(_pj) != 0:
-                    pol.append({"typ": "Prémie jednatel", "kod": "premie_jednatel",
-                                "castka": float(_pj), "zakazka": None, "zdroj": "dopocet"})
-                    soucet += float(_pj)
-        return {"ok": True, "polozky": pol, "soucet": round(soucet)}
-    finally:
-        s.close()
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    firma_param = req.query_params.get("firma")
+    rok_param = req.query_params.get("rok")
+    mesic_param = req.query_params.get("mesic")
+    cislo_param = req.query_params.get("cislo")
+    cislo_ms_param = req.query_params.get("cislo_ms")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_vyplatnice_slozka_detail", uid, firma_param, rok_param, mesic_param, cislo_param, cislo_ms_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 _WAGE_LABEL = {
@@ -33868,50 +33379,16 @@ _WAGE_LABEL = {
 
 
 @api_router.get("/app/mzdy/financni-podminky")
-def mzdy_financni_podminky(req: Request):
-    """Kompletní karty finančních (mzdových) podmínek per člověk ze STRATEGIE
-    (tenant.helios_wage_snapshot) = zdroj pravdy. Parent-only. Marti 28.6."""
+async def mzdy_financni_podminky(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=mzdy_financni_podminky). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        firma = (req.query_params.get("firma") or "ES").upper()
-        rows = s.execute(_t(
-            "SELECT cislo, slozka, castka FROM tenant.helios_wage_snapshot "
-            "WHERE tenant_id=2 AND firma=:f AND asof=("
-            "  SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f) "
-            "ORDER BY cislo"), {"f": firma}).fetchall()
-        asof = s.execute(_t("SELECT MAX(asof) FROM tenant.helios_wage_snapshot "
-                            "WHERE tenant_id=2 AND firma=:f"), {"f": firma}).scalar()
-    finally:
-        s.close()
-    _src, cloud_db = _zrc_dbs(firma)
-    nm = {}
-    nr = _mssql188_query("SELECT Cislo, Prijmeni, Jmeno FROM " + cloud_db + ".dbo.TabCisZam")
-    if nr.get("ok"):
-        for v in nr.get("rows") or []:
-            nm[str(v[0]).strip()] = ((v[1] or "").strip() + " " + (v[2] or "").strip()).strip()
-    by = {}
-    for cislo, slozka, castka in rows:
-        c = str(cislo).strip()
-        d = by.setdefault(c, {"cislo": c, "slozky": [], "zaklad": 0, "pohyb": 0})
-        amt = int(castka or 0)
-        d["slozky"].append({"kod": slozka, "nazev": _WAGE_LABEL.get(slozka, slozka), "castka": amt})
-        if slozka == "zaklad":
-            d["zaklad"] = amt
-        else:
-            d["pohyb"] += amt
-    out = []
-    for c, d in by.items():
-        d["jmeno"] = nm.get(c, "")
-        d["celkem"] = d["zaklad"] + d["pohyb"]
-        out.append(d)
-    out.sort(key=lambda x: (-x["celkem"], x["cislo"]))
-    return {"ok": True, "firma": firma, "asof": str(asof) if asof else None,
-            "pocet": len(out), "lidi": out}
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    firma_param = req.query_params.get("firma")
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_financni_podminky", uid, firma_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 def _mcp_exec_office(sql, db_name="DB_EC"):
@@ -34059,34 +33536,15 @@ def _c_vypocet(mzda, osobni, sleva_poplatnik=True):
 
 
 @api_router.get("/app/mzdy-c/smlouvy")
-def mzdy_c_smlouvy(req: Request):
-    """Seznam smluv systému C + transparentní výpočet mzdy (parent)."""
+async def mzdy_c_smlouvy(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=mzdy_c_smlouvy). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT sm.id, sm.user_id, "
-            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'?') jmeno, "
-            "  sm.firma, sm.typ_pomeru, sm.mesicni_mzda, sm.osobni_ohodnoceni, "
-            "  sm.uvazek_h_tyden, sm.zdrav_pojistovna, sm.sleva_poplatnik, sm.poznamka "
-            "FROM tenant.c_smlouva sm LEFT JOIN public.users u ON u.id=sm.user_id "
-            "WHERE sm.tenant_id=2 AND COALESCE(sm.platnost_do,DATE '9999-12-31') >= current_date "
-            "ORDER BY (COALESCE(sm.mesicni_mzda,0)+COALESCE(sm.osobni_ohodnoceni,0)) DESC")).fetchall()
-        out = []
-        for r in rows:
-            v = _c_vypocet(r[5], r[6], bool(r[9]))
-            out.append({"id": r[0], "user_id": r[1], "jmeno": r[2], "firma": r[3],
-                        "typ_pomeru": r[4], "mesicni_mzda": float(r[5] or 0),
-                        "osobni_ohodnoceni": float(r[6] or 0), "uvazek": float(r[7] or 0),
-                        "pojistovna": r[8], "sleva_poplatnik": bool(r[9]),
-                        "poznamka": r[10], "vyp": v})
-        return {"ok": True, "smlouvy": out}
-    finally:
-        s.close()
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_c_smlouvy", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/mzdy-c/smlouva-save")

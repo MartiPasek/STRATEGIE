@@ -45135,6 +45135,34 @@ async def diag_sql(req: Request) -> JSONResponse:
             except Exception as _esb:
                 return JSONResponse({"ok": False,
                                      "error": "sandbox %s: %s" % (type(_esb).__name__, str(_esb)[:500])})
+        # G2007.PYTHON KONSTRUKTIVNI (Marti 31.7.2026, cil "migrace router.py -> g2007.python",
+        # schvaleno jako celek): stejna doktrina jako G2007ADD (Marti 21.7.2026) — "konstruktivni
+        # operace musi jet autonomne, updaty taky; jen mazani se schvaluje". INSERT/UPDATE do
+        # g2007.python (novy kod / aktivace stav_zivota) bezi PRIMO bez banneru. DELETE/TRUNCATE/
+        # ALTER na g2007.python zustavaji gated (jdou dal na banner nize) — to je ta "mazani" cast.
+        _PY_TABLE = "g2007.python"
+        _m_kind = _re_ds.match(r"\s*(INSERT|UPDATE|DELETE|TRUNCATE|ALTER)\b", _s_chk, _re_ds.I)
+        _stmt_kind = _m_kind.group(1).upper() if _m_kind else None
+        if (db == "pg" and _stmt_kind in ("INSERT", "UPDATE")
+                and _wtargets and all(t == _PY_TABLE for t in _wtargets)):
+            try:
+                from modules.strategie_pg.application.service import get_session as _pgpy
+                from sqlalchemy import text as _tpy
+                _rcpy = None
+                with _pgpy() as _spy:
+                    _respy = _spy.execute(_tpy(sql))
+                    try:
+                        _rcpy = _respy.rowcount
+                    except Exception:
+                        _rcpy = None
+                    _spy.commit()
+                return JSONResponse({"ok": True, "columns": ["g2007_python"], "count": 1,
+                                     "rows": [["OK · %s řádků · g2007.python KONSTRUKTIVNI (přímo, bez banneru)"
+                                               % (_rcpy if _rcpy is not None else "?")]]})
+            except Exception as _epy:
+                return JSONResponse({"ok": False,
+                                     "error": "g2007.python %s: %s" % (type(_epy).__name__, str(_epy)[:500])})
+
         from core.database_data import get_data_session as _gw_ds
         from sqlalchemy import text as _tw_ds
         _wds = _gw_ds()

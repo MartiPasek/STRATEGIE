@@ -20344,86 +20344,13 @@ def _att_close_stale(sess, emp):
 
 @api_router.get("/app/attendance/status")
 async def att_status(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_status). Puvodni telo migrovano do DB dne 31.7.2026, Faze E (pilot noveho HTTP vzoru)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        _att_close_stale(s, emp)
-        opn = s.execute(_t("SELECT a.id, to_char(a.started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), a.project_ref, "
-                           "COALESCE(et.code,'') "
-                           "FROM tenant.att_entry a LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-                           "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true "
-                           "AND a.status IS DISTINCT FROM 'superseded' "
-                           "ORDER BY a.id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
-        # Marti 7.6.: do "dnes odpracovano" pocitej i bezici (otevrenou) smenu —
-        # is_active radek nema hours, tak vezmeme now()-started_at.
-        # Marti 12.6.: do odpracovaného počítej jen práci (presence) — přestávka/konec dne ne.
-        today = s.execute(_t("SELECT COALESCE(round(sum("
-                             "CASE WHEN a.is_active THEN GREATEST(EXTRACT(EPOCH FROM (now() - a.started_at)),0)/3600.0 "
-                             "ELSE COALESCE(a.hours,0) END"
-                             ")::numeric,2),0), count(*) "
-                             "FROM tenant.att_entry a "
-                             "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-                             "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.entry_date=current_date "
-                             "AND a.status IS DISTINCT FROM 'superseded' "
-                             "AND COALESCE(et.category,'presence')='presence'"),
-                          {"t": _ATT_TENANT, "e": emp}).first()
-        ann = s.execute(_t("SELECT note FROM tenant.att_entry "
-                           "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
-                           "AND status='announced' ORDER BY id DESC LIMIT 1"),
-                        {"t": _ATT_TENANT, "e": emp}).first()
-        # Marti 7.6. večer: „Od" = první reálné píchnutí dne + název zakázky.
-        first = s.execute(_t(
-            "SELECT to_char(MIN(started_at),'YYYY-MM-DD\"T\"HH24:MI:SS') FROM tenant.att_entry "
-            "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
-            "AND started_at IS NOT NULL AND status NOT IN ('announced','superseded')"),
-            {"t": _ATT_TENANT, "e": emp}).first()
-        pname = None
-        ptyp = None
-        # reálná zakázka (ne režijní marker) → načti název/typ z číselníku
-        _pref = (opn[2] or "").strip() if opn else ""
-        if _pref and _pref.lower() not in ("rezie", "režie"):
-            prow = s.execute(_t("SELECT nazev, typ FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c"),
-                             {"t": _ATT_TENANT, "c": opn[2]}).first()
-            if prow:
-                pname = prow[0]
-                ptyp = prow[1]
-        # Marti 12.6.: bez píchnuté zakázky = skupina Režie (jen pro práci/overhead, NE přestávku)
-        if ptyp is None and opn and opn[3] in ("work", "overhead") and (not _pref or _pref.lower() in ("rezie", "režie")):
-            ptyp = "REZIE"
-        # Marti 7.6. večer: poslední odchod dne — pro přívětivý stav mimo směnu.
-        lend = s.execute(_t(
-            "SELECT to_char(MAX(ended_at),'YYYY-MM-DD\"T\"HH24:MI:SS') FROM tenant.att_entry "
-            "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
-            "AND ended_at IS NOT NULL AND status NOT IN ('announced','superseded')"),
-            {"t": _ATT_TENANT, "e": emp}).first()
-        # Marti 12.6.: „mám volno" — existuje dnes job 'Konec dne' (uzavřený do půlnoci)
-        day_off = s.execute(_t(
-            "SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-            "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.entry_date=current_date "
-            "AND et.code='day_end' AND a.status IS DISTINCT FROM 'superseded' LIMIT 1"),
-            {"t": _ATT_TENANT, "e": emp}).first() is not None
-        # Marti 12.6.: mzdový režim (hodinovy / volny / pausal) — píchají všichni, režim řeší odměnu/řízení
-        mode = s.execute(_t("SELECT COALESCE(rez_mzdovy,'hodinovy') FROM tenant.att_employee WHERE id=:e"),
-                         {"e": emp}).scalar() or "hodinovy"
-        # Petra 25.6.2026: OSVČ vidí v „Teď to bude jinak" volbu „Nepřítomnost OSVČ".
-        is_osvc = (str(s.execute(_t("SELECT COALESCE(rez_forma,'') FROM tenant.att_employee WHERE id=:e"),
-                                 {"e": emp}).scalar() or "").upper() == "OSVC")
-        s.commit()
-        return JSONResponse({"ok": True, "mode": mode, "is_osvc": is_osvc,
-                             "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2],
-                                       "project_name": pname, "project_type": ptyp,
-                                       "open_type": opn[3]} if opn else None),
-                             "day_off": day_off,
-                             "announced": (ann[0] if ann else None),
-                             "morning_start": (first[0] if first else None),
-                             "last_end": (lend[0] if lend else None),
-                             "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_status", uid)
+    return JSONResponse(result)
 
 
 def _att_presence_note(body: dict) -> str:

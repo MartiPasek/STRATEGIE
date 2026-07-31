@@ -23205,43 +23205,12 @@ def _att_recompute_header_from_items(s, att_id):
     hlavička se stornuje. Superseded/běžící (konec NULL) hlavičku nesahá.
     NEVOLÁ kaskádu hlavička→položky (položky jsou po zásahu autoritativní; kaskáda
     při příštím běhu jen potvrdí, protože obálka = min/max položek → idempotentní).
-    Vrací (employee_id, den) nebo None."""
-    from sqlalchemy import text as _t
-    h = s.execute(_t(
-        "SELECT e.employee_id, e.entry_date, e.ended_at, e.status "
-        "FROM tenant.att_entry e WHERE e.id=:a AND e.tenant_id=:t"),
-        {"a": att_id, "t": _ATT_TENANT}).first()
-    if not h:
-        return None
-    emp_id, den = int(h[0]), h[1]
-    if h[3] == "superseded" or h[2] is None:   # superseded nebo běžící → nesahat
-        return (emp_id, den)
-    cnt = s.execute(_t(
-        "SELECT COUNT(*) FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.att_entry_id=:a "
-        "  AND w.is_active=true AND w.konec IS NOT NULL"),
-        {"t": _ATT_TENANT, "a": att_id}).scalar() or 0
-    if int(cnt) == 0:
-        # všechny položky úseku stornovány → úsek reálně zmizel: stornuj hlavičku.
-        # local_lock=true, ať ji zrcadlení ze staré Centrály neoživí (vzor jako fix/void).
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, local_lock=true, "
-            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
-            "WHERE id=:a AND tenant_id=:t"),
-            {"a": att_id, "t": _ATT_TENANT,
-             "nn": "🛠 hlavička stornována — všechny položky rozpadu stornovány"})
-        return (emp_id, den)
-    # obálka + hodiny = přítomnost − přestávka; ::timestamp = zpět na naivní lokální čas
-    s.execute(_t(
-        "UPDATE tenant.att_entry e SET "
-        "  started_at = sub.mn::timestamp, ended_at = sub.mx::timestamp, "
-        "  hours = round(GREATEST(EXTRACT(EPOCH FROM (sub.mx - sub.mn))/3600.0 "
-        "                         - COALESCE(e.break_minutes,0)/60.0, 0)::numeric, 2), "
-        "  local_lock = true, updated_at = now() "
-        "FROM (SELECT MIN(w.od) mn, MAX(w.konec) mx FROM tenant.vyroba_work w "
-        "      WHERE w.tenant_id=:t AND w.att_entry_id=:a AND w.is_active=true AND w.konec IS NOT NULL) sub "
-        "WHERE e.id=:a AND e.tenant_id=:t"),
-        {"t": _ATT_TENANT, "a": att_id})
-    return (emp_id, den)
+    Vrací (employee_id, den) nebo None.
+
+    C23 31.7.2026: DELEGOVÁNO do g2007.python (kod='att_recompute_header_from_items').
+    Úpravy přes nový řádek v g2007.python (test + aktivace), NE editací tohoto souboru."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_recompute_header_from_items", s, att_id)
 
 
 @api_router.post("/app/attendance/fix/polozka")
@@ -28321,72 +28290,12 @@ def _sickday_lekar_apply(s, emp, code, days_hours, uid, note):
     """Čerpání sick day PŘEDNOSTNĚ (Marti 28.6.). days_hours=[(date,hours)].
     - sickday: hodiny čerpá z balance (cap na zbytek nároku).
     - medical (lékař): cap 4 h/návštěva; čerpá se PŘEDNOSTNĚ ze sickday (ta část → entry 'sickday'),
-      zbytek zůstává 'medical'. Hned ten den sníží sick_day_balance.cerpano_h. Nárok default 16 h (HR opraví)."""
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    if not days_hours:
-        return None
-    rok = days_hours[0][0].year
-    eng = s.execute(_t(
-        "SELECT id FROM tenant.engagement WHERE employee_id=:e AND tenant_id=2 "
-        "AND (smlouva_do IS NULL OR smlouva_do>=CURRENT_DATE) ORDER BY smlouva_od DESC NULLS LAST LIMIT 1"),
-        {"e": emp}).scalar() or s.execute(_t(
-        "SELECT id FROM tenant.engagement WHERE employee_id=:e AND tenant_id=2 ORDER BY id DESC LIMIT 1"),
-        {"e": emp}).scalar()
-    if not eng:
-        return None
-    bal = s.execute(_t("SELECT narok_h, cerpano_h FROM tenant.sick_day_balance "
-                       "WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"), {"g": eng, "r": rok}).first()
-    if not bal:
-        s.execute(_t("INSERT INTO tenant.sick_day_balance (tenant_id,engagement_id,rok,narok_h,cerpano_h) "
-                     "VALUES (2,:g,:r,16,0)"), {"g": eng, "r": rok})
-        narok, cerp = 16.0, 0.0
-    else:
-        narok, cerp = float(bal[0] or 0), float(bal[1] or 0)
-    sd_tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='sickday'")).scalar()
-    med_tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='medical'")).scalar()
-    for (d, h) in days_hours:
-        avail = max(0.0, narok - cerp)
-        if code == "medical":
-            hcap = min(float(h or 0), 4.0)
-            draw = min(hcap, avail)
-            rest = round(hcap - draw, 2)
-            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d "
-                         "AND entry_type_id IN (:m,:s)"), {"e": emp, "d": d, "m": med_tid, "s": sd_tid})
-            if draw > 0 and sd_tid:
-                s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                             "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                             "VALUES (2,:e,:d,:t,:h,'pending','mobile_app',:n,false,:u,now(),now())"),
-                          {"e": emp, "d": d, "t": sd_tid, "h": draw, "n": ((note or "") + " [lékař→sickday]")[:250], "u": uid})
-                cerp += draw
-            if rest > 0 and med_tid:
-                s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                             "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                             "VALUES (2,:e,:d,:t,:h,'pending','mobile_app',:n,false,:u,now(),now())"),
-                          {"e": emp, "d": d, "t": med_tid, "h": rest, "n": (note or "lékař")[:250], "u": uid})
-        else:  # sickday přímo
-            req = float(h or 0)
-            draw = min(req, avail)
-            if sd_tid:
-                s.execute(_t("UPDATE tenant.att_entry SET hours=:h, note=:n, updated_at=now() "
-                             "WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d AND entry_type_id=:t"),
-                          {"h": draw, "n": (note or "sickday")[:250], "e": emp, "d": d, "t": sd_tid})
-            cerp += draw
-    # Čerpáno NEinkrementujeme, ale PŘEPOČÍTÁME ze skutečných záznamů — stejný vzorec
-    # jako údržbový `_abs_recalc_balances` (dochazka_absence_sprava.py). Jirka 31.7.2026:
-    # inkrement dvojitě počítal, když člověk tentýž den zadal sick day znovu (`_upsert`
-    # je idempotentní, řádek se přepíše, ale `cerp += draw` přičetlo podruhé). S novou
-    # volbou hodin v appce se to dá vyklikat snadno, tak ať je zůstatek vždy pravda.
-    cerp = float(s.execute(_t(
-        "SELECT COALESCE(SUM(en.hours),0) FROM tenant.att_entry en "
-        "JOIN tenant.att_entry_type ty ON ty.id = en.entry_type_id "
-        "WHERE en.tenant_id = 2 AND en.employee_id = :e AND ty.code = 'sickday' "
-        "  AND COALESCE(en.status,'') <> 'superseded' "
-        "  AND EXTRACT(YEAR FROM en.entry_date) = :r"),
-        {"e": emp, "r": rok}).scalar() or 0)
-    s.execute(_t("UPDATE tenant.sick_day_balance SET cerpano_h=:c WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
-              {"c": cerp, "g": eng, "r": rok})
-    return {"narok_h": narok, "cerpano_h": cerp, "zbyva_h": max(0.0, narok - cerp)}
+      zbytek zůstává 'medical'. Hned ten den sníží sick_day_balance.cerpano_h. Nárok default 16 h (HR opraví).
+
+    C23 31.7.2026: DELEGOVÁNO do g2007.python (kod='sickday_lekar_apply'). Úpravy přes
+    nový řádek v g2007.python (test + aktivace), NE editací tohoto souboru."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sickday_lekar_apply", s, emp, code, days_hours, uid, note)
 
 
 @api_router.post("/app/attendance/absence")
@@ -49403,58 +49312,12 @@ def _refresh_employee_active() -> dict:
     """Samooprava docházkového rosteru: kdo zmizel z aktuálního mzdového období v Heliosu
     (odešel), zneaktivní se (att_employee.is_active=false), aby nestrašil ve výpisech.
     Jen lidé S historií výplatnic, >1 období pozadu, NE OSVČ/dohoda/jednatel.
-    Konzervativní (pouze deaktivace; reaktivaci/obnovu členství řeší člověk)."""
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    try:
-        n = s.execute(_t(
-            "WITH per AS ("
-            "  SELECT e.id emp_id, max(p.rok*12+p.mesic) last_per "
-            "  FROM tenant.att_employee e JOIN tenant.payslip_item p ON p.employee_id=e.id "
-            "  WHERE e.tenant_id=2 GROUP BY e.id), "
-            "mx AS (SELECT max(rok*12+mesic) g FROM tenant.payslip_item WHERE tenant_id=2) "
-            "UPDATE tenant.att_employee e SET is_active=false "
-            "FROM per, mx "
-            "WHERE e.id=per.emp_id AND e.tenant_id=2 AND e.is_active=true "
-            "  AND per.last_per < mx.g - 1 "
-            "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
-            "       AND wr.user_id=e.user_id AND wr.relation IN ('osvc','dohoda','jednatel')) "
-            # Pojistka (Marti 5.7.2026): rodiče (is_marti_parent) ani vlastníka tenantu
-            # NIKDY nedeaktivovat — automatika ho jinak vyhodí (stalo se Martimu v EUROSOFTu).
-            "  AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id=e.user_id AND u.is_marti_parent=true) "
-            "  AND e.user_id IS DISTINCT FROM (SELECT owner_user_id FROM public.tenants WHERE id=2)"
-        )).rowcount
-        # u zneaktivněných archivovat i členství v tenantu (ať zmizí ze seznamů lidí)
-        s.execute(_t(
-            "UPDATE public.user_tenants ut SET membership_status='archived' "
-            "WHERE ut.tenant_id=2 AND ut.membership_status IN ('invited','active') "
-            "  AND ut.user_id IN (SELECT e.user_id FROM tenant.att_employee e "
-            "     WHERE e.tenant_id=2 AND e.is_active=false AND e.user_id IS NOT NULL) "
-            "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
-            "       AND wr.user_id=ut.user_id AND wr.relation IN ('osvc','dohoda','jednatel')) "
-            # Pojistka (Marti 5.7.2026): rodiče ani vlastníka tenantu NIKDY nearchivovat.
-            "  AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id=ut.user_id AND u.is_marti_parent=true) "
-            "  AND ut.user_id IS DISTINCT FROM (SELECT owner_user_id FROM public.tenants WHERE id=2)"))
-        # a vyřadit je ze skupin lidí + plánu/docházky (jinak straší ve výpisech + nafukují kapacitu)
-        # C24 29.7.2026 (krok 8): work_alloc z mazání odebráno (dropne se v kroku 10; vyroba_work
-        # historii NEmažeme — odešlí se řeší filtrem is_active v přehledech).
-        for _tbl in ("tenant.staff_group_member", "tenant.att_plan_effective",
-                     "tenant.att_plan_day"):
-            s.execute(_t(
-                "DELETE FROM " + _tbl + " x "
-                "WHERE x.tenant_id=2 AND x.user_id IN (SELECT e.user_id FROM tenant.att_employee e "
-                "     WHERE e.tenant_id=2 AND e.is_active=false AND e.user_id IS NOT NULL) "
-                "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
-                "       AND wr.user_id=x.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"))
-        s.commit()
-        return {"ok": True, "deactivated": n}
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
+    Konzervativní (pouze deaktivace; reaktivaci/obnovu členství řeší člověk).
+
+    C23 31.7.2026: DELEGOVÁNO do g2007.python (kod='refresh_employee_active'). Úpravy
+    přes nový řádek v g2007.python (test + aktivace), NE editací tohoto souboru."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("refresh_employee_active")
 
 
 def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dict:
@@ -49578,53 +49441,12 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
     POZOR (27.7.2026, i28): zápis MUSÍ jít přes _att_session() (strategie_pg / role Marti-AI).
     Role aplikace ('strategie') má na tenant.att_entry jen SELECT — přes get_data_session
     INSERT tiše padal na 'permission denied' a chytil ho try/except o patro výš, takže se
-    od 28.6.2026 nepropsal ANI JEDEN nový plánovaný den. Stejná příčina jako commit d77daae4."""
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    if rok is None:
-        rok = _dt.date.today().year
-    cm, s = _att_session()
-    n = 0
-    try:
-        tids = {}
-        for code in set(_PLAN_DRUH_TO_CODE.values()):
-            tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code=:c"),
-                            {"c": code}).scalar()
-            if tid:
-                tids[code] = tid
-        emap = {}
-        for er in s.execute(_t("SELECT cislo_zam, max(id) FROM tenant.att_employee "
-                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
-            emap[str(er[0]).strip()] = er[1]
-        rows = s.execute(_t(
-            "SELECT cislo_zam, datum, druh_kod, hodiny FROM tenant.att_planned_absence "
-            "WHERE tenant_id=2 AND druh_kod = ANY(:dk) AND EXTRACT(YEAR FROM datum)=:r"),
-            {"dk": list(_PLAN_DRUH_TO_CODE.keys()), "r": rok}).fetchall()
-        for r in rows:
-            try:
-                cz = str(r[0]).strip(); d = r[1]; druh = int(r[2]); hod = float(r[3] or 0) or 8.0
-            except Exception:
-                continue
-            code = _PLAN_DRUH_TO_CODE.get(druh); emp = emap.get(cz); tid = tids.get(code)
-            if not (code and emp and tid):
-                continue
-            ex = s.execute(_t("SELECT 1 FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e "
-                              "AND entry_date=:d LIMIT 1"), {"e": emp, "d": d}).first()
-            if ex:  # realita (píchnutí/report) má přednost — nepřepisuj
-                continue
-            s.execute(_t(
-                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                "VALUES (2,:e,:d,:t,:h,'confirmed','plan_ec','z plánu nepřítomností',false,NULL,now(),now())"),
-                {"e": emp, "d": d, "t": tid, "h": hod})
-            n += 1
-        s.commit()
-        return {"ok": True, "vlozeno": n}
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
+    od 28.6.2026 nepropsal ANI JEDEN nový plánovaný den. Stejná příčina jako commit d77daae4.
+
+    C23 31.7.2026: DELEGOVÁNO do g2007.python (kod='sync_plan_to_dochazka'). Úpravy přes
+    nový řádek v g2007.python (test + aktivace), NE editací tohoto souboru."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_plan_to_dochazka", rok)
 
 
 def _sync_dochazka_sumaden(year: int = 2026, month=None) -> dict:

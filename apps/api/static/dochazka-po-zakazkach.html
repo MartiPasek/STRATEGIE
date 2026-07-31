@@ -986,38 +986,24 @@ function copyRows(){   // Ctrl+C = zkopírovat označené (nebo vše po filtru) 
   try{navigator.clipboard.writeText(head+'\n'+body);}catch(e){return false;}
   return true;
 }
-/* Buňka do Excelu. Peťa 31.7.2026: „v Excelu je špatný součet."
-   Čísla se do sešitu dostávala jako text s TEČKOU (3.42) a český Excel je četl
-   jako DATUM (3.42 → 03.IX), takže se nedala sečíst. Řešení: číselné sloupce
-   označit jako číslo (mso-number-format) a hodnotu psát s tečkou — Excel ji pak
-   bere jako číslo bez ohledu na místní nastavení. Datumy naopak necháme textem,
-   ať si je nepřevede po svém (DD.MM.RRRR i s časem). */
-function _xlsCell(c, v){
-  var t=_cellTxt(v);
-  if(c.num){
-    var n=String(t).replace(/\s/g,'').replace(',','.');
-    if(n!==''&&!isNaN(n)){   // (formátování viz _csCislo — stejné pravidlo)
-      // DESETINNÁ ČÁRKA (Peťa 31.7.2026, druhý pokus). `mso-number-format` samo
-      // nestačilo — Excel čte text buňky podle MÍSTNÍHO nastavení, takže „3.42"
-      // pochopil jako datum 3. září a čísla nešla sečíst. S čárkou je český Excel
-      // přečte jako číslo. (Kdyby to někdy někdo otevíral v anglickém Excelu,
-      // je potřeba naopak tečka — tohle je vědomě šité na české prostředí.)
-      return '<td>'+esc(n.replace('.',','))+'</td>';
-    }
-  }
-  return '<td style="mso-number-format:\'\\@\'">'+esc(t)+'</td>';   // \@ = text
-}
-function exportExcel(){  // stažení .xls (Excel otevře se sloupci) — označené, nebo vše po filtru
+function exportExcel(){  // export do Excelu — označené, nebo vše po filtru
+  // CSV se STŘEDNÍKEM + BOM (Peťa 31.7.2026). Dřív se posílala webová tabulka
+  // s příponou .xls → Excel hlásil „formát souboru a jeho přípona se neshodují".
+  // Data byla v pořádku, ale hláška strašila. Středník = oddělovač, který český
+  // Excel bere jako výchozí, BOM = správná diakritika, čísla s desetinnou čárkou
+  // (viz _csCislo) → otevře se rovnou do sloupců, bez varování a rovnou se sečte.
   var idxs=_selectedOrFiltered();
   if(!idxs.length){alert('Není co exportovat — přehled je prázdný.');return;}
-  var h='<table border="1"><tr>'+COLS.map(function(c){return '<th>'+esc(c.h)+'</th>';}).join('')+'</tr>';
+  function bunka(t){
+    t=String(t==null?'':t);
+    return (/[";\n\r]/.test(t)) ? ('"'+t.replace(/"/g,'""')+'"') : t;
+  }
+  var lines=[COLS.map(function(c){return bunka(c.h);}).join(';')];
   idxs.forEach(function(i){var r=ROWS[i];
-    h+='<tr>'+COLS.map(function(c){return _xlsCell(c, r[c.k]);}).join('')+'</tr>';});
-  h+='</table>';
-  var html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'+h+'</body></html>';
-  var blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+    lines.push(COLS.map(function(c){return bunka(_csCislo(c, r[c.k]));}).join(';'));});
+  var blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
   var url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download='dochazka_new_'+_stamp()+'.xls';document.body.appendChild(a);a.click();a.remove();
+  a.href=url;a.download='dochazka_new_'+_stamp()+'.csv';document.body.appendChild(a);a.click();a.remove();
   setTimeout(function(){URL.revokeObjectURL(url);},1500);
 }
 function printView(){   // tisk označených, nebo vše po filtru

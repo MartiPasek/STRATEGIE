@@ -26809,7 +26809,7 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
         {"e": employee_id, "t": _ATT_TENANT}).scalar()
     plan = {"employee_id": employee_id, "user_id": uid, "den": den_s,
             "deactivate": [], "clip": [], "dedup_off": [], "create": [],
-            "segs": 0, "rows": 0}
+            "skip_exists": [], "segs": 0, "rows": 0}
     if not uid:
         return plan
     # 1) platné úseky work/overhead/homeoffice s časy
@@ -26913,9 +26913,32 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
     #    ho vypne — backfill nechce zakládat placeholdery lidem bez rozpadu na zakázky)
     if settled and create_missing:
         for sg in segs:
-            if sg[0] not in covered:
-                plan["create"].append({"att": sg[0], "od": sg[2], "konec": sg[3],
-                                       "zak": _norm_zakazka(sg[4]) or None})
+            if sg[0] in covered:
+                continue
+            # POJISTKA (Claude-26 / Peťa 31.7.2026): dotaz na „naše" položky výše
+            # schválně vynechává source_system='centrala1', takže u lidí, kteří píchají
+            # na tabletu staré Centrály, vypadá KAŽDÝ úsek jako nepokrytý → založila se
+            # DRUHÁ kopie k řádku, který už existoval. Reálně: Jiří Hájek 13.7.2026,
+            # vyroba_work 15095/15096 (source 'sync') = duplicity k 12692/12738
+            # ('centrala1') se STEJNÝM att_entry_id i časy → Docházka new 16,90 h
+            # místo 8,45. Před založením proto koukneme na rozpad NAPŘÍČ VŠEMI zdroji.
+            # Řádky z Centrály dál needitujeme (deactivate/clip se jich netýká) — jen
+            # je bereme jako existující pokrytí. Doktrína „plná identita záznamu"
+            # (G2007 doc-dochazka-storno-vyroba-kaskada): raději nezaložit než zdvojit.
+            uz_je = s.execute(_t(
+                "SELECT 1 FROM tenant.vyroba_work "
+                "WHERE tenant_id=:t AND user_id=:u AND datum=:d AND is_active "
+                "  AND konec IS NOT NULL "
+                "  AND (att_entry_id = :a "
+                "       OR (od < CAST(:kon AS timestamptz) AND konec > CAST(:od AS timestamptz))) "
+                "LIMIT 1"),
+                {"t": _ATT_TENANT, "u": uid, "d": den_s, "a": sg[0],
+                 "od": sg[2], "kon": sg[3]}).first()
+            if uz_je is not None:
+                plan["skip_exists"].append(sg[0])
+                continue
+            plan["create"].append({"att": sg[0], "od": sg[2], "konec": sg[3],
+                                   "zak": _norm_zakazka(sg[4]) or None})
     if dry_run:
         return plan
     # ── zápis ────────────────────────────────────────────────────────────────

@@ -22676,6 +22676,20 @@ async def att_fix_day(req: Request) -> JSONResponse:
             "      WHERE uk.user_id=:u AND k.dopichavat_fond=true)) "
             "  ELSE NULL END"),
             {"t": _ATT_TENANT, "u": tuid}).scalar()
+        # C24 31.7.2026: rozpad po zakázkách (položky z vyroba_work) ke každému pracovnímu
+        # segmentu — READ ONLY. Aby Opravy ukázaly totéž co Docházka new (jen navíc pauzy).
+        # Vazba přes att_entry_id (dělené vlastnictví: činnost vlastní vyroba_work). Kristý 31.7.
+        _pol = {}
+        for _pr in s.execute(_t(
+            "SELECT w.att_entry_id, to_char(w.od,'HH24:MI') AS od, COALESCE(to_char(w.konec,'HH24:MI'),'') AS kon, "
+            "w.hodiny, w.zakazka_ref, (SELECT c.name FROM tenant.vyroba_cinnost c WHERE c.id=w.cinnost_id) AS cinnost "
+            "FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d AND w.is_active "
+            "AND w.att_entry_id IS NOT NULL ORDER BY w.od NULLS LAST, w.id"),
+            {"t": _ATT_TENANT, "u": tuid, "d": day.isoformat()}).fetchall():
+            _pol.setdefault(_pr[0], []).append({
+                "od": _pr[1], "kon": _pr[2],
+                "hours": (float(_pr[3]) if _pr[3] is not None else None),
+                "zak": _pr[4] or "", "cinnost": _pr[5] or ""})
         s.commit()
         return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": False, "can_unlock": bool(locked and _can_unlock),
             "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
@@ -22687,6 +22701,7 @@ async def att_fix_day(req: Request) -> JSONResponse:
              "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
              "status": r[9], "running": bool(r[10] and not r[2]),
              "source_system": r[11], "source": r[12], "cin_name": r[13], "cin_id": r[14],
+             "polozky": _pol.get(r[0], []),
              "editable": (not locked) and (not r[11]) and r[9] != "superseded",
              # STORNO smí i řádek ze staré Centrály (Jirka 30.7.2026, commit b05c15ed):
              # `fix/void` ho propouští a chrání local_lockem. `editable` zůstává

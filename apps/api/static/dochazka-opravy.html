@@ -590,11 +590,30 @@ function openDay(uid,name,day){
         tr0.appendChild(tdc(esc(e2.zac||'—'),'num'));
         tr0.appendChild(tdc(isDE?'':esc(e2.kon||'…'),'num'));
         tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtDec(e2.hours):'','num','text-align:right;'));
-        tr0.appendChild(tdc(e2.project_ref?('🧾 '+esc(e2.project_ref)):''));
-        tr0.appendChild(tdc(e2.cin_name?('🔧 '+esc(e2.cin_name)):''));
+        // C24 31.7.2026: multi-zakázkový den → na hlavním řádku „rozpad ↓" místo jedné náhodné
+        // činnosti; jednotlivé zakázky se ukážou v read-only pod-řádcích níž (Opravy = Docházka new).
+        var _hasRozpad=(!gone&&!isDE&&e2.polozky&&e2.polozky.length>1);
+        tr0.appendChild(tdc(_hasRozpad?'<span class="sm">🧾 rozpad ↓ ('+e2.polozky.length+'×)</span>':(e2.project_ref?('🧾 '+esc(e2.project_ref)):'')));
+        tr0.appendChild(tdc(_hasRozpad?'':(e2.cin_name?('🔧 '+esc(e2.cin_name)):'')));
         tr0.appendChild(tdc(tg));
         var tdA=tdc('','','text-align:right;white-space:nowrap;');tr0.appendChild(tdA);
         tb.appendChild(tr0);
+        // read-only rozpad po zakázkách (položky z vyroba_work) — jen zobrazení, needituje se tu
+        if(!gone&&!isDE&&e2.polozky&&e2.polozky.length){
+          e2.polozky.forEach(function(p){
+            var pr=document.createElement('tr');pr.className='pol';
+            pr.style.cssText='background:rgba(120,150,200,0.06);font-size:12px;';
+            pr.appendChild(tdc('<span class="sm" style="color:var(--mut);">↳ zakázka</span>','', 'padding-left:16px;'));
+            pr.appendChild(tdc(esc(p.od||''),'num'));
+            pr.appendChild(tdc(esc(p.kon||''),'num'));
+            pr.appendChild(tdc(p.hours!=null?fmtDec(p.hours):'','num','text-align:right;'));
+            pr.appendChild(tdc(p.zak?('🧾 '+esc(p.zak)):''));
+            pr.appendChild(tdc(p.cinnost?('🔧 '+esc(p.cinnost)):''));
+            pr.appendChild(tdc('<span class="sm" style="color:var(--mut);">rozpad</span>'));
+            pr.appendChild(tdc(''));
+            tb.appendChild(pr);
+          });
+        }
         if(!gone&&!isDE&&e2.kon)prevKon=e2.kon;
         // Jirka 30.7.2026: řádek ze staré Centrály JDE stornovat (chrání ho local_lock),
         // jen se nedá opravovat. Proto dvě různá práva: `editable` (Opravit) a

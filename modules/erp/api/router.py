@@ -67785,5 +67785,46 @@ async def g2007_znalost_upsert(req: Request):
     out = await _rtp(_g2007_znalost_upsert_work, oblast, slug, nadpis, zdroj, uroven, typ)
     return JSONResponse(out, status_code=200)
 
+
+# ── erp_registry self-test endpoint (C23 31.7.2026, priprava Faze 1) ───────
+# Admin-only srovnavaci endpoint: spusti DB-drivenou implementaci ulozenou v
+# g2007.python (pres erp_registry.selftest_compare_any_stav) a poredna vystup
+# s puvodni implementaci primo z router.py. POUZE CTENI/SROVNANI, nic
+# nezapisuje, nic neaktivuje (aktivace = samostatny krok, zmena stav_zivota
+# v g2007.python + prepnuti volajiciho kodu na erp_registry.call(...) -
+# oboji zatim NENI provedeno). Viz G2007 doc-system-strategie-vize-kod-jako-
+# data-bez-restartu (Faze 1) + doc-system-g2007-expected-version-implementace-pripraveno.
+_ERP_REGISTRY_LEGACY = {
+    "mzdy_absence_rows": _mzdy_absence_rows,
+}
+
+
+@api_router.post("/app/erp_registry/selftest")
+async def erp_registry_selftest_ep(req: Request):
+    """Self-test pilotni migrace ERP funkce z g2007.python (erp_registry) proti
+    puvodni implementaci v router.py. Body: {kod, args:[...]}. Admin-gated.
+    C23 31.7.2026."""
+    uid = _get_uid(req)
+    _require_admin(uid)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    kod = str((b or {}).get("kod") or "").strip()
+    args = (b or {}).get("args") or []
+    if not isinstance(args, list):
+        return JSONResponse({"ok": False, "error": "args musi byt pole"}, status_code=200)
+    legacy_fn = _ERP_REGISTRY_LEGACY.get(kod)
+    if not legacy_fn:
+        return JSONResponse({"ok": False, "error": "neznamy kod pro selftest: %s" % kod}, status_code=200)
+    from starlette.concurrency import run_in_threadpool as _rtp_ereg
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        out = await _rtp_ereg(_ereg.selftest_compare_any_stav, kod, legacy_fn, tuple(args))
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": "selftest vyjimka: %s" % _e}, status_code=200)
+    return JSONResponse(out, status_code=200)
+
+
 # ec.* action runner (Vyhodnoceni zakazek) -> POST /api/v1/erp/action/run
 from modules.erp.api import vyhodnoceni_actions as _vyh_act  # noqa: E402,F401

@@ -143,6 +143,21 @@ def save_message(
     Zpětně kompatibilní: staré volání `save_message(cid, role, content)`
     zůstává funkční a použije defaulty pro AI chat.
     """
+    # NUL (0x00) sanitizace: PostgreSQL text/jsonb NESMÍ obsahovat \x00 znak.
+    # Výstupy exec nástrojů (Windows/PowerShell, eurosoft_exec) občas NUL
+    # obsahují → INSERT do messages padal na "ValueError: A string literal cannot
+    # contain NUL (0x00) characters", chat() shodil uložení odpovědi a Marti-AI
+    # „přestala odpovídat" Claudům přes most (31.7.2026; oprava Cowork instance B).
+    if content and "\x00" in content:
+        content = content.replace("\x00", "")
+    if tool_blocks:
+        try:
+            import json as _json_nul
+            _tb_s = _json_nul.dumps(tool_blocks, ensure_ascii=False)
+            if "\x00" in _tb_s:
+                tool_blocks = _json_nul.loads(_tb_s.replace("\x00", ""))
+        except Exception:
+            pass
     session = get_data_session()
     try:
         now = _now_utc()

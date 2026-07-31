@@ -598,7 +598,9 @@ function openDay(uid,name,day){
         tr0.appendChild(tdc(tg));
         var tdA=tdc('','','text-align:right;white-space:nowrap;');tr0.appendChild(tdA);
         tb.appendChild(tr0);
-        // read-only rozpad po zakázkách (položky z vyroba_work) — jen zobrazení, needituje se tu
+        // Rozpad po zakázkách (položky z vyroba_work). Obousměrný sync (Kristý 31.7.2026):
+        // čas / zakázka / činnost i storno se opravují TADY na položce — hlavička dne se
+        // pak sama dopočítá (endpoint /fix/polozka). Centrálské položky jsou jen ke čtení.
         if(!gone&&!isDE&&e2.polozky&&e2.polozky.length){
           e2.polozky.forEach(function(p){
             var pr=document.createElement('tr');pr.className='pol';
@@ -610,8 +612,60 @@ function openDay(uid,name,day){
             pr.appendChild(tdc(p.zak?('🧾 '+esc(p.zak)):''));
             pr.appendChild(tdc(p.cinnost?('🔧 '+esc(p.cinnost)):''));
             pr.appendChild(tdc('<span class="sm" style="color:var(--mut);">rozpad</span>'));
-            pr.appendChild(tdc(''));
+            var pAct=tdc('','','text-align:right;white-space:nowrap;');pr.appendChild(pAct);
             tb.appendChild(pr);
+            var canP=(p.editable&&!j.locked&&p.pid);
+            if(canP){
+              var pfrow=document.createElement('tr');pfrow.style.display='none';
+              var pfc=document.createElement('td');pfc.colSpan=8;pfrow.appendChild(pfc);tb.appendChild(pfrow);
+              var pClose=function(){pfrow.style.display='none';pfc.innerHTML='';};
+              var pOpen=function(titul){
+                pfrow.style.display='';pfc.innerHTML='';
+                var hd=el('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="font-size:12.5px;">'+titul+' — 🧾 '+esc((p.zak||'bez zakázky')+' '+(p.od||'?')+'–'+(p.kon||'…'))+'</b></div>');
+                var bx=el('<button class="b" title="Zavřít" style="padding:2px 9px;">✕</button>');bx.addEventListener('click',pClose);hd.appendChild(bx);pfc.appendChild(hd);
+                var fx=el('<div></div>');pfc.appendChild(fx);return fx;
+              };
+              var pe=el('<button class="ib g" title="Opravit položku (čas / zakázka / činnost)">✏️</button>');
+              var ps=el('<button class="ib a" title="Stornovat položku" style="margin-left:4px;">🗑</button>');
+              pAct.appendChild(pe);pAct.appendChild(ps);
+              pe.addEventListener('click',function(){
+                var fx=pOpen('✏️ Oprava položky');
+                var trow=el('<div class="btns"></div>');
+                var t1=el('<input type="time" value="'+esc(p.od||'')+'">'),t2=el('<input type="time" value="'+esc(p.kon||'')+'">');
+                trow.appendChild(t1);trow.appendChild(t2);
+                var zk=mkZak(p.zak||null);
+                var cinW=mkCin(p.cin_id||null);
+                var rb=reasonBox();
+                var ok=el('<button class="b p full" style="margin-top:8px;">Uložit položku</button>');
+                var stx=el('<div class="errbar"></div>');
+                fx.appendChild(trow);fx.appendChild(zk);fx.appendChild(cinW);fx.appendChild(rb);fx.appendChild(stx);fx.appendChild(ok);
+                ok.addEventListener('click',function(){
+                  if(!t1.value||!t2.value){stx.textContent='Vyplň oba časy.';return;}
+                  if(!(rb._input.value||'').trim()){stx.textContent='Důvod je povinný.';return;}
+                  confirmBox(fx,'Opravit položku na <b>'+esc(t1.value+'–'+t2.value)+' · 🧾 '+esc((zk.value||'').trim()||'bez zakázky')+'</b>? Hlavička dne se dopočítá z položek.',function(cw){
+                    api('POST','/api/v1/erp/app/attendance/fix/polozka',{id:p.pid,action:'edit',od:t1.value,konec:t2.value,project_ref:(zk.value||'').trim(),cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
+                      if(r.ok){render();obnovLevy();}else{cw.remove();stx.textContent='✗ '+(r.error||'chyba');}
+                    });
+                  });
+                });
+              });
+              ps.addEventListener('click',function(){
+                var fx=pOpen('🗑 Storno položky');
+                var rb=reasonBox();fx.appendChild(rb);
+                var ok=el('<button class="b a full" style="margin-top:6px;">Stornovat položku</button>');
+                var stx=el('<div class="hint"></div>');fx.appendChild(ok);fx.appendChild(stx);
+                ok.addEventListener('click',function(){
+                  if(!(rb._input.value||'').trim()){stx.textContent='Důvod je povinný.';return;}
+                  confirmBox(fx,'Opravdu stornovat položku <b>🧾 '+esc((p.zak||'bez zakázky')+' '+(p.od||'?')+'–'+(p.kon||'…'))+'</b>? Hlavička dne se dopočítá z položek.',function(cw){
+                    api('POST','/api/v1/erp/app/attendance/fix/polozka',{id:p.pid,action:'void',reason:rb._input.value.trim()}).then(function(r){
+                      if(r.ok){render();obnovLevy();}else{cw.remove();stx.textContent='✗ '+(r.error||'chyba');}
+                    });
+                  });
+                });
+              });
+            } else {
+              pAct.innerHTML='<span class="sm" style="color:var(--mut);">'+(p.editable?(j.locked?'🔒':'—'):'🏛 Centrála')+'</span>';
+            }
           });
         }
         if(!gone&&!isDE&&e2.kon)prevKon=e2.kon;

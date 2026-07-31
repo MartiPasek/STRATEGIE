@@ -22682,14 +22682,17 @@ async def att_fix_day(req: Request) -> JSONResponse:
         _pol = {}
         for _pr in s.execute(_t(
             "SELECT w.att_entry_id, to_char(w.od,'HH24:MI') AS od, COALESCE(to_char(w.konec,'HH24:MI'),'') AS kon, "
-            "w.hodiny, w.zakazka_ref, (SELECT c.name FROM tenant.vyroba_cinnost c WHERE c.id=w.cinnost_id) AS cinnost "
+            "w.hodiny, w.zakazka_ref, (SELECT c.name FROM tenant.vyroba_cinnost c WHERE c.id=w.cinnost_id) AS cinnost, "
+            "w.id, w.cinnost_id, COALESCE(w.source_system,'') AS src "
             "FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d AND w.is_active "
             "AND w.att_entry_id IS NOT NULL ORDER BY w.od NULLS LAST, w.id"),
             {"t": _ATT_TENANT, "u": tuid, "d": day.isoformat()}).fetchall():
             _pol.setdefault(_pr[0], []).append({
-                "od": _pr[1], "kon": _pr[2],
+                "pid": _pr[6], "od": _pr[1], "kon": _pr[2],
                 "hours": (float(_pr[3]) if _pr[3] is not None else None),
-                "zak": _pr[4] or "", "cinnost": _pr[5] or ""})
+                "zak": _pr[4] or "", "cinnost": _pr[5] or "", "cin_id": _pr[7],
+                # centrálské položky se opravují v Centrále (jako u hlavičky) → tady jen ke čtení
+                "editable": (_pr[8] != "centrala1")})
         s.commit()
         return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked, "lock_override": False, "can_unlock": bool(locked and _can_unlock),
             "dispute": ({"disputed": bool(disp[1]), "note": disp[0]} if disp else None),
@@ -23160,6 +23163,216 @@ async def att_fix_void(req: Request) -> JSONResponse:
         s.commit()
         _att_automat_recalc_day(emp, row[1])   # doplnění do fondu po zásahu (20.7.2026)
         return JSONResponse({"ok": True, "merge_offer": offer})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _att_recompute_header_from_items(s, att_id):
+    """OBOUSMĚRNÝ SYNC (Kristý 31.7.2026): po editaci/stornu POLOŽKY (vyroba_work)
+    dopočítá HLAVIČKU (att_entry) z jejích položek — směr položky→hlavička.
+    Obálka: začátek = min(od), konec = max(konec) aktivních zavřených položek úseku;
+    mzdové hodiny = (konec−začátek) − přestávka (mzdy počítají PŘÍTOMNOST, ne součet
+    zakázek, aby storno VNITŘNÍ položky nezměnilo zaplacený den; jen krajní položka
+    zkrátí/prodlouží obálku a tím hodiny). 0 aktivních položek → celý úsek zmizel →
+    hlavička se stornuje. Superseded/běžící (konec NULL) hlavičku nesahá.
+    NEVOLÁ kaskádu hlavička→položky (položky jsou po zásahu autoritativní; kaskáda
+    při příštím běhu jen potvrdí, protože obálka = min/max položek → idempotentní).
+    Vrací (employee_id, den) nebo None."""
+    from sqlalchemy import text as _t
+    h = s.execute(_t(
+        "SELECT e.employee_id, e.entry_date, e.ended_at, e.status "
+        "FROM tenant.att_entry e WHERE e.id=:a AND e.tenant_id=:t"),
+        {"a": att_id, "t": _ATT_TENANT}).first()
+    if not h:
+        return None
+    emp_id, den = int(h[0]), h[1]
+    if h[3] == "superseded" or h[2] is None:   # superseded nebo běžící → nesahat
+        return (emp_id, den)
+    cnt = s.execute(_t(
+        "SELECT COUNT(*) FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.att_entry_id=:a "
+        "  AND w.is_active=true AND w.konec IS NOT NULL"),
+        {"t": _ATT_TENANT, "a": att_id}).scalar() or 0
+    if int(cnt) == 0:
+        # všechny položky úseku stornovány → úsek reálně zmizel: stornuj hlavičku.
+        # local_lock=true, ať ji zrcadlení ze staré Centrály neoživí (vzor jako fix/void).
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET status='superseded', is_active=false, local_lock=true, "
+            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
+            "WHERE id=:a AND tenant_id=:t"),
+            {"a": att_id, "t": _ATT_TENANT,
+             "nn": "🛠 hlavička stornována — všechny položky rozpadu stornovány"})
+        return (emp_id, den)
+    # obálka + hodiny = přítomnost − přestávka; ::timestamp = zpět na naivní lokální čas
+    s.execute(_t(
+        "UPDATE tenant.att_entry e SET "
+        "  started_at = sub.mn::timestamp, ended_at = sub.mx::timestamp, "
+        "  hours = round(GREATEST(EXTRACT(EPOCH FROM (sub.mx - sub.mn))/3600.0 "
+        "                         - COALESCE(e.break_minutes,0)/60.0, 0)::numeric, 2), "
+        "  local_lock = true, updated_at = now() "
+        "FROM (SELECT MIN(w.od) mn, MAX(w.konec) mx FROM tenant.vyroba_work w "
+        "      WHERE w.tenant_id=:t AND w.att_entry_id=:a AND w.is_active=true AND w.konec IS NOT NULL) sub "
+        "WHERE e.id=:a AND e.tenant_id=:t"),
+        {"t": _ATT_TENANT, "a": att_id})
+    return (emp_id, den)
+
+
+@api_router.post("/app/attendance/fix/polozka")
+async def att_fix_polozka(req: Request) -> JSONResponse:
+    """Oprava/storno JEDNÉ položky rozpadu (vyroba_work) editorem — čas od–do,
+    zakázka a činnost, nebo storno řádku (action='void'). Po zásahu se HLAVIČKA
+    (att_entry) DOPOČÍTÁ z položek (obousměrný sync, Kristý 31.7.2026): pauzy,
+    absence a typ segmentu zůstávají na hlavičce, ale časy/zakázka/činnost i storno
+    se řeší na položkách. Povinný důvod, audit + notifikace dotčenému. Kombinuje se
+    s kanonickou kaskádou hlavička→položky (needituje ji)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        wid = int((body or {}).get("id") or 0)
+    except Exception:
+        wid = 0
+    action = str((body or {}).get("action") or "edit").strip().lower()
+    reason = str((body or {}).get("reason") or "").strip()[:300]
+    if not wid:
+        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
+    if not reason:
+        return JSONResponse({"ok": False, "error": "Důvod je povinný."})
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        w = s.execute(_t(
+            "SELECT w.id, w.user_id, w.datum, w.od, w.konec, w.att_entry_id, "
+            "       COALESCE(w.zakazka_ref,''), w.cinnost_id, w.is_active, COALESCE(w.source_system,''), "
+            "       to_char(w.od,'HH24:MI'), COALESCE(to_char(w.konec,'HH24:MI'),'…') "
+            "FROM tenant.vyroba_work w WHERE w.id=:i AND w.tenant_id=:t"),
+            {"i": wid, "t": _ATT_TENANT}).first()
+        if not w:
+            return JSONResponse({"ok": False, "error": "Položka nenalezena."})
+        if not w[8]:
+            return JSONResponse({"ok": False, "error": "Položka už je zneplatněná."})
+        if not w[5]:
+            return JSONResponse({"ok": False, "error": "Položka bez vazby na docházkový záznam — oprav v Docházce new."})
+        if w[9] == "centrala1":
+            return JSONResponse({"ok": False, "error": "Položka vlastní stará Centrála — oprav ji v Centrále, sem se přezrcadlí."})
+        att_id = int(w[5])
+        # hlavička kvůli působnosti, zámku měsíce a dni; sloužit musí i pro přepočet
+        h = s.execute(_t(
+            "SELECT e.employee_id, e.entry_date, e.status "
+            "FROM tenant.att_entry e WHERE e.id=:a AND e.tenant_id=:t"),
+            {"a": att_id, "t": _ATT_TENANT}).first()
+        if not h:
+            return JSONResponse({"ok": False, "error": "Hlavička nenalezena."})
+        if h[2] == "superseded":
+            return JSONResponse({"ok": False, "error": "Záznam už byl nahrazen novější opravou — obnov přehled."})
+        emp = int(h[0])
+        den = h[1]
+        if _att_period_locked(s, den):
+            return JSONResponse({"ok": False, "error": "Tento měsíc je uzavřený (mzdy zpracovány) — nejdřív ho musí odemknout Peťa/Šárka, pak opravit a zase zamknout."}, status_code=409)
+        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        if _emps is not None and emp not in _emps:
+            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
+        actor = _user_jmeno(s, uid)
+        old_desc = (w[6] or "—") + " " + w[10] + "–" + w[11]
+
+        # ── STORNO POLOŽKY ───────────────────────────────────────────────────
+        if action == "void":
+            s.execute(_t("UPDATE tenant.vyroba_work SET is_active=false, updated_at=now() "
+                         "WHERE id=:i AND tenant_id=:t"), {"i": wid, "t": _ATT_TENANT})
+            _att_recompute_header_from_items(s, att_id)
+            _att_fix_audit(s, "polozka_void", att_id, emp, uid, actor,
+                           old_note=old_desc.strip(),
+                           detail=reason + " | položka #" + str(wid), old_date=den.isoformat())
+            _att_fix_notify(s, emp, uid, actor, "🛠 Storno položky rozpadu",
+                            actor + " stornoval(a) v tvé docházce " + den.strftime("%d.%m.")
+                            + " položku " + old_desc.strip() + " (" + reason + "). "
+                            "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+            s.commit()
+            _att_automat_recalc_day(emp, den)
+            return JSONResponse({"ok": True})
+
+        # ── OPRAVA POLOŽKY (čas / zakázka / činnost) ─────────────────────────
+        zac = _att_fix_parse_hhmm((body or {}).get("od"))
+        kon = _att_fix_parse_hhmm((body or {}).get("konec"))
+        if not (zac and kon):
+            return JSONResponse({"ok": False, "error": "Zadej platné časy od–do (HH:MM)."})
+        pref_sent = isinstance(body, dict) and ("project_ref" in body)
+        pref_new = (str((body or {}).get("project_ref") or "").strip()[:40] or None) if pref_sent else None
+        try:
+            cin_new = int((body or {}).get("cinnost_id") or 0) or None
+        except Exception:
+            cin_new = None
+        new_start = _dt.combine(den, _dt.strptime(zac, "%H:%M").time())
+        new_end = _dt.combine(den, _dt.strptime(kon, "%H:%M").time())
+        if new_end <= new_start:
+            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
+        if (new_end - new_start) > _td(hours=20):
+            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
+        # 1) položka se nesmí překrýt s JINOU aktivní položkou téhož člověka/dne (dvojí počítání)
+        ovl_p = s.execute(_t(
+            "SELECT to_char(w.od,'HH24:MI')||'–'||COALESCE(to_char(w.konec,'HH24:MI'),'…') "
+            "FROM tenant.vyroba_work w WHERE w.tenant_id=:t AND w.user_id=:u AND w.datum=:d "
+            "  AND w.id<>:i AND w.is_active=true AND w.konec IS NOT NULL "
+            "  AND w.od < CAST(:ne AS timestamptz) AND w.konec > CAST(:ns AS timestamptz) LIMIT 1"),
+            {"t": _ATT_TENANT, "u": w[1], "d": den.isoformat(), "i": wid,
+             "ne": new_end.isoformat(sep=" "), "ns": new_start.isoformat(sep=" ")}).scalar()
+        if ovl_p:
+            return JSONResponse({"ok": False, "error": "Nové časy položky se překrývají s jinou položkou (" + str(ovl_p) + ")."})
+        # 2) zakázka: validace píchatelnosti (Rezie povolena bez kontroly)
+        pref_final = w[6] or None
+        if pref_sent:
+            if pref_new and _norm_zakazka(pref_new) != _REZIE_REF:
+                zk = s.execute(_t("SELECT 1 FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
+                               {"t": _ATT_TENANT, "c": pref_new}).first()
+                if not zk:
+                    return JSONResponse({"ok": False, "error": "Zakázka " + pref_new + " není píchatelná / neexistuje."})
+            pref_final = _norm_zakazka(pref_new) if pref_new else None
+        # 3) činnost: validace aktivní
+        cin_final = w[7]
+        if cin_new:
+            _cn = s.execute(_t("SELECT 1 FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND id=:c AND active"),
+                            {"c": cin_new}).first()
+            if not _cn:
+                return JSONResponse({"ok": False, "error": "Neznámá/neaktivní činnost."})
+            cin_final = cin_new
+        hrs = round((new_end - new_start).total_seconds() / 3600.0, 3)
+        s.execute(_t(
+            "UPDATE tenant.vyroba_work SET od=CAST(:ns AS timestamptz), konec=CAST(:ne AS timestamptz), "
+            "hodiny=:h, zakazka_ref=:zk, cinnost_id=:ci, updated_at=now() "
+            "WHERE id=:i AND tenant_id=:t"),
+            {"ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "), "h": hrs,
+             "zk": pref_final, "ci": cin_final, "i": wid, "t": _ATT_TENANT})
+        # přepočet hlavičky z položek (obálka + hodiny)
+        _att_recompute_header_from_items(s, att_id)
+        # obálka hlavičky se po přepočtu nesmí překrýt se sousedním záznamem (mzdy)
+        env = s.execute(_t("SELECT started_at, ended_at FROM tenant.att_entry WHERE id=:a AND tenant_id=:t"),
+                        {"a": att_id, "t": _ATT_TENANT}).first()
+        if env and env[0] is not None and env[1] is not None:
+            clash = _att_fix_overlap(s, emp, env[0], env[1], att_id)
+            if clash:
+                s.rollback()
+                return JSONResponse({"ok": False, "error": "Po úpravě by úsek přesáhl do sousedního záznamu (" + str(clash) + ") — uprav nejdřív ten."})
+        _att_fix_audit(s, "polozka_fix", att_id, emp, uid, actor,
+                       old_note=old_desc.strip(),
+                       new_note=((pref_final or "—") + " " + zac + "–" + kon),
+                       detail=reason + " | položka #" + str(wid), old_date=den.isoformat())
+        _att_fix_notify(s, emp, uid, actor, "🛠 Oprava položky rozpadu",
+                        actor + " upravil(a) v tvé docházce " + den.strftime("%d.%m.") + ": "
+                        + old_desc.strip() + " → " + (pref_final or "—") + " " + zac + "–" + kon
+                        + " (" + reason + "). "
+                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+        s.commit()
+        _att_automat_recalc_day(emp, den)
+        return JSONResponse({"ok": True, "hours": hrs})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

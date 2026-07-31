@@ -14964,69 +14964,16 @@ async def att_absence_request(req: Request) -> JSONResponse:
     """Zaměstnanec žádá o absenci (dovolená/HO/lékař/OČR…). Routuje se na vedoucího
     (resolve_role attendance_supervisor). Vedoucí pak rozhodne statusem."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import datetime as _dt
     try:
         b = await req.json()
     except Exception:
         b = {}
-    typ = str((b or {}).get("typ") or "").strip().lower()
-    if typ not in _ABS_TYP:
-        return JSONResponse({"ok": False, "error": "Neznámý typ absence."})
-    try:
-        d_od = _dt.date.fromisoformat(str((b or {}).get("od") or "")[:10])
-        d_do = _dt.date.fromisoformat(str((b or {}).get("do") or str((b or {}).get("od") or ""))[:10])
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatné datum."})
-    if d_do < d_od:
-        return JSONResponse({"ok": False, "error": "Datum do je před datem od."})
-    try:
-        hpd = float((b or {}).get("hours_per_day") or 8)
-    except Exception:
-        hpd = 8.0
-    note = str((b or {}).get("note") or "").strip()[:500] or None
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        if not emp:
-            return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
-        # Jirka 21.7.2026: schvalovatelé přes resolve_approvers (skupina → vedoucí +
-        # zástup v nepřítomnosti), NE resolve_role → Marti. manager_user_id = primární.
-        _abs_apprs = _abs_resolve(s, emp, uid)
-        mgr = _abs_apprs[0] if _abs_apprs else None
-        rid = s.execute(_t(
-            "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
-            "hours_per_day,note,stav,manager_user_id) "
-            "VALUES (2,:e,:u,:ty,:od,:do,:h,:n,'pending',:m) RETURNING id"),
-            {"e": emp, "u": uid, "ty": typ, "od": d_od, "do": d_do, "h": hpd, "n": note, "m": mgr}).scalar()
-        # Peťa 30.7.2026: dovolená a sick day se propíšou do docházky ROVNOU podle
-        # pravidel, bez ohledu na schválení — jako to bylo v Centrále. Do té doby
-        # neschválená žádost = prázdný den v docházce (23 žádostí / 14 lidí viselo).
-        # Idempotentní, pozdější /absence/decide si materializaci přepíše po svém.
-        try:
-            from modules.erp.api.dochazka_absence_sprava import abs_promitni_zadost as _abs_prom
-            _abs_prom(s, rid, uid)
-        except Exception as _e_prom:
-            logger.warning("[absence] promitnuti zadosti #%s selhalo: %s", rid, _e_prom)
-        who = s.execute(_t(
-            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
-            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
-            {"e": emp}).scalar() or "Zaměstnanec"
-        rng = (d_od.strftime("%-d.%-m.") if False else (str(d_od.day) + "." + str(d_od.month) + "."))
-        rng2 = str(d_do.day) + "." + str(d_do.month) + "."
-        msg = (who + " žádá o „" + _ABS_TYP[typ] + "“ " + (rng if d_od == d_do else (rng + "–" + rng2))
-               + ((" — " + note) if note else "") + ". Rozhodni v Docházce → Žádosti o absenci.")
-        for _au in _abs_apprs:
-            _abs_notify(s, _au, "🗓️ Nová žádost o absenci", msg)
-        s.commit()
-        return JSONResponse({"ok": True, "id": rid, "manager": mgr, "approvers": _abs_apprs})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence_request", uid,
+                         (b or {}).get("typ"), (b or {}).get("od"), (b or {}).get("do"),
+                         (b or {}).get("hours_per_day"), (b or {}).get("note"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/attendance/absence/mine")
@@ -15048,47 +14995,14 @@ async def att_absence_cancel(req: Request) -> JSONResponse:
     Pokud už byla materializovaná do docházky, uklidí i att_entry té žádosti
     (source_system='absence_req', source_id=rid). Jirka 29.6.2026 (souhlas Marti)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
     except Exception:
         b = {}
-    try:
-        rid = int((b or {}).get("id") or 0)
-    except Exception:
-        rid = 0
-    if not rid:
-        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
-    cm, s = _att_session()
-    try:
-        r = s.execute(_t("SELECT stav, materialized FROM tenant.att_absence_request "
-                         "WHERE id=:i AND user_id=:u"), {"i": rid, "u": uid}).first()
-        if not r:
-            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-        stav, materialized = r[0], r[1]
-        if stav != "pending":
-            return JSONResponse({"ok": False, "error": "not_cancellable"}, status_code=400)
-        if materialized:
-            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 "
-                         "AND source_system='absence_req' AND source_id=:i"), {"i": rid})
-        s.execute(_t("UPDATE tenant.att_absence_request SET stav='cancelled', materialized=false, "
-                     "status_text='Zrušeno zaměstnancem', decided_at=now() WHERE id=:i"), {"i": rid})
-        # POZOR: _att_session() jede přes strategie_pg get_session(), který v finally dělá
-        # jen session.close() — ŽÁDNÝ autocommit. Bez tohohle commitu se DELETE i UPDATE
-        # při zavření session zahodily, ale endpoint vrátil ok=true a appka uživateli
-        # oznámila „zrušeno". Chyba od 29.6.2026: přes tlačítko se do 30.7.2026 nepodařilo
-        # zrušit absenci NIKOMU — v DB byl jediný řádek se stav='cancelled' a ten zapsala
-        # ručně Claude-24 (status_text „Duplicitni OCR…", decided_at NULL), ne endpoint.
-        # Vzor převzat z att_absence_decide. Schválila Marti-AI msg 11827. C28 30.7.2026
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence_cancel", uid, (b or {}).get("id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── OČR (ošetřovné) — Fáze 1: strukturovaný případ (bez ČSSZ API) ──────────
@@ -16631,80 +16545,15 @@ async def att_absence_decide(req: Request) -> JSONResponse:
     """Vedoucí rozhodne žádost statusem v lidské řeči. Schválení → vznik placených
     att_entry (jen pracovní dny). Změna pryč od schválení → záznamy se smažou."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
     except Exception:
         b = {}
-    try:
-        rid = int((b or {}).get("req_id") or 0)
-    except Exception:
-        rid = 0
-    status_text = str((b or {}).get("status_text") or "").strip()[:300]
-    stav = str((b or {}).get("stav") or _ABS_STATUSY.get(status_text, "approved")).strip().lower()
-    if stav not in ("approved", "rejected", "info"):
-        stav = "approved"
-    if not rid:
-        return JSONResponse({"ok": False, "error": "req_id"})
-    cm, s = _att_session()
-    try:
-        r = s.execute(_t(
-            "SELECT employee_id,user_id,typ,datum_od,datum_do,hours_per_day,manager_user_id,materialized "
-            "FROM tenant.att_absence_request WHERE id=:i"), {"i": rid}).first()
-        if not r:
-            return JSONResponse({"ok": False, "error": "Žádost nenalezena."})
-        emp, zad_uid, typ, d_od, d_do, hpd, mgr, materialized = r
-        if not (_is_parent(s, uid) or (mgr and int(mgr) == uid)):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        s.execute(_t("UPDATE tenant.att_absence_request SET stav=:st, status_text=:tx, "
-                     "decided_by_user_id=:u, decided_at=now() WHERE id=:i"),
-                  {"st": stav, "tx": status_text or None, "u": uid, "i": rid})
-        dni = 0
-        if stav == "approved":
-            ti = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code=:c"),
-                           {"c": typ}).scalar()
-            # idempotence: smaž dřívější materializaci této žádosti
-            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='absence_req' "
-                         "AND source_id=:i"), {"i": rid})
-            if ti:
-                workdays = s.execute(_t(
-                    "SELECT day FROM tenant.att_calendar_day WHERE tenant_id=2 AND is_workday=true "
-                    "AND day>=:od AND day<=:do ORDER BY day"), {"od": d_od, "do": d_do}).fetchall()
-                _em = 360 + int(round(float(hpd) * 60))
-                if _em > 1439:
-                    _em = 1439
-                _endt = "%02d:%02d:00" % (_em // 60, _em % 60)
-                params = [{"e": emp, "d": w[0], "ti": ti, "h": float(hpd), "u": uid, "i": rid,
-                           "et": _endt} for w in workdays]
-                if params:
-                    # is_active=false (dokončený plánovaný záznam, ne běžící job) + denní rámec 06:00→
-                    s.execute(_t(
-                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                        "started_at,ended_at,status,source,source_system,source_id,is_active,note,created_by_id,created_at,updated_at) "
-                        "VALUES (2,:e,:d,:ti,:h,:d + time '06:00',:d + CAST(:et AS time),"
-                        "'confirmed','absence','absence_req',:i,false,'schválená absence',:u,now(),now())"),
-                        params)
-                dni = len(params)
-            s.execute(_t("UPDATE tenant.att_absence_request SET materialized=true WHERE id=:i"), {"i": rid})
-        elif materialized:
-            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='absence_req' "
-                         "AND source_id=:i"), {"i": rid})
-            s.execute(_t("UPDATE tenant.att_absence_request SET materialized=false WHERE id=:i"), {"i": rid})
-        # notifikace žadateli statusem v lidské řeči
-        ikona = {"approved": "✅", "rejected": "🚫", "info": "💬"}.get(stav, "💬")
-        rng = str(d_od.day) + "." + str(d_od.month) + "." + ("" if d_od == d_do else ("–" + str(d_do.day) + "." + str(d_do.month) + "."))
-        body = (status_text or {"approved": "Schváleno", "rejected": "Zamítnuto", "info": "Vzato na vědomí"}[stav])
-        _abs_notify(s, zad_uid, ikona + " " + _ABS_TYP.get(typ, typ) + " " + rng,
-                    "Vedoucí: „" + body + "“" + ((" (" + str(dni) + " dní zapsáno)") if (stav == "approved" and dni) else ""))
-        s.commit()
-        return JSONResponse({"ok": True, "stav": stav, "dni": dni})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence_decide", uid,
+                         (b or {}).get("req_id"), (b or {}).get("status_text"), (b or {}).get("stav"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ═══ PLÁN docházky (Fáze A) — statický roční plán per osoba/den ═══════════════
@@ -17374,71 +17223,29 @@ async def app_vyroba_my_cinnosti(req: Request) -> JSONResponse:
 @api_router.post("/app/vyroba/my-cinnosti/toggle")
 async def app_vyroba_my_cinnosti_toggle(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
-        cid = int((b or {}).get("cinnost_id") or 0)
     except Exception:
-        cid = 0
-    in_list = bool((b or {}).get("in_list"))
-    if not cid:
-        return JSONResponse({"ok": False, "error": "cinnost_id"})
-    cm, s = _att_session()
-    try:
-        target = uid
-        tu = (b or {}).get("user_id")
-        if tu and int(tu) != uid:
-            if not _hr_can_manage(s, uid):
-                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-            target = int(tu)
-        s.execute(_t(
-            "INSERT INTO tenant.vyroba_cinnost_user (tenant_id,user_id,cinnost_id,hidden) "
-            "VALUES (2,:u,:c,:h) ON CONFLICT (tenant_id,user_id,cinnost_id) DO UPDATE SET "
-            "hidden=EXCLUDED.hidden, updated_at=now()"),
-            {"u": target, "c": cid, "h": (not in_list)})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+        b = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_my_cinnosti_toggle", uid,
+                         (b or {}).get("cinnost_id"), (b or {}).get("in_list"), (b or {}).get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/my-cinnosti/order")
 async def app_vyroba_my_cinnosti_order(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
-        order = [int(x) for x in ((b or {}).get("order") or [])]
     except Exception:
-        order = []
-    cm, s = _att_session()
-    try:
-        target = uid
-        tu = (b or {}).get("user_id")
-        if tu and int(tu) != uid:
-            if not _hr_can_manage(s, uid):
-                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-            target = int(tu)
-        for i, cid in enumerate(order):
-            s.execute(_t(
-                "INSERT INTO tenant.vyroba_cinnost_user (tenant_id,user_id,cinnost_id,sort_order,hidden) "
-                "VALUES (2,:u,:c,:so,false) ON CONFLICT (tenant_id,user_id,cinnost_id) DO UPDATE SET "
-                "sort_order=EXCLUDED.sort_order, updated_at=now()"),
-                {"u": target, "c": cid, "so": (i + 1) * 10})
-        s.commit()
-        return JSONResponse({"ok": True, "n": len(order)})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+        b = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_my_cinnosti_order", uid,
+                         (b or {}).get("order"), (b or {}).get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── Výroba: správa MASTER číselníku činností (rodiče/HR) ─────────────────────
@@ -17458,89 +17265,29 @@ async def app_vyroba_cinnost_master(req: Request) -> JSONResponse:
 @api_router.post("/app/vyroba/cinnost-master/save")
 async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import unicodedata as _ud
-    import re as _re
     try:
         b = await req.json()
     except Exception:
         b = {}
-    name = str((b or {}).get("name") or "").strip()[:120]
-    icon = str((b or {}).get("icon") or "").strip()[:8]
-    has_icon = "icon" in (b or {})
-    kind = str((b or {}).get("kind") or "standard").strip().lower()
-    if kind not in ("standard", "rezie"):
-        kind = "standard"
-    try:
-        cid = int((b or {}).get("id") or 0)
-    except Exception:
-        cid = 0
-    active = (b or {}).get("active")
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        if cid:  # úprava
-            sets, par = [], {"i": cid}
-            if name:
-                sets.append("name=:n"); par["n"] = name
-            if active is not None:
-                sets.append("active=:a"); par["a"] = bool(active)
-            if has_icon and icon:
-                sets.append("icon=:ic"); par["ic"] = icon
-            if sets:
-                s.execute(_t("UPDATE tenant.vyroba_cinnost SET " + ", ".join(sets) +
-                             " WHERE tenant_id=2 AND id=:i"), par)
-        else:  # nová
-            if not name:
-                return JSONResponse({"ok": False, "error": "Zadej název."})
-            base = _ud.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
-            base = _re.sub(r"[^a-z0-9]+", "_", base).strip("_")[:30] or "cinnost"
-            code = base
-            n = 1
-            while s.execute(_t("SELECT 1 FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND code=:c"), {"c": code}).first():
-                n += 1
-                code = (base[:27] + "_" + str(n))
-            mx = s.execute(_t("SELECT COALESCE(MAX(sort_order),0) FROM tenant.vyroba_cinnost WHERE tenant_id=2")).scalar() or 0
-            s.execute(_t("INSERT INTO tenant.vyroba_cinnost (tenant_id, code, name, sort_order, active, icon, kind) "
-                         "VALUES (2, :c, :n, :so, true, :ic, :k)"),
-                      {"c": code, "n": name, "so": int(mx) + 10, "ic": (icon or "🧩"), "k": kind})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_cinnost_master_save", uid,
+                         (b or {}).get("name"), (b or {}).get("icon"), ("icon" in (b or {})),
+                         (b or {}).get("kind"), (b or {}).get("id"), (b or {}).get("active"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/vyroba/cinnost-master/order")
 async def app_vyroba_cinnost_master_order(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
-        order = [int(x) for x in ((b or {}).get("order") or [])]
     except Exception:
-        order = []
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        for i, cid in enumerate(order):
-            s.execute(_t("UPDATE tenant.vyroba_cinnost SET sort_order=:so WHERE tenant_id=2 AND id=:i"),
-                      {"so": (i + 1) * 10, "i": cid})
-        s.commit()
-        return JSONResponse({"ok": True, "n": len(order)})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+        b = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_vyroba_cinnost_master_order", uid, (b or {}).get("order"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── Návštěvnost webu (in-house, GDPR: IP jen hash) ───────────────────────────

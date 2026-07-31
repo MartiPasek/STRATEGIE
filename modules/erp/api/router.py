@@ -26947,32 +26947,10 @@ def _norm_zakazka(ref):
     return _REZIE_REF if r.lower() in ("rezie", "režie") else r
 
 
-def _att_apply_work_selection(s, emp: int, project_ref, is_rezie) -> None:
-    """Marti 15.6.: promítne výběr zakázka/režie do BĚŽÍCÍHO pracovního att_entry,
-    aby přehledy klasifikovaly správně. Režie => typ 'overhead' (= maká, ne 'čekám').
-    Mění typ a project_ref IN-PLACE (žádné dělení záznamu). Nesahá na pauzu/cestu/konec dne.
-    Peťa + Marti 20.7.2026: režie se do kolonky zakázka ZAPISUJE ('Rezie') — dřív se
-    maskovala na NULL a v přehledech pak nebyla vidět."""
-    from sqlalchemy import text as _t
-    cur = s.execute(_t(
-        "SELECT a.id, COALESCE(et.code,'') FROM tenant.att_entry a "
-        "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-        "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true ORDER BY a.id DESC LIMIT 1"),
-        {"t": _ATT_TENANT, "e": emp}).first()
-    if not cur or cur[1] in ("break", "day_end", "commute"):
-        return
-    if is_rezie:
-        ot = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='overhead'"),
-                       {"t": _ATT_TENANT}).scalar()
-        if ot:
-            s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=:ty, project_ref=:pr, updated_at=now() WHERE id=:id"),
-                      {"ty": ot, "pr": _REZIE_REF, "id": cur[0]})
-    else:
-        wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='work'"),
-                       {"t": _ATT_TENANT}).scalar()
-        s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=COALESCE(:ty,entry_type_id), "
-                     "project_ref=:pr, updated_at=now() WHERE id=:id"),
-                  {"ty": wt, "pr": _norm_zakazka(project_ref) or None, "id": cur[0]})
+def _att_apply_work_selection(s, emp: int, project_ref, is_rezie):
+    """DB-driven delegate (g2007.python kod=att_apply_work_selection). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (cast 2)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_apply_work_selection", s, emp, project_ref, is_rezie)
 
 
 def _wp_get(s, uid: int):
@@ -28615,37 +28593,10 @@ def _maybe_long_shift_nudge():
         logger.warning("[long_shift_nudge] %s", e)
 
 
-def _att_resync_full(tenant: int = 2) -> dict:
-    """Jednorázový čistý re-import EC_Dochazka 2026-01-01..včera s aktuální
-    logikou (PraceAktivni→is_active, rezie→'Režie'). Po měsících (lehčí
-    transakce, menší MCP payload). Smaže jen centrala1 řádky — naše vlastní
-    píchnutí zůstanou. Marti 9.6.2026."""
-    from datetime import date as _d, timedelta as _td
-    import calendar as _cal
-    yest = _d.today() - _td(days=1)
-    tot = {"total": 0, "inserted": 0, "updated": 0, "chunks": 0, "errors": []}
-    y, m = 2026, 1
-    while True:
-        c0 = _d(y, m, 1)
-        if c0 > yest:
-            break
-        c1 = _d(y, m, _cal.monthrange(y, m)[1])
-        if c1 > yest:
-            c1 = yest
-        r = _sync_ec_dochazka_recent(tenant=tenant, frm=c0.isoformat(),
-                                     to=c1.isoformat(), wipe=True)
-        tot["chunks"] += 1
-        if r.get("ok"):
-            tot["total"] += r.get("total", 0)
-            tot["inserted"] += r.get("inserted", 0)
-            tot["updated"] += r.get("updated", 0)
-        else:
-            tot["errors"].append("%s..%s: %s" % (c0, c1, r.get("error")))
-        m += 1
-        if m > 12:
-            m, y = 1, y + 1
-    tot["ok"] = not tot["errors"]
-    return tot
+def _att_resync_full(tenant: int = 2):
+    """DB-driven delegate (g2007.python kod=att_resync_full). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (cast 2)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_resync_full", tenant=tenant)
 
 
 # --- Živý 30s tik docházky: mirror JEN dnešku z Centrály (Marti 9.6.2026) ---
@@ -28694,85 +28645,15 @@ _LAST_LEVEL_DAY = [None]
 
 
 def _maybe_att_level_catchup():
-    """Srovnání dne na osobní úvazek (dopíchnutí do fondu + nad fond → nenárokové)
-    spolehlivě: JEDNOU za lokální den, nezávisle na půlnočním okně. Značku o posledním
-    srovnaném dni drží DB (tenant.ec_mirror_state, src_table='att_automat_level_day'),
-    takže restart/nasazení ji nezahodí a zameškaný den se DOHNÁ při prvním tiku (i mimo
-    23:58–24:00, i po delším výpadku — do hloubky trailing okna days_back).
-
-    Nemění výpočet ani per-edit přepočet (_att_automat_recalc_day) — mění JEN spouštěč.
-    _att_automat_level_day srovnává jen DOKONČENÉ dny (e.entry_date < current_date),
-    takže běžící den nikdy nešahne; je idempotentní (okno smaže + vloží znovu)."""
-    from sqlalchemy import text as _t
-    KEY = "att_automat_level_day"
-    try:
-        cm, s = _att_session()
-        try:
-            today_s = str(s.execute(_t(
-                "SELECT (now() AT TIME ZONE 'Europe/Prague')::date")).scalar())
-            if _LAST_LEVEL_DAY[0] == today_s:
-                return
-            marker = s.execute(_t(
-                "SELECT last_note FROM tenant.ec_mirror_state WHERE src_table=:k"),
-                {"k": KEY}).scalar()
-            s.commit()
-        finally:
-            cm.__exit__(None, None, None)
-    except Exception as e:
-        logger.warning("[automat] level catchup precheck: %s", e)
-        return
-    if marker == today_s:
-        _LAST_LEVEL_DAY[0] = today_s
-        return
-    # Ještě dnes neproběhlo → srovnej (trailing okno days_back=4 jako doposud; sebeléčí
-    # i pár dní zpět, ale nikdy do zamčeného června — okno má floor 2026-06-01).
-    try:
-        lv = _att_automat_level_day()
-        logger.info("[automat] srovnání na úvazek (catchup, den=%s): %s", today_s, lv)
-    except Exception:
-        logger.exception("[automat] level_day (catchup) failed")
-        return   # značku NEposouvej — ať to příští tik zkusí znovu
-    # Značku posuň (trvale) až po úspěchu.
-    try:
-        cm, s = _att_session()
-        try:
-            up = s.execute(_t(
-                "UPDATE tenant.ec_mirror_state SET last_note=:d, last_sync_at=now() "
-                "WHERE src_table=:k"), {"d": today_s, "k": KEY})
-            if up.rowcount == 0:
-                s.execute(_t(
-                    "INSERT INTO tenant.ec_mirror_state(src_table,last_sync_at,last_note) "
-                    "VALUES(:k, now(), :d)"), {"k": KEY, "d": today_s})
-            s.commit()
-        finally:
-            cm.__exit__(None, None, None)
-        _LAST_LEVEL_DAY[0] = today_s
-    except Exception as e:
-        logger.warning("[automat] level catchup marker save: %s", e)
+    """DB-driven delegate (g2007.python kod=att_maybe_level_catchup). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (cast 2)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_maybe_level_catchup")
 
 
 def _att_sync_today():
-    """Re-mirror dnešku: wipe dnešních centrala1 řádků + reimport, pod advisory
-    lockem (jen jeden proces / instance). Zachytí i editace/smazání v Centrále
-    ve stejný den. Naše vlastní píchnutí (source_system!=centrala1) netkne."""
-    from datetime import date as _d
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    today = _d.today().isoformat()
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    try:
-        if not s.execute(_t("SELECT pg_try_advisory_lock(778811)")).scalar():
-            return
-        try:
-            _sync_ec_dochazka_recent(frm=today, to=today, wipe=True)
-        finally:
-            s.execute(_t("SELECT pg_advisory_unlock(778811)"))
-    finally:
-        try:
-            cm.__exit__(None, None, None)
-        except Exception:
-            pass
+    """DB-driven delegate (g2007.python kod=att_sync_today). Puvodni telo migrovano do DB dne 31.7.2026, Faze C (cast 2)."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_sync_today")
 
 
 # ── Hlídač volného místa na cloud SQL serveru (188.12) — Marti 26.6.2026 ──

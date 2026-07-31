@@ -28537,62 +28537,13 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
     sess = cm.__enter__()
     ins = upd = total = 0
     try:
-        # dedup PO EC ÚSEKU (C24 31.7.2026, systémová oprava — diagnostika Jirka+C28).
-        # PŮVODNĚ (krok 7, 29.7.): denní dedup — má-li člověk ten den JAKÝKOLI app řádek,
-        # celý jeho den z Centrály se zahodil. To bylo příliš hrubé: 1 minuta app "Rezie"
-        # zablokovala Matějovi 3,73 h na VR10672. Za 15.6.–30.7. tak chybělo ~48+ záznamů /
-        # ~80+ h / desítky osobo-dnů (mzdy OK, att_entry kompletní; vadný jen rozpad po zakázkách).
-        # NYNÍ: pro každý EC úsek přeskoč JEN tehdy, když app úseky (source_system='app')
-        # téhož člověka a dne pokrývají >=50 % jeho času (= tatáž práce zapsaná dvakrát).
-        # Autor='STRATEGIE' (naše zrcadlo) se vyřazuje už v SQL WHERE výše.
-        from datetime import datetime as _dt_ov
-        _APP_COVER_THR = 0.50  # práh překryvu; ověřeno simulací (dvojí započet by byl jen ~0,02 h)
-
-        def _pdt(_s):
-            return _dt_ov.strptime(str(_s).replace("T", " ")[:19], "%Y-%m-%d %H:%M:%S")
-
-        _appseg = {}
-        try:
-            for x in sess.execute(_t(
-                "SELECT e.cislo_zam, to_char(w.datum,'YYYY-MM-DD') d, "
-                "to_char(w.od,'YYYY-MM-DD HH24:MI:SS'), to_char(w.konec,'YYYY-MM-DD HH24:MI:SS') "
-                "FROM tenant.vyroba_work w JOIN tenant.att_employee e ON e.user_id=w.user_id AND e.tenant_id=:t "
-                "WHERE w.tenant_id=:t AND w.source_system='app' AND w.cinnost_id IS NOT NULL "
-                "AND e.cislo_zam IS NOT NULL AND w.od IS NOT NULL AND w.konec IS NOT NULL"), {"t": tenant}).fetchall():
-                _appseg.setdefault((str(x[0]).strip(), str(x[1])), []).append((str(x[2]), str(x[3])))
-        except Exception:
-            _appseg = {}
-
-        def _app_covers(_cz, _den, _z, _k):
-            """True = app úseky pokrývají >=THR času EC úseku [_z,_k] → EC přeskoč.
-            Konzervativně True i když překryv nejde spočítat (chybí/nekladné časy) a přitom
-            ten den existuje app záznam — chrání proti dvojímu započtení agregátu bez časů."""
-            _segs = _appseg.get((_cz, _den))
-            if not _segs:
-                return False
-            try:
-                z = _pdt(_z); k = _pdt(_k)
-                dur = (k - z).total_seconds()
-                if dur <= 0:
-                    return True  # EC úsek bez kladné délky + app ten den existuje → přeskoč
-                ivs = sorted((_pdt(a), _pdt(b)) for a, b in _segs)
-                merged = []
-                for a, b in ivs:
-                    if merged and a <= merged[-1][1]:
-                        if b > merged[-1][1]:
-                            merged[-1] = (merged[-1][0], b)
-                    else:
-                        merged.append((a, b))
-                ov = 0.0
-                for a, b in merged:
-                    lo = a if a > z else z
-                    hi = b if b < k else k
-                    if hi > lo:
-                        ov += (hi - lo).total_seconds()
-                return (ov / dur) >= _APP_COVER_THR
-            except Exception:
-                return True  # nejde spočítat → konzervativně přeskoč (starý postup)
-
+        # 100 % Z CENTRÁLY (C24 + Kristý 31.7.2026). Dřív (31.7. ráno) se app-kryté EC úseky
+        # přeskakovaly prahem 50 % kvůli obavě z dvojího započtení. Kristý (doména): lidi se
+        # píchli buď v APPCE, NEBO v Centrále, nikdy ne naráz — reálný časový překryv nevzniká.
+        # Jediná skutečná duplicita jsou NAŠE zrcadlené řádky (Autor='STRATEGIE'), a ty se
+        # vyřazují už v SQL WHERE výše. Proto bereme VŠECHNY ostatní EC úseky, nic nezahazujeme.
+        # (Ověřeno na červnu: po tomto = 100 % Centrály. Případné vzácné překryvy z náběhu appky
+        # se řeší samostatně, ne zahazováním záznamů Centrály.) Odstraněn práh + _app_covers/_appseg.
         _dry_ins = []  # dry_run: vzorek/souhrn toho, co by se NOVĚ vložilo
         for r in _rows(sql):
             rid = int(r["ID"]); total += 1
@@ -28600,8 +28551,6 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
             _zak_raw = (r.get("CisloZakazky") or "").strip()
             # C24 + Kristý 30.7.2026: režie (i prázdná zakázka) → jednotně 'Rezie'; jinak číslo zakázky.
             zak = _REZIE_REF if (not _zak_raw or _zak_raw.lower() == "rezie") else (_norm_zakazka(_zak_raw) or _REZIE_REF)
-            if _app_covers(cz, str(r.get("d")), r.get("z"), r.get("k")):
-                continue
             try:
                 cin = int(r.get("DruhCinnosti") or 0) or None
             except Exception:

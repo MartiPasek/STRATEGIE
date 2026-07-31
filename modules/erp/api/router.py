@@ -21359,85 +21359,15 @@ async def att_fix_request(req: Request) -> JSONResponse:
     disputed, editorům dle působnosti odejde notifikace a den padne do fronty.
     """
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
-    note = str((body or {}).get("note") or "").strip()[:500]
-    if not note:
-        return JSONResponse({"ok": False, "error": "Napiš prosím, co nesedí."})
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    dnes = _dt.now().date()
-    if day > dnes:
-        return JSONResponse({"ok": False, "error": "Budoucí den řešit nejde."}, status_code=400)
-    # Peťa 21.7.: jen aktuální kalendářní měsíc — starší už prošlo mzdou.
-    if (day.year, day.month) != (dnes.year, dnes.month):
-        return JSONResponse({
-            "ok": False,
-            "error": ("Za " + str(day.day) + ". " + str(day.month) + ". už o opravu požádat nejde — "
-                      "opravovat lze jen aktuální měsíc, starší období je uzavřené mzdami. "
-                      "Ozvi se prosím osobně kontrole docházky."),
-        }, status_code=409)
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        # Konkrétní záznam (volitelně) — musí patřit žadateli a sedět na den.
-        if eid:
-            row = s.execute(_t(
-                "SELECT e.id FROM tenant.att_entry e "
-                "JOIN tenant.att_employee em ON em.id = e.employee_id "
-                "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u AND e.entry_date = :d"),
-                {"i": eid, "t": _ATT_TENANT, "u": uid, "d": day.isoformat()}).first()
-            if not row:
-                s.commit()
-                return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-            s.execute(_t(
-                "UPDATE tenant.att_entry SET note = CASE WHEN COALESCE(note,'') = '' THEN :nn "
-                "ELSE note || ' / ' || :nn END, updated_at = now() WHERE id = :i"),
-                {"nn": "✋ ROZPOR: " + note, "i": eid})
-        s.execute(_t(
-            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id, disputed, note) "
-            "VALUES (:t, :e, :d, :u, true, :n) "
-            "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true, note = EXCLUDED.note"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid, "n": note[:300]})
-        # Rozporovaný den je vyřešený → zhasni vlastní připomínku i anomálii.
-        s.execute(_t(
-            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
-            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
-            "  AND e.id = a.entry_id AND e.entry_date = :d"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()})
-        s.execute(_t(
-            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
-            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
-            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
-            {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
-        who = _user_jmeno(s, uid)
-        targets = _att_fix_editors_for_emp(s, emp) or {20}  # fallback = Jirka (admin), NE rodič
-        msg = (who + " žádá o opravu docházky za " + str(day.day) + ". " + str(day.month) + "."
-               + " — „" + note + "“ Mrkni na záznamy a doladěte to spolu.")
-        for uid2 in sorted(targets):
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                {"uid": uid2, "ti": "✋ Žádost o opravu docházky", "msg": msg[:600]})
-        s.commit()
-        return JSONResponse({"ok": True, "day": day.isoformat()})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_request", uid,
+                         (body or {}).get("day"), (body or {}).get("id"), (body or {}).get("note"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ---------------------------------------------------------------------------
@@ -22332,69 +22262,16 @@ async def att_fix_resolve(req: Request) -> JSONResponse:
     """Odbavení položky fronty bez zásahu: anomálie (anomaly_id) nebo rozpor
     dne (uid+day) — s poznámkou proč je to v pořádku."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
     try:
         body = await req.json()
     except Exception:
         body = {}
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    aid = 0
-    tuid = 0
-    try:
-        aid = int((body or {}).get("anomaly_id") or 0)
-    except Exception:
-        pass
-    try:
-        tuid = int((body or {}).get("uid") or 0)
-    except Exception:
-        pass
-    cm, s = _att_session()
-    try:
-        _sc = _att_fix_scope(s, uid)
-        if _sc is None:
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        _emps = None if _att_fix_all(s, uid) else _att_fix_scope_emps(s, _sc)
-        actor = _user_jmeno(s, uid)
-        if aid:
-            _ae = s.execute(_t("SELECT employee_id FROM tenant.att_anomaly WHERE tenant_id=:t AND id=:i"),
-                            {"t": _ATT_TENANT, "i": aid}).scalar()
-            if _ae is not None and _emps is not None and int(_ae) not in _emps:
-                return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-            r = s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                             "WHERE tenant_id=:t AND id=:i AND resolved_at IS NULL RETURNING employee_id, entry_id"),
-                          {"t": _ATT_TENANT, "i": aid}).first()
-            if r:
-                _att_fix_audit(s, "resolve", r[1], r[0], uid, actor, detail="anomálie OK: " + (reason or "-"))
-            s.commit()
-            return JSONResponse({"ok": True})
-        if tuid:
-            try:
-                day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-            except Exception:
-                return JSONResponse({"ok": False, "error": "Neplatné datum."})
-            emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
-                            {"t": _ATT_TENANT, "u": tuid}).scalar()
-            if emp and _emps is not None and int(emp) not in _emps:
-                return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
-            if emp:
-                s.execute(_t(
-                    "UPDATE tenant.att_day_confirm SET disputed=false, "
-                    "note = COALESCE(note,'') || ' | vyřešeno (' || :a || '): ' || :r "
-                    "WHERE tenant_id=:t AND employee_id=:e AND day=:d AND disputed=true"),
-                    {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "a": actor, "r": (reason or "-")})
-                _att_fix_audit(s, "resolve", None, emp, uid, actor,
-                               detail="rozpor dne vyřešen: " + (reason or "-"), old_date=day.isoformat())
-            s.commit()
-            return JSONResponse({"ok": True})
-        return JSONResponse({"ok": False, "error": "missing_target"}, status_code=400)
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_resolve", uid,
+                         (body or {}).get("reason"), (body or {}).get("anomaly_id"),
+                         (body or {}).get("uid"), (body or {}).get("day"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/fix/resync")
@@ -22544,44 +22421,16 @@ async def att_period_lock_list(req: Request) -> JSONResponse:
 async def att_period_lock_set(req: Request) -> JSONResponse:
     """Zamknout/odemknout měsíc pro opravy (mzdy). Peťa/Šárka + rodiče."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        rok = int((body or {}).get("rok") or 0)
-        mesic = int((body or {}).get("mesic") or 0)
-    except Exception:
-        rok = mesic = 0
-    lock = bool((body or {}).get("lock"))
-    note = str((body or {}).get("note") or "").strip()[:200]
-    if not (2020 <= rok <= 2100 and 1 <= mesic <= 12):
-        return JSONResponse({"ok": False, "error": "Neplatné období."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_lock(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        actor = _user_jmeno(s, uid)
-        if lock:
-            s.execute(_t(
-                "INSERT INTO tenant.att_period_lock (tenant_id, rok, mesic, locked_by, note) "
-                "VALUES (:t,:r,:m,:u,:n) ON CONFLICT (tenant_id, rok, mesic) DO NOTHING"),
-                {"t": _ATT_TENANT, "r": rok, "m": mesic, "u": uid, "n": note or None})
-        else:
-            s.execute(_t("DELETE FROM tenant.att_period_lock WHERE tenant_id=:t AND rok=:r AND mesic=:m"),
-                      {"t": _ATT_TENANT, "r": rok, "m": mesic})
-        _att_fix_audit(s, "period_lock" if lock else "period_unlock", None, None, uid, actor,
-                       detail=str(mesic) + "/" + str(rok) + (" — " + note if note else ""))
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_period_lock_set", uid,
+                         (body or {}).get("rok"), (body or {}).get("mesic"),
+                         (body or {}).get("lock"), (body or {}).get("note"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/zakazky")

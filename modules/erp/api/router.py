@@ -28268,7 +28268,7 @@ _LAST_DOCH_SYNC = [0.0]
 
 
 def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
-                         to: str = None) -> dict:
+                         to: str = None, dry_run: bool = False) -> dict:
     """Přídavný sync EC_Dochazka → tenant.vyroba_work = ODDĚLENÝ zakázkový systém
     (zakázka + činnost + čas jako joby). NESahá na att_entry (docházka/mzdy zůstávají
     beze změny). Nese DruhCinnosti (drátování/zkoušení/...), kterou att_entry mirror
@@ -28314,31 +28314,80 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
            # přes att_day_summary). Při zrušení filtru '<>rezie' začaly absence prosakovat sem
            # (druh 20/21/22… má taky DruhCinnosti>0). Absenční kódy = klíče _DRUH_ABSENCE.
            "AND ISNULL(DruhCinnosti,0) NOT IN (" + ",".join(str(_k) for _k in _DRUH_ABSENCE) + ") "
+           # C24 31.7.2026 (systémová oprava dedupu): NEimportuj zpět naše vlastní zrcadlené
+           # řádky (Autor='STRATEGIE', _mirror_att_to_ec). att_entry import (_sync_ec_dochazka_recent)
+           # to už dělá; vyroba_work import to dosud NEMĚL. Diagnostika Jirka+C28 31.7.
+           "AND ISNULL(Autor,'')<>'STRATEGIE' "
            "ORDER BY ID")
 
     cm = _pg.get_session()
     sess = cm.__enter__()
     ins = upd = total = 0
     try:
-        # dedup: (cislo_zam, den) s app segmenty → EC přeskoč (app má pravdu o činnosti).
-        # C24 29.7.2026 (krok 7): dedup překlíčován z work_alloc na app řádky přímo ve
-        # vyroba_work (source_system='app'), protože zápisy už nejdou do work_alloc (krok 5)
-        # a app fold _sync_vyroba_work_app se vypíná. Bez toho by se app lidem EC agregát
-        # (DruhCinnosti=4) sečetl s nativním řádkem = dvojí započet.
+        # dedup PO EC ÚSEKU (C24 31.7.2026, systémová oprava — diagnostika Jirka+C28).
+        # PŮVODNĚ (krok 7, 29.7.): denní dedup — má-li člověk ten den JAKÝKOLI app řádek,
+        # celý jeho den z Centrály se zahodil. To bylo příliš hrubé: 1 minuta app "Rezie"
+        # zablokovala Matějovi 3,73 h na VR10672. Za 15.6.–30.7. tak chybělo ~48+ záznamů /
+        # ~80+ h / desítky osobo-dnů (mzdy OK, att_entry kompletní; vadný jen rozpad po zakázkách).
+        # NYNÍ: pro každý EC úsek přeskoč JEN tehdy, když app úseky (source_system='app')
+        # téhož člověka a dne pokrývají >=50 % jeho času (= tatáž práce zapsaná dvakrát).
+        # Autor='STRATEGIE' (naše zrcadlo) se vyřazuje už v SQL WHERE výše.
+        from datetime import datetime as _dt_ov
+        _APP_COVER_THR = 0.50  # práh překryvu; ověřeno simulací (dvojí započet by byl jen ~0,02 h)
+
+        def _pdt(_s):
+            return _dt_ov.strptime(str(_s).replace("T", " ")[:19], "%Y-%m-%d %H:%M:%S")
+
+        _appseg = {}
         try:
-            _appd = {(str(x[0]).strip(), str(x[1])) for x in sess.execute(_t(
-                "SELECT e.cislo_zam, to_char(w.datum,'YYYY-MM-DD') "
+            for x in sess.execute(_t(
+                "SELECT e.cislo_zam, to_char(w.datum,'YYYY-MM-DD') d, "
+                "to_char(w.od,'YYYY-MM-DD HH24:MI:SS'), to_char(w.konec,'YYYY-MM-DD HH24:MI:SS') "
                 "FROM tenant.vyroba_work w JOIN tenant.att_employee e ON e.user_id=w.user_id AND e.tenant_id=:t "
-                "WHERE w.tenant_id=:t AND w.source_system='app' AND w.cinnost_id IS NOT NULL AND e.cislo_zam IS NOT NULL"), {"t": tenant}).fetchall()}
+                "WHERE w.tenant_id=:t AND w.source_system='app' AND w.cinnost_id IS NOT NULL "
+                "AND e.cislo_zam IS NOT NULL AND w.od IS NOT NULL AND w.konec IS NOT NULL"), {"t": tenant}).fetchall():
+                _appseg.setdefault((str(x[0]).strip(), str(x[1])), []).append((str(x[2]), str(x[3])))
         except Exception:
-            _appd = set()
+            _appseg = {}
+
+        def _app_covers(_cz, _den, _z, _k):
+            """True = app úseky pokrývají >=THR času EC úseku [_z,_k] → EC přeskoč.
+            Konzervativně True i když překryv nejde spočítat (chybí/nekladné časy) a přitom
+            ten den existuje app záznam — chrání proti dvojímu započtení agregátu bez časů."""
+            _segs = _appseg.get((_cz, _den))
+            if not _segs:
+                return False
+            try:
+                z = _pdt(_z); k = _pdt(_k)
+                dur = (k - z).total_seconds()
+                if dur <= 0:
+                    return True  # EC úsek bez kladné délky + app ten den existuje → přeskoč
+                ivs = sorted((_pdt(a), _pdt(b)) for a, b in _segs)
+                merged = []
+                for a, b in ivs:
+                    if merged and a <= merged[-1][1]:
+                        if b > merged[-1][1]:
+                            merged[-1] = (merged[-1][0], b)
+                    else:
+                        merged.append((a, b))
+                ov = 0.0
+                for a, b in merged:
+                    lo = a if a > z else z
+                    hi = b if b < k else k
+                    if hi > lo:
+                        ov += (hi - lo).total_seconds()
+                return (ov / dur) >= _APP_COVER_THR
+            except Exception:
+                return True  # nejde spočítat → konzervativně přeskoč (starý postup)
+
+        _dry_ins = []  # dry_run: vzorek/souhrn toho, co by se NOVĚ vložilo
         for r in _rows(sql):
             rid = int(r["ID"]); total += 1
             cz = str(r.get("CisloZam") or "").strip()
             _zak_raw = (r.get("CisloZakazky") or "").strip()
             # C24 + Kristý 30.7.2026: režie (i prázdná zakázka) → jednotně 'Rezie'; jinak číslo zakázky.
             zak = _REZIE_REF if (not _zak_raw or _zak_raw.lower() == "rezie") else (_norm_zakazka(_zak_raw) or _REZIE_REF)
-            if (cz, str(r.get("d"))) in _appd:
+            if _app_covers(cz, str(r.get("d")), r.get("z"), r.get("k")):
                 continue
             try:
                 cin = int(r.get("DruhCinnosti") or 0) or None
@@ -28347,6 +28396,22 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
             p = {"t": tenant, "cz": cz or None, "zak": zak, "cin": cin,
                  "d": r.get("d"), "z": r.get("z"), "k": r.get("k"),
                  "h": r.get("hod"), "sid": rid}
+            if dry_run:
+                # NIC nezapisuj — jen klasifikuj (existuje řádek se stejným EC id?) a u NOVÝCH
+                # sčítej hodiny + osobo-dny, ať jde ověřit proti diagnostice před ostrým během.
+                _ex = sess.execute(_t(
+                    "SELECT 1 FROM tenant.vyroba_work WHERE tenant_id=:t "
+                    "AND source_system='centrala1' AND source_id=:sid LIMIT 1"), p).first()
+                if _ex:
+                    upd += 1
+                else:
+                    ins += 1
+                    try:
+                        _hh = float(r.get("hod") or 0)
+                    except Exception:
+                        _hh = 0.0
+                    _dry_ins.append((r.get("d"), cz, zak, _hh))
+                continue
             res = sess.execute(_t(
                 # Peťa 22.7.2026: činnost páruj přes ec_cislo (centrálské číslo), NE přes
                 # naše id — Centrála a náš číselník nejsou zarovnané (jen 1-5), takže id=:cin
@@ -28372,6 +28437,18 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
                 ins += 1
             else:
                 upd += 1
+        if dry_run:
+            try:
+                sess.rollback()
+            except Exception:
+                pass
+            cm.__exit__(None, None, None)
+            _sum_h = round(sum(x[3] for x in _dry_ins), 2)
+            _osd = len({(x[0], x[1]) for x in _dry_ins})
+            return {"ok": True, "dry_run": True, "total": total, "would_ins": ins,
+                    "would_upd": upd, "ins_hours": _sum_h, "ins_osobodnu": _osd,
+                    "sample": [{"d": x[0], "cz": x[1], "zak": x[2], "h": round(x[3], 2)}
+                               for x in _dry_ins[:40]], "frm": frm, "to": to}
         sess.commit()
         cm.__exit__(None, None, None)
         return {"ok": True, "total": total, "ins": ins, "upd": upd, "frm": frm, "to": to}
@@ -43709,9 +43786,11 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   Backfill po měsících (frm/to YYYY-MM-DD); bez argumentů = posledních 3 dny. Neruší docházku.
     if sql.upper().startswith("@@VYRWSYNC"):
         parts = sql.split()
-        _frm = parts[1] if len(parts) > 1 else None
-        _to = parts[2] if len(parts) > 2 else None
-        _ec = _sync_vyroba_work_ec(frm=_frm, to=_to)
+        _dry = any(p.lower() == "dry" for p in parts[1:])
+        _args = [p for p in parts[1:] if p.lower() != "dry"]
+        _frm = _args[0] if len(_args) > 0 else None
+        _to = _args[1] if len(_args) > 1 else None
+        _ec = _sync_vyroba_work_ec(frm=_frm, to=_to, dry_run=_dry)
         # C24 29.7.2026 (krok 7): app fold vypnut — mobil/import/opravy píší nativně do
         # vyroba_work. @@VYRWSYNC už jen dotahuje EC agregát (zakázka+činnost z Centrály).
         _app = {"ok": True, "skipped": "app fold vypnut (krok 7) — nativni zapisy do vyroba_work"}

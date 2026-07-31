@@ -26813,8 +26813,10 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
     if not uid:
         return plan
     # 1) platné úseky work/overhead/homeoffice s časy
+    # sg[5] = konec dopsal automat o půlnoci (zapomenutý odchod) — viz níže bod 5
     segs = s.execute(_t(
-        "SELECT e.id, et.code, e.started_at, e.ended_at, e.project_ref "
+        "SELECT e.id, et.code, e.started_at, e.ended_at, e.project_ref, "
+        "       (COALESCE(e.note,'') ILIKE '%%auto-odhlášení%%') AS auto_konec "
         "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
         "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d "
         "  AND e.status <> 'superseded' "
@@ -26937,7 +26939,13 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
             if uz_je is not None:
                 plan["skip_exists"].append(sg[0])
                 continue
-            plan["create"].append({"att": sg[0], "od": sg[2], "konec": sg[3],
+            # ZAPOMENUTÝ ODCHOD (Peťa 31.7.2026): když konec dopsal automat o půlnoci,
+            # NEPŘEBÍRÁME ho — do rozpadu jde řádek se začátkem a PRÁZDNÝM koncem
+            # (hodiny 0), přesně jak to dělala Centrála. Docházka new nemá posuzovat,
+            # co je nesmysl; ukáže rozdělaný záznam a člověk ho v Opravách dorovná.
+            # Jinak by se do podkladů dostalo např. 11,01 h (Beneš 3.7. 12:58–23:59).
+            plan["create"].append({"att": sg[0], "od": sg[2],
+                                   "konec": (None if sg[5] else sg[3]),
                                    "zak": _norm_zakazka(sg[4]) or None})
     if dry_run:
         return plan
@@ -26959,7 +26967,9 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
             "VALUES (:t,:u,"
             "(SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=:u AND e.tenant_id=:t AND e.cislo_zam IS NOT NULL LIMIT 1),"
             ":d,CAST(:od AS timestamptz),CAST(:kon AS timestamptz),:zak,NULL,"
-            "round((EXTRACT(EPOCH FROM (CAST(:kon AS timestamptz) - CAST(:od AS timestamptz)))/3600.0)::numeric,3),'sync',:a,now(),now())"),
+            # konec NULL (zapomenutý odchod) → 0 h, ne vymyšlený čas do půlnoci
+            "COALESCE(round((EXTRACT(EPOCH FROM (CAST(:kon AS timestamptz) - CAST(:od AS timestamptz)))/3600.0)::numeric,3), 0),"
+            "'sync',:a,now(),now())"),
             {"t": _ATT_TENANT, "u": uid, "d": den_s, "od": c["od"], "kon": c["konec"],
              "zak": c["zak"], "a": c["att"]})
     return plan

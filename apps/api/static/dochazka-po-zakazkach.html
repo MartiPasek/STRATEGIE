@@ -517,6 +517,30 @@ function vfiltApply(){var out=[];
 function vfiltClearAll(){VFILT=null;closeCustomFilter();render();}
 function closeFilterMenu(){var m=document.getElementById('filtm');if(m&&m.parentNode)m.parentNode.removeChild(m);}
 document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#filtm'))closeFilterMenu();});
+/* Po přepnutí pohledu nechat jen filtry sloupců, které v nové sadě existují. */
+function filtryProSadu(){
+  var ok={}; COLS.forEach(function(c){ok[c.k]=1;});
+  Object.keys(FIL).forEach(function(k){
+    var base=k.replace(/_(od|do)$/,'');           // datumové filtry mají příponu _od/_do
+    if(!ok[base]&&!ok[k])delete FIL[k];});
+  Object.keys(FILMODE).forEach(function(k){if(!ok[k])delete FILMODE[k];});
+  if(VFILT){
+    VFILT=VFILT.filter(function(p){return ok[p.k];});
+    if(!VFILT.length)VFILT=null;
+  }
+}
+/* hlavicka() staví filtrovací řádek načisto — vrátit do políček, co zůstalo. */
+function doplnFiltryDoPolicek(){
+  [].forEach.call($('tab').querySelectorAll('.frow input[data-k]'),function(inp){
+    var k=inp.getAttribute('data-k');
+    if(FILMODE[k]){inp.value=(FILMODE[k]==='empty'?'(prázdné)':'(neprázdné)');return;}
+    if(inp.getAttribute('data-date')){
+      var a=FIL[k+'_od'],b=FIL[k+'_do'];
+      inp.value=(a||b)?((a||'…')+' – '+(b||'…')):'';return;
+    }
+    if(FIL[k])inp.value=FIL[k];
+  });
+}
 function clearFil(){FIL={};FILMODE={};VFILT=null;[].forEach.call($('tab').querySelectorAll('.frow input'),function(x){x.value='';});render();}
 
 // Filtr zaškrtávacího sloupce (✓ / prázdné / vše) — klikáním se přepíná.
@@ -1208,7 +1232,11 @@ function init(){
   $('tabs').addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.chip'):null;if(!b)return;
     var o=b.getAttribute('data-o'); if(o===OBD)return;
     [].forEach.call($('tabs').children,function(x){x.classList.remove('on');});b.classList.add('on');
-    OBD=o;FIL={};setCols();hlavicka();load();});  // přepnutí režimu = zrušit filtr (Peťa 27.7.)
+    // Peťa 31.7.2026 (mění dřívější přání z 27.7. „přepnutí režimu = zrušit filtr"):
+    // filtry mají přepnutí PŘEŽÍT — člověk si vyfiltruje jednoho člověka a chce ho
+    // vidět ve všech třech pohledech, ne ho pokaždé psát znovu. Zahodí se jen filtry
+    // sloupců, které v nové sadě nejsou (jinak by neviditelně filtrovaly).
+    OBD=o; setCols(); filtryProSadu(); hlavicka(); doplnFiltryDoPolicek(); load();});
   // dokreslování po částech při scrollu ke spodku
   var _tw=document.querySelector('.tw');
   if(_tw)_tw.addEventListener('scroll',function(){if(_tw.scrollTop+_tw.clientHeight>_tw.scrollHeight-500)appendChunk();});

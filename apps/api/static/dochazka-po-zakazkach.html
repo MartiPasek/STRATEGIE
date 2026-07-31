@@ -972,11 +972,27 @@ function copyRows(){   // Ctrl+C = zkopírovat označené (nebo vše po filtru) 
   try{navigator.clipboard.writeText(head+'\n'+body);}catch(e){return false;}
   return true;
 }
+/* Buňka do Excelu. Peťa 31.7.2026: „v Excelu je špatný součet."
+   Čísla se do sešitu dostávala jako text s TEČKOU (3.42) a český Excel je četl
+   jako DATUM (3.42 → 03.IX), takže se nedala sečíst. Řešení: číselné sloupce
+   označit jako číslo (mso-number-format) a hodnotu psát s tečkou — Excel ji pak
+   bere jako číslo bez ohledu na místní nastavení. Datumy naopak necháme textem,
+   ať si je nepřevede po svém (DD.MM.RRRR i s časem). */
+function _xlsCell(c, v){
+  var t=_cellTxt(v);
+  if(c.num){
+    var n=String(t).replace(/\s/g,'').replace(',','.');
+    if(n!==''&&!isNaN(n))
+      return '<td style="mso-number-format:\'0.00\'" x:num="'+esc(n)+'">'+esc(n)+'</td>';
+  }
+  return '<td style="mso-number-format:\'\\@\'">'+esc(t)+'</td>';   // \@ = text
+}
 function exportExcel(){  // stažení .xls (Excel otevře se sloupci) — označené, nebo vše po filtru
   var idxs=_selectedOrFiltered();
   if(!idxs.length){alert('Není co exportovat — přehled je prázdný.');return;}
   var h='<table border="1"><tr>'+COLS.map(function(c){return '<th>'+esc(c.h)+'</th>';}).join('')+'</tr>';
-  idxs.forEach(function(i){var r=ROWS[i];h+='<tr>'+COLS.map(function(c){return '<td>'+esc(_cellTxt(r[c.k]))+'</td>';}).join('')+'</tr>';});
+  idxs.forEach(function(i){var r=ROWS[i];
+    h+='<tr>'+COLS.map(function(c){return _xlsCell(c, r[c.k]);}).join('')+'</tr>';});
   h+='</table>';
   var html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'+h+'</body></html>';
   var blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});

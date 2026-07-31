@@ -946,7 +946,7 @@ function sumSelected(){
   $('sum_body').innerHTML=h;
   $('sum_info').textContent=order.length+' skupin · '+totN+' řádků';
   window.__sumText='Rok\tMěsíc\tJméno\tHodin\tŘádků\n'+order.map(function(k){var x=g[k];
-    return x.rok+'\t'+x.mes+'\t'+x.jm+'\t'+x.hod.toFixed(2)+'\t'+x.n;}).join('\n');
+    return x.rok+'\t'+x.mes+'\t'+x.jm+'\t'+x.hod.toFixed(2).replace('.',',')+'\t'+x.n;}).join('\n');
   $('ovsum').classList.add('on');
 }
 function closeSum(){ $('ovsum').classList.remove('on'); }
@@ -962,13 +962,27 @@ function _selectedOrFiltered(){
 }
 function _stamp(){var t=new Date();return ''+t.getFullYear()+('0'+(t.getMonth()+1)).slice(-2)+('0'+t.getDate()).slice(-2);}
 function _cellTxt(v){return String(v==null?'':v).replace(/\t/g,' ').replace(/[\r\n]+/g,' ');}
+/* Číselný sloupec → text s desetinnou ČÁRKOU (české prostředí Excelu).
+   Ostatní sloupce beze změny. Používá kopírování do schránky i export do .xls. */
+function _csCislo(c, v){
+  var t=_cellTxt(v);
+  if(c&&c.num){
+    var x=String(t).replace(/\s/g,'').replace(',','.');
+    if(x!==''&&!isNaN(x))return x.replace('.',',');
+  }
+  return t;
+}
 function selectAll(){  // Ctrl+A = označit vše, co je vidět (po filtru)
   SELSET={};FILT.forEach(function(i){SELSET[i]=true;});if(FILT.length)CUR=FILT[0];render();
 }
 function copyRows(){   // Ctrl+C = zkopírovat označené (nebo vše po filtru) jako tabulku (TSV)
   var idxs=_selectedOrFiltered();if(!idxs.length)return false;
+  // DESETINNÁ ČÁRKA i tady (Peťa 31.7.2026). Tohle je cesta, kterou se čísla do
+  // Excelu dostávají nejčastěji — označit řádky, Ctrl+C, vložit. S tečkou je
+  // český Excel četl jako datum (3.42 → 3. září) a nešly sečíst.
   var head=COLS.map(function(c){return c.h;}).join('\t');
-  var body=idxs.map(function(i){var r=ROWS[i];return COLS.map(function(c){return _cellTxt(r[c.k]);}).join('\t');}).join('\n');
+  var body=idxs.map(function(i){var r=ROWS[i];
+    return COLS.map(function(c){return _csCislo(c, r[c.k]);}).join('\t');}).join('\n');
   try{navigator.clipboard.writeText(head+'\n'+body);}catch(e){return false;}
   return true;
 }
@@ -982,7 +996,7 @@ function _xlsCell(c, v){
   var t=_cellTxt(v);
   if(c.num){
     var n=String(t).replace(/\s/g,'').replace(',','.');
-    if(n!==''&&!isNaN(n)){
+    if(n!==''&&!isNaN(n)){   // (formátování viz _csCislo — stejné pravidlo)
       // DESETINNÁ ČÁRKA (Peťa 31.7.2026, druhý pokus). `mso-number-format` samo
       // nestačilo — Excel čte text buňky podle MÍSTNÍHO nastavení, takže „3.42"
       // pochopil jako datum 3. září a čísla nešla sečíst. S čárkou je český Excel

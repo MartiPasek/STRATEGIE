@@ -58,6 +58,12 @@
   table.dokl .frow input::placeholder{color:#6a7078}
   table.dokl tbody tr:hover{background:#131d2b}
   table.dokl tbody tr.sel td{background:rgba(37,99,235,.16)}
+  /* Peťa 31.7.2026: „aktuální řádek" (▶) NENÍ totéž co označený. Dřív se oba
+     kreslily modře, takže Ctrl+klik na označený řádek ho sice odznačil, ale
+     zůstal modrý (stal se aktuálním) a vypadalo to, že odznačení nefunguje —
+     jako v Excelu má aktivní buňka jen rámeček, výplň má jen výběr. */
+  table.dokl tbody tr.cur td{box-shadow:inset 0 -1px 0 rgba(37,99,235,.55),
+                                         inset 0 1px 0 rgba(37,99,235,.55)}
   td.zak{color:#a5c8ff}
   /* Okno výběru zakázky (čtvereček u pole Zakázka → seznam + filtr, jako Centrála) */
   .zakpick{background:#22303f;color:#a9c0da;border:0;border-radius:5px;padding:0 11px;font-size:15px;line-height:1;cursor:pointer}
@@ -634,8 +640,8 @@ var FILT=[], RENDERED=0, CHUNK=600;
 function rowHtml(i){
   var r=ROWS[i];
   var mk=(CUR===i)?'▶':(SELSET[i]?'•':'');
-  var sel=(SELSET[i]||CUR===i);
-  var tr='<tr data-i="'+i+'"'+(sel?' class="sel"':'')+'><td class="mk">'+mk+'</td>';
+  var cls=(SELSET[i]?'sel':'')+(CUR===i?(SELSET[i]?' cur':'cur'):'');
+  var tr='<tr data-i="'+i+'"'+(cls?' class="'+cls+'"':'')+'><td class="mk">'+mk+'</td>';
   for(var j=0;j<COLS.length;j++){var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
     if(c.s){v='<span class="src '+(SRC[v]||'z_x')+'">'+esc(v)+'</span>';}
     else v=esc(v);
@@ -906,8 +912,8 @@ function saveEdit(){
 function paintRow(idx){
   var tr=document.querySelector('#tab tbody tr[data-i="'+idx+'"]');
   if(!tr)return;
-  var selc=(SELSET[idx]||CUR===idx);
-  tr.classList.toggle('sel',selc);
+  tr.classList.toggle('sel',!!SELSET[idx]);
+  tr.classList.toggle('cur',CUR===idx);
   var mkc=tr.getElementsByClassName('mk')[0];
   if(mkc)mkc.textContent=(CUR===idx)?'▶':(SELSET[idx]?'•':'');
 }

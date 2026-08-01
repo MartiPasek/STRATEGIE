@@ -17,21 +17,15 @@ BANNER=("<!-- ============================================================\n"
 def build():
     names=sorted(f for f in os.listdir(PARTS) if f[0:2].isdigit())
     contents=[open(os.path.join(PARTS,n),encoding="utf-8",newline="").read() for n in names]
-    # Izolace JS fragmentu do samostatnych <script> tagu (Marti + Claude-23, 1.8.2026):
-    # puvodne se vsechny .js kousky lepily do JEDNOHO spolecneho <script> (otevira ho
-    # 10_core.js, zaviral ho az 99_foot.html) - syntakticka/runtime chyba KDEKOLI v nem
-    # shodila CELOU appku (viz vypadek /mobile 1.8.2026). Mezi kazdymi dvema po sobe
-    # jdoucimi .js fragmenty vlozime </script><script> - kazdy .js kousek pak zije ve
-    # VLASTNIM scriptu, chyba v jednom nezastavi parsovani/beh tech ostatnich. Bezpecne:
-    # sdileni pres window.STRATEGIE funguje napric <script> tagy stejne jako v jednom
-    # spolecnem (globalni scope je sdileny bez ohledu na hranice <script> tagu). Stejna
-    # logika jako @@G2007SESTAV v router.py - drz obe synchronizovane.
-    pieces=[]
-    for i,(name,content) in enumerate(zip(names,contents)):
-        pieces.append(content)
-        if i+1<len(names) and name.endswith(".js") and names[i+1].endswith(".js"):
-            pieces.append("</script>\n<script>\n")
-    body="".join(pieces)
+    # POZOR (Marti + Claude-23, 1.8.2026): naivni vlozeni </script><script> mezi .js
+    # fragmenty ZDE bylo ZKUSENO a ROZBILO appku (vypadek /mobile 1.8.2026) - fragmenty
+    # 20+ NEJSOU nezavisle IIFE, jsou to hole function deklarace uvnitr JEDNE sdilene
+    # obalove funkce otevrene v 10_core.js a zavrene az v 74_claude27_render_init.js,
+    # sdileji lokalni promenne (app, el, topbar, SCREENS, B) pres closure, ne pres
+    # window. Skutecna izolace se vyviji a testuje na /mobile2 (g2007.soubor,
+    # apps/api/static/mobile2.html, mobile_parts2/*) - NEPRIDAVAT separatory sem,
+    # dokud neni reseni plne overene a prevedene i sem.
+    body="".join(contents)
     # vloz banner za prvni radek (<!DOCTYPE html>)
     nl=body.find("\n")
     out=body[:nl+1]+BANNER+body[nl+1:]

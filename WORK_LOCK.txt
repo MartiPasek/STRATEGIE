@@ -96,3 +96,40 @@ POUCENI PRO DALSI INSTANCE: (1) U VELKYCH kombinovanych commitu (6+ nahrazeni na
 Delegate patch: diff proti fresh HEAD (305ff08c3) potvrdil 11 hunku (5x rozdeleno na 2 kvuli sdilenym docstring-radkum na zacatku, ktere diff spravne rozpoznal jako shodne s originalem), per-funkci marker (_ereg.call("<kod>"...) presne 1x pro vsech 6). ast.parse+py_compile OK lokalne i na zarizeni. Deploy commit a30a2ba6d (32 insertions, 820 deletions), push OK (305ff08c3..a30a2ba6d), cloud OK (~5s restart, potvrzeno CLAUDE_DEPLOY_OUT.txt "DEPLOY: OK"). CELKEM AKTIVNICH FUNKCI: 126 (121+5, sync_vyroba_work + 5 fix endpointu... POZOR: pocitano jako 121+5=126, presne overeno SQL dotazem COUNT(*) WHERE stav_zivota='active'). router.py 62140 radku (z puvodnich 67789 = 8.34% zmenseni).
 ZIVY SELF-TEST NEPROVEDEN (politika: dalsi POST stejneho tvaru jako predchozi davky, staci staticka rigoroznost) - ale doporucuji Martimu/Kristy spot-check jedne opravy zaznamu a jednoho storna brzy po nasazeni, protoze fix/* primo zapisuji do zive dochazky/vyroba_work.
 Marti: "Dobre. Dotahni je tedy ted" + po vypadku "Super Claude. OK, navaz na to." - pokracuji dalsimi davkami Faze E. Zbyva: fix/resync (102 radku, ted UZ ODBLOKOVANO diky migraci _att_sync_vyroba_work - muze pouzit stejny stub), checkin/checkout (2, VYSSI RIZIKO - zivy tik dochazky), att_absence (POST /app/attendance/absence, 153 radku, odlisna od jiz migrovane absence/request), mzdy/generuj (VYSSI RIZIKO - generovani mezd), mzdy-c/smlouva-save.
+
+=== URGENTNI PRODUKCNI OPRAVA 1.8.2026 06:xx UTC (mezi POST6 a dalsi davkou) ===
+Marti nahlasil: v mobilni appce chybi sekce "Potvrd si dochazku" a nejde pichnout Makat
+(blokuje VSECHNY zamestnance s nepotvrzenym predchozim dnem - hrozilo zablokovani rannich
+prichodu 1.8.). Diagnostika: statická revize kódu (router.py, mobile.html/60_dochazka.js,
+_att_unconfirmed_days SQL reprodukce) nic nenasla -> zivy debugging pres Claude-in-Chrome
+(strategie-ai.com/mobile, Firma->Spoluprace).
+ROOT CAUSE: g2007.python kod=att_unconfirmed (Faze E, migrovano 31.7.) pouziva v SQL
+parametru `_ATT_CONFIRM_SINCE`, ale tuto konstantu nikde v sobestacnem skriptu NEDEFINUJE
+(na rozdil od sesterskeho att_confirm_day, ktery ji ma spravne definovanou hned za
+_ATT_TENANT). exec() izolovany namespace -> NameError pri KAZDEM volani run(uid) ->
+GET /api/v1/erp/app/attendance/unconfirmed vracelo HTTP 500. Wrapper v router.py nema
+try/except okolo _ereg.call(), a frontend api() helper (mobile.html) NEKONTROLUJE HTTP
+status - chybu tise spolkl, (ju&&ju.days)||[] => [], renderConfirmList dostal prazdne
+pole => zadna karta. Proto sekce "vypadala", ze chybi, i kdyz vsechna navazujici logika
+(att_confirm_day, att_checkin blokovani) byla spravne.
+OPRAVA: UPDATE g2007.python SET zdroj=... WHERE kod='att_unconfirmed' AND
+stav_zivota='active' - pridan radek `_ATT_CONFIRM_SINCE = "2026-06-06"` hned za
+_ATT_TENANT = 2 (presne podle vzoru att_confirm_day). Verze 1->2 (trigger fn_python_
+archiv_pred_update), zdroj overen byte-presne (SHA256 shoda mezi lokalni opravenou kopii
+a DB po UPDATE). Zadny restart API - hot-deploy, erp_registry.call() cache podle (kod,
+verze) sama natahla v2 pri pristim volani.
+OVERENI NAZIVO (Claude-in-Chrome, strategie-ai.com/mobile, Martiho ucet): pred opravou
+GET .../unconfirmed -> 500; po oprave -> 200 {"ok":true,"days":[{"day":"2026-07-31",...}]}.
+Na strance Firma->Spoluprace se ted zobrazuje jantarova karta "pátek 31.7. ... Potvrzuji
+svou dochazku" presne tak, jak ma. Kartu jsem NEPOTVRDIL za Martiho (jeho vlastni akce).
+POUCENI PRO PRISTI INSTANCI: kdyz se "sobestacny" g2007.python skript stavi inlinovanim
+zavislosti z router.py (Cesta B, izolovany exec namespace), verifikacni checklist MUSI
+zahrnovat i kontrolu, ze VSECHNY module-level konstanty pouzite uvnitr inlinovanych
+funkci (ne jen funkce/importy) jsou take fyzicky pritomne v tom samem zdroji - AST-literal-
+set diff pouzity v POST6 by tohle nejspis odhalil, kdyby se aplikoval i na tento skript
+(byl migrovan driv, mimo POST6 davku, patrne bez stejne dusledne verifikace). Doporucuji
+zpetne projet i ostatni jiz nasazene g2007.python kody stejnou kontrolou (grep na pouzite
+identifikatory bez odpovidajici definice/importu v tom samem zdroji).
+Git: .git/index.lock a dalsi .lock/.bak soubory z drivejsiho incidentu POST6 porad v
+.git/ (device_bash je neumi smazat) - Marti prosim az budes moct, spust lokalne `git gc`
+(pripadne rucne smaz .git/*.lock* pred tim), vycisti to cely strom.

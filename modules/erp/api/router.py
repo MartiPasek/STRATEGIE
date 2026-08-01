@@ -21334,106 +21334,20 @@ async def att_fix_resolve(req: Request) -> JSONResponse:
 
 @api_router.post("/app/attendance/fix/resync")
 async def att_fix_resync(req: Request) -> JSONResponse:
-    """Backfill/dorovnání položek vyroba_work KANONICKOU KASKÁDOU přes rozsah dnů.
-    Jen plný scope (Kristý/Peťa/Šárka). dry_run=true (DEFAULT) NIC nezapisuje — vrátí
-    souhrn plánu; dry_run=false ostře (rollback→commit). Tělo:
-    {from:'YYYY-MM-DD', to:'YYYY-MM-DD', uid?:int, dry_run?:bool}. Rozsah max 62 dní."""
+    """DB-driven delegate (g2007.python kod=att_fix_resync). Puvodni telo migrovano do DB
+    dne 1.8.2026, Faze F. Backfill/dorovnani polozek vyroba_work KANONICKOU KASKADOU."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        d_from = _dt.strptime(str((body or {}).get("from") or "")[:10], "%Y-%m-%d").date()
-        d_to = _dt.strptime(str((body or {}).get("to") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Zadej rozsah from–to (YYYY-MM-DD)."})
-    if d_to < d_from:
-        return JSONResponse({"ok": False, "error": "to < from."})
-    if (d_to - d_from).days > 62:
-        return JSONResponse({"ok": False, "error": "Rozsah max 62 dní."})
-    dry = bool((body or {}).get("dry_run", True))
-    # create=false (DEFAULT) → backfill NEzakládá prázdné placeholdery pro úseky bez
-    # rozpadu na zakázky (lidi co nepíchají „Makám"); jen srovná existující položky.
-    create_missing = bool((body or {}).get("create", False))
-    try:
-        only_uid = int((body or {}).get("uid") or 0) or None
-    except Exception:
-        only_uid = None
-    cm, s = _att_session()
-    try:
-        try:
-            _is_parent = bool(is_marti_parent(uid))
-        except Exception:
-            _is_parent = False
-        # Backfill = maintenance/oversight: plný scope (Peťa/Šárka) NEBO rodič (Kristý/Marti/Jirka).
-        if not (_att_can_fix(s, uid) and (_att_fix_all(s, uid) or _is_parent)):
-            return JSONResponse({"ok": False, "error": "forbidden (jen plný scope / rodič)"}, status_code=403)
-        # dvojice (employee, den) s pohybem v rozsahu — z docházky NEBO z výkazu
-        pairs = s.execute(_t(
-            "SELECT DISTINCT e.employee_id AS emp, e.entry_date AS den "
-            "FROM tenant.att_entry e "
-            "WHERE e.tenant_id=:t AND e.entry_date BETWEEN :f AND :d "
-            "  AND (:ou IS NULL OR e.user_id=:ou) "
-            "UNION "
-            "SELECT DISTINCT em.id AS emp, w.datum AS den "
-            "FROM tenant.vyroba_work w "
-            "JOIN tenant.att_employee em ON em.user_id=w.user_id AND em.tenant_id=:t "
-            "WHERE w.tenant_id=:t AND w.datum BETWEEN :f AND :d "
-            "  AND (:ou IS NULL OR w.user_id=:ou)"),
-            {"t": _ATT_TENANT, "f": d_from.isoformat(), "d": d_to.isoformat(), "ou": only_uid}).fetchall()
-        tot = {"dvojic": len(pairs), "zmenene_dny": 0,
-               "deactivate": 0, "clip": 0, "dedup_off": 0, "create": 0}
-        ukazka = []
-        podezrele = []   # dny s položkami, ale bez platného úseku (rows>0 & segs==0) — ať to operátor vidí
-        for pr in pairs:
-            emp_id, den = pr[0], pr[1]
-            try:
-                if dry:
-                    p = _att_sync_vyroba_work(s, emp_id, den, dry_run=True, create_missing=create_missing)
-                else:
-                    # COMMIT PO KAŽDÉM DNI (C24 30.7.2026): nedrží obří transakci přes
-                    # stovky dnů (to zahlcovalo API → 502/503). Každý den je atomický a
-                    # hned trvalý → backfill je resumovatelný a idempotentní. I tak pouštět
-                    # po malých rozsazích (týden), ať request nespadne na gateway timeout.
-                    p = _att_sync_vyroba_work(s, emp_id, den, dry_run=False, create_missing=create_missing)
-                    s.commit()
-            except Exception:
-                if not dry:
-                    s.rollback()
-                logger.error("resync kaskáda selhala (emp=%s, den=%s)", emp_id, den, exc_info=True)
-                continue
-            if p.get("rows", 0) > 0 and p.get("segs", 0) == 0 and len(podezrele) < 50:
-                podezrele.append({"emp": emp_id, "den": str(den), "polozek": p.get("rows")})
-            noff = len(p["deactivate"]) + len(p["dedup_off"])
-            ncl = len(p["clip"])
-            ncr = len(p["create"])
-            if noff or ncl or ncr:
-                tot["deactivate"] += len(p["deactivate"])
-                tot["dedup_off"] += len(p["dedup_off"])
-                tot["clip"] += ncl
-                tot["create"] += ncr
-                tot["zmenene_dny"] += 1
-                if len(ukazka) < 30:
-                    ukazka.append({"emp": emp_id, "den": str(den),
-                                   "off": noff, "clip": ncl, "new": ncr,
-                                   "settled": p.get("settled")})
-        if dry:
-            s.rollback()
-        else:
-            s.commit()
-        return JSONResponse({"ok": True, "dry_run": dry,
-                             "od": d_from.isoformat(), "do": d_to.isoformat(),
-                             "souhrn": tot, "ukazka": ukazka, "podezrele": podezrele})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_resync", uid,
+                         (body or {}).get("from"), (body or {}).get("to"),
+                         (body or {}).get("uid"), (body or {}).get("dry_run", True),
+                         (body or {}).get("create", False))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/attendance/fix/audit")
@@ -24502,209 +24416,39 @@ async def app_work_set_cinnost(req: Request) -> JSONResponse:
 
 @api_router.post("/app/attendance/checkin")
 async def att_checkin(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_checkin). Puvodni telo migrovano do DB
+    dne 1.8.2026, Faze F. Prichod/oznaceni prace vc. vyberu zakazky."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    # Marti 7.6.: volby prichodu — work / homeoffice (work + note) / overhead (Rezie)
     try:
         body = await req.json()
     except Exception:
         body = {}
-    kind = str((body or {}).get("kind") or "work").strip().lower()
-    project_ref = str((body or {}).get("project_ref") or "").strip()[:40] or None
-    # Marti 12.6.: režie = bez píchnuté zakázky → project_ref se mazal na NULL.
-    # OTOČENO (Peťa + Marti 20.7.2026): režie se do kolonky zakázka ZAPISUJE jako
-    # 'Rezie' (tvar z Heliosu i Centrály), aby byla vidět v přehledech docházky.
-    # Skupina Režie se dál pozná podle overhead typu, takže grupování v appce drží.
-    if kind == "overhead" or (project_ref and project_ref.strip().lower() in ("rezie", "režie")):
-        project_ref = _REZIE_REF
-    elif project_ref:
-        project_ref = _norm_zakazka(project_ref)
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        _att_close_stale(s, emp)
-        # Marti 12.6.: nová aktivita po „konci dne" → žádný job nesmí sahat do budoucna.
-        # Zkrať jakýkoli dnešní záznam, který končí po teď (typicky day_end do půlnoci).
-        s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
-                     "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0)::numeric,2), updated_at=now() "
-                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
-                     "AND ended_at > now() AND status IS DISTINCT FROM 'superseded'"),
-                  {"t": _ATT_TENANT, "e": emp})
-        opn = s.execute(_t(
-            "SELECT a.id, COALESCE(et.code,'') FROM tenant.att_entry a "
-            "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-            "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true"),
-            {"t": _ATT_TENANT, "e": emp}).first()
-        switching = False
-        if opn:
-            # Marti 12.6.: běží-li přestávka / cesta do práce, návrat ji vždy ukončí (auto-switch).
-            _on_break = opn[1] in ("break", "day_end", "commute")
-            if not _on_break and not bool((body or {}).get("switch")):
-                s.commit()
-                return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
-            # Marti 7.6. večer: přepnutí na zakázku BĚHEM směny — zavřít běžící
-            # záznam (čas se rozdělí) a hned otevřít nový s project_ref.
-            switching = True
-            s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
-                         "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
-                         "- COALESCE(break_minutes,0)/60.0)::numeric,2), updated_at=now() WHERE id=:id"),
-                      {"id": opn[0]})
-        # Fáze 1 schvalování: nový příchod až po potvrzení předchozích dnů
-        # (při přepnutí během směny záchytka neplatí — směna už běží).
-        nepotvrzene = [] if switching else _att_unconfirmed_days(s, emp)
-        if nepotvrzene:
-            s.commit()
-            return JSONResponse({"ok": False, "need_confirm": nepotvrzene,
-                                 "error": "Nejdřív si prosím potvrď předchozí docházku."})
-        tcode = {"overhead": "overhead", "commute": "commute"}.get(kind, "work")
-        wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                       {"t": _ATT_TENANT, "c": tcode}).scalar() or _att_work_type(s)
-        note = {"homeoffice": "home office", "trip": "služební cesta"}.get(kind)
-        if kind == "commute":
-            # Marti 12.6.: 'Jedu do práce' = vlastní job (cesta) — oficiální potvrzení + pojistka
-            _eta = (body or {}).get("eta_min")
-            _until = str((body or {}).get("until_txt") or "").strip()
-            note = "Jedu do práce" + ((" — dorazím za %d min" % int(_eta)) if _eta
-                                      else ((" — dorazím ~%s" % _until) if _until else ""))
-        # ohlášení „na cestě" je tímto naplněno → supersede
-        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
-                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
-                  {"t": _ATT_TENANT, "e": emp})
-        r = s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-            "status,source,is_active,note,project_ref,created_by_id,created_at,updated_at) "
-            "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:n,:pr,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "pr": project_ref, "u": uid}).first()
-        # Marti 14.6.: overlay osa přiřazení práce (zakázka+činnost) — MIMO jádro docházky.
-        # Otevři/naváž běžící úsek při práci/režii; návrat z pauzy naváže na poslední dnešní.
-        if kind in ("work", "overhead"):
-            try:
-                # Marti 14.6.: úsek se otevře z PŘEDVÝBĚRU (work_pref) — „Makat" = příchod
-                # do práce + zapnutí zakázkového systému z toho, co máš předvybráno.
-                _pref = _wp_get(s, uid)
-                _pr = project_ref or (_pref["project_ref"] if _pref else None)
-                _pn = (_pref["project_nazev"] if (_pref and not project_ref) else None)
-                _ci = _pref["cinnost_id"] if _pref else None
-                _cn = _pref["cinnost_name"] if _pref else None
-                _cic = _pref["cinnost_icon"] if _pref else None
-                _rz = (kind == "overhead") or (bool(_pref["is_rezie"]) if (_pref and not project_ref) else False)
-                _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
-                         cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=_rz)
-                _att_apply_work_selection(s, emp, _pr, _rz)
-            except Exception:
-                pass
-        # Marti 19.6.: appka = zdroj pravdy (hybrid). Píchnutí v appce → zruš naše
-        # importované OTEVŘENÉ duplicity z Centrály (source_system='centrala1') pro dnešek.
-        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', is_active=false, updated_at=now() "
-                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
-                     "AND source_system='centrala1' AND is_active=true AND status IS DISTINCT FROM 'superseded'"),
-                  {"t": _ATT_TENANT, "e": emp})
-        s.commit()
-        # … a silově ukonči jeho běžící směnu i ve staré Centrále (EC_Dochazka). Bez kompromisu.
-        ec_closed = 0
-        try:
-            _cz = s.execute(_t("SELECT cislo_zam FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-            if _cz:
-                _an = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
-                                   "FROM public.users WHERE id=:u"), {"u": uid}).scalar()
-                ec_closed, _ = _ec_close_open_shift(_cz, actor_uid=uid, actor_name=_an, via="app_checkin")
-                # Trvalé VYPNUTÍ docházky v Centrále při 1. zahájení práce přes mobil
-                # (Jirka 30.6., schválil Marti). Jednosměrné, jednorázově (flag
-                # att_source_pref.ec_vypnuto_at). ODGATEOVÁNO na VŠECHNY zaměstnance
-                # (Jirka 30.6. po ověření pilotu na 9030 — Martiho plán z pilotního commitu).
-                # Best-effort (neshodí checkin).
-                # POZOR: tlačítko „Makat" posílá VŽDY switch:true, takže ani body.switch
-                # ani odvozené `switching` guard nestačí. Rozlišujeme „zahájení/obnovení
-                # práce z NEAKTIVNÍHO stavu" (ráno / po odchodu=day_end / návrat z pauzy →
-                # předchozí aktivní záznam NEbyl práce) od „změny zakázky během směny"
-                # (předchozí aktivní = work/overhead). Firujeme jen to první.
-                try:
-                    _prev_work = bool(opn) and opn[1] in ("work", "overhead")
-                    if (not _prev_work) and kind in ("work", "overhead"):
-                        _hot = s.execute(_t("SELECT ec_vypnuto_at FROM tenant.att_source_pref WHERE user_id=:u"),
-                                         {"u": uid}).scalar()
-                        if not _hot:
-                            _vok, _verr = _ec_vypni_dochazku(_cz, actor_uid=uid, actor_name=_an)
-                            if _vok:
-                                s.execute(_t(
-                                    "INSERT INTO tenant.att_source_pref (user_id, app_only, ec_vypnuto_at, changed_by, changed_at) "
-                                    "VALUES (:u, true, now(), :by, now()) "
-                                    "ON CONFLICT (user_id) DO UPDATE SET ec_vypnuto_at=now(), changed_by=:by, changed_at=now()"),
-                                    {"u": uid, "by": (_an or "app_makat")})
-                                s.commit()
-                except Exception:
-                    pass
-        except Exception:
-            ec_closed = 0
-        return JSONResponse({"ok": True, "id": r[0], "ec_closed": ec_closed})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_checkin", uid,
+                         (body or {}).get("kind"), (body or {}).get("project_ref"),
+                         (body or {}).get("switch"), (body or {}).get("eta_min"),
+                         (body or {}).get("until_txt"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/attendance/checkout")
 async def att_checkout(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_checkout). Puvodni telo migrovano do DB
+    dne 1.8.2026, Faze F. Konec pracovniho dne / prestavka."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    # Marti 7.6.: volby odchodu — konec / prestavka-obed / lekar (duvod do note)
     try:
         body = await req.json()
     except Exception:
         body = {}
-    reason = str((body or {}).get("reason") or "").strip()[:120]
-    presence = str((body or {}).get("presence") or "").strip()[:160]
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        opn = s.execute(_t("SELECT id, started_at FROM tenant.att_entry "
-                           "WHERE tenant_id=:t AND employee_id=:e AND is_active=true ORDER BY id DESC LIMIT 1"),
-                        {"t": _ATT_TENANT, "e": emp}).first()
-        if not opn:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "no_open_entry"})
-        # Marti 12.6.: spojitá osa jobů — zavři aktuální job v T a otevři navazující.
-        # Pauza/oběd = běžící job 'break'; „Dneska nepočítej" = job 'day_end' do půlnoci.
-        # ŽÁDNÝ note-bleed na zavřený pracovní job (zůstane prací).
-        is_dayend = "nepočítej" in (presence or "").lower()
-        # 1) zavři aktuální job v T
-        s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
-                     "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
-                     "- COALESCE(break_minutes,0)/60.0)::numeric,2), updated_at=now() WHERE id=:id"),
-                  {"id": opn[0]})
-        # 2) supersede staré announced statusy (živý stav teď nese přímo break/day_end job)
-        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
-                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
-                  {"t": _ATT_TENANT, "e": emp})
-        bcode = "day_end" if is_dayend else "break"
-        btype = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                          {"t": _ATT_TENANT, "c": bcode}).scalar() or _att_work_type(s)
-        bnote = (reason or presence or ("Konec dne" if is_dayend else "Přestávka"))[:160]
-        # 3) Marti 12.6.: přestávka i „konec dne" běží jako ostatní joby — AKTIVNÍ, bez konce.
-        # Uzavře se při návratu (auto-switch v checkinu) nebo půlnočním sweepem.
-        s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-            "status,source,is_active,note,created_by_id,created_at,updated_at) "
-            "VALUES (:t,:e,current_date,:ty,now(),'pending','mobile_app',true,:n,:u,now(),now())"),
-            {"t": _ATT_TENANT, "e": emp, "ty": btype, "n": bnote, "u": uid})
-        # Marti 14.6.: pauza / konec dne uzavírá běžící osu přiřazení práce (overlay).
-        try:
-            _wa_close_running(s, uid)
-        except Exception:
-            pass
-        s.commit()
-        r = s.execute(_t("SELECT hours FROM tenant.att_entry WHERE id=:id"), {"id": opn[0]}).first()
-        return JSONResponse({"ok": True, "id": opn[0], "hours": float(r[0] or 0)})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_checkout", uid, (body or {}).get("reason"), (body or {}).get("presence"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/automat/prehled")
@@ -25158,10 +24902,8 @@ def _sickday_lekar_apply(s, emp, code, days_hours, uid, note):
 
 @api_router.post("/app/attendance/absence")
 async def att_absence(req: Request) -> JSONResponse:
-    """Nahlášení nepřítomnosti z appky (dovolená/nemoc/lékař/OČR/sickday/neplacené).
-    Vytvoří att_entry na každý pracovní den v rozsahu (Po–Pá), status 'pending'.
-    Idempotentní per (employee, den, typ). Marti 6.6.2026.
-    sickday/medical: čerpá sick_day_balance přednostně (lékař max 4 h, sickday first) — Marti 28.6."""
+    """DB-driven delegate (g2007.python kod=att_absence). Puvodni telo migrovano do DB
+    dne 1.8.2026, Faze F. Nahlaseni nepritomnosti (dovolena/nemoc/lekar/OCR/sickday/neplacene)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -25169,146 +24911,10 @@ async def att_absence(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         body = {}
-    code = (str(body.get("type_code") or "")).strip().lower()
-    # Marti 7.6.: + homeoffice — hlášení HO dopředu (presence, hours NULL = plán,
-    # reálné hodiny vzniknou až píchnutím; nepočítá se do absencí ani odpracovaného).
-    if code not in ("vacation", "sick", "medical", "family_care", "sickday", "unpaid", "homeoffice", "osvc_absence"):
-        return JSONResponse({"ok": False, "error": "invalid_type"}, status_code=400)
-    from datetime import datetime as _dt, timedelta as _td
-    try:
-        d0 = _dt.strptime(str(body.get("date_from") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_date_from"}, status_code=400)
-    dt_to = str(body.get("date_to") or "")[:10]
-    try:
-        d1 = _dt.strptime(dt_to, "%Y-%m-%d").date() if dt_to else d0
-    except Exception:
-        d1 = d0
-    if d1 < d0:
-        d1 = d0
-    if (d1 - d0).days > 120:
-        return JSONResponse({"ok": False, "error": "range_too_long"}, status_code=400)
-    note = (str(body.get("note") or "").strip()[:250]) or None
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    created = 0
-    try:
-        emp = _att_employee(s, uid)
-        tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                       {"t": _ATT_TENANT, "c": code}).first()
-        if not tr:
-            return JSONResponse({"ok": False, "error": "type_not_seeded"}, status_code=400)
-        tid = tr[0]
-        mode = (str(body.get("mode") or "days")).strip().lower()  # 'days' | 'hours'
-
-        def _upsert(ds, hrs):
-            nonlocal created
-            res = s.execute(_t(
-                "UPDATE tenant.att_entry SET entry_type_id=:et, hours=:h, status='pending', "
-                "source='mobile_app', note=:n, updated_at=now() "
-                "WHERE tenant_id=:t AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
-                {"et": tid, "h": hrs, "n": note, "t": _ATT_TENANT, "e": emp, "d": ds})
-            if (res.rowcount or 0) == 0:
-                s.execute(_t(
-                    "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                    "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                    "VALUES (:t,:e,:d,:et,:h,'pending','mobile_app',:n,false,:u,now(),now())"),
-                    {"t": _ATT_TENANT, "e": emp, "d": ds, "et": tid, "h": hrs, "n": note, "u": uid})
-                created += 1
-
-        # Celý den = denní fond člověka, ne natvrdo 8 h — ale ZATÍM JEN u sick day
-        # (Jirka 31.7.2026, podnět V. Vápeník). Dovolená/nemoc/lékař/OČR jdou přes
-        # `_mzdy_absence_rows` do mzdového podkladu, takže tam změnu hodin u zkrácených
-        # úvazků musí nejdřív odsouhlasit Petra — jinak by se lidem tiše změnily
-        # mzdové hodiny. Až rozhodne, stačí sem pustit i ostatní typy.
-        _cely_den = _att_denni_fond(s, emp) if code == "sickday" else 8
-        if mode == "hours":
-            try:
-                hrs = round(float(body.get("hours") or 0), 2)
-            except Exception:
-                hrs = 0
-            if hrs <= 0 or hrs > 24:
-                return JSONResponse({"ok": False, "error": "invalid_hours"}, status_code=400)
-            _upsert(d0.isoformat(), hrs)  # část dne na jeden den
-        else:
-            day = d0
-            while day <= d1:
-                if day.weekday() < 5:  # Po–Pá
-                    _upsert(day.isoformat(), None if code == "homeoffice" else _cely_den)
-                day += _td(days=1)
-        # sickday/lékař: čerpání sick day přednostně, hned ten den (Marti 28.6.)
-        if code in ("medical", "sickday"):
-            try:
-                if mode == "hours":
-                    dh = [(d0, hrs)]
-                else:
-                    dh = []
-                    dd = d0
-                    while dd <= d1:
-                        if dd.weekday() < 5:
-                            dh.append((dd, float(_cely_den)))
-                        dd += _td(days=1)
-                _sickday_lekar_apply(s, emp, code, dh, uid, note)
-            except Exception:
-                pass
-        # dovolená → čerpání holiday_balance (recompute z docházky = idempotentní)
-        if code == "vacation":
-            try:
-                rok = d0.year
-                eng = s.execute(_t(
-                    "SELECT id FROM tenant.engagement WHERE employee_id=:e AND tenant_id=2 "
-                    "AND (smlouva_do IS NULL OR smlouva_do>=CURRENT_DATE) ORDER BY smlouva_od DESC NULLS LAST LIMIT 1"),
-                    {"e": emp}).scalar()
-                if eng:
-                    used = s.execute(_t(
-                        "SELECT COALESCE(SUM(en.hours),0) FROM tenant.att_entry en "
-                        "JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
-                        "WHERE en.tenant_id=2 AND en.employee_id=:e AND t.code='vacation' "
-                        "AND EXTRACT(YEAR FROM en.entry_date)=:r"), {"e": emp, "r": rok}).scalar() or 0
-                    ex = s.execute(_t("SELECT narok_h, prevod_h FROM tenant.holiday_balance "
-                                      "WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
-                                   {"g": eng, "r": rok}).first()
-                    if not ex:
-                        s.execute(_t("INSERT INTO tenant.holiday_balance (tenant_id,engagement_id,rok,narok_h,prevod_h,cerpano_h,zbytek_h) "
-                                     "VALUES (2,:g,:r,0,0,:u,:z)"), {"g": eng, "r": rok, "u": used, "z": -float(used)})
-                    else:
-                        nar = float(ex[0] or 0); prv = float(ex[1] or 0)
-                        s.execute(_t("UPDATE tenant.holiday_balance SET cerpano_h=:u, zbytek_h=:z, changed_at=now() "
-                                     "WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
-                                  {"u": used, "z": nar + prv - float(used), "g": eng, "r": rok})
-            except Exception:
-                pass
-        s.commit()
-        # Marti 7.6.: notifikace rodičům (schvalování z kapsy) — kdo, co, odkdy dokdy.
-        try:
-            from sqlalchemy import text as _tn
-            who = s.execute(_tn(
-                "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name, em.full_name) "
-                "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id WHERE em.id = :e"),
-                {"e": emp}).scalar() or ("zaměstnanec " + str(emp))
-            tlabel = s.execute(_tn("SELECT label FROM tenant.att_entry_type WHERE id = :i"), {"i": tid}).scalar() or code
-            _fmt = lambda x: str(x.day) + ". " + str(x.month) + "."  # Windows nemá %-d
-            rng = _fmt(d0) if d0 == d1 else (_fmt(d0) + " – " + _fmt(d1))
-            msg = who + ": " + tlabel + " " + rng + ((" — " + note) if note else "") + " (čeká na schválení)"
-            # Notifikace schvalovatelům DLE TABULKY (tenant.resolve_approvers → vedoucí skupiny
-            # + zástup v nepřítomnosti), NE natvrdo Martimu/Kristý. Peťa 24.7.2026: „na Martiho
-            # už neposílat, posílat dle tabulky kdo schvaluje volno." _abs_resolve nikdy nespadne
-            # na Martiho (prázdné → Šárka 13; jen když žádá sama Šárka → Marti jako záchrana).
-            targets = _abs_resolve(s, emp, uid)
-            for puid in sorted(set(targets)):
-                s.execute(_tn(
-                    "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                    "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                    {"uid": puid, "ti": "🌴 Nahlášená nepřítomnost", "msg": msg[:600]})
-            s.commit()
-        except Exception:
-            s.rollback()  # notifikace nesmí shodit nahlášení
-        return JSONResponse({"ok": True, "created": created})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence", uid, body)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ── Živá docházka EC → naše (hybrid Fáze 1, inkrementální) — Marti 9.6.2026 ──
@@ -31754,39 +31360,17 @@ async def mzdy_c_smlouvy(req: Request) -> JSONResponse:
 
 
 @api_router.post("/app/mzdy-c/smlouva-save")
-def mzdy_c_smlouva_save(req: Request):
-    """Úprava smlouvy C (mzda/osobní/úvazek/pojišťovna/sleva). Parent."""
+async def mzdy_c_smlouva_save(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=mzdy_c_smlouva_save). Puvodni telo migrovano
+    do DB dne 1.8.2026, Faze F. Uprava smlouvy C (mzda/osobni/uvazek/pojistovna/sleva)."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        p = req.query_params
-        try:
-            sid = int(p.get("id"))
-        except Exception:
-            return {"ok": False, "error": "chybí id"}
-        sets, vals = [], {"id": sid}
-        for k, col in [("mzda", "mesicni_mzda"), ("osobni", "osobni_ohodnoceni"), ("uvazek", "uvazek_h_tyden")]:
-            if p.get(k):
-                try:
-                    vals[k] = float(p.get(k)); sets.append(col + "=:" + k)
-                except Exception:
-                    pass
-        if p.get("pojistovna") is not None:
-            vals["poj"] = p.get("pojistovna"); sets.append("zdrav_pojistovna=:poj")
-        if p.get("sleva") is not None:
-            vals["sl"] = (p.get("sleva") in ("1", "true", "ano")); sets.append("sleva_poplatnik=:sl")
-        if not sets:
-            return {"ok": False, "error": "nic ke změně"}
-        s.execute(_t("UPDATE tenant.c_smlouva SET " + ", ".join(sets) +
-                     ", updated_at=now() WHERE id=:id AND tenant_id=2"), vals)
-        s.commit()
-        return {"ok": True}
-    finally:
-        s.close()
+    p = req.query_params
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_c_smlouva_save", uid, p.get("id"),
+                         p.get("mzda"), p.get("osobni"), p.get("uvazek"),
+                         p.get("pojistovna"), p.get("sleva"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # ====== PŘEHLED SMLUV (user → firma → typ + Helios číslo) — cockpit, Marti 30.6.2026 ======

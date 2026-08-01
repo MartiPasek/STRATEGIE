@@ -37937,16 +37937,19 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "G2007EXPORT %s: %s" % (type(_e5).__name__, str(_e5)[:400])})
 
     # Bezpecna publikace artefaktu (Marti + Claude-23, 1.8.2026): na rozdil od
-    # @@G2007SESTAV tohle NEJDRIV zkontroluje slozeny vysledek (delka, HTML/JS
-    # sanity, syntax JS pres node --check pokud je node dostupny), pak zapise na
-    # disk, OKAMZITE se sam zepta na zivou URL jestli appka opravdu nabehne, a
+    # @@G2007SESTAV/@@G2007EXPORT tohle NEJDRIV zkontroluje kandidatni obsah (delka,
+    # HTML/JS sanity, syntax JS pres node --check pokud je node dostupny), pak zapise
+    # na disk, OKAMZITE se sam zepta na zivou URL jestli appka opravdu nabehne, a
     # pokud ne, automaticky vrati puvodni verzi zpet (DB zustane nedotcena novou/
-    # rozbitou verzi). Reakce na vypadek /mobile 1.8.2026 (Marti: "API B - zalozni
-    # verze, ktera byla funkcni"). DOPORUCENA cesta pro beznou publikaci nadale;
-    # @@G2007SESTAV/@@G2007EXPORT zustavaji jako nizkourovnove nastroje pro rucni
-    # zasah/zotaveni. POZOR: mezi zapisem na disk a sebe-overenim existuje kratke
-    # (typicky sub-sekundove) okno, kdy je nova verze uz ziva - nejde to obejit bez
-    # samostatne staging URL, kterou bychom museli deploynout jako zmenu routy.
+    # rozbitou verzi). Funguje pro OBA typy artefaktu: skladane (ma slozeno_z ->
+    # prekompiluje ze zdroj fragmentu, jako @@G2007SESTAV) i samostatne (bez
+    # slozeno_z -> vezme aktualni sloupec obsah jako kandidata, jako @@G2007EXPORT).
+    # Reakce na vypadek /mobile 1.8.2026 (Marti: "API B - zalozni verze, ktera byla
+    # funkcni"). DOPORUCENA cesta pro beznou publikaci; @@G2007SESTAV/@@G2007EXPORT
+    # zustavaji jako nizkourovnove nastroje pro rucni zasah/zotaveni. POZOR: mezi
+    # zapisem na disk a sebe-overenim existuje kratke (typicky sub-sekundove) okno,
+    # kdy je nova verze uz ziva - nejde to obejit bez samostatne staging URL, kterou
+    # bychom museli deploynout jako zmenu routy.
     #   @@G2007PUBLISH <kod_artefaktu>
     if sql.upper().startswith("@@G2007PUBLISH"):
         _kod6 = sql[len("@@G2007PUBLISH"):].strip()
@@ -37963,39 +37966,55 @@ async def diag_sql(req: Request) -> JSONResponse:
                 if not _row6:
                     return JSONResponse({"ok": False, "error": "artefakt '%s' neexistuje" % _kod6})
                 _sloz6 = _row6[0] or []
-                _old_obsah6, _old_verze6 = _row6[1], _row6[2]
-                if not _sloz6:
-                    return JSONResponse({"ok": False, "error": "artefakt '%s' nema slozeno_z (neni skladany)" % _kod6})
-                _body_parts6 = []
-                _missing6 = []
-                for _zk in _sloz6:
-                    _zr = _s6.execute(_t6s(
-                        "SELECT obsah FROM g2007.soubor WHERE kod=:k AND typ='zdroj' AND stav_zivota='active'"),
-                        {"k": _zk}).scalar()
-                    if _zr is None:
-                        _missing6.append(_zk)
-                    else:
-                        _body_parts6.append(_zr)
-                if _missing6:
-                    return JSONResponse({"ok": False, "error": "chybi zdrojove kody: %s" % ", ".join(_missing6)})
-                _body6 = "".join(_body_parts6)
-                _banner6 = ("<!-- ============================================================\n"
-                           "     GENEROVANO prikazem @@G2007PUBLISH z g2007.soubor (typ='zdroj').\n"
-                           "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"
-                           "     @@G2007SOUBOR a spust znovu @@G2007PUBLISH %s .\n"
-                           "     ============================================================ -->\n") % _kod6
-                _nl6 = _body6.find("\n")
-                _new6 = (_body6[:_nl6 + 1] + _banner6 + _body6[_nl6 + 1:]) if _nl6 >= 0 else (_banner6 + _body6)
+                _cur_obsah6, _cur_verze6 = _row6[1], _row6[2]
+                _skladany6 = bool(_sloz6)
+                if _skladany6:
+                    _body_parts6 = []
+                    _missing6 = []
+                    for _zk in _sloz6:
+                        _zr = _s6.execute(_t6s(
+                            "SELECT obsah FROM g2007.soubor WHERE kod=:k AND typ='zdroj' AND stav_zivota='active'"),
+                            {"k": _zk}).scalar()
+                        if _zr is None:
+                            _missing6.append(_zk)
+                        else:
+                            _body_parts6.append(_zr)
+                    if _missing6:
+                        return JSONResponse({"ok": False, "error": "chybi zdrojove kody: %s" % ", ".join(_missing6)})
+                    _body6 = "".join(_body_parts6)
+                    _banner6 = ("<!-- ============================================================\n"
+                               "     GENEROVANO prikazem @@G2007PUBLISH z g2007.soubor (typ='zdroj').\n"
+                               "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"
+                               "     @@G2007SOUBOR a spust znovu @@G2007PUBLISH %s .\n"
+                               "     ============================================================ -->\n") % _kod6
+                    _nl6 = _body6.find("\n")
+                    _new6 = (_body6[:_nl6 + 1] + _banner6 + _body6[_nl6 + 1:]) if _nl6 >= 0 else (_banner6 + _body6)
+                else:
+                    # samostatny artefakt (bez slozeno_z) - kandidat je aktualni obsah v DB
+                    # (napr. po rucni UPDATE nebo @@G2007SOUBOR), overujeme pred (re)zapisem na disk.
+                    if _cur_obsah6 is None:
+                        return JSONResponse({"ok": False, "error": "artefakt '%s' nema obsah v DB" % _kod6})
+                    _new6 = _cur_obsah6
 
-            # 1) delka sanity (proti useknutemu/prazdnemu fragmentu)
-            if _old_obsah6 and len(_old_obsah6) > 1000 and len(_new6) < 0.5 * len(_old_obsah6):
+            # 1) precti aktualni disk (zaloha pro pripadny rollback + zaklad pro delka-sanity)
+            import os as _osw6
+            _abs6 = _osw6.path.join(_g2007_repo_root(), _kod6.replace("/", _osw6.sep))
+            _osw6.makedirs(_osw6.path.dirname(_abs6), exist_ok=True)
+            _backup6 = None
+            if _osw6.path.isfile(_abs6):
+                with open(_abs6, "r", encoding="utf-8") as _fbk6:
+                    _backup6 = _fbk6.read()
+
+            # 2) delka sanity (proti useknutemu/prazdnemu fragmentu) - porovnej s tim, co je
+            #    PRAVE TED na disku (= skutecne zive), ne s DB sloupcem (ten uz muze byt kandidat).
+            if _backup6 and len(_backup6) > 1000 and len(_new6) < 0.5 * len(_backup6):
                 return JSONResponse({"ok": False, "error":
-                    "STOP: nova verze je podezrele kratka (%d znaku vs puvodnich %d) - publikace zrusena, nic se nezmenilo" %
-                    (len(_new6), len(_old_obsah6))})
-            _checks6["delka_stara"] = len(_old_obsah6) if _old_obsah6 else 0
-            _checks6["delka_nova"] = len(_new6)
+                    "STOP: nova verze je podezrele kratka (%d znaku vs aktualnich %d na disku) - publikace zrusena, nic se nezmenilo" %
+                    (len(_new6), len(_backup6))})
+            _checks6["delka_disk_pred"] = len(_backup6) if _backup6 else 0
+            _checks6["delka_kandidat"] = len(_new6)
 
-            # 2) zakladni HTML/tag sanity
+            # 3) zakladni HTML/tag sanity
             import re as _re6
             _tag_pairs6 = [("<script", "</script>"), ("<div", "</div>"), ("<html", "</html>")]
             _tag_problems6 = []
@@ -38009,8 +38028,8 @@ async def diag_sql(req: Request) -> JSONResponse:
                     "STOP: nesedi pocty tagu - " + "; ".join(_tag_problems6) + " - publikace zrusena, nic se nezmenilo"})
             _checks6["tagy"] = "OK"
 
-            # 3) JS syntax check (node --check), jen pokud je node k dispozici - jinak preskoc
-            import subprocess as _sp6, tempfile as _tmp6, os as _osw6
+            # 4) JS syntax check (node --check), jen pokud je node k dispozici - jinak preskoc
+            import subprocess as _sp6, tempfile as _tmp6
             _scripts6 = _re6.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", _new6, _re6.IGNORECASE | _re6.DOTALL)
             if _scripts6:
                 _jscode6 = "\n;\n".join(_scripts6)
@@ -38035,17 +38054,11 @@ async def diag_sql(req: Request) -> JSONResponse:
             else:
                 _checks6["js_syntax"] = "zadny inline <script> k overeni"
 
-            # 4) zapis na disk jako "pokus" + zaloha puvodniho obsahu disku
-            _abs6 = _osw6.path.join(_g2007_repo_root(), _kod6.replace("/", _osw6.sep))
-            _osw6.makedirs(_osw6.path.dirname(_abs6), exist_ok=True)
-            _backup6 = None
-            if _osw6.path.isfile(_abs6):
-                with open(_abs6, "r", encoding="utf-8") as _fbk6:
-                    _backup6 = _fbk6.read()
+            # 5) zapis na disk jako "pokus"
             with open(_abs6, "w", encoding="utf-8", newline="") as _fw6:
                 _fw6.write(_new6)
 
-            # 5) OKAMZITE sebe-overeni na zive URL - "opravdu appka nabehne?"
+            # 6) OKAMZITE sebe-overeni na zive URL - "opravdu appka nabehne?"
             _url_map6 = {
                 "apps/api/static/mobile.html": "/mobile",
                 "apps/api/static/index.html": "/",
@@ -38074,28 +38087,32 @@ async def diag_sql(req: Request) -> JSONResponse:
             else:
                 _selftest6 = {"provedeno": False, "duvod": "kod nema znamou zivou URL, self-test preskocen"}
 
-            # 6) rozhodnuti: pokud selftest bezel a selhal, VRAT ZPET puvodni disk
+            # 7) rozhodnuti: pokud selftest bezel a selhal, VRAT ZPET puvodni disk
             if _selftest6.get("provedeno") and not _selftest6.get("ok"):
                 if _backup6 is not None:
                     with open(_abs6, "w", encoding="utf-8", newline="") as _fw6b:
                         _fw6b.write(_backup6)
-                    _revert_msg6 = "puvodni obsah vracen na disk (DB nezmenena, zustava verze %s)" % _old_verze6
+                    _revert_msg6 = "puvodni obsah vracen na disk (DB nezmenena, zustava verze %s)" % _cur_verze6
                 else:
                     _revert_msg6 = "VAROVANI: nebyla zaloha puvodniho disku (soubor predtim neexistoval) - rozbita verze zustala na disku!"
                 return JSONResponse({"ok": False, "error":
                     "STOP: nova verze se nasadila ale selftest na zive URL selhal - AUTOMATICKY VRACENO ZPET. " + _revert_msg6,
                     "checks": _checks6, "selftest": _selftest6})
 
-            # 7) vse OK -> az TED persistuj do DB (archivace stare verze pres trigger je automaticka)
-            with _pgs6() as _s6b:
-                _s6b.execute(_t6s(
-                    "UPDATE g2007.soubor SET obsah=:o, updated_by_text=:by WHERE kod=:k AND typ='artefakt'"),
-                    {"o": _new6, "by": actor, "k": _kod6})
-                _s6b.commit()
-                _verze6 = _s6b.execute(_t6s("SELECT verze FROM g2007.soubor WHERE kod=:k"), {"k": _kod6}).scalar()
+            # 8) vse OK -> pro skladane artefakty persistuj rekomponovany obsah do DB (archivace
+            #    stare verze pres trigger je automaticka); pro samostatne uz DB obsahuje kandidata,
+            #    neni co menit (pripadne jen bump verze neni potreba, obsah uz sedi).
+            _verze6 = _cur_verze6
+            if _skladany6:
+                with _pgs6() as _s6b:
+                    _s6b.execute(_t6s(
+                        "UPDATE g2007.soubor SET obsah=:o, updated_by_text=:by WHERE kod=:k AND typ='artefakt'"),
+                        {"o": _new6, "by": actor, "k": _kod6})
+                    _s6b.commit()
+                    _verze6 = _s6b.execute(_t6s("SELECT verze FROM g2007.soubor WHERE kod=:k"), {"k": _kod6}).scalar()
 
             return JSONResponse({"ok": True, "kod": _kod6, "verze": _verze6, "delka": len(_new6),
-                                 "z_kolika_casti": len(_sloz6), "checks": _checks6, "selftest": _selftest6,
+                                 "skladany": _skladany6, "checks": _checks6, "selftest": _selftest6,
                                  "zprava": "publikovano a overeno na zive URL, verze %s" % _verze6})
         except Exception as _e6:
             return JSONResponse({"ok": False, "error": "G2007PUBLISH %s: %s" % (type(_e6).__name__, str(_e6)[:400])})

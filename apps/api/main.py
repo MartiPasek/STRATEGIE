@@ -1046,6 +1046,20 @@ def mobile_page(request: Request):
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/mobile2")
+def mobile2_page():
+    """SANDBOX pro pripravovanou izolovanou architekturu /mobile (Marti + Claude-23,
+    1.8.2026). Servíruje apps/api/static/mobile2.html - NEZAVISLY soubor, spravovany
+    pres g2007.soubor (kod apps/api/static/mobile2.html, zdroj fragmenty
+    mobile_parts2/*). NEMA vliv na zivy /mobile a naopak. Az bude overeno, ze appka
+    v mobile2.html funguje spolehlive (vc. izolace chyb mezi sekcemi), rozhodneme
+    spolecne s Martim o prepnuti. Do te doby cistokrevny testovaci prostor."""
+    _p2 = os.path.join(static_dir, "mobile2.html")
+    return FileResponse(_p2,
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/vyroba")
 def vyroba_page():
     """Plánovač výroby — interaktivní konzole vedoucího výroby (Dušan + Marek).

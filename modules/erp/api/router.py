@@ -37790,6 +37790,123 @@ async def diag_sql(req: Request) -> JSONResponse:
         _out2 = _g2007_znalost_upsert_inline(_obl2, _slug2, _nadpis2 or _slug2, _obsah2)
         return JSONResponse(_out2)
 
+    # Frontend "Cesta B" pro staticke soubory (Marti + Claude-23, 1.8.2026, doktrina
+    # "konstruktivni operace autonomne" rozsirena i sem): g2007.soubor drzi jak rucne
+    # psane zdrojove kousky (typ='zdroj', napr. mobile_parts/*.js) tak sestavene/servirovane
+    # artefakty (typ='artefakt', napr. mobile.html). /mobile a spol. cti soubor znovu z disku
+    # pri kazdem requestu (viz main.py, Cache-Control no-store) -> zapis na disk = okamzite
+    # zive, bez restartu API.
+    #   @@G2007SOUBOR <kod> | <typ:zdroj|artefakt> [| slozeno_z=a,b,c]
+    #   <obsah na dalsich radcich>
+    # kod = relativni cesta od korene repa (napr. apps/api/static/mobile.html). U typ=artefakt
+    # se obsah zaroven zapise na disk na tu istou cestu. slozeno_z jen u artefaktu slozeneho
+    # z vice zdroj radku (poradi urcuje vysledne slepeni).
+    if sql.upper().startswith("@@G2007SOUBOR"):
+        _rest3 = sql[len("@@G2007SOUBOR"):]
+        _parts3 = _rest3.split("\n", 1)
+        _head3 = _parts3[0].strip()
+        _obsah3 = _parts3[1] if len(_parts3) > 1 else ""
+        _hp3 = [x.strip() for x in _head3.split("|")]
+        if len(_hp3) < 2 or not _obsah3:
+            return JSONResponse({"ok": False, "error":
+                                 "@@G2007SOUBOR <kod> | <typ:zdroj|artefakt> [| slozeno_z=a,b,c] pak newline a obsah"})
+        _kod3 = _hp3[0].strip()
+        _typ3 = _hp3[1].strip().lower()
+        if _typ3 not in ("zdroj", "artefakt"):
+            return JSONResponse({"ok": False, "error": "typ musi byt 'zdroj' nebo 'artefakt'"})
+        _slozeno3 = None
+        for _extra3 in _hp3[2:]:
+            if _extra3.lower().startswith("slozeno_z="):
+                _slozeno3 = [x.strip() for x in _extra3[len("slozeno_z="):].split(",") if x.strip()]
+        from sqlalchemy import text as _t3s
+        from modules.strategie_pg.application.service import get_session as _pgs3
+        try:
+            with _pgs3() as _s3:
+                _ex3 = _s3.execute(_t3s("SELECT id FROM g2007.soubor WHERE kod=:k"), {"k": _kod3}).scalar()
+                if _ex3:
+                    _s3.execute(_t3s(
+                        "UPDATE g2007.soubor SET typ=:t, obsah=:o, slozeno_z=:s, stav_zivota='active', "
+                        "updated_by_text=:by WHERE kod=:k"),
+                        {"t": _typ3, "o": _obsah3, "s": _slozeno3, "by": actor, "k": _kod3})
+                else:
+                    _s3.execute(_t3s(
+                        "INSERT INTO g2007.soubor (kod, typ, obsah, slozeno_z, updated_by_text) "
+                        "VALUES (:k, :t, :o, :s, :by)"),
+                        {"k": _kod3, "t": _typ3, "o": _obsah3, "s": _slozeno3, "by": actor})
+                _s3.commit()
+                _verze3 = _s3.execute(_t3s("SELECT verze FROM g2007.soubor WHERE kod=:k"), {"k": _kod3}).scalar()
+            _disk_msg3 = ""
+            if _typ3 == "artefakt":
+                import os as _osw3
+                _abs3 = _osw3.path.join(_g2007_repo_root(), _kod3.replace("/", _osw3.sep))
+                _osw3.makedirs(_osw3.path.dirname(_abs3), exist_ok=True)
+                with open(_abs3, "w", encoding="utf-8", newline="") as _fw3:
+                    _fw3.write(_obsah3)
+                _disk_msg3 = " . zapsano na disk: %s" % _kod3
+            return JSONResponse({"ok": True, "kod": _kod3, "typ": _typ3, "verze": _verze3,
+                                 "delka": len(_obsah3),
+                                 "zprava": "g2007.soubor OK, verze %s%s" % (_verze3, _disk_msg3)})
+        except Exception as _e3:
+            return JSONResponse({"ok": False, "error": "G2007SOUBOR %s: %s" % (type(_e3).__name__, str(_e3)[:400])})
+
+    # Sestaveni artefaktu z jeho zdroj kousku (Marti + Claude-23, 1.8.2026) - nahrazuje
+    # lokalni scripts/build_mobile.py pro soubory uz migrovane do g2007.soubor.
+    #   @@G2007SESTAV <kod_artefaktu>
+    if sql.upper().startswith("@@G2007SESTAV"):
+        _kod4 = sql[len("@@G2007SESTAV"):].strip()
+        if not _kod4:
+            return JSONResponse({"ok": False, "error": "@@G2007SESTAV <kod_artefaktu>"})
+        from sqlalchemy import text as _t4s
+        from modules.strategie_pg.application.service import get_session as _pgs4
+        try:
+            _out4 = None
+            _sloz4 = []
+            with _pgs4() as _s4:
+                _row4 = _s4.execute(_t4s("SELECT slozeno_z FROM g2007.soubor WHERE kod=:k AND typ='artefakt'"),
+                                    {"k": _kod4}).first()
+                if not _row4:
+                    return JSONResponse({"ok": False, "error": "artefakt '%s' neexistuje" % _kod4})
+                _sloz4 = _row4[0] or []
+                if not _sloz4:
+                    return JSONResponse({"ok": False, "error": "artefakt '%s' nema slozeno_z (neni skladany)" % _kod4})
+                _body_parts4 = []
+                _missing4 = []
+                for _zk in _sloz4:
+                    _zr = _s4.execute(_t4s(
+                        "SELECT obsah FROM g2007.soubor WHERE kod=:k AND typ='zdroj' AND stav_zivota='active'"),
+                        {"k": _zk}).scalar()
+                    if _zr is None:
+                        _missing4.append(_zk)
+                    else:
+                        _body_parts4.append(_zr)
+                if _missing4:
+                    return JSONResponse({"ok": False, "error": "chybi zdrojove kody: %s" % ", ".join(_missing4)})
+                _body4 = "".join(_body_parts4)
+                _banner4 = ("<!-- ============================================================\n"
+                           "     GENEROVANO prikazem @@G2007SESTAV z g2007.soubor (typ='zdroj').\n"
+                           "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"
+                           "     @@G2007SOUBOR a spust znovu @@G2007SESTAV %s .\n"
+                           "     ============================================================ -->\n") % _kod4
+                _nl4 = _body4.find("\n")
+                if _nl4 >= 0:
+                    _out4 = _body4[:_nl4 + 1] + _banner4 + _body4[_nl4 + 1:]
+                else:
+                    _out4 = _banner4 + _body4
+                _s4.execute(_t4s("UPDATE g2007.soubor SET obsah=:o, updated_by_text=:by WHERE kod=:k AND typ='artefakt'"),
+                           {"o": _out4, "by": actor, "k": _kod4})
+                _s4.commit()
+                _verze4 = _s4.execute(_t4s("SELECT verze FROM g2007.soubor WHERE kod=:k"), {"k": _kod4}).scalar()
+            import os as _osw4
+            _abs4 = _osw4.path.join(_g2007_repo_root(), _kod4.replace("/", _osw4.sep))
+            _osw4.makedirs(_osw4.path.dirname(_abs4), exist_ok=True)
+            with open(_abs4, "w", encoding="utf-8", newline="") as _fw4:
+                _fw4.write(_out4)
+            return JSONResponse({"ok": True, "kod": _kod4, "verze": _verze4, "delka": len(_out4),
+                                 "z_kolika_casti": len(_sloz4),
+                                 "zprava": "sestaveno a zapsano na disk, verze %s" % _verze4})
+        except Exception as _e4:
+            return JSONResponse({"ok": False, "error": "G2007SESTAV %s: %s" % (type(_e4).__name__, str(_e4)[:400])})
+
     # Hlas engine bootstrap (Marti/Cowork 22.7.2026): jednorazove zalozeni
     # schematu hlas (kanal/relace/vyslovnost) + granty. Idempotentni, transakcni.
     if sql.upper().startswith("@@HLASINIT"):
@@ -40987,7 +41104,7 @@ async def diag_sql(req: Request) -> JSONResponse:
         # (kod/aktivace) NEBO g2007.denik (provozni denik Claude/MartiAI instanci) bezi PRIMO
         # bez banneru. DELETE/TRUNCATE/ALTER na obou zustavaji gated (jdou dal na banner nize)
         # — to je ta "mazani" cast.
-        _G2007_AUTONOMOUS_TABLES = {"g2007.python", "g2007.denik"}
+        _G2007_AUTONOMOUS_TABLES = {"g2007.python", "g2007.denik", "g2007.soubor"}
         _m_kind = _re_ds.match(r"\s*(INSERT|UPDATE|DELETE|TRUNCATE|ALTER)\b", _s_chk, _re_ds.I)
         _stmt_kind = _m_kind.group(1).upper() if _m_kind else None
         if (db == "pg" and _stmt_kind in ("INSERT", "UPDATE")

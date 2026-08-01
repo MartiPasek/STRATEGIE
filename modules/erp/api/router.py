@@ -37907,6 +37907,35 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as _e4:
             return JSONResponse({"ok": False, "error": "G2007SESTAV %s: %s" % (type(_e4).__name__, str(_e4)[:400])})
 
+    # Znovuvyvezeni aktualniho DB obsahu na disk, beze zmeny obsahu (Marti + Claude-23,
+    # 1.8.2026). Oddeluje "oprav obsah" (raw INSERT/UPDATE, treba kvuli presnosti pres
+    # base64) od "propis to na disk" - uzitecne kdyz se obsah opravil primo v DB a
+    # potreba jen dohnat disk, nebo pro rucni re-sync po jakekoli nejasnosti.
+    #   @@G2007EXPORT <kod>
+    if sql.upper().startswith("@@G2007EXPORT"):
+        _kod5 = sql[len("@@G2007EXPORT"):].strip()
+        if not _kod5:
+            return JSONResponse({"ok": False, "error": "@@G2007EXPORT <kod>"})
+        from sqlalchemy import text as _t5s
+        from modules.strategie_pg.application.service import get_session as _pgs5
+        try:
+            with _pgs5() as _s5:
+                _row5 = _s5.execute(_t5s(
+                    "SELECT obsah, verze FROM g2007.soubor WHERE kod=:k AND typ='artefakt'"),
+                    {"k": _kod5}).first()
+            if not _row5:
+                return JSONResponse({"ok": False, "error": "artefakt '%s' neexistuje" % _kod5})
+            _obsah5, _verze5 = _row5[0], _row5[1]
+            import os as _osw5
+            _abs5 = _osw5.path.join(_g2007_repo_root(), _kod5.replace("/", _osw5.sep))
+            _osw5.makedirs(_osw5.path.dirname(_abs5), exist_ok=True)
+            with open(_abs5, "w", encoding="utf-8", newline="") as _fw5:
+                _fw5.write(_obsah5)
+            return JSONResponse({"ok": True, "kod": _kod5, "verze": _verze5, "delka": len(_obsah5),
+                                 "zprava": "vyvezeno na disk, verze %s" % _verze5})
+        except Exception as _e5:
+            return JSONResponse({"ok": False, "error": "G2007EXPORT %s: %s" % (type(_e5).__name__, str(_e5)[:400])})
+
     # Hlas engine bootstrap (Marti/Cowork 22.7.2026): jednorazove zalozeni
     # schematu hlas (kanal/relace/vyslovnost) + granty. Idempotentni, transakcni.
     if sql.upper().startswith("@@HLASINIT"):

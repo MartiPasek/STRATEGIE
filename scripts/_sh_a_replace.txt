@@ -1,0 +1,8 @@
+            if _SCHED_STOP[0]:
+                break
+            try:
+                from modules.erp.api.router import _mirror_sched_ensure_alive
+                _mirror_sched_ensure_alive()
+            except Exception as _me:  # noqa: BLE001
+                _log.warning("[automat_sched] mirror ensure-alive selhal: %s", _me)
+            loop = _aio.get_event_loop()

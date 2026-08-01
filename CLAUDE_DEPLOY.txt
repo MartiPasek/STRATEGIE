@@ -1,2 +1,0 @@
-C23: seberozvoj — smyčka sebe-editace promptu (navrh->schvaleni->verze->rollback)
-modules/conversation/application/tool_registry/handlers.py

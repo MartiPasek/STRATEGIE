@@ -1,0 +1,21 @@
+def _mirror_sched_ensure_alive():
+    """Self-heal dozor nad mirror schedulerem (C23 31.7.). Mirror loop task obcas
+    tise umre / nenaskoci po deploy-restartu -> mirror joby stoji i 10 h. Automat
+    loop vola tuhle funkci kazdy tik; kdyz je task mrtvy, nahodi ho a zaloguje duvod."""
+    t = _MIRROR_SCHED_TASK[0]
+    if t is not None and not t.done():
+        return
+    reason = "task=None (nenaskocil)"
+    if t is not None:
+        if t.cancelled():
+            reason = "cancelled"
+        else:
+            try:
+                _exc = t.exception()
+                reason = ("vyjimka: %r" % _exc) if _exc else ("loop vypadl (STOP=%s)" % _MIRROR_SCHED_STOP[0])
+            except Exception:  # noqa: BLE001
+                reason = "neznamy (exception() selhal)"
+    logger.warning("[mirror_sched] SELF-HEAL: loop byl mrtvy (%s) -> nahazuji znovu", reason)
+    _mirror_sched_start()
+
+

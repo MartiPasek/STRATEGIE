@@ -1,0 +1,3 @@
+            if _SCHED_STOP[0]:
+                break
+            loop = _aio.get_event_loop()

@@ -1,0 +1,1 @@
+g2007.soubor: dirty working tree vyresen (git rm --cached + gitignore, Marti rucne 1.8.2026) - deploy commitu 845046116 (@@G2007EXPORT)

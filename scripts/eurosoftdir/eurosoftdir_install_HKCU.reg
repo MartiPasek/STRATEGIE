@@ -1,0 +1,14 @@
+Windows Registry Editor Version 5.00
+
+; EUROSOFT Directory Protocol — registrace pro AKTUÁLNÍHO uživatele (bez admina)
+; Handler musí ležet v: C:\ProgramData\EurosoftDir\eurosoftdir_open.vbs
+
+[HKEY_CURRENT_USER\Software\Classes\eurosoftdir]
+@="URL:EUROSOFT Directory Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\eurosoftdir\DefaultIcon]
+@="explorer.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\eurosoftdir\shell\open\command]
+@="wscript.exe \"C:\\ProgramData\\EurosoftDir\\eurosoftdir_open.vbs\" \"%1\""

@@ -37936,6 +37936,170 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as _e5:
             return JSONResponse({"ok": False, "error": "G2007EXPORT %s: %s" % (type(_e5).__name__, str(_e5)[:400])})
 
+    # Bezpecna publikace artefaktu (Marti + Claude-23, 1.8.2026): na rozdil od
+    # @@G2007SESTAV tohle NEJDRIV zkontroluje slozeny vysledek (delka, HTML/JS
+    # sanity, syntax JS pres node --check pokud je node dostupny), pak zapise na
+    # disk, OKAMZITE se sam zepta na zivou URL jestli appka opravdu nabehne, a
+    # pokud ne, automaticky vrati puvodni verzi zpet (DB zustane nedotcena novou/
+    # rozbitou verzi). Reakce na vypadek /mobile 1.8.2026 (Marti: "API B - zalozni
+    # verze, ktera byla funkcni"). DOPORUCENA cesta pro beznou publikaci nadale;
+    # @@G2007SESTAV/@@G2007EXPORT zustavaji jako nizkourovnove nastroje pro rucni
+    # zasah/zotaveni. POZOR: mezi zapisem na disk a sebe-overenim existuje kratke
+    # (typicky sub-sekundove) okno, kdy je nova verze uz ziva - nejde to obejit bez
+    # samostatne staging URL, kterou bychom museli deploynout jako zmenu routy.
+    #   @@G2007PUBLISH <kod_artefaktu>
+    if sql.upper().startswith("@@G2007PUBLISH"):
+        _kod6 = sql[len("@@G2007PUBLISH"):].strip()
+        if not _kod6:
+            return JSONResponse({"ok": False, "error": "@@G2007PUBLISH <kod_artefaktu>"})
+        from sqlalchemy import text as _t6s
+        from modules.strategie_pg.application.service import get_session as _pgs6
+        _checks6 = {}
+        try:
+            with _pgs6() as _s6:
+                _row6 = _s6.execute(_t6s(
+                    "SELECT slozeno_z, obsah, verze FROM g2007.soubor WHERE kod=:k AND typ='artefakt'"),
+                    {"k": _kod6}).first()
+                if not _row6:
+                    return JSONResponse({"ok": False, "error": "artefakt '%s' neexistuje" % _kod6})
+                _sloz6 = _row6[0] or []
+                _old_obsah6, _old_verze6 = _row6[1], _row6[2]
+                if not _sloz6:
+                    return JSONResponse({"ok": False, "error": "artefakt '%s' nema slozeno_z (neni skladany)" % _kod6})
+                _body_parts6 = []
+                _missing6 = []
+                for _zk in _sloz6:
+                    _zr = _s6.execute(_t6s(
+                        "SELECT obsah FROM g2007.soubor WHERE kod=:k AND typ='zdroj' AND stav_zivota='active'"),
+                        {"k": _zk}).scalar()
+                    if _zr is None:
+                        _missing6.append(_zk)
+                    else:
+                        _body_parts6.append(_zr)
+                if _missing6:
+                    return JSONResponse({"ok": False, "error": "chybi zdrojove kody: %s" % ", ".join(_missing6)})
+                _body6 = "".join(_body_parts6)
+                _banner6 = ("<!-- ============================================================\n"
+                           "     GENEROVANO prikazem @@G2007PUBLISH z g2007.soubor (typ='zdroj').\n"
+                           "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"
+                           "     @@G2007SOUBOR a spust znovu @@G2007PUBLISH %s .\n"
+                           "     ============================================================ -->\n") % _kod6
+                _nl6 = _body6.find("\n")
+                _new6 = (_body6[:_nl6 + 1] + _banner6 + _body6[_nl6 + 1:]) if _nl6 >= 0 else (_banner6 + _body6)
+
+            # 1) delka sanity (proti useknutemu/prazdnemu fragmentu)
+            if _old_obsah6 and len(_old_obsah6) > 1000 and len(_new6) < 0.5 * len(_old_obsah6):
+                return JSONResponse({"ok": False, "error":
+                    "STOP: nova verze je podezrele kratka (%d znaku vs puvodnich %d) - publikace zrusena, nic se nezmenilo" %
+                    (len(_new6), len(_old_obsah6))})
+            _checks6["delka_stara"] = len(_old_obsah6) if _old_obsah6 else 0
+            _checks6["delka_nova"] = len(_new6)
+
+            # 2) zakladni HTML/tag sanity
+            import re as _re6
+            _tag_pairs6 = [("<script", "</script>"), ("<div", "</div>"), ("<html", "</html>")]
+            _tag_problems6 = []
+            for _open6, _close6 in _tag_pairs6:
+                _no6 = len(_re6.findall(_re6.escape(_open6) + r"[\s>]", _new6, _re6.IGNORECASE))
+                _nc6 = _new6.lower().count(_close6)
+                if _no6 != _nc6:
+                    _tag_problems6.append("%s(%d) vs %s(%d)" % (_open6, _no6, _close6, _nc6))
+            if _tag_problems6:
+                return JSONResponse({"ok": False, "error":
+                    "STOP: nesedi pocty tagu - " + "; ".join(_tag_problems6) + " - publikace zrusena, nic se nezmenilo"})
+            _checks6["tagy"] = "OK"
+
+            # 3) JS syntax check (node --check), jen pokud je node k dispozici - jinak preskoc
+            import subprocess as _sp6, tempfile as _tmp6, os as _osw6
+            _scripts6 = _re6.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", _new6, _re6.IGNORECASE | _re6.DOTALL)
+            if _scripts6:
+                _jscode6 = "\n;\n".join(_scripts6)
+                try:
+                    with _tmp6.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as _tf6:
+                        _tf6.write(_jscode6)
+                        _tfpath6 = _tf6.name
+                    _r6 = _sp6.run(["node", "--check", _tfpath6], capture_output=True, text=True, timeout=20)
+                    try:
+                        _osw6.remove(_tfpath6)
+                    except Exception:
+                        pass
+                    if _r6.returncode != 0:
+                        return JSONResponse({"ok": False, "error":
+                            "STOP: JS syntax chyba v inline <script> - " + (_r6.stderr or _r6.stdout)[:600] +
+                            " - publikace zrusena, nic se nezmenilo"})
+                    _checks6["js_syntax"] = "OK (node --check)"
+                except FileNotFoundError:
+                    _checks6["js_syntax"] = "preskoceno (node neni na cloud APP k dispozici)"
+                except Exception as _jse6:
+                    _checks6["js_syntax"] = "preskoceno (%s: %s)" % (type(_jse6).__name__, str(_jse6)[:150])
+            else:
+                _checks6["js_syntax"] = "zadny inline <script> k overeni"
+
+            # 4) zapis na disk jako "pokus" + zaloha puvodniho obsahu disku
+            _abs6 = _osw6.path.join(_g2007_repo_root(), _kod6.replace("/", _osw6.sep))
+            _osw6.makedirs(_osw6.path.dirname(_abs6), exist_ok=True)
+            _backup6 = None
+            if _osw6.path.isfile(_abs6):
+                with open(_abs6, "r", encoding="utf-8") as _fbk6:
+                    _backup6 = _fbk6.read()
+            with open(_abs6, "w", encoding="utf-8", newline="") as _fw6:
+                _fw6.write(_new6)
+
+            # 5) OKAMZITE sebe-overeni na zive URL - "opravdu appka nabehne?"
+            _url_map6 = {
+                "apps/api/static/mobile.html": "/mobile",
+                "apps/api/static/index.html": "/",
+                "apps/api/static/vyroba.html": "/vyroba",
+                "apps/api/static/foto.html": "/foto",
+                "apps/api/static/overit.html": "/overit",
+                "apps/api/static/marti.html": "/web/marti",
+            }
+            _path6 = _url_map6.get(_kod6)
+            _selftest6 = {"provedeno": False}
+            if _path6:
+                import urllib.request as _ur6
+                _base6 = _osw6.environ.get("STRATEGIE_SELFTEST_BASE_URL", "https://strategie-ai.com")
+                try:
+                    _req6 = _ur6.Request(_base6 + _path6, headers={"User-Agent": "g2007-publish-selftest"})
+                    with _ur6.urlopen(_req6, timeout=10) as _resp6:
+                        _status6 = _resp6.status
+                        _content6 = _resp6.read().decode("utf-8", errors="replace")
+                    _ok6 = (_status6 == 200 and len(_content6) > 0.5 * len(_new6)
+                            and "internal server error" not in _content6.lower()
+                            and "traceback" not in _content6.lower())
+                    _selftest6 = {"provedeno": True, "status": _status6, "delka_odpovedi": len(_content6), "ok": _ok6}
+                except Exception as _fe6:
+                    _selftest6 = {"provedeno": True, "ok": False,
+                                  "error": "%s: %s" % (type(_fe6).__name__, str(_fe6)[:200])}
+            else:
+                _selftest6 = {"provedeno": False, "duvod": "kod nema znamou zivou URL, self-test preskocen"}
+
+            # 6) rozhodnuti: pokud selftest bezel a selhal, VRAT ZPET puvodni disk
+            if _selftest6.get("provedeno") and not _selftest6.get("ok"):
+                if _backup6 is not None:
+                    with open(_abs6, "w", encoding="utf-8", newline="") as _fw6b:
+                        _fw6b.write(_backup6)
+                    _revert_msg6 = "puvodni obsah vracen na disk (DB nezmenena, zustava verze %s)" % _old_verze6
+                else:
+                    _revert_msg6 = "VAROVANI: nebyla zaloha puvodniho disku (soubor predtim neexistoval) - rozbita verze zustala na disku!"
+                return JSONResponse({"ok": False, "error":
+                    "STOP: nova verze se nasadila ale selftest na zive URL selhal - AUTOMATICKY VRACENO ZPET. " + _revert_msg6,
+                    "checks": _checks6, "selftest": _selftest6})
+
+            # 7) vse OK -> az TED persistuj do DB (archivace stare verze pres trigger je automaticka)
+            with _pgs6() as _s6b:
+                _s6b.execute(_t6s(
+                    "UPDATE g2007.soubor SET obsah=:o, updated_by_text=:by WHERE kod=:k AND typ='artefakt'"),
+                    {"o": _new6, "by": actor, "k": _kod6})
+                _s6b.commit()
+                _verze6 = _s6b.execute(_t6s("SELECT verze FROM g2007.soubor WHERE kod=:k"), {"k": _kod6}).scalar()
+
+            return JSONResponse({"ok": True, "kod": _kod6, "verze": _verze6, "delka": len(_new6),
+                                 "z_kolika_casti": len(_sloz6), "checks": _checks6, "selftest": _selftest6,
+                                 "zprava": "publikovano a overeno na zive URL, verze %s" % _verze6})
+        except Exception as _e6:
+            return JSONResponse({"ok": False, "error": "G2007PUBLISH %s: %s" % (type(_e6).__name__, str(_e6)[:400])})
+
     # Hlas engine bootstrap (Marti/Cowork 22.7.2026): jednorazove zalozeni
     # schematu hlas (kanal/relace/vyslovnost) + granty. Idempotentni, transakcni.
     if sql.upper().startswith("@@HLASINIT"):

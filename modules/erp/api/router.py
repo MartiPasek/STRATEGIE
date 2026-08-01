@@ -37878,25 +37878,17 @@ async def diag_sql(req: Request) -> JSONResponse:
                     if _zr is None:
                         _missing4.append(_zk)
                     else:
-                        _body_parts4.append((_zk, _zr))
+                        _body_parts4.append(_zr)
                 if _missing4:
                     return JSONResponse({"ok": False, "error": "chybi zdrojove kody: %s" % ", ".join(_missing4)})
-                # Izolace JS fragmentu do samostatnych <script> tagu (Marti + Claude-23, 1.8.2026):
-                # puvodne se vsechny .js kousky lepily do JEDNOHO spolecneho <script> (otevira ho
-                # 10_core.js, zaviral ho az 99_foot.html) - syntakticka/runtime chyba KDEKOLI v nem
-                # shodila CELOU appku (viz vypadek /mobile 1.8.2026). Mezi kazdymi dvema po sobe
-                # jdoucimi .js fragmenty vlozime </script><script> - kazdy .js kousek pak zije ve
-                # VLASTNIM scriptu, chyba v jednom nezastavi parsovani/beh tech ostatnich. Bezpecne:
-                # sdileni pres window.STRATEGIE funguje napric <script> tagy stejne jako v jednom
-                # spolecnem (globalni scope je sdileny bez ohledu na hranice <script> tagu).
-                _pieces4 = []
-                for _i4, (_zk4, _zc4) in enumerate(_body_parts4):
-                    _pieces4.append(_zc4)
-                    if _i4 + 1 < len(_body_parts4):
-                        _next_kod4 = _body_parts4[_i4 + 1][0]
-                        if _zk4.endswith(".js") and _next_kod4.endswith(".js"):
-                            _pieces4.append("</script>\n<script>\n")
-                _body4 = "".join(_pieces4)
+                # POZOR (Marti + Claude-23, 1.8.2026): naivni vlozeni </script><script> mezi .js
+                # fragmenty ZDE bylo ZKUSENO a ROZBILO appku (vypadek /mobile 1.8.2026) - fragmenty
+                # 20+ NEJSOU nezavisle IIFE, jsou to holé function deklarace uvnitr JEDNE sdilene
+                # obalove funkce otevrene v 10_core.js a zavrene az v 74_claude27_render_init.js,
+                # sdileji lokalni promenne (app, el, topbar, SCREENS, B) pres closure, ne pres
+                # window. Skutecna izolace se vyviji a testuje na /mobile2 (apps/api/static/
+                # mobile2.html) - NEPRIDAVAT separatory sem, dokud neni reseni overene tam.
+                _body4 = "".join(_body_parts4)
                 _banner4 = ("<!-- ============================================================\n"
                            "     GENEROVANO prikazem @@G2007SESTAV z g2007.soubor (typ='zdroj').\n"
                            "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"

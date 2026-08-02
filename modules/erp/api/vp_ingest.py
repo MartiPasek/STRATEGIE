@@ -210,7 +210,7 @@ def triage_text(subject: str | None, body: str | None,
     }
 
 
-def triage_pending(tenant_id: int = DEFAULT_TENANT, limit: int = 25) -> dict:
+def triage_pending(tenant_id: int = DEFAULT_TENANT, limit: int = 10) -> dict:
     """
     Vezme nezpracované záznamy (typ='neurcen', stav='nova'), doplní tělo z
     tenant.mail_message, klasifikuje a uloží typ/zákazník/předmět/shrnutí/jistotu.

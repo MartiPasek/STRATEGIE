@@ -38930,12 +38930,23 @@ async def diag_sql(req: Request) -> JSONResponse:
             if _u.startswith("@@VPINFO"):
                 return JSONResponse(_vpi())
             if _u.startswith("@@VPTRIAGE"):
-                return JSONResponse(_vptp())
+                # OPRAVENO 2.8.2026 (Claude-23, incident: @@VPTRIAGE 3x po sobe
+                # zamrazil event loop cele async def diag_sql -> vsechny ostatni
+                # requesty spadly na 401/502, produkce (API A) spadla a naskocila
+                # na B. triage_pending() dela 25x sekvencne SYNCHRONNI anthropic.
+                # Anthropic(...) volani primo v async funkci bez threadpoolu ->
+                # blokuje event loop cele instance na desitky sekund. Fix: offload
+                # do vlakna pres asyncio.to_thread, at event loop zustane volny
+                # pro ostatni requesty behem klasifikace.
+                import asyncio as _aio_vp
+                _res_vp = await _aio_vp.to_thread(_vptp)
+                return JSONResponse(_res_vp)
             if _u.startswith("@@VPTEST"):
                 _txt = sql[len("@@VPTEST"):].strip()
                 if not _txt:
                     return JSONResponse({"ok": False, "error": "@@VPTEST <text emailu>"})
-                _kl = _vptt(_txt[:120], _txt)
+                import asyncio as _aio_vp2
+                _kl = await _aio_vp2.to_thread(_vptt, _txt[:120], _txt)
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"],
                                      "rows": [[k, str(v)] for k, v in _kl.items()]})
             return JSONResponse(_vps())

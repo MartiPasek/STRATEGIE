@@ -101,6 +101,14 @@ try:
 except Exception as _e:  # noqa: BLE001
     _log.warning("automat: watchery se nenacetly: %s", _e)
 
+# Domenove status buildery (Pilir B, #4, C23, 2.8.2026) — registrují se z
+# automat_domeny, jádro netknuté (stejny vzor jako WATCHERS o par radku vys).
+try:
+    from modules.erp.api.automat_domeny import DOMAIN_CHECKS as _DOMAIN_CHECKS
+    _CHECKS.update(_DOMAIN_CHECKS)
+except Exception as _e3:  # noqa: BLE001
+    _log.warning("automat: domenove checky se nenacetly: %s", _e3)
+
 
 def _escalate_haiku(agent_prompt, kod, zprava, context):
     """Zavolá Haiku s per-automat promptem (system) + kontextem selhání. Vrací text."""
@@ -182,7 +190,8 @@ def _monitor_work():
         autos = sg.execute(T(
             "SELECT kod, nazev, spousteni, interval_min, eskalace_agent, stavitel, aktivni, "
             " to_char(last_run_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') AS last_run, "
-            " COALESCE(last_status,'—') AS last_status "
+            " COALESCE(last_status,'—') AS last_status, domain_kod, status_block, "
+            " to_char(status_block_updated_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') AS status_block_updated "
             "FROM g2007.automat ORDER BY kod")).mappings().all()
         runs = sg.execute(T(
             "SELECT automat_kod, "

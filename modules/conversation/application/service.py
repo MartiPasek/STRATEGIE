@@ -11569,6 +11569,30 @@ def chat(
         except Exception as _dom_e:
             logger.warning(f"TOOLS DOMAIN filter selhal (non-fatal, beze zmeny effective_tools): {_dom_e}")
 
+    # Domenovy status_block injekce do promptu (Pilir B, #4, C23, 2.8.2026, dle
+    # g2007.znalost#280/#281 -- automat s domain_kod pripravuje cerstvy stav
+    # domeny, Martinka ho vidi v promptu misto aby si ho hledala). NULL
+    # active_domain (dnes VSECHNY konverzace) = presne dnesni chovani, tenhle
+    # blok je no-op dokud neco domenu explicitne nenastavi -- zatim nic nenastavuje.
+    if _active_domain and _is_default:
+        try:
+            from core.database import get_session as _gss_sb
+            from sqlalchemy import text as _t_sb
+            _sg_sb = _gss_sb()
+            try:
+                _sb_row = _sg_sb.execute(_t_sb(
+                    "SELECT status_block FROM g2007.automat "
+                    "WHERE domain_kod=:k AND aktivni AND status_block IS NOT NULL "
+                    "ORDER BY status_block_updated_at DESC NULLS LAST LIMIT 1"
+                ), {"k": _active_domain}).first()
+            finally:
+                _sg_sb.close()
+            if _sb_row and _sb_row[0]:
+                system_prompt = system_prompt + "\n\n" + _sb_row[0]
+                logger.info(f"PROMPT DOMAIN STATUS | domain={_active_domain} | injected {len(_sb_row[0])} chars")
+        except Exception as _sb_e:  # noqa: BLE001
+            logger.warning(f"PROMPT DOMAIN STATUS injekce selhala (non-fatal): {_sb_e}")
+
     # Agent-as-default (bod 2, C23 29.7.): za flagem agent_default_enabled dostane
     # default chat governed RUCE (praha_exec/plzen_exec) -> chat se stává agentní
     # (chatuje A jedná ve stejném tahu). Ruce si samy drží tier bránu 🟢🟡🔴 uvnitř

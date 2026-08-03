@@ -55,6 +55,38 @@ Zdroje: G2007 `doc-system-strategie-vize-kod-jako-data-bez-restartu`, znalost �
 g2007.python + g2007.soubor jsou zdroj pravdy", „Migrace router.py/web do g2007…",
 `g2007.denik` #5–#7.
 
+## 🛡️ HLÍDAČ POJISTEK — spouštěj HNED NA STARTU každé konverzace (Peťa 3. 8. 2026)
+Peťa: *„mám pocit, že spolu něco uděláme a pak je to zase špatně — dá se udělat hlídání,
+aby mě to upozornilo?"* Doloženo: 31. 7. jeden deploy smazal ~1100 řádků cizí práce
+(jednotný výpočet hodin, kaskáda, `local_lock`, práva); 3. 8. se ztratily přeložené
+popisky ve sloupci Odkud (podruhé). Pokaždé si toho všimla Peťa, náhodou, po dnech.
+
+**Jak na to (jeden dotaz přes most):**
+```sql
+SELECT * FROM tenant.pojistky_check();
+```
+Vypisuje **jen to, co je rozbité** — prázdný výsledek = vše v pořádku. Když něco vypíše,
+řekni to Petře hned a nabídni opravu; sloupec `popis` říká lidsky, co má platit a proč.
+
+**⭐ POVINNOST: každou domluvu zapiš jako novou pojistku.** Peťa 3. 8.: *„a budeš tam ve
+všech konverzacích dávat vše, k čemu dojdeme?"* — ano. Kdykoli se na něčem domluvíme
+(pravidlo, oprava, chování přehledu), přidej řádek:
+```sql
+INSERT INTO tenant.pojistka (kod, popis, kontrola, zavedl)
+VALUES ('kratky-kod', 'Lidsky co má platit A PROČ + kdo a kdy rozhodl',
+        $q$SELECT <podmínka vracející true/false>$q$, 'Peťa + Claude-26');
+```
+Bez toho se domluva ztratí při prvním přepsání a nikdo se to nedozví.
+
+**Co už hlídá (k 3. 8. 2026):** české popisky zdrojů v obou přehledech · filtr zrušených
+žádostí ve Správě · viditelnost plánu z Centrály · index dovolující víc dnů na jednu
+žádost · právo „vidí všechny lidi" · sdílený výpočet hodin `att_den_hodiny` · pravidla
+nároku dovolené · existence zámku období.
+
+**Hned první běh našel díru:** Michaela Hladíková (16) nemá právo „vidí všechny", ačkoli
+commit se jmenuje „Peťa+Michaela vidí a opravují všechny lidi" — místo ní ho má Michelle
+Šafránková (17). Podobná jména. Peťa 3. 8.: nechat být, probere s Kristý.
+
 ## Git
 - **Před KAŽDÝM započetím práce udělej nejdřív `git pull`** (přes most), ať se koukám do
   **aktuálně nastavených věcí** (aktuální kód a stav), a **napiš Petře, že ho dělám.**

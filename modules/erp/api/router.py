@@ -39367,7 +39367,15 @@ async def diag_sql(req: Request) -> JSONResponse:
             _cdry = (len(_cp) > 2 and _cp[2].lower().startswith("dry"))
             from modules.erp.api import erp_registry as _ereg_dc
             _dc = _ereg_dc.call("att_day_summary_recompute", _cy, _cm, dry_run=_cdry)
-            return JSONResponse(_dc)
+            _rows_dc = []
+            if isinstance(_dc, dict):
+                for _k, _v in _dc.items():
+                    if _k == "souhrn" and isinstance(_v, dict):
+                        for _sk, _sv in _v.items():
+                            _rows_dc.append(["souhrn." + str(_sk), _sv])
+                    else:
+                        _rows_dc.append([str(_k), _v])
+            return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": _rows_dc})
         except Exception as _dce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_dce).__name__, str(_dce)[:300]),
                                  "tb": _tbdc.format_exc()[-800:]})

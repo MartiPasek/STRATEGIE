@@ -570,11 +570,11 @@
         return;
       }
 
-      // Plain klik — clear selection, expand pokud folder, visual active.
-      // ZMĚNA (Peta, 27.7.2026): otevření přehledu (openTab) se přesunulo
-      // z JEDNOHO kliku na DVOJKLIK. Jeden klik teď jen VYBÍRÁ (visual active)
-      // a rozbaluje složku; přehled se otevře až dvojklikem (_onRowDblClick)
-      // nebo klávesou Enter/Space (synthetic event nese e._kbd).
+      // Plain klik — clear selection, expand pokud folder, visual active, OTEVŘI.
+      // ZPĚT NA JEDEN KLIK (Peťa, 3.8.2026: „když se klikne na něco vlevo ve
+      // stromu, ať se to ukáže hned, jen ťuknout a otevře se"). Od 27.7. se
+      // otevíralo až dvojklikem — Peťa si to tehdy vyzkoušela a nesedlo jí to.
+      // Dvojklik i Enter/Space fungují dál (otevřou totéž), takže se nic neztrácí.
       this.clearSelection();
 
       // Expand/collapse pokud má children (toggle existence).
@@ -592,16 +592,17 @@
         const cisloN = parseInt(cisloDefStr, 10);
         if (cisloN) {
           this.setActive(id);
-          // Klávesnice (Enter/Space) = ekvivalent dvojkliku → rovnou otevři.
-          if (e._kbd) this._activateRow(node, e, cisloN);
+          // Otevři na JEDEN klik i z klávesnice (Enter/Space). Přeskoč jen
+          // 2. klik dvojkliku (detail === 2), ať se přehled neotevírá dvakrát.
+          if (e._kbd || e.detail !== 2) this._activateRow(node, e, cisloN);
         }
       }
     }
 
     /**
      * Otevře přehled přes onActivate hook (→ openTab v router.py).
-     * Volá se z DVOJKLIKU (_onRowDblClick) a z klávesnice (Enter/Space).
-     * Jeden klik NEotevírá — jen vybírá/rozbaluje (Peta, 27.7.2026).
+     * Volá se z JEDNOHO kliku, z dvojkliku i z klávesnice (Enter/Space).
+     * Peťa 3.8.2026: jeden klik otevírá (návrat ke stavu před 27.7.).
      *
      * Logic (Phase 38.4 Krok 14g-H+27, 15.5.2026 ~20:00):
      *   - Real menu_node_pk        → openTab

@@ -1,3 +1,5 @@
+C26 (Peta / Cowork lane 1) 3.8.2026: konflikt ve WORK_LOCK.txt (obe strany zachovany, jen odstraneny znacky) - blokoval commit VSEM na Peta-NTB ('Committing is not possible because you have unmerged files'). Dnes: zapis noveho zpusobu prace (kod v g2007, ne v router.py) do docs/team/Peta26_pokyny.md dle Martiho mailu 2.8. Jinak dochazka/mzdy - Peta kontroluje dochazku s lidmi. Lane 1.
+
 C26 (Peta / Cowork) 23.7.2026 vecer: AKTIVNE delam Dochazka new. (2) fix probliknuti „bez asociovaneho core" v modules/erp/api/router.py — NASAZUJI. (3) picker zakazky (okno+filtr) + (4) akce menu (Smazat/Excel/hromadne/Tisk) v apps/api/static/dochazka-po-zakazkach.html — rozpracovano. POZOR: html ma i nenasazene zmeny z minula (editace app-dochazky FIX/entry, pole Duvod opravy, rezimy W/FIX/RO) — pujdou ven spolu s (3)+(4). NEPREPISOVAT tyto 2 soubory bez koordinace.
 
 C23 (Claude / Cowork, ec-martin) 31.7.2026 09:38 UTC: UZAVRENO. Po git fetch + reset --hard origin/main je HEAD 43fb836a5 (spravny, aktualni origin). Overeno ctenim router.py: _pripl_write_guard (radek 527), _mirror_sched_ensure_alive (30201), _att_fix_all (22348), _att_sync_vyroba_work (26819), stornable + local_lock pritomny - vse restaurovano, zadna ztrata. Zapis do G2007 doc-provoz-deploy-bezpecnost-most (gotcha o git fetch pred reset + TODO roadmapa 4 navrhu) hotovy a overeny (chunky=5). Implementace (diffstat pojistka + vynucena cerstvost + pozdejsi split router.py) POCKA na klidne okno - dohodnuto s Martim. Lokal cisty, cekam.
@@ -133,3 +135,12 @@ identifikatory bez odpovidajici definice/importu v tom samem zdroji).
 Git: .git/index.lock a dalsi .lock/.bak soubory z drivejsiho incidentu POST6 porad v
 .git/ (device_bash je neumi smazat) - Marti prosim az budes moct, spust lokalne `git gc`
 (pripadne rucne smaz .git/*.lock* pred tim), vycisti to cely strom.
+C26 (Peta / Cowork) 31.7.2026: ZADOSTI z mobilu (lekar/nemoc/OCR) vs. dochazka — ANALYZA HOTOVA, NIC NENASAZENO. router.py je VRACENY do puvodniho stavu (zadne rozpracovane zmeny), pokracujeme 1.8. Pozor: C24/Kristy resi soubezne dedup absenci v tomtez souboru (commit b2c6c53e). Lane volna.
+
+📌 PRO ZITREJSI SESSION (C26 / Peta, zapsano 28.7.2026): Tynka posle soubor
+   C:\PROJEKTY\Strategie\Plan_sjednoceni_polozkove_tabulky_vyroba_work_2026-07-28
+   -> NA STARTU HO NACIST (28.7. jeste neexistoval). Tema: sjednoceni polozkove tabulky vyroba_work.
+
+C26 (Peta / Cowork) 28.7.2026: lane 1 — analyza kontrol dochazky z Centraly (EC_KontrolaDochazky, EC_Dochazka_ChybyVDochazceTypy) pred stavbou kontrol ve STRATEGII. Zatim jen READ, nic nemenim.
+
+C26 (Peta / Cowork) 24.7.2026: Dochazka new Smazat — NASAZENO (commit 6959ca1d): USEK na zakazce (W) -> novy endpoint /app/dochazka-zak-tab/delete-usek (UPDATE vyroba_work is_active=false + audit do poznamky, work_alloc netknout, dle Jirky). Dochazka (P) -> att_fix_void. ABSENCE (A) -> DOCASNE VYPNUTO (jen hlaska) — att_fix_void nechaval viset zadost; spravny spravcovsky cancel + NAROK/odecitani doresime s Jirkou+Sarkou. BUDOUCNOST -> ceka az Jirka doplni att_absence_request.id do data_setu, pak napojim cancel cele zadosti. Overeno bez mazani realnych dat. Lane volno.

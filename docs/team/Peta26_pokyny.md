@@ -15,6 +15,46 @@
   (aktuální stav práce). Trvalá pravidla a doménové know-how dál patří do **G2007 / těchto pokynů** —
   do handoffu jen aktuální stav, ne standardy.
 
+## ⭐ NOVÝ ZPŮSOB PRÁCE — kód žije v DATABÁZI, ne v souboru (Marti 2. 8. 2026, ZÁVAZNÉ)
+**Do `router.py` ani do statických souborů na disku se už NEPÍŠE.** Zdroj pravdy je
+**databáze**: `g2007.python` (backend funkce a endpointy) a `g2007.soubor` (web/HTML/JS/CSS).
+Soubory na disku jsou už jen odvozený výstup. Na disku smí zůstat jen tenké „delegate"
+handlery (pár řádků, které zavolají logiku z DB).
+
+**Pravidlo pro každou úpravu:** i drobná oprava existující funkce = **povinnost ji nejdřív
+zmigrovat** do `g2007.python` / `g2007.soubor` a teprve tam upravit. Neopravovat na místě.
+
+**Proč to vzniklo:** 31. 7. 2026 přepsal jeden deploy `router.py` starou kopií a smazal
+**~1100 řádků cizí práce** (docházka od C24/C26/C28 — jednotný výpočet hodin, kaskáda,
+local_lock, práva „vidí všechny"). Obnovil jsem to commitem `45848042`. Marti z toho
+vyvodil, že chyba není v člověku, ale v tom, že 687 endpointů žije v jednom souboru
+o 67 tisících řádcích, do kterého píše víc lidí i AI naráz.
+
+**Co to mění pro Peťu (prakticky):**
+- U věci, která se ještě nemigrovala, je **první oprava pomalejší** (migrace + ověření),
+  každá další je pak rychlá.
+- **Ubude hlášek „nasazuju, dej Ctrl+F5"** — migrovaný kód se mění za běhu, bez deploye
+  a bez restartu aplikace (dnes se s restartem přeruší i vše, co běží na pozadí).
+- Mzdy i docházka fungují stejně, schvalovací bannery zůstávají.
+
+**Stav k 2. 8. 2026:** migrované jsou docházka (60 funkcí), obecné ERP (48+16), web `/mobile`
+a **mzdy včetně hlavního generování** (`mzdy_generuj`, `mzdy_worker_sql`, `lm_engine`,
+`mzdy_benefity_apply`, `mzdy_refresh_zrcadla`, `mzdy_stravenky_rows`…). Přepis je 1:1
+beze změny logiky.
+
+**⚠️ Známá chyba, NEHLÁSIT jako novou:** ve mzdách blok **„jednatelské stravné"** je rozbitý
+(odkazuje na nedefinované proměnné), tiše spadne a zaloguje varování `jednatel_stravne`
+v `slozky_warn`. Jednatelé tak plné stravné touhle cestou nikdy nedostali. Migrace to
+**vědomě neopravila** (princip beze změny logiky). Oprava = samostatné rozhodnutí Martiho.
+
+**⚠️ Pojistka proti přepsání v DB zatím NENÍ hotová** (Marti ji sám označil za nutnou
+podmínku před migrací). Do té doby: **po každém zápisu do `g2007.*` ověř čtením**, že tam
+sedí to, co jsi tam dal — stejně jako u `@@G2007ADD`, jehož návratovka je neutrální.
+
+Zdroje: G2007 `doc-system-strategie-vize-kod-jako-data-bez-restartu`, znalost „SMĚR:
+g2007.python + g2007.soubor jsou zdroj pravdy", „Migrace router.py/web do g2007…",
+`g2007.denik` #5–#7.
+
 ## Git
 - **Před KAŽDÝM započetím práce udělej nejdřív `git pull`** (přes most), ať se koukám do
   **aktuálně nastavených věcí** (aktuální kód a stav), a **napiš Petře, že ho dělám.**

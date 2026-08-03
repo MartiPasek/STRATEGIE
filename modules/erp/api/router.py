@@ -46176,6 +46176,37 @@ _MIGRACE_STEPS = {
 }
 
 
+@api_router.post("/app/payroll/recompute")
+async def app_payroll_recompute(req: Request) -> JSONResponse:
+    """Přepočítá tenant.att_day_summary za měsíc z att_entry (STRATEGIE, ne zrcadlo Centrály).
+    Ruční spuštění pro mzdové podklady (Péťa). Pojistka: zmrazené měsíce funkce odmítne.
+    Auth jako podklady (rodič / mzdy:read). ?rok=&mesic= nebo JSON body. C24/Kristý 3.8.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        _allowed = (_app_parent(s, uid) or _has_capability(uid, 'mzdy', 'read'))
+    finally:
+        cm.__exit__(None, None, None)
+    if not _allowed:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        _bd = await req.json()
+    except Exception:
+        _bd = {}
+    try:
+        _rok = int(req.query_params.get("rok") or (_bd or {}).get("rok") or 0)
+        _mes = int(req.query_params.get("mesic") or (_bd or {}).get("mesic") or 0)
+    except Exception:
+        _rok = _mes = 0
+    if not (_rok and _mes):
+        return JSONResponse({"ok": False, "error": "chybí rok/mesic"}, status_code=400)
+    from modules.erp.api import erp_registry as _ereg_pr
+    _res = _ereg_pr.call("att_day_summary_recompute", _rok, _mes, dry_run=False)
+    return JSONResponse(jsonable_encoder(_res))
+
+
 @api_router.get("/app/payroll/summary")
 async def app_payroll_summary(req: Request) -> JSONResponse:
     """Mzdové podklady: měsíční souhrn osoba × typ (z tenant.att_day_summary).

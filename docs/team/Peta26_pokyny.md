@@ -136,6 +136,16 @@ commit se jmenuje „Peťa+Michaela vidí a opravují všechny lidi" — místo 
   z databáze** (Peťa 29.7.2026). Např. „Ostatní – kanceláře" = pro mě **6** (ec_cislo),
   ne 15 (interní id). Vždy uváděj a řeš to číslo, které vidím v aplikaci/Centrále.
 
+## ✅ VYŘEŠENO — NEŘEŠIT ZNOVU (ať se to neptá potřetí)
+- **Číselník činností Centrála × STRATEGIE — SROVNÁNO 3. 8. 2026.** Autoritativní je
+  Centrála, čísla (`ec_cislo`) musí sedět. Doplněno 30 chybějících činností včetně
+  **30 Dovolená navíc** a **37 Nepřítomnost OSVČ**. Nechybí nic, čísla u stávajících sedí.
+- **„Režie" NIKDY NEBYLA ČINNOST.** `Rezie` (bez háčku) je **ZAKÁZKA**, a proto se
+  i do rozpadu píše bez diakritiky. Činnost „Režie" byla omyl → 3. 8. 2026 archivovaná.
+  Stejně tak „ostatní - kanceláře" bez čísla byla duplicita → platí činnost **6**.
+- **Kde to je celé:** G2007, znalost `doc-dochazka-cinnosti-ciselnik-centrala-vs-strategie`.
+  Než se Peťy na cokoli kolem činností zeptáš, přečti si ji — už jsme to řešili 3×.
+
 ## PODPIS pod zprávami, které za Petru píšu (Peťa 29.7.2026, závazné)
 Když Peťa řekne „napiš zprávu / napiš mu / pošli jí" a text pak jen přepošle dál
 (Marti‑AI, Jirka, Kristý, Marti…), **podepiš ho `Claude‑26 / Peťa`, NIKDY jen `Peťa`.**

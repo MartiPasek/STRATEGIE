@@ -969,7 +969,15 @@ def _process_deploy() -> None:
         elif cd.get("reason") == "already_up_to_date":
             cloud_summary = "cloud už běží na nejnovější verzi"
         else:
+            # Peťa 3.8.2026: u dirty_working_tree vypisuj i KTERÉ soubory to blokují.
+            # Cloud endpoint je v odpovědi posílá (klíč `git_status`), runner je dosud
+            # zahazoval — člověk pak viděl jen „working tree neni clean" a neměl šanci
+            # zjistit proč, obzvlášť když `git status` spuštěný ručně hlásil čisto
+            # (aplikace běží pod jiným účtem a vidí jiný stav).
+            _det = str(cd.get("git_status") or "").strip()
             cloud_summary = f"NENASAZENO: reason={cd.get('reason')} error={cd.get('error')}"
+            if _det:
+                cloud_summary += " | blokují soubory: " + _det.replace("\n", " · ")[:400]
         _log(f"DEPLOY cloud: {cloud_summary}")
 
     # Work-lock release (Marti 3.6.): po úspěšném pushi je práce odeslaná →

@@ -25039,6 +25039,19 @@ async def cockpit_access(req: Request) -> JSONResponse:
                          "member": bool(uid and not (fin or is_parent_f or is_vp))})
 
 
+@api_router.get("/app/vp/finance-zakazky")
+async def vp_finance_zakazky(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=vp_finance_zakazky). B2 dlazdice Finance zakazek pro VP
+    (Kristy/Claude-24, 3.8.2026). Read-only prehled ziskovosti VR/PR zakazek; pristup parent + Vedeni/VP."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("vp_finance_zakazky", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
     """DB-driven delegate (g2007.python kod=att_list). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""

@@ -831,10 +831,26 @@ function openEdit(i){
   function en(id){$(id).disabled=false;} function dis(id){$(id).disabled=true;}
   var allEd=['d_zak','d_od_d','d_od_t','d_kon_d','d_kon_t','d_pozn'];
   if(mode==='W'){
-    ro.style.display='none'; rw.style.display='none';
-    allEd.forEach(en); $('d_cin').disabled=false; $('d_reason').disabled=true;
+    // C26 / Peťa 3.8.2026: úsek na zakázce se opravuje PŘES „Opravy docházky"
+    // (fix/polozka), ne napřímo do vyroba_work. Díky tomu se z úseků dopočítá
+    // i hlavička docházky a doplnění do fondu — oba pohledy pak ukazují totéž.
+    // Dřív se uložil jen rozpad a docházka zůstala stará → dny se rozcházely
+    // (u Kolářové jsme to 3.8. dopočítávali zpětně).
+    var _cent = (r._src==='centrala1');
+    ro.style.display = _cent ? '' : 'none';
+    rw.style.display = _cent ? 'none' : '';
     dis('d_vpozn'); dis('d_appr');   // výroba nemá vedoucí poznámku/schváleno
-    $('d_ok').style.display='';
+    if(_cent){
+      ro.textContent='Úsek ze staré Centrály — opravuje se v Centrále, sem se přezrcadlí.';
+      allEd.forEach(dis); $('d_cin').disabled=true; $('d_reason').disabled=true;
+      $('d_ok').style.display='none';
+    }else{
+      allEd.forEach(en); $('d_cin').disabled=false; en('d_reason');
+      dis('d_od_d'); dis('d_kon_d');   // den drží docházkový záznam (jako u fix/entry)
+      $('d_ok').style.display='';
+      $('d_msg').className='dmsg';
+      $('d_msg').textContent='Úsek na zakázce — oprava se propíše i do docházky a přepočítá doplnění do fondu (vyplň důvod).';
+    }
   }else if(mode==='FIX'){
     ro.style.display='none'; rw.style.display='';   // docházka z app: přes Opravy docházky, s důvodem
     // editovatelné: časy (od/do), zakázka, činnost, důvod, poznámky, Vedoucí schváleno.
@@ -899,12 +915,46 @@ function saveEdit(){
     }
     return;
   }
-  // W (výroba) — naše přímé uložení do vyroba_work
-  _postJ('/api/v1/erp/app/dochazka-zak-tab/save',{kind:r._kind,id:r._id,zakazka:$('d_zak').value,
-    cinnost_id:$('d_cin').value||null,od_d:$('d_od_d').value,od_t:$('d_od_t').value,
-    kon_d:$('d_kon_d').value,kon_t:$('d_kon_t').value,hodiny:$('d_hod').value,poznamka:$('d_pozn').value})
-    .then(function(res){res.j&&res.j.ok?done():fail((res.j&&res.j.error)||('Nepodařilo se uložit ('+res.s+').'));})
-    .catch(function(){fail('Nepodařilo se spojit se serverem.');});
+  // W (úsek na zakázce) — přes „Opravy docházky" (fix/polozka), ať se z úseků
+  // dopočítá i hlavička docházky a doplnění do fondu. C26 / Peťa 3.8.2026.
+  // Poznámka se ukládá starou cestou, protože fix/polozka ji neřeší — pořadí je
+  // schválně „nejdřív poznámka se STARÝMI časy, pak teprve oprava", aby staré
+  // uložení nepřepsalo to, co mezitím srovnala kaskáda.
+  var w_od=$('d_od_t').value, w_kon=$('d_kon_t').value;
+  var w_zak=($('d_zak').value||'').trim(), w_cin=$('d_cin').value||'';
+  var w_reason=($('d_reason').value||'').trim();
+  var w_curCin=(r._cin_id!=null?String(r._cin_id):'');
+  var w_zmena=(w_od!==(r._od_t||''))||(w_kon!==(r._kon_t||''))
+             ||(w_zak!==(r._zak||''))||(w_cin!==w_curCin);
+  var w_pozn=(($('d_pozn').value||'')!==(r._pozn||''));
+  if(!w_zmena&&!w_pozn){done();return;}
+  if(w_zmena&&!w_reason){
+    fail('Měníš čas / zakázku / činnost → vyplň Důvod opravy (povinné).');
+    try{$('d_reason').focus();}catch(_e){} return;
+  }
+  if(w_zmena&&(!w_od||!w_kon)){fail('Vyplň časy Začátek i Konec (HH:MM).');return;}
+  function wSavePozn(){
+    return _postJ('/api/v1/erp/app/dochazka-zak-tab/save',{kind:'W',id:r._id,
+      zakazka:(r._zak||''),cinnost_id:(r._cin_id!=null?r._cin_id:null),
+      od_d:r._od_d,od_t:(r._od_t||''),kon_d:r._kon_d,kon_t:(r._kon_t||''),
+      hodiny:(r._hod!=null?r._hod:''),poznamka:$('d_pozn').value});
+  }
+  function wFix(){
+    return _postJ('/api/v1/erp/app/attendance/fix/polozka',{id:r._id,action:'edit',
+      od:w_od,konec:w_kon,project_ref:w_zak,
+      cinnost_id:(w_cin?parseInt(w_cin,10):null),reason:w_reason});
+  }
+  (w_pozn?wSavePozn():Promise.resolve({s:200,j:{ok:true}})).then(function(r1){
+    if(!(r1.j&&r1.j.ok)){fail((r1.j&&r1.j.error)||'Poznámku se nepodařilo uložit.');return;}
+    if(!w_zmena){done();return;}
+    wFix().then(function(res){
+      if(res.j&&res.j.ok){done();return;}
+      var e=(res.j&&res.j.error)||('Oprava se nepovedla ('+res.s+').');
+      if(/bez vazby na doch/i.test(e))
+        e='Tenhle úsek zatím není navázaný na docházkový záznam, takže ho nejde opravit provázaně. Dej vědět a vazbu doplníme.';
+      fail(e);
+    }).catch(function(){fail('Nepodařilo se spojit se serverem.');});
+  }).catch(function(){fail('Nepodařilo se spojit se serverem.');});
 }
 
 // Obarvení JEDNOHO řádku bez překreslení celé tabulky (14k řádků) — kvůli rychlosti

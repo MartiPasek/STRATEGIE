@@ -59,6 +59,12 @@
   .dtab .ib.g{border-color:#22c55e}.dtab .ib.a{border-color:#f59e0b}
   .dtab tr.frow>td{background:#141b26;white-space:normal;padding:10px 12px}
   .dtab .sm{font-size:11px;color:#8fa3bd}
+  /* Peťa 3.8.2026: úseky rozpadu pastelově modrým písmem. Musí to být pravidlo
+     v šabloně, ne barva na řádku — .dtab .sm výše by ji jinak přebilo. */
+  .dtab tr.pol td, .dtab tr.pol td .sm{color:#8fbdf0}
+  /* proužek nad tabulkou, když rozpad na zakázky nesedí s docházkou */
+  .rozdil{margin:8px 0;padding:8px 10px;border-radius:8px;background:rgba(240,120,120,.12);
+          border:1px solid rgba(240,120,120,.45);color:#ffb4b4;font-size:12.5px}
   .dtab tr.gap td{border-bottom:1px dashed #2e3a4c;color:#8fa3bd;font-size:11.5px;padding:4px 8px;background:rgba(255,255,255,.015)}
   /* Peťa 21.7.2026: řádek Celkem přímo v tabulce dne */
   .dtab tr.sum td{border-top:2px solid #34506f;border-bottom:0;background:#1c2636;padding-top:9px}
@@ -477,6 +483,34 @@ function openDay(uid,name,day){
           abody+='<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(224,120,138,.35);color:#cbd6e6;font-size:12px;">📝 '+apozn.join('<br>📝 ')+'</div>';
         box.appendChild(el('<div style="background:rgba(224,120,138,.10);border:1px solid #e0788a;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;">'+abody+'</div>'));
       }
+      // ROZPAD NESEDÍ S PRACÍ (Peťa 3.8.2026) — pojistka proti ukliknutí při
+      // opravě úseku. U každého pracovního záznamu porovná jeho hodiny se
+      // součtem jeho úseků rozpadu; když se liší o víc než 0,02 h, napíše to
+      // rovnou nad tabulku. Peťa 3.8.: „když do něj sáhneme a uklikneme se, ať
+      // to hlásí" — u Dvořákové 27.7. stačila jedna minuta (7:40 vs 7:41) a den
+      // se rozešel o hodinu, což bez tohohle proužku nebylo vidět.
+      (function(){
+        var vady=[];
+        (j.entries||[]).forEach(function(e0){
+          if(e0.status==='superseded'||e0.code==='day_end'||e0.cat!=='presence')return;
+          if(e0.hours==null||!e0.kon)return;
+          var pol=e0.polozky||[];
+          if(!pol.length)return;              // úplně chybějící rozpad hlásí fronta jinde
+          var sum=0;
+          pol.forEach(function(p){sum+=(p.hours||0);});
+          var r=Math.round((e0.hours-sum)*100)/100;
+          if(Math.abs(r)>0.02)
+            vady.push('<b>'+esc((e0.zac||'?')+'–'+(e0.kon||'…'))+'</b> — práce '
+              +e0.hours.toFixed(2).replace('.',',')+' h, rozpad '
+              +sum.toFixed(2).replace('.',',')+' h ('
+              +(r>0?'chybí ':'přebývá ')+Math.abs(r).toFixed(2).replace('.',',')+' h)');
+        });
+        if(vady.length)
+          box.appendChild(el('<div class="rozdil"><b>⚠ Rozpad na zakázky nesedí s odpracovanou dobou</b><br>'
+            +vady.join('<br>')
+            +'<div style="margin-top:5px;color:#e6c9c9;font-size:11.5px;">Nejčastěji chybí kousek času mezi úseky '
+            +'— zkontroluj u nich začátky a konce.</div></div>'));
+      })();
       var afx=null;
       // Doplnění záznamu — z tlačítka i z řádku „mezera" (předvyplněné časy). Dušan 12.7.
       function openAdd(prefZ,prefK,prefTyp){
@@ -604,14 +638,16 @@ function openDay(uid,name,day){
         if(!gone&&!isDE&&e2.polozky&&e2.polozky.length){
           e2.polozky.forEach(function(p){
             var pr=document.createElement('tr');pr.className='pol';
-            pr.style.cssText='background:rgba(120,150,200,0.06);font-size:12px;';
-            pr.appendChild(tdc('<span class="sm" style="color:var(--mut);">↳ zakázka</span>','', 'padding-left:16px;'));
+            // Peťa 3.8.2026: úseky rozpadu mají pastelově modré PÍSMO, ať je na
+            // první pohled vidět, že patří pod docházkový řádek nad nimi.
+            pr.style.cssText='background:rgba(120,150,200,0.06);color:#8fbdf0;font-size:12px;';
+            pr.appendChild(tdc('<span class="sm">↳ zakázka</span>','', 'padding-left:16px;'));
             pr.appendChild(tdc(esc(p.od||''),'num'));
             pr.appendChild(tdc(esc(p.kon||''),'num'));
             pr.appendChild(tdc(p.hours!=null?fmtDec(p.hours):'','num','text-align:right;'));
             pr.appendChild(tdc(p.zak?('🧾 '+esc(p.zak)):''));
             pr.appendChild(tdc(p.cinnost?('🔧 '+esc(p.cinnost)):''));
-            pr.appendChild(tdc('<span class="sm" style="color:var(--mut);">rozpad</span>'));
+            pr.appendChild(tdc('<span class="sm">rozpad</span>'));
             var pAct=tdc('','','text-align:right;white-space:nowrap;');pr.appendChild(pAct);
             tb.appendChild(pr);
             var canP=(p.editable&&!j.locked&&p.pid);

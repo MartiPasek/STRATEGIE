@@ -62045,7 +62045,12 @@ async def erp_registry_run_ep(req: Request):
     Pristup dle g2007.python.min_pravo (clen/rodic/admin, per-radek). Auditovano
     do g2007.python_run_audit. C23 31.7.2026."""
     import time as _time
-    uid = _get_uid(req)
+    # Token (nativni appka, Bearer) I cookie (PWA) - _get_uid umel jen cookie,
+    # nativni appka dostavala 401 "Nejsi prihlasen" (C23 3.8.2026, Ridici centrum).
+    try:
+        uid = _uid_from_token_or_cookie(req)
+    except HTTPException:
+        uid = None
     if not uid:
         return JSONResponse({"ok": False, "error": "nejsi prihlasen"}, status_code=401)
     try:

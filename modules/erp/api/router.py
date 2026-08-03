@@ -9829,6 +9829,202 @@ async def app_hr_terminated(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Ukončení poměru (Šárka 3.8.2026): tlačítko datum+důvod → kaskáda A+B+C ──────
+# HPP/DPP jdou do mzdové větve (notifikace Petře + Helios _EXT ručně/později),
+# OSVČ jen ukončení smlouvy o dílo (bez mezd). Náhled (dry-run) → potvrdit → provést.
+_TERM_REASONS = [
+    {"code": "dohoda", "label": "Dohoda o rozvázání (§ 49)"},
+    {"code": "vypoved_zam", "label": "Výpověď daná zaměstnancem (§ 50)"},
+    {"code": "vypoved_zavatel", "label": "Výpověď daná zaměstnavatelem (§ 52)"},
+    {"code": "zkusebni", "label": "Zrušení ve zkušební době (§ 66)"},
+    {"code": "doba_urcita", "label": "Uplynutí doby určité (§ 65)"},
+    {"code": "okamzite", "label": "Okamžité zrušení (§ 55 / § 56)"},
+    {"code": "umrti", "label": "Úmrtí zaměstnance"},
+    {"code": "osvc_ukonceni", "label": "Ukončení rámcové smlouvy o dílo (OSVČ)"},
+    {"code": "jine", "label": "Jiné"},
+]
+_TERM_REASON_MAP = {r["code"]: r["label"] for r in _TERM_REASONS}
+
+
+def _term_plan(s, tuid, typ):
+    """Spočítá, co ukončení daného typu poměru u člověka udělá (bez zápisu)."""
+    from sqlalchemy import text as _t
+    _WH = "" if typ == "vse" else " AND lower(e.engagement_type)=:typ "
+    par = {"u": tuid}
+    if typ != "vse":
+        par["typ"] = typ
+    close = s.execute(_t(
+        "SELECT e.id, upper(COALESCE(e.engagement_type,'')), COALESCE(jp.label,e.pozice_text,''), "
+        " CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' WHEN 2 THEN 'EUROSOFT - System' END "
+        "FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+        "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+        "WHERE ae.user_id=:u AND e.tenant_id=2 AND e.is_current=true "
+        "  AND (e.smlouva_do IS NULL OR e.smlouva_do >= CURRENT_DATE)" + _WH), par).fetchall()
+    close_ids = [int(r[0]) for r in close]
+    # zůstane po ukončení jiný živý poměr?
+    other = s.execute(_t(
+        "SELECT count(*) FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+        "WHERE ae.user_id=:u AND e.tenant_id=2 AND e.is_current=true "
+        "  AND (e.smlouva_do IS NULL OR e.smlouva_do >= CURRENT_DATE) "
+        "  AND e.id <> ALL(:ids)"), {"u": tuid, "ids": (close_ids or [-1])}).scalar()
+    is_approver = bool(s.execute(_t(
+        "SELECT 1 FROM tenant.att_approver ap JOIN tenant.att_employee ae ON ae.id=ap.employee_id AND ae.tenant_id=2 "
+        "WHERE ae.user_id=:u AND ap.tenant_id=2 AND COALESCE(ap.aktivni,true)=true "
+        "UNION SELECT 1 FROM tenant.att_odpovednost o WHERE o.tenant_id=2 AND o.odpovedny_user_id=:u AND o.aktivni=true "
+        "LIMIT 1"), {"u": tuid}).first())
+    assets = int(s.execute(_t(
+        "SELECT count(*) FROM tenant.employee_asset WHERE tenant_id=2 AND user_id=:u AND vraceno_dne IS NULL"),
+        {"u": tuid}).scalar() or 0)
+    return {
+        "engagementy": [{"id": r[0], "typ": r[1], "pozice": r[2], "firma": r[3]} for r in close],
+        "close_ids": close_ids,
+        "plne_ukonceni": (int(other or 0) == 0),
+        "je_schvalovatel": is_approver,
+        "majetek_nevraceno": assets,
+    }
+
+
+@api_router.get("/app/hr/terminate-meta")
+async def app_hr_terminate_meta(req: Request) -> JSONResponse:
+    """Číselník důvodů ukončení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return JSONResponse({"ok": True, "duvody": _TERM_REASONS})
+
+
+@api_router.get("/app/hr/terminate-preview")
+async def app_hr_terminate_preview(req: Request) -> JSONResponse:
+    """Náhled — co ukončení udělá (bez zápisu)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    typ = (req.query_params.get("typ") or "vse").strip().lower()
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        plan = _term_plan(s, tuid, typ)
+        return JSONResponse({"ok": True, "plan": plan})
+    except Exception as exc:
+        logger.exception("[hr_terminate_preview] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/terminate")
+async def app_hr_terminate(req: Request) -> JSONResponse:
+    """Provede ukončení poměru — kaskáda A+B+C v jedné transakci + notifikace Petře.
+    Helios: datum odchodu do TabCisZam_EXT řeší/finalizuje mzdová účetní (notifikace)."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    tuid = int((b or {}).get("uid") or 0)
+    typ = str((b or {}).get("typ") or "vse").strip().lower()
+    duvod = str((b or {}).get("duvod") or "").strip()
+    pozn = (str((b or {}).get("poznamka") or "").strip() or None)
+    try:
+        datum = _dt.date.fromisoformat(str((b or {}).get("datum") or "")[:10])
+    except Exception:
+        datum = None
+    if not tuid or not datum or duvod not in _TERM_REASON_MAP:
+        return JSONResponse({"ok": False, "error": "Chybí zaměstnanec, datum nebo platný důvod."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        plan = _term_plan(s, tuid, typ)
+        if not plan["close_ids"]:
+            return JSONResponse({"ok": False, "error": "Žádný živý poměr daného typu k ukončení."}, status_code=400)
+        who = _self_person_name(s, uid) or ("HR #" + str(uid))
+        jmeno = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),''),"
+            " (SELECT full_name FROM tenant.att_employee ae WHERE ae.user_id=:u AND ae.tenant_id=2 LIMIT 1),'#'||:u::text) "
+            "FROM public.users WHERE id=:u"), {"u": tuid}).scalar() or ("#" + str(tuid))
+        label = _TERM_REASON_MAP[duvod]
+        pozn_full = ("Ukončení " + datum.strftime("%d.%m.%Y") + ": " + label + (" — " + pozn if pozn else ""))
+        ids = plan["close_ids"]
+        effective = (datum <= _dt.date.today())
+        full = plan["plne_ukonceni"]
+
+        # A) uzávěrka poměrů
+        s.execute(_t(
+            "UPDATE tenant.engagement SET smlouva_do=:d, valid_to=:d, "
+            " note=COALESCE(note,'')||' | '||:pf, changed_by_text=:by, changed_at=now() "
+            "WHERE id = ANY(:ids) AND tenant_id=2"),
+            {"d": datum, "pf": pozn_full, "by": who, "ids": ids})
+        # zastavit opakované mzdové pohyby
+        s.execute(_t(
+            "UPDATE tenant.wage_movement SET valid_to=:d WHERE tenant_id=2 AND engagement_id = ANY(:ids) "
+            "  AND COALESCE(is_recurring,false)=true AND (valid_to IS NULL OR valid_to > :d)"),
+            {"d": datum, "ids": ids})
+        # benefity → offboarding příznak
+        try:
+            s.execute(_t(
+                "UPDATE tenant.benefit_award SET offboarding_flag=true, offboarding_at=now(), "
+                " offboarding_poznamka=:pf WHERE tenant_id=2 AND user_id=:u AND COALESCE(offboarding_flag,false)=false"),
+                {"pf": pozn_full, "u": tuid})
+        except Exception:
+            pass
+
+        # B/C) plné ukončení (jen když je to poslední poměr a datum je nejpozději dnes)
+        if full and effective:
+            s.execute(_t("UPDATE tenant.att_employee SET is_active=false, updated_at=now() WHERE user_id=:u AND tenant_id=2"), {"u": tuid})
+            s.execute(_t("UPDATE public.user_tenants SET membership_status='archived', left_at=:d, updated_at=now() "
+                         "WHERE user_id=:u AND tenant_id=2"), {"u": tuid, "d": datum})
+            s.execute(_t("UPDATE public.users SET status='inactive', updated_at=now() WHERE id=:u AND status<>'inactive'"), {"u": tuid})
+            s.execute(_t("UPDATE tenant.org_post_assign SET aktivni=false, platnost_do=:d, updated_at=now() "
+                         "WHERE tenant_id=2 AND aktivni=true AND employee_id IN "
+                         "(SELECT id FROM tenant.att_employee WHERE user_id=:u AND tenant_id=2)"), {"u": tuid, "d": datum})
+            s.execute(_t("UPDATE tenant.att_approver SET aktivni=false WHERE tenant_id=2 AND COALESCE(aktivni,true)=true "
+                         "AND employee_id IN (SELECT id FROM tenant.att_employee WHERE user_id=:u AND tenant_id=2)"), {"u": tuid})
+            s.execute(_t("UPDATE tenant.att_odpovednost SET aktivni=false, changed_by=:by, changed_at=now() "
+                         "WHERE tenant_id=2 AND aktivni=true AND (odpovedny_user_id=:u OR user_id=:u)"),
+                      {"u": tuid, "by": uid})
+        s.commit()
+
+        # notifikace Petře (mzdy) + HR — best-effort
+        pozvanka = False
+        try:
+            prijemci = set(_self_hr_recipients(s))
+            petra = s.execute(_t("SELECT id FROM public.users WHERE first_name ILIKE 'Petra' AND last_name ILIKE 'Šafr%' LIMIT 1")).scalar()
+            if petra:
+                prijemci.add(int(petra))
+            titul = "Ukončení poměru: " + jmeno
+            zprava = (jmeno + " — " + (typ.upper() if typ != "vse" else "všechny poměry") + ", ukončení k "
+                      + datum.strftime("%d.%m.%Y") + ", důvod: " + label + ". "
+                      + ("Prosím dokonči v Heliosu (odhlášky, dopočet dovolené, odstupné, ELDP, zápočtový list)."
+                         if typ in ("hpp", "dpp", "vse") else "OSVČ — bez mezd."))
+            _abs_notify(s, [p for p in prijemci if p != uid], titul, zprava)
+            s.commit()
+            pozvanka = True
+        except Exception as _ne:
+            logger.warning("[terminate notify] %s", _ne)
+
+        return JSONResponse({"ok": True, "jmeno": jmeno, "datum": datum.strftime("%d.%m.%Y"),
+                             "uzavreno_pomeru": len(ids), "plne_ukonceni": full, "ucinne_hned": effective,
+                             "byl_schvalovatel": plan["je_schvalovatel"], "majetek_nevraceno": plan["majetek_nevraceno"],
+                             "notifikace": pozvanka})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_terminate] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Fotky zaměstnanců (Šárka 21.7.2026) ─────────────────────────────────────
 # Úložiště: tenant.employee_photo (bytea, MIMO git – nezveřejní se). Routa jen
 # pro přihlášené (foto = osobní údaj, GDPR). Vlastník vidí/nahrává svou fotku;

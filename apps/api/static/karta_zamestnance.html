@@ -711,7 +711,7 @@ function renderPU(edit){
   let h=pheadHTML(p)+
     '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730">'+
     '<span style="font-weight:800;color:#e8eef5">💼 Pracovní údaje</span>'+
-    '<span style="display:flex;gap:14px">'+back+btn+'</span></div>';
+    '<span style="display:flex;gap:14px">'+(edit?'':'<a href="#" onclick="termOpen('+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🚫 Ukončit poměr</a>')+back+btn+'</span></div>';
   const rRO=(lab,val)=>'<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lab+'</td><td style="padding:5px 16px;color:#e8eef5">'+(val?esc(val):'<span style="color:#5d6b7c">—</span>')+'</td></tr>';
   const rIN=(lab,k,val,eid)=>'<tr><td style="color:#7f8ea0;padding:5px 16px;white-space:nowrap;vertical-align:top">'+lab+'</td><td style="padding:5px 16px"><input data-eid="'+eid+'" data-k="'+k+'" value="'+esc(val||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:5px 8px;font:inherit"></td></tr>';
   const grp=(t)=>'<div style="padding:10px 16px 3px;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">'+t+'</div>';
@@ -761,6 +761,60 @@ async function pracUdajeSave(){
     let d={}; try{ d=await r.json(); }catch(e){}
     if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }
   }
+  pracUdaje();
+}
+
+// Šárka 3.8.2026: Ukončení poměru — náhled → potvrdit → kaskáda + notifikace Petře
+const _TIN='width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit';
+let TERM_UID=null;
+async function termOpen(uid){
+  TERM_UID=uid;
+  const meta=await j(API+'/app/hr/terminate-meta'); const duvody=(meta.duvody||[]);
+  let ov=document.getElementById('termOv');
+  if(!ov){ ov=document.createElement('div'); ov.id='termOv'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50'; document.body.appendChild(ov); }
+  ov.innerHTML='<div style="background:#161c24;border:1px solid #233040;border-radius:12px;padding:18px;width:min(520px,94vw);color:#cdd6e2;max-height:92vh;overflow:auto">'+
+    '<div style="font-weight:800;color:#e8eef5;font-size:16px;margin-bottom:4px">🚫 Ukončit pracovní poměr</div>'+
+    '<div style="color:#7f8ea0;font-size:12px;margin-bottom:12px">Zadej datum a důvod. Nejdřív uvidíš náhled, co se stane, pak potvrdíš.</div>'+
+    '<label style="font-size:12px;color:#7f8ea0">Který poměr<select id="term_typ" style="'+_TIN+'"><option value="vse">Všechny poměry</option><option value="hpp">jen HPP</option><option value="dpp">jen DPP</option><option value="osvc">jen OSVČ</option></select></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block;margin-top:8px">Datum ukončení<input id="term_datum" type="date" style="'+_TIN+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block;margin-top:8px">Důvod<select id="term_duvod" style="'+_TIN+'">'+duvody.map(d=>'<option value="'+esc(d.code)+'">'+esc(d.label)+'</option>').join('')+'</select></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block;margin-top:8px">Poznámka<input id="term_pozn" style="'+_TIN+'"></label>'+
+    '<div id="term_prev" style="margin-top:12px;font-size:12.5px"></div>'+
+    '<div style="display:flex;gap:10px;align-items:center;margin-top:14px">'+
+      '<button onclick="termPreview()" style="border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer">Náhled</button>'+
+      '<button id="term_go" onclick="termCommit()" disabled style="border:1px solid #5a2a26;background:#7a2e28;color:#ffd9d2;border-radius:8px;padding:8px 14px;font:inherit;font-weight:800;cursor:pointer;opacity:.5">Ukončit poměr</button>'+
+      '<a href="#" onclick="var o=document.getElementById(\'termOv\');if(o)o.remove();return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+      '<span id="term_msg" style="font-size:12px;margin-left:auto"></span>'+
+    '</div></div>';
+}
+async function termPreview(){
+  const typ=document.getElementById('term_typ').value;
+  const d=await j(API+'/app/hr/terminate-preview?uid='+TERM_UID+'&typ='+typ);
+  const box=document.getElementById('term_prev'), go=document.getElementById('term_go');
+  if(!d.ok){ box.innerHTML='<span style="color:#ff8a7a">'+esc(d.error||'')+'</span>'; return; }
+  const p=d.plan;
+  if(!(p.engagementy||[]).length){ box.innerHTML='<span style="color:#E0A94A">Žádný živý poměr daného typu k ukončení.</span>'; go.disabled=true; go.style.opacity=.5; return; }
+  const h='<div style="border:1px solid #233040;border-radius:8px;padding:10px;background:#12181f">'+
+    '<div style="color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase">Co se stane:</div>'+
+    '<div style="margin-top:4px">• Uzavře se '+p.engagementy.length+' poměr(ů): '+p.engagementy.map(e=>esc(e.typ+(e.pozice?' – '+e.pozice:''))).join(', ')+'</div>'+
+    '<div>• '+(p.plne_ukonceni?'<b>Plné ukončení</b> — archivace členství, deaktivace účtu, odchod z org struktury':'Zůstává jiný živý poměr — člověk zůstává aktivní')+'</div>'+
+    (p.je_schvalovatel?'<div style="color:#E0A94A">⚠️ Je schvalovatel/odpovědný — schvalování se deaktivuje, přiřaď náhradníka.</div>':'')+
+    (p.majetek_nevraceno>0?'<div style="color:#E0A94A">⚠️ Nevrácený majetek: '+p.majetek_nevraceno+' položek — vyřeš ve Svěřeném majetku.</div>':'')+
+    '<div style="color:#7f8ea0;margin-top:4px">Mzdy: cinkne se Petře na dokončení v Heliosu.</div></div>';
+  box.innerHTML=h; go.disabled=false; go.style.opacity=1;
+}
+async function termCommit(){
+  const msg=document.getElementById('term_msg');
+  const datum=document.getElementById('term_datum').value;
+  if(!datum){ msg.style.color='#E0A94A'; msg.textContent='Vyber datum.'; return; }
+  const body={uid:TERM_UID,typ:document.getElementById('term_typ').value,datum:datum,duvod:document.getElementById('term_duvod').value,poznamka:document.getElementById('term_pozn').value.trim()};
+  if(!confirm('Opravdu ukončit poměr k '+datum+'? Provede se kaskáda a cinkne se Petře.')) return;
+  msg.style.color='#7f8ea0'; msg.textContent='Ukončuji…';
+  const r=await fetch(API+'/app/hr/terminate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
+  const o=document.getElementById('termOv'); if(o)o.remove();
+  alert('Poměr ukončen k '+d.datum+'.'+(d.plne_ukonceni?' Plné ukončení.':'')+(d.byl_schvalovatel?' Byl schvalovatel — přiřaď náhradníka.':'')+(d.majetek_nevraceno>0?(' Nevrácený majetek: '+d.majetek_nevraceno+'.'):''));
   pracUdaje();
 }
 

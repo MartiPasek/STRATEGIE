@@ -261,212 +261,24 @@ def dochazka_zak_tab_zakazky(req: Request) -> JSONResponse:
 
 
 # ── Kontrolní přehledy (soudek „Kontrolní přehledy" pod Docházkou) ──────────
-# report=fpd     → Hlídání FPD (HPP): odpracováno vs má-být (úvazek×prac.dny), chybí>0.
-# report=prekryv → Překrytá docházka: časové překryvy záznamů téhož člověka.
-# Vzor přehledů 1088 / 1084 z Centrály. Odpracováno = vyroba_work (práce+režie) +
-# placená absence (dovolená/nemoc…). POZN.: výpočet hodin sjednotí Jirka (viz jeho
-# nález o rozdílných výpočtech) — pak se sem napojíme; zatím vlastní výpočet.
-_KONTROLA_FPD_SQL = """
-WITH per AS (
-  SELECT (CASE WHEN extract(day FROM current_date) < 13
-            THEN date_trunc('month', current_date) - interval '1 month'
-            ELSE date_trunc('month', current_date) END)::date AS m_od),
-p AS (SELECT m_od, LEAST(current_date, (m_od + interval '1 month')::date) AS ke_dni FROM per),
-pracdny AS (SELECT count(*) AS pocet FROM tenant.att_calendar_day cd, p
-  WHERE cd.tenant_id=2 AND cd.is_workday AND COALESCE(cd.is_holiday,false)=false
-    AND cd.day >= p.m_od AND cd.day < p.ke_dni),
-base AS (
-  SELECT em.cislo_zam, em.full_name,
-    (COALESCE((SELECT sum(w.hodiny) FROM tenant.vyroba_work w, p
-        WHERE w.tenant_id=2 AND w.user_id=em.user_id AND w.is_active
-          AND w.datum >= p.m_od AND w.datum < p.ke_dni),0)
-     + COALESCE((SELECT sum(e.hours) FROM tenant.att_entry e
-          JOIN tenant.att_entry_type et ON et.id=e.entry_type_id, p
-        WHERE e.tenant_id=2 AND e.employee_id=em.id AND et.category='absence' AND et.is_paid
-          AND COALESCE(e.status,'')<>'superseded'
-          AND e.entry_date >= p.m_od AND e.entry_date < p.ke_dni),0)) AS odpracovano,
-    (SELECT pocet FROM pracdny) AS prac_dny,
-    (g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0)) AS hod_den
-  FROM tenant.att_employee em
-  JOIN tenant.engagement g ON g.employee_id=em.id AND g.tenant_id=2 AND g.is_current=true
-  LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id
-  WHERE em.tenant_id=2 AND UPPER(COALESCE(g.engagement_type,''))='HPP'
-    AND g.uvazek_tyden_h IS NOT NULL
-    AND em.cislo_zam NOT IN ('21','41','15','2','47','361'))
-SELECT full_name AS "JmenoPrijmeni", cislo_zam AS "CisloZam",
-       round(odpracovano::numeric,2) AS "Odpracovano",
-       prac_dny AS "PracDny", round(hod_den::numeric,2) AS "HodDen",
-       round((hod_den*prac_dny)::numeric,2) AS "MaByt",
-       round((hod_den*prac_dny - odpracovano)::numeric,2) AS "Chybi",
-       extract(month FROM (SELECT m_od FROM per))::int AS "Mesic",
-       to_char((SELECT ke_dni FROM p) - 1,'DD.MM.YYYY') AS "KeDni"
-FROM base
-WHERE (hod_den*prac_dny - odpracovano) > 0.01
-ORDER BY (hod_den*prac_dny - odpracovano) DESC
-"""
-
-_KONTROLA_PREKRYV_SQL = """
-WITH prace AS (
-  SELECT w.id, w.cislo_zam, COALESCE(em.full_name,'Zam '||w.cislo_zam) AS jmeno, w.od, w.konec
-  FROM tenant.vyroba_work w
-  LEFT JOIN tenant.att_employee em ON em.tenant_id=2 AND em.user_id=w.user_id
-  WHERE w.tenant_id=2 AND w.is_active AND w.od IS NOT NULL AND w.konec IS NOT NULL
-    AND w.datum >= '2026-01-01'),
-prc AS (
-  SELECT DISTINCT a.id, 'práce × práce' AS typ, a.cislo_zam, a.jmeno, a.od, a.konec
-  FROM prace a JOIN prace b
-    ON b.id<>a.id AND b.cislo_zam=a.cislo_zam AND b.od >= a.od AND b.od < a.konec),
-pauzy AS (
-  SELECT e.id, e.employee_id, em.cislo_zam, COALESCE(em.full_name,'Zam '||em.cislo_zam) AS jmeno,
-         e.started_at AS od, e.ended_at AS konec
-  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id
-  JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=2
-  WHERE e.tenant_id=2 AND et.code='break' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL
-    AND COALESCE(e.status,'')<>'superseded' AND e.entry_date >= '2026-01-01'),
-prp AS (
-  SELECT DISTINCT a.id, 'přestávka × přestávka' AS typ, a.cislo_zam, a.jmeno, a.od, a.konec
-  FROM pauzy a JOIN pauzy b
-    ON b.id<>a.id AND b.employee_id=a.employee_id AND b.od >= a.od AND b.od < a.konec)
-SELECT typ AS "Typ", cislo_zam AS "CisloZam", jmeno AS "JmenoPrijmeni",
-       to_char(od,'DD.MM.YYYY HH24:MI') AS "Zacatek",
-       to_char(konec,'DD.MM.YYYY HH24:MI') AS "Konec"
-FROM (SELECT * FROM prc UNION ALL SELECT * FROM prp) x
-ORDER BY "JmenoPrijmeni", od DESC
-"""
-
-# report=rozpad → Docházka × rozpad: sedí součet hodin za den v tenant.att_entry
-# (co vidí Opravy docházky) s tenant.vyroba_work (co vidí Docházka new)? Zadala Týnka
-# 31.7.2026 („ať máme kontrolu, a doufám, že se to dít nebude"). Prázdný přehled = OK.
-# Období: rolující 2 měsíce, ale NIKDY před 1.7.2026 — leden–květen jsou z Centrály
-# jiným postupem a červen je přechodový, tam by srovnání jen šumělo.
-# Dnešek vynechán schválně (rozdělané směny nejsou chyba).
-_KONTROLA_ROZPAD_SQL = """
-WITH obd AS (
-  -- Peťa 31.7.2026: stačí BĚŽÍCÍ měsíc — starší je ve mzdách a zamčený. Předchozí
-  -- měsíc se ale ukáže, dokud zamčený NENÍ (přelom měsíce: 1.8. ještě potřebuješ
-  -- vidět červenec, než ho zamkneš). Nikdy před 1.7.2026 (dřív se jelo z Centrály).
-  SELECT GREATEST(
-           CASE WHEN EXISTS (SELECT 1 FROM tenant.att_period_lock l
-                              WHERE l.tenant_id=2
-                                AND make_date(l.rok, l.mesic, 1)
-                                    = (date_trunc('month', current_date) - interval '1 month')::date)
-                THEN date_trunc('month', current_date)::date
-                ELSE (date_trunc('month', current_date) - interval '1 month')::date END,
-           DATE '2026-07-01') AS od,
-         (current_date - 1) AS do),
-vw AS (
-  SELECT em.user_id, w.datum, sum(COALESCE(w.hodiny,0)) AS h
-  FROM tenant.vyroba_work w
-  JOIN tenant.att_employee em ON em.tenant_id=2 AND em.user_id=w.user_id, obd
-  WHERE w.tenant_id=2 AND w.is_active AND w.datum BETWEEN obd.od AND obd.do
-  GROUP BY em.user_id, w.datum),
-ae AS (
-  SELECT em.user_id, e.entry_date AS datum, sum(COALESCE(e.hours,0)) AS h,
-         bool_or(COALESCE(e.note,'') ILIKE '%auto-odhlášení%'
-                 AND to_char(e.ended_at,'HH24:MI')='23:59') AS auto_konec
-  FROM tenant.att_entry e
-  JOIN tenant.att_entry_type et ON et.id=e.entry_type_id AND et.category='presence'
-  JOIN tenant.att_employee em ON em.id=e.employee_id AND em.tenant_id=2, obd
-  WHERE e.tenant_id=2 AND et.code IN ('work','overhead','homeoffice')
-    AND COALESCE(e.status,'') <> 'superseded' AND COALESCE(e.source,'') <> 'plan_ec'
-    AND e.entry_date BETWEEN obd.od AND obd.do
-  GROUP BY em.user_id, e.entry_date),
-spolu AS (
-  SELECT COALESCE(vw.user_id, ae.user_id) AS user_id,
-         COALESCE(vw.datum, ae.datum) AS datum,
-         round(COALESCE(vw.h,0)::numeric,2) AS h_vw,
-         round(COALESCE(ae.h,0)::numeric,2) AS h_ae,
-         COALESCE(ae.auto_konec,false) AS auto_konec
-  FROM vw FULL OUTER JOIN ae ON ae.user_id=vw.user_id AND ae.datum=vw.datum)
-SELECT (SELECT COALESCE(em.full_name,'Zam '||em.cislo_zam) FROM tenant.att_employee em
-         WHERE em.tenant_id=2 AND em.user_id=spolu.user_id LIMIT 1)     AS "JmenoPrijmeni",
-       (SELECT em.cislo_zam FROM tenant.att_employee em
-         WHERE em.tenant_id=2 AND em.user_id=spolu.user_id LIMIT 1)     AS "CisloZam",
-       to_char(datum,'DD.MM.YYYY')                                      AS "Den",
-       h_ae                                                             AS "Dochazka",
-       h_vw                                                             AS "Rozpad",
-       round(h_vw - h_ae, 2)                                            AS "Rozdil",
-       CASE WHEN auto_konec THEN 'zapomenutý odchod — konec dopsal automat'
-            WHEN h_vw = 0   THEN 'rozpad na zakázky chybí úplně'
-            WHEN h_ae = 0   THEN 'rozpad je, ale docházka k němu chybí'
-            WHEN h_vw > h_ae THEN 'rozpad má hodiny navíc'
-            ELSE 'rozpad má míň než docházka' END                       AS "Co"
-FROM spolu
-WHERE abs(h_vw - h_ae) > 0.1
-ORDER BY abs(h_vw - h_ae) DESC, datum DESC
-"""
-
-_KONTROLA_COLS = {
-    "rozpad": [
-        {"k": "JmenoPrijmeni", "h": "Příjmení Jméno", "w": 180},
-        {"k": "CisloZam", "h": "Číslo", "w": 60, "r": 1, "num": 1},
-        {"k": "Den", "h": "Den", "w": 100},
-        {"k": "Dochazka", "h": "Docházka (Opravy)", "w": 120, "r": 1, "num": 1},
-        {"k": "Rozpad", "h": "Rozpad (Docházka new)", "w": 140, "r": 1, "num": 1},
-        {"k": "Rozdil", "h": "Rozdíl", "w": 90, "r": 1, "num": 1},
-        {"k": "Co", "h": "Co se stalo", "w": 260},
-    ],
-    "fpd": [
-        {"k": "JmenoPrijmeni", "h": "Příjmení Jméno", "w": 170},
-        {"k": "CisloZam", "h": "Číslo", "w": 60, "r": 1, "num": 1},
-        {"k": "Odpracovano", "h": "Odpracováno", "w": 100, "r": 1, "num": 1},
-        {"k": "PracDny", "h": "Prac. dny", "w": 70, "r": 1, "num": 1},
-        {"k": "HodDen", "h": "Hod/den", "w": 70, "r": 1, "num": 1},
-        {"k": "MaByt", "h": "Má být", "w": 90, "r": 1, "num": 1},
-        {"k": "Chybi", "h": "Chybí odpracovat", "w": 120, "r": 1, "num": 1},
-        {"k": "Mesic", "h": "Měsíc", "w": 56, "r": 1, "num": 1},
-        {"k": "KeDni", "h": "Ke dni", "w": 92},
-    ],
-    "prekryv": [
-        {"k": "Typ", "h": "Typ překryvu", "w": 150},
-        {"k": "CisloZam", "h": "Číslo", "w": 60, "r": 1, "num": 1},
-        {"k": "JmenoPrijmeni", "h": "Příjmení Jméno", "w": 180},
-        {"k": "Zacatek", "h": "Začátek", "w": 130},
-        {"k": "Konec", "h": "Konec", "w": 130},
-    ],
-}
-_KONTROLA_TITLE = {"fpd": "Hlídání FPD (HPP)", "prekryv": "Překrytá docházka",
-                   "rozpad": "Docházka × rozpad (nesedící součty)"}
+# report=fpd | prekryv | rozpad. SQL, sloupce i názvy ŽIJÍ V DATABÁZI
+# (g2007.python, kod=dochazka_kontrola_data) — migrováno 3. 8. 2026 (Claude-26 / Peťa).
+# Tady zůstal jen tenký delegate níže. Úpravy dělej v DB, ne tady.
 
 
 @doch_zak_tab_router.get("/app/dochazka-kontrola/data")
 def dochazka_kontrola_data(req: Request) -> JSONResponse:
-    """Kontrolní přehledy: report=fpd | prekryv. Vrací columns + rows (jen čte, PG)."""
+    """DB-driven delegate (g2007.python kod=dochazka_kontrola_data). Původní tělo i SQL
+    konstanty (_KONTROLA_FPD_SQL / _PREKRYV_SQL / _ROZPAD_SQL / _COLS / _TITLE) migrovány
+    do DB 3. 8. 2026 (Claude-26 / Peťa) podle nového způsobu práce „kód žije v databázi"
+    (Marti 2. 8. 2026). Změna reportu se teď dělá v `g2007.python`, ne tady — a projeví se
+    bez deploye a bez restartu. Konvence: klíč '_status_code' v odpovědi = HTTP status."""
     from modules.erp.api.router import _uid_from_token_or_cookie
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _dzt_can(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    report = (req.query_params.get("report") or "fpd").strip().lower()
-    if report not in ("fpd", "prekryv", "rozpad"):
-        return JSONResponse({"ok": False, "error": "neznámý report"}, status_code=400)
-    sql = {"fpd": _KONTROLA_FPD_SQL, "prekryv": _KONTROLA_PREKRYV_SQL,
-           "rozpad": _KONTROLA_ROZPAD_SQL}[report]
-    from sqlalchemy import text as _t
-    try:
-        from core.database_data import get_data_session as _g
-        s = _g()
-        try:
-            rows = s.execute(_t(sql)).mappings().all()
-        finally:
-            s.close()
-        from decimal import Decimal as _D
-        import datetime as _dt
-
-        def _conv(v):
-            if isinstance(v, _D):
-                return float(v)
-            if isinstance(v, (_dt.date, _dt.datetime)):
-                return v.isoformat()
-            return v
-        out = [{k: _conv(v) for k, v in dict(r).items()} for r in rows]
-        return JSONResponse({"ok": True, "report": report,
-                             "title": _KONTROLA_TITLE[report],
-                             "columns": _KONTROLA_COLS[report],
-                             "pocet": len(out), "rows": out})
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("dochazka_kontrola_data", uid, req.query_params.get("report"))
+    sc = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=sc)
 
 
 @doch_zak_tab_router.get("/app/dochazka-zak-tab/zamestnanci")

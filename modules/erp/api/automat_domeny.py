@@ -74,6 +74,59 @@ def _check_poptavky_status(sg):
     return "ok", zprava, total, status_block
 
 
+def _check_martinky_sweeper(sg):
+    """Watchdog + status Martinek (Smer 2, C23 3.8.2026 vecer). RYCHLY check:
+    1) precte pocty ukolu/potreb (SQL, nic pomaleho),
+    2) zapise status_block do g2007.automat (kod='martinky_sweeper'),
+    3) kdyz existuji ukoly 'zadan' nebo zaseknute 'bezi', odpali martinka_dispatch
+       v DAEMON THREADU (fire-and-forget) - dispatch sam umi sweep, jistic i beh;
+       runner automatu se NEblokuje (behy trvaji minuty)."""
+    from sqlalchemy import text as T
+
+    pocty = {r[0]: r[1] for r in sg.execute(T(
+        "SELECT stav, count(*) FROM g2007.ukol GROUP BY stav")).fetchall()}
+    potreb = sg.execute(T(
+        "SELECT count(*) FROM g2007.ukol_potreba WHERE stav='otevrena'")).scalar() or 0
+    zasekle = sg.execute(T(
+        "SELECT count(*) FROM g2007.ukol WHERE stav='bezi' "
+        "AND posledni_beh_at < now() - interval '30 minutes'")).scalar() or 0
+    nezarazene = pocty.get("nezarazen", 0)
+    fronta = pocty.get("zadan", 0)
+
+    lines = ["[STAV MARTINEK - cerstvy prave ted]",
+             "Ukoly: " + (", ".join("%s=%s" % (k, v) for k, v in sorted(pocty.items())) or "zadne"),
+             "Otevrene potreby (cekaji na lidi/Maminku): %d" % potreb,
+             "Zaseknute behy (>30 min): %d" % zasekle]
+    status_block = "\n".join(lines)
+    try:
+        sg.execute(T("UPDATE g2007.automat SET status_block=:sb, status_block_updated_at=now() "
+                     "WHERE kod='martinky_sweeper'"), {"sb": status_block})
+    except Exception as e:  # noqa: BLE001
+        _log.warning("_check_martinky_sweeper: zapis status_block selhal: %s", e)
+
+    if fronta or zasekle or nezarazene:
+        try:
+            import threading
+
+            def _kick():
+                try:
+                    from modules.erp.api import erp_registry as _ereg
+                    if nezarazene:
+                        _ereg.call("maminka_pridel", None, None)
+                    _ereg.call("martinka_dispatch", None, None)
+                except Exception as e2:  # noqa: BLE001
+                    _log.warning("martinky_sweeper kick selhal: %s", e2)
+            threading.Thread(target=_kick, daemon=True).start()
+        except Exception as e:  # noqa: BLE001
+            _log.warning("martinky_sweeper thread selhal: %s", e)
+
+    zprava = "ukolu=%d, fronta=%d, nezarazene=%d, potreb=%d, zasekle=%d%s" % (
+        sum(pocty.values()), fronta, nezarazene, potreb, zasekle,
+        " -> dispatch kick" if (fronta or zasekle or nezarazene) else "")
+    return "ok", zprava, sum(pocty.values()), status_block
+
+
 DOMAIN_CHECKS = {
     "poptavky_status": _check_poptavky_status,
+    "martinky_sweeper": _check_martinky_sweeper,
 }

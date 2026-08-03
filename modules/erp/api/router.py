@@ -62056,6 +62056,9 @@ async def erp_registry_run_ep(req: Request):
     args = (b or {}).get("args") or []
     if not kod or not isinstance(args, list):
         return JSONResponse({"ok": False, "error": "chybi kod nebo args neni pole"}, status_code=200)
+    # "__uid__" placeholder v args -> skutecne uid volajiciho (C23 3.8.2026, pro UI Martinek:
+    # skripty dostanou realneho zadavatele misto null; zpetne kompatibilni - jine hodnoty nedotcene).
+    args = [uid if (isinstance(_a, str) and _a == "__uid__") else _a for _a in args]
 
     from core.database_data import get_data_session as _gd_run
     from sqlalchemy import text as _t_run

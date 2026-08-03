@@ -1724,6 +1724,17 @@ def dochazka_kontrola_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/dochazka-narok")
+def dochazka_narok_page():
+    """Nárok a čerpání dovolené (D / DN / SD) — jedna obrazovka, v hodinách.
+    Data z /app/dochazka-narok/data, logika žije v g2007.python (att_narok_cerpani).
+    Zadala Peťa 3.8.2026. XFO/CSP pro ERP iframe."""
+    return FileResponse(os.path.join(static_dir, "dochazka-narok.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/moje-dochazka")
 def moje_dochazka_page():
     """Vlastní historie docházky s rozpadem po zakázkách (self-scoped) pro mobilní

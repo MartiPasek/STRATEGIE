@@ -281,6 +281,26 @@ def dochazka_kontrola_data(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=sc)
 
 
+# ── Nárok a čerpání dovolené (D / DN / SD) ─────────────────────────────────
+# Celá logika (SQL, dělení D×DN, zaokrouhlení, sloupce) ŽIJE V DATABÁZI
+# (g2007.python, kod=att_narok_cerpani) — Peťa 3. 8. 2026. Tady jen tenký
+# delegate. Úpravy dělej v DB, ne tady.
+
+
+@doch_zak_tab_router.get("/app/dochazka-narok/data")
+def dochazka_narok_data(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_narok_cerpani). Přehled nároku
+    a čerpání dovolené / dovolené navíc / sick days pro stránku /dochazka-narok.
+    Čerpání se počítá živě z docházky, takže změna ve Správě i v Opravách je
+    vidět hned po obnovení. Konvence: klíč '_status_code' = HTTP status."""
+    from modules.erp.api.router import _uid_from_token_or_cookie
+    uid = _uid_from_token_or_cookie(req)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_narok_cerpani", uid)
+    sc = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=sc)
+
+
 @doch_zak_tab_router.get("/app/dochazka-zak-tab/zamestnanci")
 def dochazka_zak_tab_zamestnanci(req: Request) -> JSONResponse:
     """Seznam pracovníků pro výběr pole Pracovník ve formuláři nového záznamu.

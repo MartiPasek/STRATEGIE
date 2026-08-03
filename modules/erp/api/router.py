@@ -39353,6 +39353,25 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_oe).__name__, str(_oe)[:300]),
                                  "tb": _tboz.format_exc()[-800:]})
 
+    #   @@DOCHCALC <rok> <mesic> [dry]  → att_day_summary POČÍTANÉ z att_entry (STRATEGIE, ne
+    #   zrcadlo Centrály). cas_celkem = att_den_hodiny + placená absence; montáž=Práce, režie=Režie;
+    #   OSVČ vč.; fpd z úvazku. `dry` = jen souhrn, NIC nezapíše. Pojistka: zmrazené měsíce odmítne.
+    #   Delegát g2007.python att_day_summary_recompute. C24/Kristý 3.8.2026.
+    if sql.upper().startswith("@@DOCHCALC"):
+        import traceback as _tbdc
+        try:
+            _cp = sql[len("@@DOCHCALC"):].split()
+            if len(_cp) < 2 or not _cp[0].isdigit() or not _cp[1].isdigit():
+                return JSONResponse({"ok": False, "error": "@@DOCHCALC <rok> <mesic> [dry]"})
+            _cy, _cm = int(_cp[0]), int(_cp[1])
+            _cdry = (len(_cp) > 2 and _cp[2].lower().startswith("dry"))
+            from modules.erp.api import erp_registry as _ereg_dc
+            _dc = _ereg_dc.call("att_day_summary_recompute", _cy, _cm, dry_run=_cdry)
+            return JSONResponse(_dc)
+        except Exception as _dce:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_dce).__name__, str(_dce)[:300]),
+                                 "tb": _tbdc.format_exc()[-800:]})
+
     #   @@DOCHSUM <rok> <mesic>  → att_day_summary daného měsíce = 1:1 pravda z EC_Dochazka_SumaDen
     #   (smaže měsíc + upsert z Heliosu). Historii/uzavřené neměnit ručně jinudy. Marti 3.7.2026.
     if sql.upper().startswith("@@DOCHSUM"):

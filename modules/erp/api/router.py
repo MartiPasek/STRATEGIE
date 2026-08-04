@@ -25007,12 +25007,18 @@ async def cockpit_access(req: Request) -> JSONResponse:
     #   parent = rodič (řízení/ops/systém/AI)
     is_parent_f = bool(uid and is_marti_parent(uid))
     fin = is_sync = False
+    vpved = False
     if uid:
         from core.database_data import get_data_session as _gca
         _sca = _gca()
         try:
             fin = _is_cockpit(_sca, uid)
             is_sync = _can_run_sync(_sca, uid)
+            from sqlalchemy import text as _tvpv
+            vpved = is_parent_f or (_sca.execute(_tvpv(
+                "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+                "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false AND g.name IN ('Vedení','VP') "
+                "AND m.user_id=:u LIMIT 1"), {"u": uid}).first() is not None)
         except Exception:
             fin = is_sync = False
         finally:
@@ -25035,7 +25041,7 @@ async def cockpit_access(req: Request) -> JSONResponse:
                      "role": "VP tým", "col": "#3a6e5a", "cockpit": "/vp"})
     return JSONResponse({"ok": True, "uid": uid or 0, "allowed": bool(cockpit_allowed or is_vp),
                          "team": team, "fin": bool(fin), "sync": bool(is_sync),
-                         "parent": is_parent_f, "vp": is_vp,
+                         "parent": is_parent_f, "vp": is_vp, "vpved": bool(vpved),
                          "member": bool(uid and not (fin or is_parent_f or is_vp))})
 
 

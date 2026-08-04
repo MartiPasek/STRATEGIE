@@ -190,6 +190,32 @@ jako kdybych si připisovala cizí zásluhy."*
 - Když Peta výslovně řekne **„zápis do G2007"** → teprve tehdy do sdílené znalostní báze G2007 (`@@G2007ADD`).
 - **Pravidlo:** není‑li G2007 výslovně zmíněné, je zápis **jen a jen pro nás** (soukromý), ne sdílený.
 
+## 🔎 KONTROLA DOCHÁZKY ČLOVĚKA — „divné dny" (Peťa 4.8.2026, ověřeno v kódu)
+Peťa zadává: *„divné dny — kdyby někde něco neměl, měl to moc dlouhé / moc krátké, překryv,
+dlouhou pauzu, neukončený den, chybějící činnost nebo zakázku."*
+
+**Jak to dělat:**
+- **Po JEDNOM člověku**, ne hromadně za všechny. Peťa 4.8.: *„najednou mi to nevyhovuje,
+  pak se v tom ztrácím."* Nenabízet znovu dávkové zpracování.
+- **Jen měsíc, který se právě zpracovává** (teď červenec 2026), ne celý rok.
+- **Vypisovat JEN špatnosti.** Ne seznam toho, co je v pořádku.
+
+**⚠️ Hodiny počítej `tenant.att_den_hodiny(2, od, do)`, NE prostým součtem `att_entry.hours`.**
+Funkce vrací `emp_id, den, hodiny_mzdove, hodiny_nad_fond, hodiny_absence` a jako jediná počítá
+to, co Peťa vidí v appce: slučuje překrývající se úseky, odečítá přestávky ležící uvnitř práce
+a přičítá doplnění do fondu. Hrubý součet dává jiné číslo — 29. 7. u Diviše appka 8,56, hrubý
+součet 8,62, a Peťa pak řeší rozdíl, který ve skutečnosti není.
+
+**Výroba = dílna → do fondu se NEZAROVNÁVÁ.** U dílenských lidí **krátké dny NEHLÁS** —
+rozhoduje FPD za měsíc (Peťa 4.8.: *„Diviš je dílna, nemá se mu to zarovnávat, pokud mu sedí
+FPD za měsíc, nebudeme to řešit"*). Kdo je výroba: `att_fix_scope_emps(s, 'vyroba')`
+= větev pod kořenem VÝROBA (Výroba, Zkušebna).
+
+**Co NEHLÁSIT jako chybu (jsou to dopočty automatu, ne zapomenutá píchnutí):**
+- „Nenároková práce (nad fond)" a „Doplnění do fondu (automat)" — **nemají časy z principu**,
+  takže nejsou neukončený den.
+- „Dnes už se mnou nepočítej" — konec dne, ne přestávka.
+
 ## 📁 KAM UKLÁDAT SOUBORY PRO PEŤU — VŽDY do `C:\Projekty\Strategie\` (Peťa 4.8.2026)
 Peťa: *„a prosím pak si to napiš do pokynů, ať to neřešíme pořád dokola."*
 

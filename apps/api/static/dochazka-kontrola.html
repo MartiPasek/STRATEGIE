@@ -24,8 +24,8 @@
   .ctxm .it{padding:7px 12px;border-radius:5px;cursor:pointer;color:#e8edf6;white-space:nowrap}
   .ctxm .it:hover{background:#2563eb;color:#fff}
   .ld{padding:16px;color:#8fa3bd}
-  /* Lišta akcí (Peťa 4.8.2026): přehled se počítá živě, ale mzdové podklady
-     (att_day_summary) ne — proto dvě různá tlačítka, ať je jasné, co která dělá. */
+  /* Lišta akcí (Peťa 4.8.2026): přehled se počítá živě z docházky, takže po opravě
+     stačí načíst znovu. Nic víc sem nepatří — je to informace, ne nástroj. */
   #akce{margin:0 14px 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   #akce button{background:#16233a;color:#cfe0f5;border:1px solid #2f4a6d;border-radius:6px;
     padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}
@@ -72,51 +72,13 @@ function load(){
       akceHtml(); hlavicka(); render();
     }).catch(function(){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">Chyba spojení.</td></tr>';});
 }
-/* Peťa 4.8.2026: „udělej tam tlačítko, kterým se to bude aktualizovat/přepočítávat".
-   Dvě různé věci, proto dvě tlačítka:
-   · Načíst znovu — přehled se počítá ŽIVĚ z docházky, takže po opravě stačí tohle.
-   · Přepočítat podklady — přepíše tenant.att_day_summary za zobrazený měsíc
-     (to, z čeho čtou mzdy). Zamčený měsíc funkce sama odmítne. */
+/* Peťa 4.8.2026: tenhle přehled je JEN INFORMACE — „kolik komu chybí", stejně jako
+   to bylo v Centrále. Nic se odsud nepřepočítává ani nezapisuje; co z toho vyplyne,
+   se řeší jinde. Proto tu je jediné tlačítko: načíst znovu.
+   (Dřív tu bylo i „Přepočítat mzdové podklady" — Peťa 4.8.2026: „sem nepatří".) */
 function akceHtml(){
   var a=$('akce'); if(!a)return;
-  var h='<button onclick="load()">↻ Načíst znovu</button>';
-  if(REPORT==='fpd')
-    h+='<button id="btnprep" class="hlavni" onclick="prepocitat()" '
-      +'title="Přepočítá mzdové podklady (att_day_summary) za zobrazený měsíc a přehled načte znovu.">'
-      +'⟳ Přepočítat mzdové podklady</button>';
-  h+='<span id="akcestav"></span>';
-  a.innerHTML=h;
-}
-function _obdobi(){
-  // rok + měsíc bereme z dat přehledu (sloupce Mesic / KeDni), ne z dnešního data —
-  // přehled do 12. dne v měsíci ukazuje ještě měsíc předchozí.
-  var r=(ROWS&&ROWS[0])||null; if(!r)return null;
-  var mes=parseInt(r.Mesic,10);
-  var m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(r.KeDni||''));
-  var rok=m?parseInt(m[3],10):null;
-  return (rok&&mes)?{rok:rok,mesic:mes}:null;
-}
-function prepocitat(){
-  var o=_obdobi();
-  if(!o){$('akcestav').textContent='Nevím, za jaké období počítat — přehled je prázdný.';return;}
-  var b=$('btnprep'), st=$('akcestav');
-  if(b)b.disabled=true;
-  st.textContent='Přepočítávám '+o.mesic+'/'+o.rok+'…';
-  fetch('/api/v1/erp/app/payroll/recompute?rok='+o.rok+'&mesic='+o.mesic,
-        {method:'POST',credentials:'include'})
-    .then(function(r){return r.json().then(function(j){return {s:r.status,j:j};});})
-    .then(function(x){
-      if(b)b.disabled=false;
-      if(x.s===403){st.textContent='Na přepočet nemáš právo (mzdy).';return;}
-      if(!x.j||x.j.ok===false){
-        st.textContent='Přepočet neproběhl: '+((x.j&&(x.j.error||x.j.duvod))||('chyba '+x.s));
-        return;}
-      var kolik=(x.j.upserted!=null?x.j.upserted:(x.j.radku!=null?x.j.radku:'?'));
-      st.textContent='Hotovo — '+kolik+' řádků za '+o.mesic+'/'+o.rok+'. Načítám přehled…';
-      load();
-      setTimeout(function(){st.textContent='Přepočteno ('+kolik+' řádků za '+o.mesic+'/'+o.rok+').';},900);
-    })
-    .catch(function(){ if(b)b.disabled=false; st.textContent='Chyba spojení, přepočet neproběhl.'; });
+  a.innerHTML='<button onclick="load()">↻ Načíst znovu</button><span id="akcestav"></span>';
 }
 function hlavicka(){
   var cg='<colgroup><col style="width:20px">';

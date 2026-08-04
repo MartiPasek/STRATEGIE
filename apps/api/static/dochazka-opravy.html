@@ -460,7 +460,16 @@ function openDay(uid,name,day){
       if(!j.ok){box.innerHTML='<div class="hint">✗ '+esc(j.error||'chyba')+'</div>';return;}
       if(j.locked)box.appendChild(el('<div class="lockbar">'+(j.can_unlock?'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Ty ho ale smíš odemknout: odemkni, oprav a zase zamkni (vše se zapíše do auditu).':'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné (odemkne Peťa/Šárka).')+'</div>'));
       // Jirka 12.7.: co člověk hlásí (✋ rozpor dne + rozpory na záznamech) = důležité, NAD tabulkou
-      if((window.PREKRYV_WARN||[]).length){var _wb=el('<div style="background:rgba(245,158,11,.14);border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13.5px;color:#ffd39a;font-weight:600;line-height:1.4"><span style="float:right;cursor:pointer;padding:0 4px;color:#f59e0b" title="Zavřít">✕</span>⚠ Zapsáno přes překryv — srovnej prosím zbytek dne<br>'+window.PREKRYV_WARN.map(esc).join('<br>')+'</div>');_wb.querySelector('span').addEventListener('click',function(){window.PREKRYV_WARN=[];_wb.remove();});box.appendChild(_wb);}
+      // PŘEKRYV ČASŮ (Peťa 4.8.2026): hláška se počítá ZE STAVU DNE, ne z toho, co se
+      // naposledy uložilo — jakmile se překryv srovná, hláška sama zmizí.
+      (function(){
+        var _pr=[],_es=(j.entries||[]).filter(function(x){return x.status!=='superseded'&&x.code!=='day_end'&&x.zac&&x.kon&&(x.cat==='presence'||x.cat==='break'||x.cat==='travel');});
+        function _mn(t){var q=String(t||'').split(':');return (parseInt(q[0],10)||0)*60+(parseInt(q[1],10)||0);}
+        function _pop(x){return ((x.typ||x.label||x.code||'')+' '+(x.zac||'?')+'–'+(x.kon||'…')).trim();}
+        for(var _i=0;_i<_es.length;_i++)for(var _k=_i+1;_k<_es.length;_k++){var _a=_es[_i],_b=_es[_k];
+          if(_mn(_a.zac)<_mn(_b.kon)&&_mn(_b.zac)<_mn(_a.kon))_pr.push(esc(_pop(_a))+' × '+esc(_pop(_b)));}
+        if(_pr.length)box.appendChild(el('<div style="background:rgba(245,158,11,.14);border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13.5px;color:#ffd39a;font-weight:600;line-height:1.4">⚠ Časy se překrývají — srovnej prosím zbytek dne, ať hodiny sedí<br>'+_pr.join('<br>')+'</div>'));
+      })();
       var hlasi=[];
       if(j.dispute&&j.dispute.disputed&&(j.dispute.note||'').trim())hlasi.push('<b>Den:</b> „'+esc(j.dispute.note)+'“');
       (j.entries||[]).forEach(function(e0){
@@ -534,7 +543,7 @@ function openDay(uid,name,day){
           if(!t1.value||!t2.value){st.textContent='Vyplň časy od–do.';return;}
           if(!(rb._input.value||'').trim()){st.textContent='Důvod je povinný.';return;}
           confirmBox(afx,'Přidat '+esc(sel.value)+' '+esc(t1.value)+'–'+esc(t2.value)+' pro <b>'+esc(CTX.name||'')+'</b> ('+esc(dt.value)+')?',function(cw){
-            api('POST','/api/v1/erp/app/attendance/fix/add',{uid:CTX.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||'').trim()||null,cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){ if(r&&r.ok&&r.varovani){window.PREKRYV_WARN=(window.PREKRYV_WARN||[]).concat([r.varovani]);}
+            api('POST','/api/v1/erp/app/attendance/fix/add',{uid:CTX.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||'').trim()||null,cinnost_id:(cinW._sel.value?parseInt(cinW._sel.value,10):null),reason:rb._input.value.trim()}).then(function(r){
               if(r.ok){render();obnovLevy();}else{cw.remove();st.textContent='✗ '+(r.error||'chyba');}
             });
           });

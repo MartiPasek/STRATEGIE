@@ -443,19 +443,41 @@ function loadLock(){
   });
 }
 // ── detail dne (pravý sloupec) ──
+/* ZÁVOD O ZOBRAZENÍ (Peťa 4.8.2026: „stane se, že máš vybraného člověka, nenačte se
+   a zůstane tam jiný, nebo je špatné datum"). Načtení dne je asynchronní a výsledek
+   se dosud vykreslil vždycky, ať dorazil kdykoli — při rychlém přepnutí člověka/data
+   přišla starší odpověď POZDĚJI a přepsala tu novou. V Opravách je to nebezpečné:
+   uživatel pak opravuje docházku někomu jinému (doloženo Brudnová × Hájek 24.7.).
+   Řešení: každý dotaz dostane pořadové číslo a při návratu se zahodí, pokud už není
+   poslední NEBO pokud se mezitím změnil člověk či datum. */
+var DAY_SEQ = 0;
 function openDay(uid,name,day){
   CTX={uid:uid,name:name,day:day};
   var R=document.getElementById('right');
   R.innerHTML='';
-  R.appendChild(el('<div class="sec" style="margin-top:0;">DEN — '+esc(name||'?')+'</div>'));
-  var dr=dateRow(day,function(v){CTX.day=v;render();});
+  var _hd = el('<div class="sec" style="margin-top:0;">DEN — '+esc(name||'?')+'</div>');
+  R.appendChild(_hd);
+  // Peťa 4.8.2026: v hlavičce ať je vidět i DATUM, ne jen jméno — když se něco
+  // nenačte správně, musí to jít poznat pohledem, ne až podle obsahu tabulky.
+  function _hlavicka(d){
+    var _t = String(d||'');
+    var _m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(_t);
+    _hd.textContent = 'DEN — ' + (name||'?') + (_m ? ('  ·  ' + _m[3] + '.' + _m[2] + '.' + _m[1]) : '');
+  }
+  _hlavicka(day);
+  var dr=dateRow(day,function(v){CTX.day=v;_hlavicka(v);render();});
   var dt=dr.input;
   R.appendChild(dr.row);
   var box=el('<div style="margin-top:8px;"></div>');R.appendChild(box);
   try{R.scrollIntoView({behavior:'smooth',block:'nearest'});}catch(e){}
   function render(){
     box.innerHTML='<div class="hint">Načítám den…</div>';
-    api('GET','/api/v1/erp/app/attendance/fix/day?uid='+CTX.uid+'&day='+encodeURIComponent(dt.value)).then(function(j){
+    var _seq = ++DAY_SEQ, _uid = CTX.uid, _day = dt.value;   // co jsme si vyžádali
+    api('GET','/api/v1/erp/app/attendance/fix/day?uid='+_uid+'&day='+encodeURIComponent(_day)).then(function(j){
+      // Zahoď opožděnou odpověď: už běží novější dotaz, nebo se mezitím změnil
+      // člověk/datum. Bez tohohle se do okna vykreslila cizí docházka.
+      if(_seq !== DAY_SEQ) return;
+      if(_uid !== CTX.uid || _day !== dt.value) return;
       box.innerHTML='';
       if(!j.ok){box.innerHTML='<div class="hint">✗ '+esc(j.error||'chyba')+'</div>';return;}
       if(j.locked)box.appendChild(el('<div class="lockbar">'+(j.can_unlock?'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Ty ho ale smíš odemknout: odemkni, oprav a zase zamkni (vše se zapíše do auditu).':'🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné (odemkne Peťa/Šárka).')+'</div>'));
@@ -468,6 +490,16 @@ function openDay(uid,name,day){
         function _pop(x){return ((x.typ||x.label||x.code||'')+' '+(x.zac||'?')+'–'+(x.kon||'…')).trim();}
         for(var _i=0;_i<_es.length;_i++)for(var _k=_i+1;_k<_es.length;_k++){var _a=_es[_i],_b=_es[_k];
           if(_mn(_a.zac)<_mn(_b.kon)&&_mn(_b.zac)<_mn(_a.kon))_pr.push(esc(_pop(_a))+' × '+esc(_pop(_b)));}
+        // ...a totéž mezi POLOŽKAMI ROZPADU (Peťa 4.8.2026) — tam se překryv počítá
+        // do hodin na zakázky dvakrát, takže je stejně důležitý jako u hlaviček.
+        var _pol=[];
+        (j.entries||[]).forEach(function(x){
+          if(x.status==='superseded')return;
+          (x.polozky||[]).forEach(function(q){ if(q.od&&q.kon)_pol.push(q); });
+        });
+        for(var _m=0;_m<_pol.length;_m++)for(var _n=_m+1;_n<_pol.length;_n++){var _c=_pol[_m],_d=_pol[_n];
+          if(_mn(_c.od)<_mn(_d.kon)&&_mn(_d.od)<_mn(_c.kon))
+            _pr.push('rozpad: '+esc((_c.zak||'')+' '+_c.od+'–'+_c.kon)+' × '+esc((_d.zak||'')+' '+_d.od+'–'+_d.kon));}
         if(_pr.length)box.appendChild(el('<div style="background:rgba(245,158,11,.14);border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13.5px;color:#ffd39a;font-weight:600;line-height:1.4">⚠ Časy se překrývají — srovnej prosím zbytek dne, ať hodiny sedí<br>'+_pr.join('<br>')+'</div>'));
       })();
       var hlasi=[];

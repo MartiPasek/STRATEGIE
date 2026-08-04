@@ -11230,7 +11230,7 @@ async def app_hr_person_docs(req: Request):
         rows = s.execute(_t(
             "SELECT d.id, d.kategorie, d.nazev, d.velikost, d.uploaded_at, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS kdo, "
-            " COALESCE(d.stav,'platny') AS stav "
+            " COALESCE(d.stav,'platny') AS stav, COALESCE(d.mime,'') AS mime "
             "FROM tenant.employee_document d LEFT JOIN public.users u ON u.id=d.uploaded_by "
             "WHERE d.tenant_id=2 AND d.user_id=:u AND d.is_active=true "
             "ORDER BY d.uploaded_at DESC"), {"u": tuid}).fetchall()
@@ -11239,6 +11239,7 @@ async def app_hr_person_docs(req: Request):
             "velikost_h": _velikost_h(r[3]),
             "uploaded_at": (r[4].strftime("%d.%m.%Y") if r[4] else ""),
             "uploaded_by_h": (r[5] or ""), "stav": (r[6] or "platny"),
+            "mime": (r[7] or ""),
         } for r in rows]
         return JSONResponse({"ok": True, "dokumenty": dokumenty})
     except Exception as exc:
@@ -11349,6 +11350,70 @@ async def app_hr_person_doc_get(req: Request, doc_id: int):
                                  "Cache-Control": "private, max-age=60"})
     except Exception as exc:
         logger.exception("[hr_person_doc_get] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _docx_to_preview_html(raw: bytes) -> str:
+    """Rychlý textový náhled .docx bez externích knihoven (stdlib zipfile+XML).
+    Vrací jednoduché HTML odstavce. Hlavička/patička/logo se do náhledu neberou —
+    věrný náhled (s logem) řešíme přes převod na PDF, až bude na cloudu LibreOffice."""
+    import io as _io, zipfile as _zip, html as _html
+    from xml.etree import ElementTree as _ET
+    NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    try:
+        z = _zip.ZipFile(_io.BytesIO(raw))
+        root = _ET.fromstring(z.read("word/document.xml"))
+    except Exception:
+        return "<p style='color:#7f8ea0'>Náhled tohoto souboru se nepodařilo vykreslit — otevři přes „Stáhnout“.</p>"
+    parts = []
+    for p in root.iter(NS + "p"):
+        txt = "".join((t.text or "") for t in p.iter(NS + "t"))
+        # detekce tučného (nadpisy) — je-li v prvním run bold
+        bold = False
+        try:
+            rpr = next(p.iter(NS + "rPr"))
+            bold = rpr.find(NS + "b") is not None
+        except StopIteration:
+            pass
+        if not txt.strip():
+            parts.append("<div style='height:7px'></div>")
+        elif bold:
+            parts.append("<p style='margin:8px 0 2px;font-weight:800;color:#e8eef5'>" + _html.escape(txt) + "</p>")
+        else:
+            parts.append("<p style='margin:2px 0;color:#cdd6e2;line-height:1.45'>" + _html.escape(txt) + "</p>")
+    return "".join(parts) or "<p style='color:#7f8ea0'>Prázdný dokument.</p>"
+
+
+@api_router.get("/app/hr/person-doc-preview")
+async def app_hr_person_doc_preview(req: Request):
+    """Náhled dokumentu. Pro .docx vrací textové HTML (bez stažení);
+    pro PDF/obrázky vrací kind='inline' → frontend zobrazí přímo z /person-doc/{id}."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        doc_id = int(req.query_params.get("id") or 0)
+    except Exception:
+        doc_id = 0
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT obsah, mime, nazev, user_id FROM tenant.employee_document "
+            "WHERE tenant_id=2 AND id=:i AND is_active=true"), {"i": doc_id}).first()
+        if not row or not row[0]:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        if not (_hr_can_manage(s, uid) or uid == row[3]):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        mime = (row[1] or "").lower()
+        nazev = (row[2] or "").lower()
+        if "wordprocessingml" in mime or nazev.endswith(".docx"):
+            return JSONResponse({"ok": True, "kind": "html", "html": _docx_to_preview_html(bytes(row[0]))})
+        return JSONResponse({"ok": True, "kind": "inline"})
+    except Exception as exc:
+        logger.exception("[hr_person_doc_preview] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

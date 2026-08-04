@@ -1081,9 +1081,39 @@ function dokClassify(name){
   if(/smlouv|dohoda|dpp|dpc|dilo/.test(n)) return 'smlouva';
   return 'ostatni';
 }
+// Šárka 4.8.2026: náhled dokumentu vpravo (jako v chatu) — bez stahování.
+// PDF/obrázky se vykreslí přímo (backend servíruje inline), .docx přes textový náhled.
+function pvReg(o){window.DOK_PV=window.DOK_PV||{};const k=String(window._pvSeq=(window._pvSeq||0)+1);window.DOK_PV[k]=o;return k;}
+function dokPvBind(){document.querySelectorAll('#dokListCol [data-pv]').forEach(function(el){el.onclick=function(){dokPv(window.DOK_PV[el.getAttribute('data-pv')]);};});}
+function dokPvExt(n){return (n||'').toLowerCase().split('.').pop();}
+function dokPvEmptyHTML(){return '<div id="dokPvBox" style="border:1px dashed #22303d;border-radius:10px;background:#0c1116;min-height:220px;display:flex;align-items:center;justify-content:center;text-align:center;color:#5d6b7c;font-size:13px;padding:24px">👁 Klikni na dokument vlevo — náhled se ukáže tady.</div>';}
+function dokPv(o){
+  if(!o) return; const col=document.getElementById('dokPvCol'); if(!col) return;
+  const ext=dokPvExt(o.name), mime=(o.mime||'').toLowerCase();
+  const isPdf=ext==='pdf'||/pdf/.test(mime);
+  const isImg=['png','jpg','jpeg','gif','webp','bmp','tif','tiff'].indexOf(ext)>=0||/image\//.test(mime);
+  const isDocx=ext==='docx'||/wordprocessingml/.test(mime);
+  const dl='<a href="'+o.url+'" target="_blank" style="color:#7fb2e8;text-decoration:none;font-size:12px;white-space:nowrap">⬇ Stáhnout originál</a>';
+  const head='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👁 '+esc(o.name)+'</span>'+dl+'</div>';
+  const wrap=function(inner){return '<div style="border:1px solid #22303d;border-radius:10px;background:#0c1116;overflow:hidden">'+head+inner+'</div>';};
+  if(isPdf){ col.innerHTML=wrap('<iframe src="'+o.url+'" style="width:100%;height:74vh;border:0;background:#fff"></iframe>'); return; }
+  if(isImg){ col.innerHTML=wrap('<div style="max-height:74vh;overflow:auto;background:#fff;text-align:center"><img src="'+o.url+'" style="max-width:100%;display:block;margin:0 auto"></div>'); return; }
+  if(isDocx && o.src==='db'){
+    col.innerHTML=wrap('<div id="dokPvBody" style="max-height:74vh;overflow:auto;padding:14px 16px;font-size:13px;color:#7f8ea0">Načítám náhled…</div>');
+    j(API+'/app/hr/person-doc-preview?id='+o.id).then(function(d){
+      const b=document.getElementById('dokPvBody'); if(!b) return;
+      if(d&&d.ok&&d.kind==='html'){ b.innerHTML='<div style="color:#7f8ea0;font-size:11px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed #22303d">📝 Textový náhled. Hlavička s logem a přesné formátování se zobrazí po stažení (věrný PDF-náhled doplníme později).</div>'+d.html; }
+      else if(d&&d.ok&&d.kind==='inline'){ col.innerHTML=wrap('<iframe src="'+o.url+'" style="width:100%;height:74vh;border:0;background:#fff"></iframe>'); }
+      else { b.innerHTML='<span style="color:#ff8a7a">Náhled se nepodařilo načíst — zkus „Stáhnout originál“.</span>'; }
+    }).catch(function(){ const b=document.getElementById('dokPvBody'); if(b) b.innerHTML='<span style="color:#ff8a7a">Náhled se nepodařilo načíst.</span>'; });
+    return;
+  }
+  col.innerHTML=wrap('<div style="padding:18px 16px;color:#7f8ea0;font-size:13px">Náhled tohoto typu souboru zatím neumíme zobrazit přímo v okně.<br>Otevři přes <strong>Stáhnout originál</strong> nahoře.</div>');
+}
 async function dokUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  window.DOK_PV={}; window._pvSeq=0;
   const d=await j(API+'/app/hr/person-docs?uid='+uid);
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
@@ -1104,14 +1134,18 @@ async function dokUdaje(){
       h+='<div style="padding:11px 16px 3px;color:#aac8ec;font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #1e2730">📁 '+esc(DOK_KAT[cat]||cat)+' <span style="color:#5d6b7c;font-weight:600">('+list.length+')</span></div>'+
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
         list.map(x=>'<tr style="border-top:1px solid #1e2730">'+
-          '<td style="padding:6px 16px 6px 22px;color:#e8eef5">📄 '+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
+          '<td data-pv="'+pvReg({src:'db',id:x.id,name:x.nazev,mime:x.mime||'',url:API+'/app/hr/person-doc/'+x.id})+'" title="Zobrazit náhled" style="padding:6px 16px 6px 22px;color:#e8eef5;cursor:pointer">📄 '+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
           '<td style="padding:6px 10px;white-space:nowrap">'+stavChip(x.stav)+' '+stavSel(x.id,x.stav)+'</td>'+
           '<td style="padding:6px 16px;color:#7f8ea0;white-space:nowrap">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
           '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> &nbsp;·&nbsp; <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>').join('')+'</table>';
     });
   }
   h+='<div id="dokAdr" style="margin-top:2px"></div>';
-  det.innerHTML=h;
+  det.innerHTML='<div style="display:flex;align-items:flex-start;gap:14px">'+
+    '<div id="dokListCol" style="flex:1 1 56%;min-width:0">'+h+'</div>'+
+    '<div id="dokPvCol" style="flex:1 1 44%;min-width:0;position:sticky;top:8px;align-self:flex-start">'+dokPvEmptyHTML()+'</div>'+
+    '</div>';
+  dokPvBind();
   dokAdresarLoad(uid);
   dokGenLoad(uid);
 }
@@ -1185,7 +1219,7 @@ async function dokAdresarLoad(uid){
       h+='<div style="padding:7px 16px 2px 24px;color:#8fa6c4;font-weight:700;font-size:11px;letter-spacing:.02em">▸ '+esc(DOK_KAT[cat]||cat)+' <span style="color:#5d6b7c;font-weight:600">('+list.length+')</span></div>'+
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
         list.map(x=>'<tr style="border-top:1px solid #1e2730">'+
-          '<td style="padding:6px 16px 6px 30px;color:#e8eef5">📄 '+esc(x.name)+(x.size!=null?' <span style="color:#5d6b7c">('+sz(x.size)+')</span>':'')+'</td>'+
+          '<td data-pv="'+pvReg({src:'dir',name:x.name,mime:'',url:API+'/app/dir/file?sys_name=osoba_hr&id='+uid+'&name='+encodeURIComponent(x.name)})+'" title="Zobrazit náhled" style="padding:6px 16px 6px 30px;color:#e8eef5;cursor:pointer">📄 '+esc(x.name)+(x.size!=null?' <span style="color:#5d6b7c">('+sz(x.size)+')</span>':'')+'</td>'+
           '<td style="padding:6px 10px;white-space:nowrap"><span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:#1b2c44;color:#7fb2e8">Centrála</span></td>'+
           '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="'+API+'/app/dir/file?sys_name=osoba_hr&id='+uid+'&name='+encodeURIComponent(x.name)+'" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a></td></tr>').join('')+'</table>';
     });
@@ -1196,6 +1230,7 @@ async function dokAdresarLoad(uid){
      '<span id="dokAdrMsg" style="font-size:12px;color:#7f8ea0"></span></div>'+
      '<div style="padding:0 16px 10px;color:#5d6b7c;font-size:11px">Zdroj pravdy: fyzická složka na serveru (Centrála) — aktuální dokumenty se plní přímo do složky, needitují se z aplikace.</div>';
   box.innerHTML=h;
+  dokPvBind();
 }
 async function dokUpload(uid){
   const f=document.getElementById('dokFile'), msg=document.getElementById('dokMsg');

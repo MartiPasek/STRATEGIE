@@ -1087,28 +1087,41 @@ function pvReg(o){window.DOK_PV=window.DOK_PV||{};const k=String(window._pvSeq=(
 function dokPvBind(){document.querySelectorAll('#dokListCol [data-pv]').forEach(function(el){el.onclick=function(){dokPv(window.DOK_PV[el.getAttribute('data-pv')]);};});}
 function dokPvExt(n){return (n||'').toLowerCase().split('.').pop();}
 function dokPvEmptyHTML(){return '<div id="dokPvBox" style="border:1px dashed #22303d;border-radius:10px;background:#0c1116;min-height:220px;display:flex;align-items:center;justify-content:center;text-align:center;color:#5d6b7c;font-size:13px;padding:24px">👁 Klikni na dokument vlevo — náhled se ukáže tady.</div>';}
+function dokPvClose(){var m=document.getElementById('dokPvModal'); if(m) m.remove();}
 function dokPv(o){
-  if(!o) return; const col=document.getElementById('dokPvCol'); if(!col) return;
+  if(!o) return; dokPvClose();
   const ext=dokPvExt(o.name), mime=(o.mime||'').toLowerCase();
   const isPdf=ext==='pdf'||/pdf/.test(mime);
   const isImg=['png','jpg','jpeg','gif','webp','bmp','tif','tiff'].indexOf(ext)>=0||/image\//.test(mime);
   const isDocx=ext==='docx'||/wordprocessingml/.test(mime);
-  const dl='<a href="'+o.url+'" target="_blank" style="color:#7fb2e8;text-decoration:none;font-size:12px;white-space:nowrap">⬇ Stáhnout originál</a>';
-  const head='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👁 '+esc(o.name)+'</span>'+dl+'</div>';
-  const wrap=function(inner){return '<div style="border:1px solid #22303d;border-radius:10px;background:#0c1116;overflow:hidden">'+head+inner+'</div>';};
-  if(isPdf){ col.innerHTML=wrap('<iframe src="'+o.url+'" style="width:100%;height:74vh;border:0;background:#fff"></iframe>'); return; }
-  if(isImg){ col.innerHTML=wrap('<div style="max-height:74vh;overflow:auto;background:#fff;text-align:center"><img src="'+o.url+'" style="max-width:100%;display:block;margin:0 auto"></div>'); return; }
+  const dl='<a href="'+o.url+'" target="_blank" style="color:#7fb2e8;text-decoration:none;font-size:13px;white-space:nowrap">⬇ Stáhnout originál</a>';
+  const ov=document.createElement('div'); ov.id='dokPvModal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(3,6,10,.74);z-index:9999;display:flex;align-items:center;justify-content:center;padding:22px';
+  ov.onclick=function(e){ if(e.target===ov) dokPvClose(); };
+  ov.innerHTML='<div style="width:min(1100px,94vw);height:92vh;background:#0c1116;border:1px solid #22303d;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.55)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #1e2730">'+
+      '<span style="font-weight:800;color:#e8eef5;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👁 '+esc(o.name)+'</span>'+
+      '<span style="display:flex;gap:18px;align-items:center;flex:none">'+dl+'<a href="#" onclick="dokPvClose();return false;" title="Zavřít (Esc)" style="color:#cdd6e2;text-decoration:none;font-size:22px;line-height:1">✕</a></span>'+
+    '</div>'+
+    '<div id="dokPvMBody" style="flex:1;min-height:0;overflow:auto;background:#11161c"></div>'+
+  '</div>';
+  document.body.appendChild(ov);
+  document.onkeydown=function(e){ if(e.key==='Escape') dokPvClose(); };
+  const body=document.getElementById('dokPvMBody');
+  if(isPdf){ body.innerHTML='<iframe src="'+o.url+'" style="width:100%;height:100%;border:0;background:#fff"></iframe>'; return; }
+  if(isImg){ body.style.background='#fff'; body.innerHTML='<div style="text-align:center;padding:14px"><img src="'+o.url+'" style="max-width:100%;height:auto"></div>'; return; }
   if(isDocx && o.src==='db'){
-    col.innerHTML=wrap('<div id="dokPvBody" style="max-height:74vh;overflow:auto;padding:14px 16px;font-size:13px;color:#7f8ea0">Načítám náhled…</div>');
+    body.innerHTML='<div style="padding:26px;color:#7f8ea0">Načítám náhled…</div>';
     j(API+'/app/hr/person-doc-preview?id='+o.id).then(function(d){
-      const b=document.getElementById('dokPvBody'); if(!b) return;
-      if(d&&d.ok&&d.kind==='html'){ b.innerHTML='<div style="color:#7f8ea0;font-size:11px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed #22303d">📝 Textový náhled. Hlavička s logem a přesné formátování se zobrazí po stažení (věrný PDF-náhled doplníme později).</div>'+d.html; }
-      else if(d&&d.ok&&d.kind==='inline'){ col.innerHTML=wrap('<iframe src="'+o.url+'" style="width:100%;height:74vh;border:0;background:#fff"></iframe>'); }
-      else { b.innerHTML='<span style="color:#ff8a7a">Náhled se nepodařilo načíst — zkus „Stáhnout originál“.</span>'; }
-    }).catch(function(){ const b=document.getElementById('dokPvBody'); if(b) b.innerHTML='<span style="color:#ff8a7a">Náhled se nepodařilo načíst.</span>'; });
+      if(d&&d.ok&&d.kind==='html'){
+        body.innerHTML='<div style="max-width:860px;margin:0 auto;padding:26px 34px;font-size:15px;line-height:1.6">'+
+          '<div style="color:#7f8ea0;font-size:12px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed #22303d">📝 Textový náhled. Hlavička s logem a přesné formátování se zobrazí po stažení (věrný PDF-náhled doplníme později).</div>'+d.html+'</div>';
+      } else if(d&&d.ok&&d.kind==='inline'){ body.innerHTML='<iframe src="'+o.url+'" style="width:100%;height:100%;border:0;background:#fff"></iframe>'; }
+      else { body.innerHTML='<div style="padding:26px;color:#ff8a7a">Náhled se nepodařilo načíst — zkus „Stáhnout originál“ nahoře.</div>'; }
+    }).catch(function(){ body.innerHTML='<div style="padding:26px;color:#ff8a7a">Náhled se nepodařilo načíst.</div>'; });
     return;
   }
-  col.innerHTML=wrap('<div style="padding:18px 16px;color:#7f8ea0;font-size:13px">Náhled tohoto typu souboru zatím neumíme zobrazit přímo v okně.<br>Otevři přes <strong>Stáhnout originál</strong> nahoře.</div>');
+  body.innerHTML='<div style="padding:26px;color:#7f8ea0;font-size:14px">Náhled tohoto typu souboru zatím neumíme zobrazit přímo v okně.<br>Otevři přes <strong>Stáhnout originál</strong> nahoře.</div>';
 }
 async function dokUdaje(){
   const uid=CUR_UID; if(!uid) return;
@@ -1141,10 +1154,7 @@ async function dokUdaje(){
     });
   }
   h+='<div id="dokAdr" style="margin-top:2px"></div>';
-  det.innerHTML='<div style="display:flex;align-items:flex-start;gap:14px">'+
-    '<div id="dokListCol" style="flex:1 1 56%;min-width:0">'+h+'</div>'+
-    '<div id="dokPvCol" style="flex:1 1 44%;min-width:0;position:sticky;top:8px;align-self:flex-start">'+dokPvEmptyHTML()+'</div>'+
-    '</div>';
+  det.innerHTML='<div id="dokListCol">'+h+'</div>';
   dokPvBind();
   dokAdresarLoad(uid);
   dokGenLoad(uid);

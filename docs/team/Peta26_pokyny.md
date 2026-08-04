@@ -190,6 +190,20 @@ jako kdybych si připisovala cizí zásluhy."*
 - Když Peta výslovně řekne **„zápis do G2007"** → teprve tehdy do sdílené znalostní báze G2007 (`@@G2007ADD`).
 - **Pravidlo:** není‑li G2007 výslovně zmíněné, je zápis **jen a jen pro nás** (soukromý), ne sdílený.
 
+## 📁 KAM UKLÁDAT SOUBORY PRO PEŤU — VŽDY do `C:\Projekty\Strategie\` (Peťa 4.8.2026)
+Peťa: *„a prosím pak si to napiš do pokynů, ať to neřešíme pořád dokola."*
+
+**Excel, Word, PDF ani žádný jiný soubor NEUKLÁDEJ do outputs složky Coworku.** Její cesta
+(`C:\Users\Peta\AppData\Roaming\Claude\local-agent-mode-sessions\<dlouhé-id>\<dlouhé-id>\<dlouhé-id>\outputs\…`)
+má přes 250 znaků a **Excel takový soubor vůbec neotevře** — vyhodí *„Soubor nelze otevřít,
+protože cesta k souboru je větší než 259 znaků."* (stalo se 4.8.2026 u kontroly dovolených).
+
+Závazně:
+- Soubory pro Peťu ukládej **přímo do `C:\Projekty\Strategie\`** (v mostu `/mnt/Strategie/`).
+- **Krátký název bez diakritiky a mezer** (`dovolena_kontrola.xlsx`, ne `Dovolena kontrola Centrala vs STRATEGIE.xlsx`).
+- Teprve pak soubor nabídni přes `SendUserFile` / kartu souboru.
+- Když jde o jednorázový výstup, řekni Petře, že si ho může po použití smazat — ve složce projektu je git.
+
 ## Jak Petře připravit e-mail (14.7.2026)
 - **Odesílatel (From):** do hlavičky `.eml` dávej `p.safrankova@eurosoft.com` (ne petra@eurosoft.com).
 Když Peta řekne „připrav mail" (do Outlooku, ať ho jen odešle):

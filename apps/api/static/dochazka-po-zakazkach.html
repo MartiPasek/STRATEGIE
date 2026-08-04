@@ -58,6 +58,12 @@
   table.dokl .frow input::placeholder{color:#6a7078}
   table.dokl tbody tr:hover{background:#131d2b}
   table.dokl tbody tr.sel td{background:rgba(37,99,235,.16)}
+  /* Neodhlášeno (Peťa 4.8.2026): člověk se zapomněl odhlásit — konec
+     nezobrazujeme (bylo by to smyšlené číslo) a řádek svítí červeně,
+     ať ho Peťa najde a opraví. */
+  table.dokl tbody tr.neodhl td{background:rgba(200,60,70,.16);color:#f2b8bf}
+  table.dokl tbody tr.neodhl:hover td{background:rgba(200,60,70,.26)}
+  table.dokl tbody tr.neodhl.sel td{background:rgba(160,70,120,.28)}
   /* Peťa 31.7.2026: „aktuální řádek" (▶) NENÍ totéž co označený. Dřív se oba
      kreslily modře, takže Ctrl+klik na označený řádek ho sice odznačil, ale
      zůstal modrý (stal se aktuálním) a vypadalo to, že odznačení nefunguje —
@@ -641,6 +647,7 @@ function rowHtml(i){
   var r=ROWS[i];
   var mk=(CUR===i)?'▶':(SELSET[i]?'•':'');
   var cls=(SELSET[i]?'sel':'')+(CUR===i?(SELSET[i]?' cur':'cur'):'');
+  if(r._neodhl)cls=(cls?cls+' ':'')+'neodhl';   // zapomenutý odchod → červeně
   var tr='<tr data-i="'+i+'"'+(cls?' class="'+cls+'"':'')+'><td class="mk">'+mk+'</td>';
   for(var j=0;j<COLS.length;j++){var c=COLS[j],v=r[c.k],cl=(c.r?'r':(c.c?'c':''));
     if(c.s){v='<span class="src '+(SRC[v]||'z_x')+'">'+esc(v)+'</span>';}

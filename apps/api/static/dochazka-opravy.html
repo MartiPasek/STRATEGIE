@@ -53,6 +53,11 @@
   .dtab td{padding:7px 8px;border-bottom:1px solid #232c3b;vertical-align:middle;white-space:nowrap}
   .dtab td.wrap{white-space:normal}
   .dtab tr.gone td{opacity:.45}
+  /* Neodhlášeno (Peťa 4.8.2026): směnu uzavřel půlnoční automat na 23:59.
+     Ten čas je smyšlený, tak ho NEZOBRAZUJEME (jen „…") a řádek svítí
+     červeně, aby bylo hned vidět, že se sem musí doplnit skutečný odchod. */
+  .dtab tr.neodhl td{background:rgba(200,60,70,.16);color:#f2b8bf}
+  .tag.neodhl{background:#4a1c22;color:#f2b8bf}
   .dtab tr.sel td{background:rgba(37,99,235,.10)}
   .dtab .num{font-variant-numeric:tabular-nums}
   .dtab .ib{background:transparent;border:1px solid #3a4656;border-radius:8px;padding:4px 9px;font-size:13px;color:#cdd9ea;cursor:pointer}
@@ -655,16 +660,22 @@ function openDay(uid,name,day){
           tb.appendChild(gr);
         }
         var tr0=document.createElement('tr');if(gone)tr0.className='gone';
+        // Zapomenutý odchod: směnu dopsal půlnoční automat na 23:59 (Peťa 4.8.2026).
+        var neodhl=(!gone&&!isDE&&String(e2.note||'').indexOf('auto-odhlášení')>=0);
+        if(neodhl)tr0.className=(tr0.className?tr0.className+' ':'')+'neodhl';
         var tg='';
         if(gone)tg='<span class="tag">storno</span>';
         else if(e2.running&&!isDE)tg='<span class="tag run">● běží</span>';
         else if(e2.source_system){tg='<span class="tag ec" title="Záznam vlastní stará Centrála — oprava se dělá tam (Dušan) a sem se přezrcadlí.">🏛 Centrála</span>';maCentralu=true;}
         if(isDE&&!gone)tg+=(tg?' ':'')+'<span class="tag" title="Interní uzávěrka dne — lze stornovat.">uzávěrka dne</span>';
         if(e2.source==='manual_fix')tg+=(tg?' ':'')+'<span class="tag fx">🛠 opraveno</span>';
+        if(neodhl)tg+=(tg?' ':'')+'<span class="tag neodhl" title="Člověk se zapomněl odhlásit. Půlnoční automat směnu uzavřel na 23:59 — skutečný čas odchodu doplň ručně.">⚠ neodhlášeno</span>';
         if(!gone&&e2.note&&e2.note.indexOf('✋ ROZPOR')<0)poznBelow.push('<b>'+esc((e2.zac||'?')+(isDE?'':('–'+(e2.kon||'…'))))+' '+(isDE?'🫡 Odchod':esc(e2.typ||''))+':</b> '+esc(e2.note));
         tr0.appendChild(tdc(isDE?'🫡 Odchod':esc(e2.typ||'')));
         tr0.appendChild(tdc(esc(e2.zac||'—'),'num'));
-        tr0.appendChild(tdc(isDE?'':esc(e2.kon||'…'),'num'));
+        // U zapomenutého odchodu konec NEUKAZUJEME — 23:59 je dopočet automatu,
+        // ne skutečnost. Peťa doplní pravdu ručně.
+        tr0.appendChild(tdc((isDE||neodhl)?'…':esc(e2.kon||'…'),'num'));
         tr0.appendChild(tdc((!isDE&&e2.hours!=null)?fmtDec(e2.hours):'','num','text-align:right;'));
         // C24 31.7.2026: multi-zakázkový den → na hlavním řádku „rozpad ↓" místo jedné náhodné
         // činnosti; jednotlivé zakázky se ukážou v read-only pod-řádcích níž (Opravy = Docházka new).

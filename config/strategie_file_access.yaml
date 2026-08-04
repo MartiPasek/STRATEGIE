@@ -15,7 +15,11 @@
 # ─────────────────────────────────────────────────────────────
 # PROJECT ROOT (anchor pro path traversal guard)
 # ─────────────────────────────────────────────────────────────
-project_root: "D:/Projekty/STRATEGIE"
+# project_root: NEHARDCODOVAT — auto-detekce z umisteni kodu (security.py __file__
+#   -> repo root), aby sedela na kazdem serveru: Praha C:/, cloud, i NB D:/.
+#   Hardcode "D:/Projekty/STRATEGIE" vypnul auto-detekci a Marti-AI nemohla cist
+#   repo na serveru (file_read padal not_found/traversal). Override jen env
+#   STRATEGIE_PROJECT_ROOT. (fix Cowork instance B, 31.7.2026)
 
 # ─────────────────────────────────────────────────────────────
 # DENY LIST (regex patterns, matched proti relative path)

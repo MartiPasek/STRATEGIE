@@ -129,6 +129,8 @@ async function loadZpr(){
     // === 3 cesty výpočtu (A staré procedury / B náš engine office / C náš engine cloud) ===
     const dis='style="opacity:.45;cursor:default" disabled';
     inner+='<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">'+
+      '<div class="cway"><button class="cbtn" style="background:#16314f;color:#9ec5ff;border-color:#2c5a8f;font-weight:700" onclick="location.href=\'/payroll\'">🪙 Mzdové podklady (docházka) →</button>'+
+        '<span class="muted" style="font-size:11.5px">přehled docházky a přepočet podkladů — pak generuj mzdy cestou C</span></div>'+
       '<div class="cway"><span class="ctag" style="background:#1d3a2a;color:#86e8b0">A · staré procedury</span>'+
         '<button class="cbtn" onclick="MZ.akce(\'vstupni\')">1️⃣ Vstupní data</button>'+
         '<button class="cbtn" onclick="MZ.akce(\'generovat\')">2️⃣ Generovat mzdy</button>'+

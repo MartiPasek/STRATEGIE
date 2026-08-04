@@ -253,6 +253,15 @@ rozhoduje FPD za měsíc (Peťa 4.8.: *„Diviš je dílna, nemá se mu to zarov
 FPD za měsíc, nebudeme to řešit"*). Kdo je výroba: `att_fix_scope_emps(s, 'vyroba')`
 = větev pod kořenem VÝROBA (Výroba, Zkušebna).
 
+**⚠️ KONTROLUJ I HOME OFFICE, NEJEN „Práce" A „Režie" (chyba 4.8.2026, Peťa mě na ni upozornila).**
+Při kontrole chybějící zakázky / činnosti / rozpadu jsem filtroval jen `code IN ('work','overhead')`,
+takže **home office (`homeoffice`) mi celý propadl** — Petře jsem nenahlásil 9 HO záznamů bez rozpadu,
+z toho 6 úplně prázdných (bez časů a bez hodin). Kontroluj **všechny typy s kategorií `presence`.**
+- **Pozor na `hours = NULL` vs `0`:** prázdné píchnutí má hodiny **NULL**, ne nulu. Podmínka
+  `hours === 0` ho NENAJDE. Testuj `hours == null || hours === 0`.
+- **HO bez času a bez hodin = jen ohlášení**, ne odpracovaná docházka → stornovat (Peťa 4.8.2026).
+- **HO s hodinami rozpad má mít** — v červenci 2026 je v rozpadu 72 řádků s činností „home office".
+
 **Co NEHLÁSIT jako chybu (jsou to dopočty automatu, ne zapomenutá píchnutí):**
 - „Nenároková práce (nad fond)" a „Doplnění do fondu (automat)" — **nemají časy z principu**,
   takže nejsou neukončený den.
@@ -262,6 +271,13 @@ FPD za měsíc, nebudeme to řešit"*). Kdo je výroba: `att_fix_scope_emps(s, '
 - **Marti Pašek** · **Jiří Honomichl** · **Michal Šik**
 - Peťa: *„nemáš Martiho Paška 2 už nijak kontrolovat, to samé Honomichla a Šika."*
   Neřeš u nich divné dny, FPD ani nenárokovou práci a **sám je nenabízej**.
+
+**🚫 LIDÉ BEZ DOCHÁZKY — NEHLÁSIT JAKO CHYBU (Peťa 4.8.2026):**
+**Jiří Honomichl · Michal Šik · Jan Svoboda · Ondřej Pillár · Miroslav Mareš**
+Peťa: *„nemají docházku, a i když se tam občas objeví záznam, nemají docházku."*
+- Nulové nebo skoro nulové hodiny za měsíc u nich **NEJSOU nález** (Pillár měl za červenec
+  7,20 h, Šik jen absence 36 h) — nehlásit „chybí fond", „žádná docházka", ani je nedávat
+  do souhrnů odchylek FPD.
 
 **⚠️ FPD = co se má za měsíc PROPLATIT — JINAK U KANCELÁŘE, JINAK U DÍLNY
 (Peťa 4.8.2026, potvrzeno na datech července).**
@@ -284,6 +300,19 @@ a přičtením `nad_fond` se počítá dvakrát (u Horkého 185,13 místo ~176).
 **Kdo je „kancelář":** automat `att_automat_level_day` dopichuje jen lidem v kategorii
 s příznakem `dopichavat_fond`. Prakticky = kdo má v měsíci záznamy `fond_doplneni`
 nebo `nenarokova`. **Karta zaměstnance to nerozlišuje**, podle ní se rozhodovat nedá.
+
+### ⛔ NEPŘÍTOMNOST OSVČ SE DO FONDU NEPOČÍTÁ (Peťa 4.8.2026, závazné)
+Peťa: *„nepřítomnost OSVČ není docházka, nemůže se počítat do fondu."*
+- Typ **„Nepřítomnost OSVČ"** (činnost **37**) je **jen informace, že ten den nepracoval** —
+  NENÍ to absence typu dovolená/nemoc, kterou zaměstnavatel proplácí.
+- **Do FPD ji NEZAPOČÍTÁVEJ**, ani když ji `att_den_hodiny` vrátí v `hodiny_absence`.
+  U OSVČ tedy FPD = **jen skutečně odpracované hodiny** (+ absence jiného druhu, pokud jsou).
+- Rozdíl je velký: Lev měl 4 dny nepřítomnosti (32 h) — s nimi vyšlo FPD +20,83 h nad fond,
+  bez nich **−11,17 h pod fondem**. Ověřeno 4.8.2026.
+- ⚠️ Může stát **vedle reálné práce v tomtéž dni** (Lev 17. 7.: nepřítomnost 8 h a k tomu
+  6,5 h odpracováno z Centrály) — práci započítat, nepřítomnost ne.
+- Když ji zaměstnanec chce přepsat prací (Excel), platí: **stornovat a místo ní zadat práci**
+  (nepřítomnost nemá časy, `fix/entry` ji odmítne — jde jen `fix/void` + `fix/add`).
 
 **Použij to i jako KONTROLU:** kdo z kancelářských nevyjde na fond (tolerance ~0,1 h),
 tam je díra — chybějící den, nezadaná absence, práce ve svátek nebo o víkendu.

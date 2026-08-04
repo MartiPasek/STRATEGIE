@@ -11380,10 +11380,10 @@ def _docx_to_preview_html(raw: bytes) -> str:
         if not txt.strip():
             parts.append("<div style='height:7px'></div>")
         elif bold:
-            parts.append("<p style='margin:8px 0 2px;font-weight:800;color:#e8eef5'>" + _html.escape(txt) + "</p>")
+            parts.append("<p style='margin:8px 0 2px;font-weight:800;color:#111827'>" + _html.escape(txt) + "</p>")
         else:
-            parts.append("<p style='margin:2px 0;color:#cdd6e2;line-height:1.45'>" + _html.escape(txt) + "</p>")
-    return "".join(parts) or "<p style='color:#7f8ea0'>Prázdný dokument.</p>"
+            parts.append("<p style='margin:2px 0;color:#1f2937;line-height:1.5'>" + _html.escape(txt) + "</p>")
+    return "".join(parts) or "<p style='color:#6b7280'>Prázdný dokument.</p>"
 
 
 @api_router.get("/app/hr/person-doc-preview")

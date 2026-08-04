@@ -139,6 +139,27 @@ commit se jmenuje „Peťa+Michaela vidí a opravují všechny lidi" — místo 
   → pravý klik → Restartovat** (nebo v PowerShellu jako správce `Restart-Service STRATEGIE-CLAUDE-SQL`).
   Ověřeno 13.7. — po restartu naskočí do logu „forwarder started · Claude‑26 (Peta)".
 
+### ⚠️ PONAUČENÍ Z VÝPADKU 4. 8. 2026 (Peťa: „vezmeme si z toho ponaučení")
+Odpoledne most hodiny padal na `HTTP 401 Nejsi přihlášen` — **jednou dotaz prošel, podruhé ne.**
+Já jsem to diagnostikoval jako rozhozený/vypršený token a **dvakrát zbytečně poslal Peťu
+restartovat službu.** Skutečná příčina (našel Marti): aplikace se při startu ptala Windows přes
+**WMI** na architekturu procesoru, zaseknutá WMI služba neodpověděla a **start API visel** —
+polomrtvá instance některé požadavky odbavila a jiné ne. Oprava = `WMI boot-hang guard`
+na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá).
+
+1. **„Jednou to jde, jednou ne" = polomrtvá aplikace, ne vypršené přihlášení.** Když se stejný
+   dotaz chová pokaždé jinak, **NEHÁDEJ příčinu a neposílej Peťu restartovat služby** — řekni jí,
+   ať se ozve Martimu, aby se podíval na server. Restart mostu tenhle typ chyby neopraví.
+2. **V období zpracování mezd nenasazovat, když to nemusí být.** Každý deploy aplikaci vypne
+   a znovu zapne — a právě při startu se skryté chyby projeví. Chyba přitom ležela v kódu dávno;
+   „rozbilo" ji až to, že se aplikace musela restartovat.
+3. **Výpadek mostu neznamená konec práce.** Přes Petin přihlášený prohlížeč (Claude in Chrome)
+   se dá číst i zapisovat docházka běžnými endpointy appky — `fix/lide`, `fix/day?uid&day`,
+   `fix/entry`, `fix/add`, `fix/void`, `absence-registr`, `dochazka-zak-tab/data`.
+   Takhle se 4. 8. dokončila celá kontrola i opravy Jarrara. **Jen POZOR:** hodiny si pak počítám
+   sám z úseků, ne funkcí `att_den_hodiny` — výsledek ověřit proti exportu z appky a Petře říct,
+   že jde o vlastní výpočet.
+
 ## Schvalování (bannery)
 - Moje (Claude‑26) write požadavky se schvalují **Petře (user 18), NE Martimu.** Ověřeno na
   živých datech (`fw.mobile_command` → `target_user_id = 18` u požadavku #863), přesně jak psala
@@ -236,6 +257,40 @@ FPD za měsíc, nebudeme to řešit"*). Kdo je výroba: `att_fix_scope_emps(s, '
 - „Nenároková práce (nad fond)" a „Doplnění do fondu (automat)" — **nemají časy z principu**,
   takže nejsou neukončený den.
 - „Dnes už se mnou nepočítej" — konec dne, ne přestávka.
+
+**🚫 KOHO UŽ NEKONTROLOVAT VŮBEC (Peťa 4.8.2026):**
+- **Marti Pašek** · **Jiří Honomichl** · **Michal Šik**
+- Peťa: *„nemáš Martiho Paška 2 už nijak kontrolovat, to samé Honomichla a Šika."*
+  Neřeš u nich divné dny, FPD ani nenárokovou práci a **sám je nenabízej**.
+
+**⚠️ FPD = co se má za měsíc PROPLATIT — JINAK U KANCELÁŘE, JINAK U DÍLNY
+(Peťa 4.8.2026, potvrzeno na datech července).**
+
+| kdo | FPD | pozn. |
+|---|---|---|
+| **kancelář** | odpracované + absence **+ dopíchnutí do fondu − nad fond** | má vyjít na měsíční fond |
+| **dílna (výroba)** | odpracované + absence | nezarovnává se |
+| **hodinoví s proplácením přesčasu** (OSVČ) | odpracované + absence | vyjde NAD fond a je to správně |
+
+Přes `tenant.att_den_hodiny(2, od, do)`:
+- kancelář = `hodiny_mzdove + hodiny_absence − hodiny_nad_fond`
+- dílna / hodinoví = `hodiny_mzdove + hodiny_absence`
+- `hodiny_mzdove` **už dopíchnutí do fondu obsahují** — nepřičítat zvlášť.
+
+⛔ **Starý vzorec `mzdove + nad_fond + absence` je ŠPATNĚ** — `hodiny_mzdove` se
+neořezávají na fond (ověřeno v definici funkce), takže přesah je v nich už započítaný
+a přičtením `nad_fond` se počítá dvakrát (u Horkého 185,13 místo ~176).
+
+**Kdo je „kancelář":** automat `att_automat_level_day` dopichuje jen lidem v kategorii
+s příznakem `dopichavat_fond`. Prakticky = kdo má v měsíci záznamy `fond_doplneni`
+nebo `nenarokova`. **Karta zaměstnance to nerozlišuje**, podle ní se rozhodovat nedá.
+
+**Použij to i jako KONTROLU:** kdo z kancelářských nevyjde na fond (tolerance ~0,1 h),
+tam je díra — chybějící den, nezadaná absence, práce ve svátek nebo o víkendu.
+Za červenec 2026 sedělo 14 z 22 do 0,1 h; zbylých 8 byly skutečné nálezy.
+
+📌 **Do G2007 zatím NEZAPSÁNO** (4.8. nešel most, HTTP 401) — až most pojede, poslat
+`@@G2007ADD dochazka fpd-vypocet-kancelar-vs-dilna` a ověřit čtením.
 
 ## 📁 KAM UKLÁDAT SOUBORY PRO PEŤU — VŽDY do `C:\Projekty\Strategie\` (Peťa 4.8.2026)
 Peťa: *„a prosím pak si to napiš do pokynů, ať to neřešíme pořád dokola."*

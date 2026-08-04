@@ -902,11 +902,20 @@ function openDay(uid,name,day){
         // Nad fond (nenárokové) je ČÁST odpracovaných hodin, jen se ukáže, nepřičítá se.
         // Peťa 22.7.2026: počítáme přímo z odpracováno vs denní fond, ať je vidět hned
         // (i než automat řádek dopíše). Když automat řádek už má, sedí to na sebe.
+        /* Peťa 4.8.2026: „Fond musí být vidět u všech lidí, i u dílenských — sice se
+           jim do fondu nedopichuje, ale plnit ho musí." Do teď backend vracel fond
+           jen kanceláři, takže dílna (Króner) ho neviděla nikde. Teď ho ukazujeme
+           vždycky jako informaci, ale řádek „z toho nad fond (nenárokové)" jen tomu,
+           komu se do fondu opravdu dopichuje — dílna nenárokovou práci nemá. */
+        if(j.fond_den!=null)
+          srow('<span style="color:#8fa3bd;">Denní fond'
+               +(j.fond_dopichava===false?' (nedopichává se)':'')+'</span>',
+               '<span style="color:#8fa3bd;">'+fmtDec(j.fond_den)+'</span>');
         var nad = sumNenar;
-        if(j.fond_den!=null && (cisty - j.fond_den) > 0.005) nad = cisty - j.fond_den;
-        if(nad > 0.005)
-          srow('<span style="color:#8fa3bd;">… z toho nad fond (nenárokové)'
-               +(j.fond_den!=null?(' · fond '+fmtDec(j.fond_den)):'')+'</span>',
+        if(j.fond_dopichava!==false && j.fond_den!=null && (cisty - j.fond_den) > 0.005)
+          nad = cisty - j.fond_den;
+        if(j.fond_dopichava!==false && nad > 0.005)
+          srow('<span style="color:#8fa3bd;">… z toho nad fond (nenárokové)</span>',
                '<span style="color:#8fa3bd;">'+fmtDec(nad)+'</span>');
         // každá další činnost, co patří do docházky, na vlastním řádku
         var celkem=cisty;

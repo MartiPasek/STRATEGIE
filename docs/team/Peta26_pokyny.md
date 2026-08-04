@@ -190,6 +190,27 @@ jako kdybych si připisovala cizí zásluhy."*
 - Když Peta výslovně řekne **„zápis do G2007"** → teprve tehdy do sdílené znalostní báze G2007 (`@@G2007ADD`).
 - **Pravidlo:** není‑li G2007 výslovně zmíněné, je zápis **jen a jen pro nás** (soukromý), ne sdílený.
 
+## 🕐 OTEVŘENÉ VĚCI — AŽ PO MZDÁCH (Peťa 4.8.2026, nezačínat sám od sebe)
+Peťa je odložila vědomě, protože jsme v období zpracování mezd. **Nepouštět se do nich,
+dokud neřekne** — ale ani je nezapomenout.
+
+1. **⚠️ Opravy / Docházka new ukazují cizí data.** Vybere se člověk, ale v detailu zůstane
+   ten předchozí — a stejně tak umí ukázat špatný den. Ověřeno 4.8.2026: Peťa měla vybranou
+   Brudnovou (356) a v detailu byla docházka Jiřího Hájka (483) — 24.7., 06:54–13:47, VR10676,
+   sedělo to na minutu i zakázku. V hlavičce je sice správné jméno („DEN — Jiří Hájek"), ale
+   snadno se přehlédne. Peťa: *„tohle zlobí často, i v rámci jednoho člověka, a to třeba ukazuje
+   špatný den."* **RIZIKO: dá se omylem opravit docházka někomu jinému** — než dáš Petře
+   výsledek nebo než něco opraví, ověř jméno i datum v hlavičce.
+2. **Rozdíly docházka × rozpad o setiny (0,01–0,05 h).** Hlavička dne slučuje překrývající se
+   úseky a odečítá pauzy uvnitř práce, rozpad je prostý součet — proto se rozcházejí. Netýká se
+   to sekund (ověřeno 4.8.: ořezání sekund by rozdílů PŘIDALO, 451 → 569 dnů). Neopravovat
+   plošně, jde to do mezd.
+3. **Home office a sloupec Počet dní.** Home office s časem 6:00–8:19 se počítá jako celý den,
+   což nedává smysl. Nejdřív je potřeba rozhodnout, co u něj má „počet dní" vlastně znamenat
+   (je to místo výkonu práce, ne čerpaný den).
+4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
+   lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
+
 ## 🔎 KONTROLA DOCHÁZKY ČLOVĚKA — „divné dny" (Peťa 4.8.2026, ověřeno v kódu)
 Peťa zadává: *„divné dny — kdyby někde něco neměl, měl to moc dlouhé / moc krátké, překryv,
 dlouhou pauzu, neukončený den, chybějící činnost nebo zakázku."*

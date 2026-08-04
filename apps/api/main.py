@@ -1,3 +1,25 @@
+
+# --- WMI boot-hang guard (Cowork 4.8.2026) ---
+# Py3.14: platform.machine() -> uname() -> _get_machine_win32() -> _wmi_query,
+# ktere pri zaseknute WMI VISI a shodi boot A/B. Vratime architekturu z env,
+# aby se WMI u startu vubec nevolala. Cele v try/except, nesmi shodit boot.
+import os as _bg_os
+if _bg_os.name == "nt":
+    _bg_arch = (_bg_os.environ.get("PROCESSOR_ARCHITEW6432")
+                or _bg_os.environ.get("PROCESSOR_ARCHITECTURE") or "AMD64")
+    try:
+        import platform as _bg_pf
+        if hasattr(_bg_pf, "_get_machine_win32"):
+            _bg_pf._get_machine_win32 = lambda: _bg_arch
+        _bg_pf.win32_ver = lambda *a, **k: ("", "", "", "")
+        if hasattr(_bg_pf, "_wmi_query"):
+            def _bg_no_wmi(*a, **k):
+                raise OSError("WMI off at boot (STRATEGIE guard)")
+            _bg_pf._wmi_query = _bg_no_wmi
+    except Exception:
+        pass
+# --- /WMI boot-hang guard ---
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse

@@ -37995,6 +37995,13 @@ async def diag_sql(req: Request) -> JSONResponse:
                 "apps/api/static/foto.html": "/foto",
                 "apps/api/static/overit.html": "/overit",
                 "apps/api/static/marti.html": "/web/marti",
+                # Varianta A / oddeleny adresar (5.8.2026): po migraci kod -> static_db/ funguji obe cesty
+                "apps/api/static_db/mobile.html": "/mobile",
+                "apps/api/static_db/index.html": "/",
+                "apps/api/static_db/vyroba.html": "/vyroba",
+                "apps/api/static_db/foto.html": "/foto",
+                "apps/api/static_db/overit.html": "/overit",
+                "apps/api/static_db/marti.html": "/web/marti",
             }
             _path6 = _url_map6.get(_kod6)
             _selftest6 = {"provedeno": False}

@@ -1036,7 +1036,22 @@ app.include_router(act_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)
-INDEX = os.path.join(static_dir, "index.html")
+# Varianta A / oddeleny adresar (Marti 5.8.2026): DB artefakty (RO obraz z g2007.soubor)
+# ziji v samostatnem static_db/ (gitignorovany, materializovany pri startu) oddelene od
+# genuine statickych souboru v static/. _resolve_static najde soubor nejdriv v static_db/
+# (novy, DB), jinak fallback na static/ (stary/genuine) -> routy funguji at je soubor
+# kdekoli, cutover je plynuly bez flag-day.
+static_db_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static_db")
+os.makedirs(static_db_dir, exist_ok=True)
+
+
+def _resolve_static(fname):
+    """Cesta k servirovanemu souboru: static_db/ (DB obraz) ma prednost, jinak static/."""
+    _cand = os.path.join(static_db_dir, fname)
+    return _cand if os.path.exists(_cand) else os.path.join(static_dir, fname)
+
+
+INDEX = _resolve_static("index.html")  # fallback konstanta; servirovani jde pres _resolve_static
 
 # B+4 PoC (5.5.2026): mount /static -> apps/api/static/ pro reusable komponenty
 # (ErpDataGrid, fonts, atd.). Caddy file_server na cloud APP řeší rovněž; tento
@@ -1054,7 +1069,7 @@ def index(request: Request):
     user_id) nebo příchod s ?return=... (např. z /erp login redirectu) dostane
     chat/login jako dosud → zaměstnancům i PWA (start_url '/') se nic nemění."""
     if request.cookies.get("user_id") or request.query_params:
-        return FileResponse(INDEX)
+        return FileResponse(_resolve_static("index.html"))
     return FileResponse(WEB_LANDING,
                         media_type="text/html",
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
@@ -1065,7 +1080,7 @@ def index(request: Request):
 def chat_entry():
     """Vstup do systému (chat/login). Marketing web na / sem odkazuje tlačítkem
     „Vstup do systému". Vždy servíruje chat appku."""
-    return FileResponse(INDEX)
+    return FileResponse(_resolve_static("index.html"))
 
 
 @app.get("/mobile")
@@ -1077,7 +1092,7 @@ def mobile_page(request: Request):
     C27 21.7.: log serve do public.mobile_serve_dbg — SMAZANO 5.8.2026 (C23,
     pomalost appky): edge-cache otazka vyresena a debug pridaval kazdemu
     otevreni appky synchronni DB round-trip (CREATE+GRANT+INSERT+COMMIT)."""
-    _p = os.path.join(static_dir, "mobile.html")
+    _p = _resolve_static("mobile.html")
     return FileResponse(_p,
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "Pragma": "no-cache", "Expires": "0"})
@@ -1102,7 +1117,7 @@ def vyroba_page():
     """Plánovač výroby — interaktivní konzole vedoucího výroby (Dušan + Marek).
     Funguje na desktopu (ERP/CRM) i v mobilu, gate v API endpointech. SAMEORIGIN
     pro iframe embed v ERP. Marti 8.6.2026."""
-    return FileResponse(os.path.join(static_dir, "vyroba.html"),
+    return FileResponse(_resolve_static("vyroba.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
@@ -1112,7 +1127,7 @@ def vyroba_page():
 def foto_page():
     """📷 Fotky pro výrobu — testovací focení k zakázce (offline kontrola
     rozmazanosti, upload přes modul media, AI hodnocení). Claude C23, 29.7.2026."""
-    return FileResponse(os.path.join(static_dir, "foto.html"),
+    return FileResponse(_resolve_static("foto.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
@@ -1122,7 +1137,7 @@ def foto_page():
 def overit_page():
     """🔍 Ověření dodavatele — ARES identita + ADIS DPH status + zveřejněné účty.
     Naše vlastní ověření s razítkem, nezávislé na Heliosu. Marti 6.7.2026 (pro Peťu)."""
-    return FileResponse(os.path.join(static_dir, "overit.html"),
+    return FileResponse(_resolve_static("overit.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
@@ -1736,7 +1751,7 @@ def predkontace_page():
 def dochazka_zakazky_page():
     """Docházka všech lidí s rozpadem po zakázkách (z vyroba_work). Přehled před
     přenosem do staré Centrály. Marti 8.7.2026."""
-    return FileResponse(os.path.join(static_dir, "dochazka-zakazky.html"),
+    return FileResponse(_resolve_static("dochazka-zakazky.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
@@ -1745,7 +1760,7 @@ def dochazka_po_zakazkach_page():
     """Docházka po zakázkách — vlastní stránka ve stylu standardu přehledů
     (table.dokl). Data z data_setu dochazka.zakazky_vse_list/budoucnost přes
     /app/dochazka-zak-tab/data. Peťa 22.7.2026. XFO/CSP pro ERP iframe."""
-    return FileResponse(os.path.join(static_dir, "dochazka-po-zakazkach.html"),
+    return FileResponse(_resolve_static("dochazka-po-zakazkach.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
@@ -1786,7 +1801,7 @@ def dochazka_opravy_page():
     DOCHÁZKA - OPRAVY). Data gated na serveru (_att_can_fix). Jirka 9.7.2026.
     XFO/CSP hlavičky: globální middleware dává DENY → v ERP iframe by se stránka
     nenačetla (vzor finance-podminky, Jirka 10.7.)."""
-    return FileResponse(os.path.join(static_dir, "dochazka-opravy.html"),
+    return FileResponse(_resolve_static("dochazka-opravy.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
@@ -1797,7 +1812,7 @@ def registr_absenci_page():
     """Registr absencí — všechny nepřítomnosti, naše i ze staré Centrály, na jednom
     místě (jako Správa docházky v Centrále). Peťa 21.7.2026. Data gated na serveru
     (rodiče / HR / editoři oprav / Peťa+Šárka+Jirka). XFO/CSP kvůli ERP iframe."""
-    return FileResponse(os.path.join(static_dir, "registr-absenci.html"),
+    return FileResponse(_resolve_static("registr-absenci.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "X-Frame-Options": "SAMEORIGIN",
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
@@ -2117,7 +2132,7 @@ def web_program():
 
 
 def _web_subpage(fname):
-    return FileResponse(os.path.join(static_dir, fname),
+    return FileResponse(_resolve_static(fname),
                         media_type="text/html",
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "Pragma": "no-cache", "Expires": "0"})
@@ -2539,13 +2554,13 @@ def core_service_worker():
 @app.get("/invite/{token}")
 def invite_page(token: str):
     """Pozvánkový link — vrátí stejný index.html, JS se postará o přijetí."""
-    return FileResponse(INDEX)
+    return FileResponse(_resolve_static("index.html"))
 
 
 @app.get("/reset/{token}")
 def reset_page(token: str):
     """Password reset link — vrátí index.html, JS si token z URL vezme sám."""
-    return FileResponse(INDEX)
+    return FileResponse(_resolve_static("index.html"))
 
 
 @app.get("/app-pair")

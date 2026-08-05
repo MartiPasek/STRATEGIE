@@ -95,16 +95,48 @@
       +'<select id="abTyp" style="width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'+selOpts(TYPY)+'</select>'
       +'<div style="display:flex;gap:8px;"><div style="flex:1;"><label class="hint" style="display:block;margin:6px 0 2px;">Od</label><input id="abOd" type="date" value="'+today+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"></div>'
       +'<div style="flex:1;"><label class="hint" style="display:block;margin:6px 0 2px;">Do</label><input id="abDo" type="date" value="'+today+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"></div></div>'
-      +'<label class="hint" style="display:block;margin:6px 0 2px;">Hodin/den</label><input id="abH" type="number" step="0.5" value="8" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'
+      +'<label class="hint" style="display:block;margin:6px 0 2px;" id="abRozsahL">Rozsah</label>'
+      +'<select id="abRozsah" style="width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"></select>'
       +'<input id="abNote" type="text" placeholder="Poznámka pro vedoucího (volitelné)" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin-top:8px;">';
     nf.appendChild(w);
-    var sb=el('<button class="green full" style="margin-top:10px;">Odeslat vedoucímu</button>');
+    // ROZSAH ABSENCE PODLE ÚVAZKU (Peťa 3.8.2026)
+    // Dřív tu byla kolonka „Hodin/den" s pevnou osmičkou, do které šlo napsat cokoli.
+    // Vznikaly z toho hodnoty, které nejsou ani celý, ani půl den, a lidem se
+    // zkráceným úvazkem se strhávalo víc dovolené, než měli. Nově se nabízí jen to,
+    // co u daného typu smí vzniknout, a hodiny se počítají z JEHO denního fondu
+    // (att_absence_mine vrací fond_den a pulden_h).
+    var FOND=8, PULDEN=4;
+    function naplnRozsah(){
+      var typ=w.querySelector('#abTyp').value;
+      var sel=w.querySelector('#abRozsah'), lbl=w.querySelector('#abRozsahL');
+      var h=function(x){ return (Math.round(x*100)/100).toString().replace('.',','); };
+      var o=[];
+      if(typ==='medical'){
+        // Lékař se čerpá na skutečně chybějící hodiny, ne na půldny.
+        lbl.textContent='Kolik hodin chybělo';
+        for(var i=1;i<=Math.ceil(FOND);i++) o.push([i, i+' h']);
+      }else if(typ==='sick'){
+        // Sick day se čerpá v CELÝCH hodinách (Peťa 3.8.2026).
+        lbl.textContent='Kolik hodin';
+        for(var j=1;j<=Math.ceil(FOND);j++) o.push([j, j+' h']);
+      }else if(typ==='vacation'){
+        lbl.textContent='Rozsah';
+        o.push([FOND, 'celý den ('+h(FOND)+' h)']);
+        o.push([PULDEN, 'půlden ('+h(PULDEN)+' h)']);
+      }else{
+        lbl.textContent='Rozsah';
+        o.push([FOND, 'celý den ('+h(FOND)+' h)']);
+      }
+      sel.innerHTML=o.map(function(x){ return '<option value="'+x[0]+'">'+x[1]+'</option>'; }).join('');
+    }
+    w.querySelector('#abTyp').addEventListener('change', naplnRozsah);
+    naplnRozsah();
     var sst=el('<div class="hint" style="margin-top:6px;"></div>');
     sb.addEventListener("click",function(){
       sb.disabled=true; sst.textContent="Odesílám…";
       api("POST","/api/v1/erp/app/attendance/absence/request",{typ:w.querySelector('#abTyp').value,
         od:w.querySelector('#abOd').value, do:w.querySelector('#abDo').value,
-        hours_per_day:parseFloat(w.querySelector('#abH').value)||8, note:w.querySelector('#abNote').value}).then(function(r){
+        hours_per_day:parseFloat(w.querySelector('#abRozsah').value)||FOND, note:w.querySelector('#abNote').value}).then(function(r){
           sb.disabled=false; sst.textContent=(r&&r.ok)?"✅ Odesláno vedoucímu":("✗ "+((r&&r.error)||"chyba"));
           if(r&&r.ok){ w.querySelector('#abNote').value=""; loadMine(); }
         });
@@ -142,6 +174,10 @@
     function loadMine(){
       api("GET","/api/v1/erp/app/attendance/absence/mine","").then(function(j){
         mine.innerHTML="";
+        // denní fond přihlášeného → nabídka rozsahu se přepočte na JEHO hodiny
+        if(j&&j.ok&&j.fond_den){
+          FOND=j.fond_den; PULDEN=(j.pulden_h!=null?j.pulden_h:j.fond_den/2); naplnRozsah();
+        }
         if(!j||!j.ok){ mine.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
         if(!j.zadosti.length){ mine.appendChild(el('<div class="hint">Zatím žádné žádosti.</div>')); return; }
         j.zadosti.forEach(function(z){

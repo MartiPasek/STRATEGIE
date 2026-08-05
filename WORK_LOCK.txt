@@ -178,3 +178,21 @@ C28 (Jirka / Cowork lane 1) 5.8.2026 10:52: HOTOVO A NASAZENO - historie rozpadu
 C28 (Jirka / Claude Code lane 2) 5.8.2026: KROK 3 UZAVREN + prosla sestice doladovacich bodu. Nalezy: bod 3 (readonly pole) uz je HOTOVY - zapis z 20.7. neplati, vsech 22 poli ma readonly. Bod 1 je vetsi: fw.data_source_op NEZNA operaci update/save (0 z 234), takze ulozeni na gridu neni konfigurace ale prace na frameworku nebo vlastni endpoint. Body 4+5 maji backend hotovy, chybi jen UI v ec_vyhodnoceni_actions.js (ktery by mel nejdriv do g2007.soubor). Bod 2 ceka na verdikt Marti-AI. Zapsano G2007 doc-vyroba-vyhodnoceni-sest-doladovacich-bodu.
 
 C28 (Jirka / Claude Code lane 2) 5.8.2026: AUDIT AKCI vyhodnoceni zakazek. Nova tabulka ec.akce_audit (append-only: kdo, kdy, akce, volana funkce, parametry, ok, vysledek) + zapis ve vyhodnoceni_actions.py ve STEJNE transakci jako akce (kdyz projde akce a audit ne, spadne cela transakce - vyplata bez zaznamu nevznikne). Varianta (b) dle Marti-AI msg 12262. NEMENIL jsem zadnou ec.* funkci. POZOR: pripravena, ale ZAMERNE NENASAZENA oprava koeficientu superhrube - overeno, ze 1,4 NENI plosne (HPP x1,4, OSVC a DPP x1,0; ec.cis_zam.osvc je false u vsech 430 lidi, takze modul by dal x1,4 kazdemu = premie o 40 % vyssi u 31 ze 77 lidi). Ceka na potvrzeni Kristy (mail 580) - do te doby na vypocet penez NESAHAT.
+C26 (Peta / Cowork) 4.8.2026 11:35 UTC: lane 2, kontrola dochazky cervenec 2026 po lidech (Kilberger). Jen cteni (SELECT), zadne zapisy, zadne soubory. scripts/claude_sql/CLAUDE2_*
+
+C26 (Peta / Cowork lane 2) 5.8.2026 08:40 UTC — POZOR, DNES JSEM MENILA PICHANI DOCHAZKY.
+Duvod: rozpad na zakazky (vyroba_work) vznikal BEZ vazby na pichnuti (att_entry_id) -> "sirotci",
+ktere v Opravach nejsou videt, delaji falesne "chybi rozpad" a falesne prekryvy (45 radku jen za 31.7.).
+Zmeny (obe v g2007.python, schvalila Peta bannerem #1814 a #1821, obe uvnitr try/except):
+ 1) att_checkin (verze 4) — po zalozeni useku rozpadu doplni att_entry_id prave vznikleho pichnuti.
+ 2) att_apply_work_selection (verze 3) — totez po vyberu zakazky / prepnuti na rezii.
+ Obe sahaji JEN na prave otevreny usek (konec IS NULL) daneho cloveka a jen kdyz vazba chybi;
+ nemeni hodiny, casy ani zakazky.
+Dale (jen cteni, prehled): dochazka_kontrola_data — porovnavani prekryvu na MINUTY (ne sekundy),
+ vynechani useku kratsich nez minuta, tolerance FPD 0,1 h, rozsireni na OSVC + sloupec Druh smlouvy,
+ vyrazeni lidi bez dochazky (21, 2/15/41, 9030, 349, 9103, 9017, 9005).
+Overeno po nasazeni: pichnuti funguje (test 10:33, novy usek MA vazbu), vsechny dochazkove stranky 200.
+5.8. dopoledne hlasi Tynka problem "neco s dochazkou html" — pricina zatim NEZNAMA, resi to jeji Claude.
+KDYZ BY TO SOUVISELO: obe zmeny jdou vratit smazanim bloku s komentarem "rozpad MUSI znat sve pichnuti"
+(v obou skriptech), bez deploye, projevi se hned. Puvodni znen mam v historii session C26.
+Ceka neschvaleny write #1824 (doparovani sirotku) — POZASTAVENO, dokud se problem nevyjasni.

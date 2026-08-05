@@ -25185,6 +25185,13 @@ async def cockpit_access(req: Request) -> JSONResponse:
                 _sca.close()
             except Exception:
                 pass
+    # Peťa 5.8.2026 (souhlas Marti): avatary vidí i finanční/HR okruh (`fin` =
+    # _is_cockpit → skupiny HR/Finance/Účetnictví/Banka), ne jen rodiče a scoped
+    # approveři. Důvod: Michelle Šafránková (17) zastupuje Peťu ve mzdách — na
+    # Výplatnice právo má (mzdy_* gate = _is_cockpit), ale na řídicí pult se
+    # neměla jak proklikat, protože ikonka visela na užším okruhu. Schvalování
+    # zápisů zůstává odděleně na _SCOPED_APPROVER_UIDS — tohle ho NEROZŠIŘUJE.
+    cockpit_allowed = bool(cockpit_allowed or fin)
     team = []
     if cockpit_allowed:
         team += [

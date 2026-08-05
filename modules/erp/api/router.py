@@ -11251,9 +11251,9 @@ async def app_hr_person_docs(req: Request):
 
 @api_router.get("/app/hr/person-leave")
 async def app_hr_person_leave(req: Request):
-    """Dovolená + sick days pro hlavičku karty — z docházky (Péťa):
-    tenant.holiday_balance + tenant.sick_day_balance (nárok/čerpáno/zbytek v hodinách),
-    plán = budoucí dovolená z att_day_summary. Hodiny → dny (÷8)."""
+    """Dovolená (D+DN) + sick days (SD) pro hlavičku karty. Zdroj = TÁŽ živá logika
+    jako přehled „Nárok a čerpání dovolené" (g2007.python att_narok_cerpani), který
+    vidí vedoucí výroby (Dušan). Ověřeno proti Centrále. D+DN ve DNECH, SD v HODINÁCH."""
     from sqlalchemy import text as _t
     import datetime as _dt
     uid = _uid_from_token_or_cookie(req)
@@ -11263,59 +11263,60 @@ async def app_hr_person_leave(req: Request):
         tuid = int(req.query_params.get("uid") or 0)
     except Exception:
         tuid = 0
+    rok = _dt.date.today().year
+    # 1) oprávnění + čísla zaměstnance cíle (ta s aktuálním engagementem)
     cm, s = _att_session()
     try:
         if not (_hr_can_manage(s, uid) or uid == tuid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rok = _dt.date.today().year
-        # NÁROK z bilance od Péti (drženo v 8h-dnech → ÷8 = dny).
-        bal = s.execute(_t(
-            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0), sb.narok_h, sb.cerpano_h "
-            "FROM tenant.engagement e "
-            "JOIN tenant.att_employee ae ON ae.id=e.employee_id "
-            "LEFT JOIN tenant.holiday_balance hb ON hb.engagement_id=e.id AND hb.rok=:r AND hb.tenant_id=2 "
-            "LEFT JOIN tenant.sick_day_balance sb ON sb.engagement_id=e.id AND sb.rok=:r AND sb.tenant_id=2 "
-            "WHERE e.tenant_id=2 AND e.is_current=true AND ae.user_id=:u "
-            "ORDER BY hb.id DESC NULLS LAST LIMIT 1"), {"u": tuid, "r": rok}).first()
-        # ČERPÁNO + PLÁN ze SKUTEČNÉ docházky. Přepočet hodin na dny DENNÍM FONDEM
-        # KAŽDÉHO DNE (fpd) → korektní i pro zkrácené úvazky a změnu úvazku během roku.
-        agg = s.execute(_t(
-            "SELECT "
-            " COALESCE(SUM(CASE WHEN datum<=current_date THEN cas_dovolena/NULLIF(fpd,0) ELSE 0 END),0), "
-            " COALESCE(SUM(CASE WHEN datum> current_date THEN cas_dovolena/NULLIF(fpd,0) ELSE 0 END),0) "
-            "FROM tenant.att_day_summary WHERE tenant_id=2 AND user_id=:u AND rok=:r AND fpd>0"),
-            {"u": tuid, "r": rok}).first()
-        cerp = round(float(agg[0] or 0), 1)
-        plan = round(float(agg[1] or 0), 1)
-        narok = round((float(bal[0]) + float(bal[1])) / 8.0, 1) if (bal and bal[0] is not None) else None
-        prevod = round(float(bal[1]) / 8.0, 1) if (bal and bal[1] is not None) else 0
-        if narok is None and cerp <= 0 and plan <= 0:
-            return JSONResponse({"ok": True, "has": False, "rok": rok})
-        dovolena = {
-            "narok": narok,
-            "prevod": prevod,
-            "cerpano": cerp,
-            "plan": plan,
-            "zbytek": (round(narok - cerp - plan, 1) if narok is not None else None),
-        }
-        # Sick days z bilance (sick_day_balance). PŘEDBĚŽNÉ — čeká na doladění
-        # Petřiny docházky (per-osoba nárok/jednotka zatím nesedí s Centrálou).
-        sick = None
-        if bal and bal[2] is not None:
-            sn = float(bal[2] or 0)
-            sc = float(bal[3] or 0)
-            sick = {
-                "narok": round(sn / 8.0, 1),
-                "cerpano": round(sc / 8.0, 1),
-                "zbytek": round((sn - sc) / 8.0, 1),
-                "provisional": True,
-            }
-        return JSONResponse({"ok": True, "has": True, "rok": rok, "dovolena": dovolena, "sick": sick})
+        cisla = [str(r[0]) for r in s.execute(_t(
+            "SELECT DISTINCT em.cislo_zam FROM tenant.att_employee em "
+            "JOIN tenant.engagement g ON g.employee_id=em.id AND g.tenant_id=2 AND g.is_current=true "
+            "WHERE em.tenant_id=2 AND em.user_id=:u AND em.cislo_zam ~ '^[0-9]+$'"),
+            {"u": tuid}).fetchall()]
     except Exception as exc:
         logger.exception("[hr_person_leave] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
+    if not cisla:
+        return JSONResponse({"ok": True, "has": False, "rok": rok})
+    # 2) živý přehled z Peťiny logiky (stejný zdroj jako u vedoucích výroby)
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        res = _ereg.call("att_narok_cerpani", uid)
+    except Exception as exc:
+        logger.exception("[hr_person_leave] att_narok_cerpani %s", exc)
+        return JSONResponse({"ok": True, "has": False, "rok": rok})
+    if not isinstance(res, dict) or not res.get("ok"):
+        return JSONResponse({"ok": True, "has": False, "rok": rok})
+    row = None
+    for rr in (res.get("rows") or []):
+        if str(rr.get("cislo")) in cisla:
+            row = rr
+            break
+    if not row:
+        return JSONResponse({"ok": True, "has": False, "rok": rok})
+
+    def _n(x):
+        try:
+            return round(float(x or 0), 1)
+        except Exception:
+            return 0.0
+
+    dovolena = {
+        "narok": round(_n(row.get("d_narok")) + _n(row.get("dn_narok")), 1),
+        "narok_d": _n(row.get("d_narok")), "narok_dn": _n(row.get("dn_narok")),
+        "cerpano": round(_n(row.get("d_cerp")) + _n(row.get("dn_cerp")), 1),
+        "plan": round(_n(row.get("d_plan")) + _n(row.get("dn_plan")), 1),
+        "zbytek": round(_n(row.get("d_zbyva")) + _n(row.get("dn_zbyva")), 1),
+    }
+    sick = {
+        "narok_h": _n(row.get("sd_narok")), "cerpano_h": _n(row.get("sd_cerp")),
+        "zbytek_h": _n(row.get("sd_zbyva")), "plan_h": _n(row.get("sd_plan")),
+    }
+    return JSONResponse({"ok": True, "has": True, "rok": rok,
+                         "dovolena": dovolena, "sick": sick, "zdroj": "dochazka"})
 
 
 _DOC_STAVY = ["koncept", "k_podpisu", "podepsany", "platny"]

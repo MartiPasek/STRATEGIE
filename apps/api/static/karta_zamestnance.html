@@ -615,15 +615,15 @@ async function loadLeave(uid){
   if(dv) cols.push('<div style="flex:1 1 280px;min-width:250px">'+
     '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🏖️ Dovolená '+d.rok+'</div>'+
     '<div style="display:flex;gap:8px">'+tile('dní zbývá',(dv.zbytek==null?'—':dv.zbytek),(dv.zbytek==null?'#eaf2ff':(dv.zbytek<=0?'#ff8a7a':'#7fe0a0')))+tile('dní využito',dv.cerpano)+tile('dní v plánu',dv.plan)+'</div>'+
-    (dv.narok!=null?('<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.prevod?(' (vč. převodu '+num(dv.prevod)+')'):'')+'</div>'):'')+'</div>');
+    (dv.narok!=null?('<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.narok_dn?(' (D '+num(dv.narok_d)+' + navíc '+num(dv.narok_dn)+')'):'')+'</div>'):'')+'</div>');
   const sk=d.sick;
   if(sk) cols.push('<div style="flex:1 1 180px;min-width:165px">'+
-    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+(sk.provisional?' <span style="color:#E0A94A;font-weight:600">• předběžné</span>':'')+'</div>'+
-    '<div style="display:flex;gap:8px">'+tile('dní zbývá',(sk.zbytek==null?'—':sk.zbytek),(sk.zbytek==null?'#eaf2ff':(sk.zbytek<=0?'#ff8a7a':'#7fe0a0')))+tile('dní využito',sk.cerpano)+'</div>'+
-    (sk.provisional?'<div style="font-size:10px;color:#5d6b7c;margin-top:4px">* ladí se s docházkou (Petra)</div>':'')+'</div>');
+    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+'</div>'+
+    '<div style="display:flex;gap:8px">'+tile('h zbývá',(sk.zbytek_h==null?'—':sk.zbytek_h),(sk.zbytek_h==null?'#eaf2ff':(sk.zbytek_h<=0?'#ff8a7a':'#7fe0a0')))+tile('h využito',sk.cerpano_h)+'</div>'+
+    '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(sk.narok_h)+' h</div></div>');
   if(!cols.length){ box.style.display='none'; return; }
   box.style.display='';
-  const upoz='<div style="margin-top:9px;font-size:10.5px;color:#E0A94A;background:#241d0e;border:1px solid #4a3a12;border-radius:8px;padding:5px 10px;display:inline-block">⚠ Předběžná data z docházky — mohou obsahovat nepřesnosti, ladí se s docházkou (Petra). Pokud něco nesedí, ber to zatím orientačně.</div>';
+  const upoz='<div style="margin-top:9px;font-size:10.5px;color:#5d6b7c">Zdroj: docházka – živý přehled (Peťa), stejná data jako u vedoucích výroby. Dovolená ve dnech, sick days v hodinách.</div>';
   box.innerHTML='<div style="display:flex;gap:16px 22px;flex-wrap:wrap">'+cols.join('')+'</div>'+upoz;
 }
 function openP(uid,row){

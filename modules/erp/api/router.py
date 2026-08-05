@@ -37776,7 +37776,19 @@ async def diag_sql(req: Request) -> JSONResponse:
             _selftest6 = {"provedeno": False}
             if _path6:
                 import urllib.request as _ur6
-                _base6 = _osw6.environ.get("STRATEGIE_SELFTEST_BASE_URL", "https://strategie-ai.com")
+                # Self-test se pta LOKALNE - 127.0.0.1 na portu, na kterem tenhle proces
+                # opravdu posloucha (req.scope["server"]), takze sedi i pro blue-green
+                # secondary na 8003 a neni kde zdrbnout hardcodovany port.
+                # PROC: puvodni https://strategie-ai.com/mobile znamenalo dotaz VEN pres DNS
+                # a Caddy a zpatky dovnitr; na ~1MB /mobile se to nevejde do timeout=10 a
+                # publikace se dvakrat po sobe zbytecne vratila zpet (10389 ms a 10286 ms -
+                # oba pokusy presne na limitu, pritom stranka zvenci odpovida za 1-3 s).
+                # Env promenna ma prednost, kdyby bylo potreba mirit jinam.
+                # (C24/Kristy 5.8.2026, schvalila Kristy; puvodni verejna URL jako posledni zachrana.)
+                _srv6 = req.scope.get("server") or (None, None)
+                _base6 = _osw6.environ.get("STRATEGIE_SELFTEST_BASE_URL") or (
+                    ("http://127.0.0.1:%s" % _srv6[1]) if _srv6[1] else "https://strategie-ai.com")
+                _checks6["selftest_base"] = _base6
                 try:
                     _req6 = _ur6.Request(_base6 + _path6, headers={"User-Agent": "g2007-publish-selftest"})
                     with _ur6.urlopen(_req6, timeout=10) as _resp6:

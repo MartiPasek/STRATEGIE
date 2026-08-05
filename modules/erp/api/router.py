@@ -9443,8 +9443,44 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "nadrizeny": (r[16] or ""),
                         "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[17], r[17]) if r[17] else ""),
                         "post": (r[18] or "")})
+        # Šárka 5.8.2026: v režimu „i bývalé" doplnit i bývalé BEZ účtu — existují jen
+        # jako docházkový záznam (att_employee, import z Centrály), stejně jako je vidí
+        # Petra/Dušan. Bez účtu = jen přehledový řádek (karta se plně neotevře).
+        byvali_bez_uctu = 0
+        if vse:
+            _mam = {o["user_id"] for o in out if o.get("user_id")}
+            ex = s.execute(_t(
+                "SELECT ae.id, ae.full_name, ae.cislo_zam, ae.user_id, "
+                " (SELECT string_agg(DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+                "         WHEN 2 THEN 'EUROSOFT - System' END, ' / ') FROM tenant.engagement e "
+                "    WHERE e.employee_id=ae.id AND e.tenant_id=2) AS firma, "
+                " (SELECT min(e.smlouva_od) FROM tenant.engagement e WHERE e.employee_id=ae.id AND e.tenant_id=2) AS nastup, "
+                " (SELECT max(e.smlouva_do) FROM tenant.engagement e WHERE e.employee_id=ae.id AND e.tenant_id=2) AS konec, "
+                " (SELECT string_agg(DISTINCT CASE lower(e.engagement_type) WHEN 'hpp' THEN 'HPP' "
+                "         WHEN 'osvc' THEN 'OSVČ' WHEN 'dpp' THEN 'DPP' ELSE upper(e.engagement_type) END, ' / ') "
+                "    FROM tenant.engagement e WHERE e.employee_id=ae.id AND e.tenant_id=2) AS typ "
+                "FROM tenant.att_employee ae WHERE ae.tenant_id=2 AND ae.is_active=false")).fetchall()
+            for r in ex:
+                if r[3] and r[3] in _mam:
+                    continue
+                prijmeni, krestni = _rozdel(None, None, r[1])
+                nm = (prijmeni + " " + krestni).strip() or (r[1] or "").strip() or ("#" + str(r[2] or r[0]))
+                if q and q not in nm.lower():
+                    continue
+                out.append({"user_id": None, "att_emp_id": r[0], "cislo": (r[2] or ""),
+                            "jmeno": nm, "prijmeni": prijmeni, "mesto": "",
+                            "ma_kartu": False, "ma_pomer": False, "bez_uctu": True,
+                            "nastup": (r[5].strftime("%d.%m.%Y") if r[5] else ""),
+                            "nastup_rok": (r[5].year if r[5] else None),
+                            "konec": (r[6].strftime("%d.%m.%Y") if r[6] else ""),
+                            "pozice": "", "firma": (r[4] or ""), "typ": (r[7] or ""),
+                            "kategorie": "", "vek": None, "narozeniny": "",
+                            "email": "", "telefon": "", "prac_email": "", "prac_telefon": "",
+                            "nadrizeny": "", "stredisko": "", "post": ""})
+                byvali_bez_uctu += 1
         out.sort(key=lambda x: (_klic(x["prijmeni"]), _klic(x["jmeno"])))
-        return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse})
+        return JSONResponse({"ok": True, "lide": out, "skryto": skryto, "vse": vse,
+                             "byvali_bez_uctu": byvali_bez_uctu})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

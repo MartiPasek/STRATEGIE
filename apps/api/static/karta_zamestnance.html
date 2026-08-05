@@ -415,11 +415,13 @@ function render(){
     const stav = p.ma_pomer
       ? '<span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:#16301f;color:#7fe0a0">Aktivní</span>'
       : '<span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:#23262b;color:#7f8ea0">Bývalý</span>';
-    const meta = [p.pozice||'', p.typ||'', p.nastup?('nástup '+p.nastup):''].filter(Boolean).join(' · ');
-    return '<div class="prow" data-u="'+p.user_id+'" onclick="openP('+p.user_id+',this)">'+
+    const meta = [p.pozice||'', p.typ||'', p.nastup?('nástup '+p.nastup):'', (!p.ma_pomer&&p.konec)?('odešel '+p.konec):''].filter(Boolean).join(' · ');
+    const klik = p.user_id ? (' onclick="openP('+p.user_id+',this)" style="cursor:pointer"') : ' style="opacity:.7;cursor:default"';
+    const note = p.user_id ? (p.ma_kartu?'':' · <span style="color:#c98">bez karty</span>') : ' · <span style="color:#7f8ea0">jen docházkový záznam</span>';
+    return '<div class="prow" data-u="'+(p.user_id||('ae'+(p.att_emp_id||'')))+'"'+klik+'>'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
         '<div class="nm">'+esc(p.jmeno)+'</div>'+stav+'</div>'+
-      '<div class="mt">'+esc(meta)+(p.ma_kartu?'':' · <span style="color:#c98">bez karty</span>')+'</div></div>';
+      '<div class="mt">'+esc(meta)+note+'</div></div>';
   }).join('');
 }
 // Pinya-like tabulkový pohled (Šárka 24.7.2026)
@@ -432,16 +434,18 @@ function renderTable(){
   const c=(v)=> v?esc(v):'<span class="muted">—</span>';
   tb.innerHTML=f.map(p=>{
     const fi=esc(ini(p.jmeno));
-    const foto='<div class="tini"><img class="tavatar" src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
-      'onerror="this.remove();this.parentNode.textContent=\''+fi+'\'"></div>';
+    const foto=p.user_id?('<div class="tini"><img class="tavatar" src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
+      'onerror="this.remove();this.parentNode.textContent=\''+fi+'\'"></div>'):('<div class="tini">'+fi+'</div>');
     const zeme=zemeZMesta(p.mesto);
     const mail=p.prac_email?('<a href="mailto:'+esc(p.prac_email)+'" onclick="event.stopPropagation()">'+esc(p.prac_email)+'</a>'):'<span class="muted">—</span>';
     const telN=String(p.prac_telefon||'').replace(/\s+/g,'');
     const tel=p.prac_telefon?('<a href="tel:'+esc(telN)+'" onclick="event.stopPropagation()">'+esc(p.prac_telefon)+'</a>'):'<span class="muted">—</span>';
     const stav=p.ma_pomer?'<span class="schip ok">Aktivní</span>':'<span class="schip old">Bývalý</span>';
-    return '<tr onclick="openFromTable('+p.user_id+')">'+
+    const trk=p.user_id?(' onclick="openFromTable('+p.user_id+')" style="cursor:pointer"'):' style="opacity:.72"';
+    const cardnote=p.user_id?(p.ma_kartu?'':' <span class="muted" style="font-size:11px">(bez karty)</span>'):' <span class="muted" style="font-size:11px">(jen docházka)</span>';
+    return '<tr'+trk+'>'+
       '<td>'+foto+'</td>'+
-      '<td><span class="tnm">'+esc(p.jmeno)+'</span>'+(p.ma_kartu?'':' <span class="muted" style="font-size:11px">(bez karty)</span>')+'</td>'+
+      '<td><span class="tnm">'+esc(p.jmeno)+'</span>'+cardnote+'</td>'+
       '<td>'+c(p.pozice)+'</td>'+
       '<td>'+c(p.kategorie)+'</td>'+
       '<td>'+c(p.nadrizeny)+'</td>'+

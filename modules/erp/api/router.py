@@ -11270,10 +11270,11 @@ async def app_hr_person_leave(req: Request):
         rok = _dt.date.today().year
         # NÁROK z bilance od Péti (drženo v 8h-dnech → ÷8 = dny).
         bal = s.execute(_t(
-            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0) "
+            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0), sb.narok_h, sb.cerpano_h "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id "
             "LEFT JOIN tenant.holiday_balance hb ON hb.engagement_id=e.id AND hb.rok=:r AND hb.tenant_id=2 "
+            "LEFT JOIN tenant.sick_day_balance sb ON sb.engagement_id=e.id AND sb.rok=:r AND sb.tenant_id=2 "
             "WHERE e.tenant_id=2 AND e.is_current=true AND ae.user_id=:u "
             "ORDER BY hb.id DESC NULLS LAST LIMIT 1"), {"u": tuid, "r": rok}).first()
         # ČERPÁNO + PLÁN ze SKUTEČNÉ docházky. Přepočet hodin na dny DENNÍM FONDEM
@@ -11297,9 +11298,19 @@ async def app_hr_person_leave(req: Request):
             "plan": plan,
             "zbytek": (round(narok - cerp - plan, 1) if narok is not None else None),
         }
-        # Sick days dočasně skryté — sick_day_balance zatím nesedí s Centrálou;
-        # sladíme s Petřinou docházkou (per-osoba nárok, jednotka), pak zapneme.
-        return JSONResponse({"ok": True, "has": True, "rok": rok, "dovolena": dovolena, "sick": None})
+        # Sick days z bilance (sick_day_balance). PŘEDBĚŽNÉ — čeká na doladění
+        # Petřiny docházky (per-osoba nárok/jednotka zatím nesedí s Centrálou).
+        sick = None
+        if bal and bal[2] is not None:
+            sn = float(bal[2] or 0)
+            sc = float(bal[3] or 0)
+            sick = {
+                "narok": round(sn / 8.0, 1),
+                "cerpano": round(sc / 8.0, 1),
+                "zbytek": round((sn - sc) / 8.0, 1),
+                "provisional": True,
+            }
+        return JSONResponse({"ok": True, "has": True, "rok": rok, "dovolena": dovolena, "sick": sick})
     except Exception as exc:
         logger.exception("[hr_person_leave] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

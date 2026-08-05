@@ -618,8 +618,9 @@ async function loadLeave(uid){
     (dv.narok!=null?('<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.prevod?(' (vč. převodu '+num(dv.prevod)+')'):'')+'</div>'):'')+'</div>');
   const sk=d.sick;
   if(sk) cols.push('<div style="flex:1 1 180px;min-width:165px">'+
-    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+'</div>'+
-    '<div style="display:flex;gap:8px">'+tile('dní zbývá',sk.zbytek,(sk.zbytek<=0?'#ff8a7a':'#7fe0a0'))+tile('dní využito',sk.cerpano)+'</div></div>');
+    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+(sk.provisional?' <span style="color:#E0A94A;font-weight:600">• předběžné</span>':'')+'</div>'+
+    '<div style="display:flex;gap:8px">'+tile('dní zbývá',(sk.zbytek==null?'—':sk.zbytek),(sk.zbytek==null?'#eaf2ff':(sk.zbytek<=0?'#ff8a7a':'#7fe0a0')))+tile('dní využito',sk.cerpano)+'</div>'+
+    (sk.provisional?'<div style="font-size:10px;color:#5d6b7c;margin-top:4px">* ladí se s docházkou (Petra)</div>':'')+'</div>');
   if(!cols.length){ box.style.display='none'; return; }
   box.style.display='';
   box.innerHTML='<div style="display:flex;gap:16px 22px;flex-wrap:wrap">'+cols.join('')+'</div>';

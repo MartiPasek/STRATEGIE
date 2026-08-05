@@ -46494,6 +46494,7 @@ SELECT co.code AS firma, ae.cislo_zam AS cislo, ae.full_name AS jmeno,
        COALESCE(deti.n,0) AS deti_n, deti.jmena AS deti_jmena
 FROM wc
 JOIN tenant.att_employee ae ON ae.id=wc.employee_id AND ae.tenant_id=2
+LEFT JOIN public.users u ON u.id = ae.user_id
 LEFT JOIN tenant.company co ON co.id=wc.company_id
 LEFT JOIN doch ON doch.cislo_zam::text = ae.cislo_zam
 CROSS JOIN fond
@@ -46501,7 +46502,8 @@ LEFT JOIN mv ON mv.engagement_id = wc.eng_id
 LEFT JOIN sleva ON sleva.user_id = ae.user_id
 LEFT JOIN deti ON deti.user_id = ae.user_id
 WHERE (:firma = 'ALL' OR co.code = :firma)
-ORDER BY co.code, ae.full_name
+ORDER BY lower(COALESCE(NULLIF(u.last_name,''), ae.full_name)),
+         lower(COALESCE(u.first_name,'')), ae.cislo_zam
 """
 
 

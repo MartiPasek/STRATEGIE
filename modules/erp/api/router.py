@@ -11153,6 +11153,84 @@ async def app_hr_person_odpovednost_save(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/odpovednost-list")
+async def app_hr_odpovednost_list(req: Request):
+    """Přehled odpovědností napříč aktivními lidmi (Šárka 5.8.2026):
+    - VOLNO: kdo schvaluje (odvozeno z org struktury přes tenant.resolve_approvers,
+      nebo osobní výjimka). Pravidlo nadřízený → zástupce řídí resolver.
+    - DOCHÁZKA: kdo kontroluje (att_fix editors + výjimka).
+    Rychlé dovyplnění = osobní výjimka přes /app/hr/person-odpovednost/save.
+    Mezery (nikdo) se vrací s příznakem gap → v UI červeně."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        emps = s.execute(_t(
+            "SELECT ae.id, ae.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), ae.full_name) jmeno, "
+            " (SELECT string_agg(DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+            "         WHEN 2 THEN 'EUROSOFT - System' END,' / ') FROM tenant.engagement e "
+            "    WHERE e.employee_id=ae.id AND e.tenant_id=2 AND e.is_current=true) firma, "
+            " (SELECT COALESCE(e.stredisko,'') FROM tenant.engagement e WHERE e.employee_id=ae.id "
+            "    AND e.tenant_id=2 AND e.is_current=true AND COALESCE(e.stredisko,'')<>'' LIMIT 1) stredisko, "
+            " EXISTS(SELECT 1 FROM tenant.att_odpovednost o WHERE o.tenant_id=2 AND o.agenda='volno' "
+            "    AND o.user_id=ae.user_id AND o.aktivni=true AND (o.platnost_do IS NULL OR o.platnost_do>=current_date)) vyj_volno, "
+            " EXISTS(SELECT 1 FROM tenant.att_odpovednost o WHERE o.tenant_id=2 AND o.agenda='dochazka' "
+            "    AND o.user_id=ae.user_id AND o.aktivni=true AND (o.platnost_do IS NULL OR o.platnost_do>=current_date)) vyj_doch "
+            "FROM tenant.att_employee ae LEFT JOIN public.users u ON u.id=ae.user_id "
+            "WHERE ae.tenant_id=2 AND ae.is_active=true AND ae.user_id IS NOT NULL "
+            "ORDER BY lower(COALESCE(u.last_name, ae.full_name)), lower(COALESCE(u.first_name,''))")).fetchall()
+        out = []
+        seen = set()
+        for r in emps:
+            emp_id = int(r[0]); tuid = int(r[1])
+            if tuid in seen:
+                continue
+            seen.add(tuid)
+            vol_ids = [int(x[0]) for x in s.execute(_t(
+                "SELECT * FROM tenant.resolve_approvers(2, :e, current_date)"), {"e": emp_id}).fetchall()]
+            try:
+                doch_ids = sorted(_att_fix_editors_for_emp(s, emp_id))
+            except Exception:
+                doch_ids = []
+            nm = _jmena_uid(s, list(set(vol_ids) | set(doch_ids)))
+            out.append({
+                "user_id": tuid, "emp_id": emp_id, "jmeno": r[2],
+                "firma": (r[3] or ""),
+                "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[4], r[4]) if r[4] else ""),
+                "volno_schvaluje": ", ".join(nm.get(i, "#" + str(i)) for i in vol_ids),
+                "volno_zdroj": ("výjimka" if r[5] else ("odvozeno" if vol_ids else "—")),
+                "volno_gap": (len(vol_ids) == 0),
+                "doch_kontrola": ", ".join(nm.get(i, "#" + str(i)) for i in doch_ids),
+                "doch_zdroj": ("výjimka" if r[6] else ("odvozeno" if doch_ids else "—")),
+                "doch_gap": (len(doch_ids) == 0),
+            })
+        moznosti = []
+        try:
+            lrows = s.execute(_t(
+                "SELECT DISTINCT uid FROM ("
+                " SELECT leader_user_id AS uid FROM tenant.staff_group WHERE tenant_id=2 AND COALESCE(archived,false)=false AND leader_user_id IS NOT NULL "
+                " UNION SELECT deputy_user_id FROM tenant.staff_group WHERE tenant_id=2 AND COALESCE(archived,false)=false AND deputy_user_id IS NOT NULL "
+                " UNION SELECT ae.user_id FROM tenant.att_approver ap JOIN tenant.att_employee ae ON ae.id=ap.employee_id AND ae.tenant_id=2 WHERE ap.tenant_id=2 AND COALESCE(ap.aktivni,true)=true "
+                ") x WHERE uid IS NOT NULL")).fetchall()
+            nmm = _jmena_uid(s, [r[0] for r in lrows])
+            moznosti = sorted(
+                [{"user_id": int(r[0]), "jmeno": nmm.get(int(r[0]), "#" + str(r[0]))} for r in lrows],
+                key=lambda x: x["jmeno"])
+        except Exception:
+            moznosti = []
+        return JSONResponse({"ok": True, "lide": out, "moznosti": moznosti})
+    except Exception as exc:
+        logger.exception("[hr_odpovednost_list] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
     """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""

@@ -96,6 +96,7 @@
     <button id="vbtnContr" class="vbtn" onclick="setView('contracts')">📄 Pracovní smlouvy</button>
     <button id="vbtnCreate" class="vbtn" onclick="setView('create')">➕ Přidat zaměstnance</button>
     <button id="vbtnTerm" class="vbtn" onclick="setView('terminated')">🚫 Ukončení zaměstnanci</button>
+    <button id="vbtnOdp" class="vbtn" onclick="setView('odpovednost')">🛡️ Odpovědnost</button>
   </div>
 </div>
 <div class="wrap" id="mdwrap">
@@ -257,6 +258,25 @@
     </div>
   </div>
 </div>
+<div class="wrapfull" id="odpcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <input id="odsrch" placeholder="🔎 Hledat zaměstnance…">
+      <label class="chkline" style="margin-left:12px"><input type="checkbox" id="odgap" onchange="renderOdp()"> jen chybějící (mezery)</label>
+      <span id="odcnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Kdo komu <b>schvaluje volno</b> a <b>kontroluje docházku</b>. Schvalovatel se <b>odvozuje z organizační struktury</b> (nadřízený → zástupce); kde to nesedí, přepiš „výjimkou" v posledním sloupci (prázdná volba = zpět na odvozené). <span style="color:#ff8a7a">Červeně = nikdo → dovyplnit.</span></div>
+    <div class="tblscroll">
+      <table class="ptbl" id="odtbl">
+        <thead><tr>
+          <th>Jméno</th><th>Firma / středisko</th><th>🌴 Schvaluje volno</th><th>Zdroj</th>
+          <th>👥 Kontroluje docházku</th><th>Zdroj</th><th>✏️ Nastavit schvalovatele volna</th>
+        </tr></thead>
+        <tbody id="odbody"><tr><td colspan="7" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -301,9 +321,12 @@ function setView(v){
   const cr=document.getElementById('createcard'); if(cr) cr.style.display=(v==='create')?'':'none';
   const vt=document.getElementById('vbtnTerm'); if(vt) vt.classList.toggle('on',v==='terminated');
   const tm=document.getElementById('termcard'); if(tm) tm.style.display=(v==='terminated')?'':'none';
+  const vo=document.getElementById('vbtnOdp'); if(vo) vo.classList.toggle('on',v==='odpovednost');
+  const oc=document.getElementById('odpcard'); if(oc) oc.style.display=(v==='odpovednost')?'':'none';
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
+  if(v==='odpovednost' && !ODP_LOADED){ loadOdp(); return; }
   paint();
 }
 let CREATE_META=null;
@@ -373,6 +396,43 @@ function filteredLide(){
     && (!ff || (p.firma||'').includes(ff)));
 }
 function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else if(VIEW==='terminated') renderTerminated(); else render(); }
+// Odpovědnost (Šárka 5.8.2026) — přehled kdo schvaluje volno / kontroluje docházku + rychlé dovyplnění
+let ODP=[], ODP_MOZ=[], ODP_LOADED=false;
+async function loadOdp(){
+  const tb=document.getElementById('odbody');
+  const d=await j(API+'/app/hr/odpovednost-list');
+  if(!d.ok){ if(tb) tb.innerHTML='<tr><td colspan="7" class="empty">🔒 '+esc(d.error||'nedostupné')+'</td></tr>'; return; }
+  ODP=d.lide||[]; ODP_MOZ=d.moznosti||[]; ODP_LOADED=true;
+  const sr=document.getElementById('odsrch'); if(sr&&!sr._b){ sr._b=1; sr.addEventListener('input',renderOdp); }
+  renderOdp();
+}
+function renderOdp(){
+  const tb=document.getElementById('odbody'); if(!tb) return;
+  const q=((document.getElementById('odsrch')||{}).value||'').toLowerCase();
+  const onlyGap=(document.getElementById('odgap')||{}).checked;
+  const f=ODP.filter(p=>(!q||(p.jmeno||'').toLowerCase().includes(q))&&(!onlyGap||p.volno_gap));
+  const cc=document.getElementById('odcnt'); if(cc) cc.textContent=f.length+' lidí'+(onlyGap?' (mezery)':'');
+  if(!f.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  const opts='<option value="">— odvozeno ze struktury —</option>'+ODP_MOZ.map(m=>'<option value="'+m.user_id+'">'+esc(m.jmeno)+'</option>').join('');
+  const zdr=(z)=> z==='výjimka'?'<span class="schip" style="background:#2a2410;color:#E0A94A">výjimka</span>':(z==='odvozeno'?'<span class="muted">odvozeno</span>':'<span class="muted">—</span>');
+  tb.innerHTML=f.map(p=>{
+    const vol = p.volno_gap ? '<span style="color:#ff8a7a;font-weight:700">— nikdo —</span>' : esc(p.volno_schvaluje);
+    const doch = p.doch_gap ? '<span style="color:#ff8a7a;font-weight:700">— nikdo —</span>' : esc(p.doch_kontrola);
+    return '<tr'+(p.volno_gap?' style="background:#241414"':'')+'>'+
+      '<td><span class="tnm">'+esc(p.jmeno)+'</span></td>'+
+      '<td>'+esc([p.firma,p.stredisko].filter(Boolean).join(' · '))+'</td>'+
+      '<td>'+vol+'</td><td>'+zdr(p.volno_zdroj)+'</td>'+
+      '<td>'+doch+'</td><td>'+zdr(p.doch_zdroj)+'</td>'+
+      '<td><select onchange="odpSet('+p.user_id+',this.value)" style="max-width:210px;border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px">'+opts+'</select></td>'+
+      '</tr>';
+  }).join('');
+}
+async function odpSet(uid,val){
+  const r=await fetch(API+'/app/hr/person-odpovednost/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({agenda:'volno',uid:uid,odpovedny_user_id:val?parseInt(val):null})});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(!d.ok){ alert('Nepovedlo se uložit: '+(d.error||'')); return; }
+  ODP_LOADED=false; loadOdp();
+}
 let TERM=[], TERM_LOADED=false;
 async function load(){
   const d=await j(API+"/app/hr/people"+(VSE?"?vse=1":""));
@@ -395,7 +455,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost'){ setView(v); }
 }catch(e){} })();
 function naplnPozice(){
   // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů

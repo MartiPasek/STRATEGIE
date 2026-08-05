@@ -11269,37 +11269,46 @@ async def app_hr_person_leave(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rok = _dt.date.today().year
         HPD = 8.0
-        row = s.execute(_t(
-            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0), hb.cerpano_h, hb.zbytek_h, "
-            "       sb.narok_h, sb.cerpano_h, COALESCE(sb.propadlo_h,0) "
+        # NÁROK (roční přídel) — z bilance od Péti. ČERPÁNO/PLÁN — ze SKUTEČNÉ docházky
+        # (att_day_summary), protože holiday_balance.cerpano_h není spolehlivě synchronizované.
+        bal = s.execute(_t(
+            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0), sb.narok_h "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id "
             "LEFT JOIN tenant.holiday_balance hb ON hb.engagement_id=e.id AND hb.rok=:r AND hb.tenant_id=2 "
             "LEFT JOIN tenant.sick_day_balance sb ON sb.engagement_id=e.id AND sb.rok=:r AND sb.tenant_id=2 "
             "WHERE e.tenant_id=2 AND e.is_current=true AND ae.user_id=:u "
             "ORDER BY hb.id DESC NULLS LAST LIMIT 1"), {"u": tuid, "r": rok}).first()
-        if not row or (row[0] is None and row[4] is None):
+        agg = s.execute(_t(
+            "SELECT "
+            " COALESCE(SUM(CASE WHEN datum<=current_date THEN cas_dovolena ELSE 0 END),0), "
+            " COALESCE(SUM(CASE WHEN datum> current_date THEN cas_dovolena ELSE 0 END),0), "
+            " COALESCE(SUM(cas_sickday),0) "
+            "FROM tenant.att_day_summary WHERE tenant_id=2 AND user_id=:u AND rok=:r"),
+            {"u": tuid, "r": rok}).first()
+        dov_cerp_h = float(agg[0] or 0)
+        dov_plan_h = float(agg[1] or 0)
+        sick_cerp_h = float(agg[2] or 0)
+        hol_narok_h = (float(bal[0]) + float(bal[1])) if (bal and bal[0] is not None) else None
+        sick_narok_h = float(bal[2]) if (bal and bal[2] is not None) else None
+        if hol_narok_h is None and sick_narok_h is None and dov_cerp_h <= 0 and sick_cerp_h <= 0:
             return JSONResponse({"ok": True, "has": False, "rok": rok})
-        plan_h = s.execute(_t(
-            "SELECT COALESCE(SUM(cas_dovolena),0) FROM tenant.att_day_summary "
-            "WHERE tenant_id=2 AND user_id=:u AND datum > current_date AND cas_dovolena>0"),
-            {"u": tuid}).scalar() or 0
 
         def _d(h):
             return None if h is None else round(float(h) / HPD, 1)
 
         dovolena = {
-            "narok": _d((row[0] or 0) + (row[1] or 0)),
-            "prevod": _d(row[1] or 0),
-            "cerpano": _d(row[2] or 0),
-            "zbytek": _d(row[3] if row[3] is not None else 0),
-            "plan": _d(plan_h),
-        } if row[0] is not None else None
+            "narok": _d(hol_narok_h),
+            "prevod": _d(float(bal[1])) if (bal and bal[1] is not None) else 0,
+            "cerpano": _d(dov_cerp_h),
+            "plan": _d(dov_plan_h),
+            "zbytek": _d(hol_narok_h - dov_cerp_h - dov_plan_h) if hol_narok_h is not None else None,
+        } if (hol_narok_h is not None or dov_cerp_h > 0 or dov_plan_h > 0) else None
         sick = {
-            "narok": _d(row[4] or 0),
-            "cerpano": _d(row[5] or 0),
-            "zbytek": _d((row[4] or 0) - (row[5] or 0) - (row[6] or 0)),
-        } if row[4] is not None else None
+            "narok": _d(sick_narok_h if sick_narok_h is not None else 0),
+            "cerpano": _d(sick_cerp_h),
+            "zbytek": _d(sick_narok_h - sick_cerp_h) if sick_narok_h is not None else None,
+        } if (sick_narok_h is not None or sick_cerp_h > 0) else None
         return JSONResponse({"ok": True, "has": True, "rok": rok, "dovolena": dovolena, "sick": sick})
     except Exception as exc:
         logger.exception("[hr_person_leave] %s", exc)

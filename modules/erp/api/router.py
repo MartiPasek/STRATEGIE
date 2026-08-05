@@ -11877,6 +11877,75 @@ def _hr_generuj_ukoly(s):
                     "(Automaticky z HR nástěnky.)" % (yrs, _d(occ)))
 
 
+def _hr_vernost_dovolena(s):
+    """AUTOMATICKY přizná +1 den dovolené za 10 let ve firmě (Šárka 5.8.2026).
+    Kdo dosáhl 10 let (od PRVNÍHO nástupu) a ještě nemá věrnostní nárok:
+      1) trvalý nárok entitlement 'dovolena_vernost_10let'=1,
+      2) navýší letošní holiday_balance.narok_h o denní fond (idempotentně přes marker),
+      3) zapíše úpravu do podmínek (engagement.note),
+      4) pošle notifikaci Šárce (13) a Petře Šafránkové (18).
+    Idempotentní přes existenci markeru — nikdy nepřidá dvakrát. Best-effort po osobě."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    today = _dt.date.today()
+    _MESN = ["", "ledna", "února", "března", "dubna", "května", "června",
+             "července", "srpna", "září", "října", "listopadu", "prosince"]
+    rows = s.execute(_t(
+        "SELECT eng.user_id, eng.eid, eng.prvni, eng.uvazek, n.jmeno FROM ("
+        "  SELECT ae.user_id,"
+        "         (array_agg(e.id ORDER BY e.is_current DESC, e.id DESC))[1] AS eid,"
+        "         min(e.smlouva_od) AS prvni,"
+        "         (array_agg(e.uvazek_tyden_h ORDER BY e.is_current DESC, e.id DESC))[1] AS uvazek"
+        "   FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+        "   WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL GROUP BY ae.user_id"
+        "   HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))) eng"
+        "  JOIN (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno"
+        "        FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id) n"
+        "    ON n.user_id=eng.user_id"
+        "  WHERE eng.prvni IS NOT NULL"
+        "    AND NOT EXISTS (SELECT 1 FROM tenant.engagement_entitlement ee"
+        "        WHERE ee.tenant_id=2 AND ee.engagement_id=eng.eid AND ee.code='dovolena_vernost_10let')"
+    )).fetchall()
+    for user_id, eid, prvni, uvazek, jmeno in rows:
+        if not prvni or not eid:
+            continue
+        # dokončené celé roky ve firmě
+        po = (today.month, today.day) >= (prvni.month, prvni.day)
+        completed = today.year - prvni.year - (0 if po else 1)
+        if completed != 10:
+            continue
+        try:
+            den_h = round(float(uvazek) / 5.0) if uvazek else 8
+            if den_h <= 0:
+                den_h = 8
+            s.execute(_t("INSERT INTO tenant.engagement_entitlement (tenant_id, engagement_id, code, value)"
+                         " VALUES (2, :e, 'dovolena_vernost_10let', 1)"), {"e": int(eid)})
+            s.execute(_t("UPDATE tenant.holiday_balance SET narok_h = COALESCE(narok_h,0) + :h, changed_at=now()"
+                         " WHERE tenant_id=2 AND engagement_id=:e AND rok=:r"),
+                      {"h": den_h, "e": int(eid), "r": today.year})
+            pozn = "[auto %d. %s %d] 10 let ve firmě → +1 den dovolené navíc (věrnostní)." % (
+                today.day, _MESN[today.month], today.year)
+            s.execute(_t("UPDATE tenant.engagement SET note = CASE WHEN COALESCE(note,'')='' THEN :p"
+                         " ELSE note || E'\\n' || :p END WHERE id=:e AND tenant_id=2"),
+                      {"p": pozn, "e": int(eid)})
+            s.commit()
+            try:
+                _task_notify(s, [13, 18], 2, "🏖️ Věrnostní den dovolené",
+                             "%s dosáhl(a) 10 let ve firmě → automaticky přidán 1 den dovolené navíc. "
+                             "Nezapomeň na certifikát." % (jmeno or ("ID " + str(user_id))))
+                s.commit()
+            except Exception:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+
+
 def _hr_auto_narozeniny(s):
     """Automaticky odešle narozeninové přání každému aktivnímu zaměstnanci, který má DNES
     narozeniny a nemá pro dnešek 'sent'/'skipped' (Šárka 23.7.2026). Přeskočit v panelu = stopka.
@@ -11956,6 +12025,14 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         # Auto-odeslání narozeninových přání (v den narozenin, Přeskočit = stopka) — best-effort.
         try:
             _hr_auto_narozeniny(s)
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+        # Auto věrnostní den dovolené za 10 let (Šárka 5.8.2026) — best-effort, idempotentní.
+        try:
+            _hr_vernost_dovolena(s)
         except Exception:
             try:
                 s.rollback()

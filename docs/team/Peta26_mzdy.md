@@ -27,7 +27,20 @@ Hlídá to pojistka **`mzdy-hodiny-ze-strategie`**.
 ## 2. FPD (fond pracovní doby) = odpracováno + absence
 
 - **Výroba:** FPD = **odpracováno + absence** (dovolená, nemoc, lékař, OČR… plní fond).
-- **Kancelář:** FPD = odpracováno + absence + doplněno do fondu − nenároková část nad fond.
+  → v datech: `hodiny_mzdove + hodiny_absence`
+- **Kancelář:** FPD = odpracováno + absence + doplněno do fondu − **nenároková část nad fond**.
+  → v datech: `hodiny_mzdove + hodiny_absence − hodiny_nad_fond`
+  (doplnění do fondu je **už uvnitř** `hodiny_mzdove`, proto se nepřičítá zvlášť)
+
+**Ověřeno na červenci 2026:**
+
+| kdo | | mzdové | absence | nad fond | **FPD** |
+|---|---|---|---|---|---|
+| Veverka | kancelář | 177,01 | 0,00 | 0,77 | **176,24** |
+| Svatoš | výroba | 185,66 | 0,00 | 0,00 | **185,66** |
+| Diviš | výroba | 135,94 | 48,00 | 0,00 | **183,94** |
+
+Veverkových 176,24 h sedí přesně na to, co ukazuje aplikace.
 
 **Přesčas = FPD − měsíční fond.** Ne „odpracováno − fond" — na tom by Diviš (6,02 h odpracovaných
 ve svátek) nedostal příplatek vůbec.

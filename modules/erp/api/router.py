@@ -37580,6 +37580,102 @@ async def diag_sql(req: Request) -> JSONResponse:
     if not sql:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 
+    # ── Bod 2 napojeni (C24 5.8.2026): koordinace instanci pres DB misto WORK_LOCK.txt ──
+    #   @@WORK <tema> [| <soubory>]   nastav "delam na cem" (fw.claude_instance.current_work*)
+    #   @@WORKDONE                    vycisti current_work
+    #   @@LOCK <scope> <key> [| note] MEKKY exclusive zamek (Marti 5.8.: jen ohlasi obsazeni,
+    #                                 NIKDY tvrde neblokuje -> zadne deadlocky). TTL 15 min.
+    #   @@LOCKBEAT <scope> <key>      prodluz TTL · @@UNLOCK <scope> <key> uvolni
+    #   @@WHO                         nastenka: kdo dela na cem + aktivni zamky
+    # instance_id volajiciho = _inst (viz vyse; presence uz zapsana -> FK i UPDATE sednou).
+    _uwl = sql.upper()
+    if (_uwl.startswith("@@WORK") or _uwl.startswith("@@LOCK")
+            or _uwl.startswith("@@UNLOCK") or _uwl.startswith("@@WHO")):
+        from sqlalchemy import text as _twl
+        from modules.strategie_pg.application.service import get_session as _pgswl
+        if not _inst or _inst == "?":
+            return JSONResponse({"ok": False, "error": "instance_id chybi (INSTANCE_ID.txt / CLAUDE_INSTANCE_ID)"})
+        try:
+            if _uwl.startswith("@@WHO"):
+                with _pgswl() as _s:
+                    _w = _s.execute(_twl(
+                        "SELECT instance_id, COALESCE(current_work,''), COALESCE(work_status,'') "
+                        "FROM fw.claude_instance WHERE last_seen_at > NOW() - INTERVAL '15 min' "
+                        "ORDER BY instance_id")).fetchall()
+                    _lk = _s.execute(_twl(
+                        "SELECT scope, lock_key, instance_id, COALESCE(note,'') FROM fw.work_lock "
+                        "WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY scope, lock_key")).fetchall()
+                _rows = [["prace", "C-%s" % r[0], (r[1] or "")[:90], r[2] or ""] for r in _w]
+                _rows += [["ZAMEK", "%s/%s" % (r[0], r[1]), "C-%s" % r[2], (r[3] or "")[:70]] for r in _lk]
+                return JSONResponse({"ok": True, "columns": ["typ", "kdo/co", "detail", "stav/pozn"], "rows": _rows})
+            if _uwl.startswith("@@WORKDONE"):
+                with _pgswl() as _s:
+                    _s.execute(_twl("UPDATE fw.claude_instance SET current_work=NULL, current_work_files=NULL, "
+                                    "work_status='idle', current_work_at=NOW() WHERE instance_id=:i"), {"i": _inst})
+                    _s.commit()
+                return JSONResponse({"ok": True, "zprava": "current_work vycisten (C-%s)" % _inst})
+            if _uwl.startswith("@@WORK"):
+                _r = sql[len("@@WORK"):].strip()
+                if not _r:
+                    return JSONResponse({"ok": False, "error": "@@WORK <tema> [| <soubory>]"})
+                _pp = [x.strip() for x in _r.split("|", 1)]
+                _tema = _pp[0]
+                _soub = _pp[1] if len(_pp) > 1 else None
+                with _pgswl() as _s:
+                    _s.execute(_twl("UPDATE fw.claude_instance SET current_work=:t, current_work_files=:f, "
+                                    "current_work_at=NOW(), work_status='active' WHERE instance_id=:i"),
+                               {"t": _tema[:500], "f": (_soub[:1000] if _soub else None), "i": _inst})
+                    _s.commit()
+                return JSONResponse({"ok": True, "zprava": "delam na: %s (C-%s)" % (_tema[:90], _inst)})
+            if _uwl.startswith("@@LOCKBEAT"):
+                _a = sql[len("@@LOCKBEAT"):].strip().split("|", 1)[0].split()
+                if len(_a) < 2:
+                    return JSONResponse({"ok": False, "error": "@@LOCKBEAT <scope> <key>"})
+                with _pgswl() as _s:
+                    _s.execute(_twl("UPDATE fw.work_lock SET expires_at=NOW()+INTERVAL '15 min' "
+                                    "WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
+                               {"i": _inst, "s": _a[0], "k": _a[1]})
+                    _s.commit()
+                return JSONResponse({"ok": True, "zprava": "TTL+15min %s/%s (C-%s)" % (_a[0], _a[1], _inst)})
+            if _uwl.startswith("@@UNLOCK"):
+                _a = sql[len("@@UNLOCK"):].strip().split("|", 1)[0].split()
+                if len(_a) < 2:
+                    return JSONResponse({"ok": False, "error": "@@UNLOCK <scope> <key>"})
+                with _pgswl() as _s:
+                    _s.execute(_twl("DELETE FROM fw.work_lock WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
+                               {"i": _inst, "s": _a[0], "k": _a[1]})
+                    _s.commit()
+                return JSONResponse({"ok": True, "zprava": "uvolneno %s/%s (C-%s)" % (_a[0], _a[1], _inst)})
+            if _uwl.startswith("@@LOCK"):
+                _hh = [x.strip() for x in sql[len("@@LOCK"):].strip().split("|", 1)]
+                _note = _hh[1] if len(_hh) > 1 else None
+                _a = _hh[0].split()
+                if len(_a) < 2:
+                    return JSONResponse({"ok": False, "error": "@@LOCK <scope> <key> [| <note>]"})
+                _scope, _key = _a[0], _a[1]
+                with _pgswl() as _s:
+                    _s.execute(_twl("DELETE FROM fw.work_lock WHERE expires_at < NOW()"))
+                    _held = _s.execute(_twl("SELECT instance_id, COALESCE(note,'') FROM fw.work_lock "
+                                            "WHERE scope=:s AND lock_key=:k"), {"s": _scope, "k": _key}).first()
+                    if _held and str(_held[0]) != _inst:
+                        _s.commit()
+                        return JSONResponse({"ok": True, "obsazeno": True,
+                            "zprava": "POZOR: %s/%s uz drzi C-%s (%s). Zamek je MEKKY - akci NEblokuje, jen koordinuj." % (
+                                _scope, _key, _held[0], (_held[1] or "")[:60])})
+                    if _held:
+                        _s.execute(_twl("UPDATE fw.work_lock SET expires_at=NOW()+INTERVAL '15 min', "
+                                        "note=COALESCE(:n,note) WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
+                                   {"n": _note, "i": _inst, "s": _scope, "k": _key})
+                        _s.commit()
+                        return JSONResponse({"ok": True, "zprava": "uz drzim, TTL+15min %s/%s" % (_scope, _key)})
+                    _s.execute(_twl("INSERT INTO fw.work_lock (instance_id, scope, lock_key, expires_at, note) "
+                                    "VALUES (:i, :s, :k, NOW()+INTERVAL '15 min', :n)"),
+                               {"i": _inst, "s": _scope, "k": _key, "n": _note})
+                    _s.commit()
+                return JSONResponse({"ok": True, "zprava": "zamek vzat %s/%s (C-%s, TTL 15 min)" % (_scope, _key, _inst)})
+        except Exception as _ewl:
+            return JSONResponse({"ok": False, "error": "work_lock %s: %s" % (type(_ewl).__name__, str(_ewl)[:300])})
+
     # GO doc seal (Claude C23, 18.7.2026): zapecet docs/GO/Z_<slug>.md do g2007.znalost.
     #   @@GODOC <slug> [| <nadpis>]  -> kod=doc-go-<slug>, oblast=system-g2007, +reindex.
     # Autonomie: Claude pecetim GO dokumenty sam pres bridge (bez parent POST popupu).

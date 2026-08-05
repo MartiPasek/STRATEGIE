@@ -245,6 +245,7 @@
   <div class="card">
     <div class="tbar">
       <input id="tmsrch" placeholder="🔎 Hledat zaměstnance…">
+      <label class="chkline" style="margin-left:12px;font-size:12px;white-space:nowrap"><input type="checkbox" id="tmrecent" checked onchange="renderTerminated()"> jen poslední rok</label>
       <span id="tmcnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
     </div>
     <div class="tblscroll">
@@ -566,8 +567,10 @@ async function loadTerminated(){
 function renderTerminated(){
   const tb=document.getElementById('tmbody'); if(!tb) return;
   const q=((document.getElementById('tmsrch')||{}).value||'').toLowerCase();
-  const f=TERM.filter(r=>(r.jmeno||'').toLowerCase().includes(q));
-  const cc=document.getElementById('tmcnt'); if(cc) cc.textContent=f.length+' ukončených';
+  const recent=(document.getElementById('tmrecent')||{}).checked;
+  let cutoff=''; if(recent){ const d=new Date(); d.setFullYear(d.getFullYear()-1); cutoff=d.toISOString().slice(0,10); }
+  const f=TERM.filter(r=>(r.jmeno||'').toLowerCase().includes(q) && (!recent || (r.odchod_key && r.odchod_key>=cutoff)));
+  const cc=document.getElementById('tmcnt'); if(cc) cc.textContent=f.length+' ukončených'+(recent?' (poslední rok)':'');
   if(!f.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Žádní ukončení zaměstnanci.</td></tr>'; return; }
   const c=(v)=> v?esc(v):'<span class="muted">—</span>';
   tb.innerHTML=f.map(r=>'<tr'+(r.user_id?(' onclick="openFromTable('+r.user_id+')" style="cursor:pointer"'):' style="opacity:.72"')+'>'+

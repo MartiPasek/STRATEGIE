@@ -28810,25 +28810,29 @@ def _update_instance_work(iid: str, body: dict) -> None:
     try:
         from core.database_data import get_data_session as _gp_uw
         from sqlalchemy import text as _tp_uw
-        cw = body.get("current_work")
-        cwf = body.get("current_work_files")
-        ws = (str(body.get("work_status") or "").strip() or
-              ("active" if cw else "idle"))
         lh = body.get("local_head_sha")
         lb = body.get("local_behind")
+        # Bod 2 (C24 5.8.2026): current_work / work_status vlastni @@WORK / @@WORKDONE, NE heartbeat.
+        # Heartbeat je driv bezpodminecne prepisoval na NULL/idle (runner current_work v payloadu
+        # neposila) -> mazal to, co @@WORK nastavil. Proto current_work* menime jen kdyz je heartbeat
+        # EXPLICITNE nese (klic current_work v body); jinak se ho nedotykame (jen freshness).
+        _sets_uw = ["local_head_sha = COALESCE(:lh, local_head_sha)",
+                    "local_behind = COALESCE(:lb, local_behind)"]
+        _pars_uw = {"lh": lh, "lb": (int(lb) if lb is not None else None), "id": iid}
+        if "current_work" in body:
+            cw = body.get("current_work")
+            cwf = body.get("current_work_files")
+            ws = (str(body.get("work_status") or "").strip() or
+                  ("active" if cw else "idle"))
+            _sets_uw += ["current_work = :cw", "current_work_files = :cwf",
+                         "current_work_at = CASE WHEN :cw IS NOT NULL AND :cw <> '' "
+                         "                       THEN now() ELSE current_work_at END",
+                         "work_status = :ws"]
+            _pars_uw.update({"cw": cw, "cwf": cwf, "ws": ws})
         s = _gp_uw()
         try:
-            s.execute(_tp_uw(
-                "UPDATE fw.claude_instance SET "
-                "  current_work = :cw, current_work_files = :cwf, "
-                "  current_work_at = CASE WHEN :cw IS NOT NULL AND :cw <> '' "
-                "                         THEN now() ELSE current_work_at END, "
-                "  work_status = :ws, "
-                "  local_head_sha = COALESCE(:lh, local_head_sha), "
-                "  local_behind = COALESCE(:lb, local_behind) "
-                "WHERE instance_id = :id"
-            ), {"cw": cw, "cwf": cwf, "ws": ws, "lh": lh,
-                "lb": (int(lb) if lb is not None else None), "id": iid})
+            s.execute(_tp_uw("UPDATE fw.claude_instance SET " + ", ".join(_sets_uw)
+                             + " WHERE instance_id = :id"), _pars_uw)
             s.commit()
         finally:
             s.close()

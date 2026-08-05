@@ -28889,14 +28889,15 @@ def _update_instance_work(iid: str, body: dict) -> None:
         from sqlalchemy import text as _tp_uw
         lh = body.get("local_head_sha")
         lb = body.get("local_behind")
-        # Bod 2 (C24 5.8.2026): current_work / work_status vlastni @@WORK / @@WORKDONE, NE heartbeat.
-        # Heartbeat je driv bezpodminecne prepisoval na NULL/idle (runner current_work v payloadu
-        # neposila) -> mazal to, co @@WORK nastavil. Proto current_work* menime jen kdyz je heartbeat
-        # EXPLICITNE nese (klic current_work v body); jinak se ho nedotykame (jen freshness).
+        # Bod 2 (C24 5.8.2026): current_work / work_status vlastni @@WORK / @@WORKDONE.
+        # Runner v heartbeatu posila current_work z WORK_LOCK.txt (klic je vzdy pritomny, casto
+        # prazdny) — driv tim bezpodminecne mazal to, co @@WORK nastavil. Proto current_work*
+        # menime JEN kdyz heartbeat nese NEPRAZDNOU hodnotu (kdo jeste pise do WORK_LOCK.txt, tomu
+        # to jede dal; @@WORK/@@WORKDONE jsou jinak zdroj pravdy, prazdny heartbeat je nechava byt).
         _sets_uw = ["local_head_sha = COALESCE(:lh, local_head_sha)",
                     "local_behind = COALESCE(:lb, local_behind)"]
         _pars_uw = {"lh": lh, "lb": (int(lb) if lb is not None else None), "id": iid}
-        if "current_work" in body:
+        if body.get("current_work"):
             cw = body.get("current_work")
             cwf = body.get("current_work_files")
             ws = (str(body.get("work_status") or "").strip() or

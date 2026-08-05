@@ -29988,6 +29988,60 @@ def dochazka_lide_ep(req: Request):
         s.close()
 
 
+@api_router.get("/app/dochazka/moje-mesic")
+def dochazka_moje_mesic_ep(req: Request):
+    """Aktuální měsíc K DNEŠNÍMU DNI pro přihlášeného (nebo ?uid=<kolega>): odpracováno,
+    má být odpracováno k dnešku (pracovní dny × fond/den), chybí, fond/den + počet prac. dní.
+    Zdroj: att_den_hodiny (mzdové hodiny) + att_calendar_day (pracovní dny) + engagement (fond).
+    „K dnešku" = pracovní dny PŘED dneškem (jako Centrála: dnešek se ještě nepočítá)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        target = int(req.query_params.get("uid") or uid)
+    except Exception:
+        target = uid
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    s = _g()
+    try:
+        emp = s.execute(_t(
+            "SELECT id FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u AND is_active=true "
+            "ORDER BY id LIMIT 1"), {"u": target}).scalar()
+        if not emp:
+            return JSONResponse({"ok": True, "has": False})
+        row = s.execute(_t(
+            "WITH ms AS (SELECT date_trunc('month',current_date)::date d) "
+            "SELECT "
+            " (SELECT count(*) FROM tenant.att_calendar_day cd WHERE cd.tenant_id=2 AND cd.is_workday "
+            "    AND cd.day>=(SELECT d FROM ms) AND cd.day<current_date), "
+            " (SELECT round(g.uvazek_tyden_h/NULLIF(COALESCE(wm.dny_v_tydnu,5),0),2) "
+            "    FROM tenant.engagement g LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
+            "   WHERE g.employee_id=:e AND g.tenant_id=2 AND g.is_current LIMIT 1), "
+            " (SELECT COALESCE(round(SUM(f.hodiny_mzdove),2),0) "
+            "    FROM tenant.att_den_hodiny(2,(SELECT d FROM ms),current_date) f WHERE f.emp_id=:e)"),
+            {"e": emp}).first()
+        prac_dni = int(row[0] or 0)
+        fond = float(row[1] or 8.0)
+        odprac = float(row[2] or 0)
+        ma_byt = round(prac_dni * fond, 1)
+        chybi = round(ma_byt - odprac, 1)
+        _MES = ["", "leden", "únor", "březen", "duben", "květen", "červen",
+                "červenec", "srpen", "září", "říjen", "listopad", "prosinec"]
+        d = _dt.date.today()
+        return JSONResponse({"ok": True, "has": True,
+                             "mesic": _MES[d.month] + " " + str(d.year),
+                             "prac_dni_k_dnesku": prac_dni, "fond_den": round(fond, 1),
+                             "ma_byt_k_dnesku": ma_byt, "odpracovano": round(odprac, 1),
+                             "chybi": chybi})
+    except Exception as exc:
+        logger.exception("[dochazka_moje_mesic] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        s.close()
+
+
 @api_router.get("/app/dochazka/moje")
 def dochazka_moje_ep(req: Request):
     """Historie docházky s rozpadem po zakázkách. Default = přihlášený uživatel;

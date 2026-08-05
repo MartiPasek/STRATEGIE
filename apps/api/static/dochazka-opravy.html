@@ -682,7 +682,13 @@ function openDay(uid,name,day){
         var _polG=(gone&&!isDE&&e2.polozky_gone&&e2.polozky_gone.length)?e2.polozky_gone:null;
         var _hasRozpad=(!isDE&&((!gone&&e2.polozky&&e2.polozky.length>1)||(_polG&&_polG.length>1)));
         var _rozpadN=(_polG?_polG.length:((e2.polozky&&e2.polozky.length)||0));
-        tr0.appendChild(tdc(_hasRozpad?'<span class="sm">🧾 rozpad ↓ ('+_rozpadN+'×)</span>':(e2.project_ref?('🧾 '+esc(e2.project_ref)):'')));
+        // Jirka 5.8.2026: úseky rozpadu jsou po otevření dne SBALENÉ — den se tím
+        // zkrátí na hlavní řádky a nemusí se rolovat. Dvojklik na řádek je rozbalí
+        // a znovu sbalí; šipka vedle zakázky ukazuje, v jakém stavu řádek je.
+        var _subs=[];        // pod-řádky patřící tomuhle docházkovému řádku
+        var _rozOpen=false;  // rozbaleno?
+        var _tdZak=tdc(_hasRozpad?'<span class="sm">🧾 rozpad ('+_rozpadN+'×)</span>':(e2.project_ref?('🧾 '+esc(e2.project_ref)):''));
+        tr0.appendChild(_tdZak);
         tr0.appendChild(tdc(_hasRozpad?'':(e2.cin_name?('🔧 '+esc(e2.cin_name)):'')));
         tr0.appendChild(tdc(tg));
         var tdA=tdc('','','text-align:right;white-space:nowrap;');tr0.appendChild(tdA);
@@ -710,7 +716,7 @@ function openDay(uid,name,day){
             pg.appendChild(tdc(p.cinnost?('🔧 '+esc(p.cinnost)):''));
             pg.appendChild(tdc('<span class="sm" title="Původní rozpad před stornem — jen ke čtení.">před opravou</span>'));
             pg.appendChild(tdc('','','text-align:right;white-space:nowrap;'));
-            tb.appendChild(pg);
+            tb.appendChild(pg);_subs.push(pg);
           });
           // Jirka 5.8.2026: souhrnný řádek pod úseky ani hlášku o vynechaných úsecích
           // z ruční opravy tu NECHCEME — jsou navíc a jen zabírají místo. Kontrola,
@@ -731,11 +737,12 @@ function openDay(uid,name,day){
             pr.appendChild(tdc(p.cinnost?('🔧 '+esc(p.cinnost)):''));
             pr.appendChild(tdc('<span class="sm">rozpad</span>'));
             var pAct=tdc('','','text-align:right;white-space:nowrap;');pr.appendChild(pAct);
-            tb.appendChild(pr);
+            tb.appendChild(pr);_subs.push(pr);
             var canP=(p.editable&&!j.locked&&p.pid);
             if(canP){
               var pfrow=document.createElement('tr');pfrow.style.display='none';
               var pfc=document.createElement('td');pfc.colSpan=8;pfrow.appendChild(pfc);tb.appendChild(pfrow);
+              pfrow._jeForm=true;_subs.push(pfrow);
               var pClose=function(){pfrow.style.display='none';pfc.innerHTML='';};
               var pOpen=function(titul){
                 pfrow.style.display='';pfc.innerHTML='';
@@ -784,6 +791,30 @@ function openDay(uid,name,day){
             } else {
               pAct.innerHTML='<span class="sm" style="color:var(--mut);">'+(p.editable?(j.locked?'🔒':'—'):'🏛 Centrála')+'</span>';
             }
+          });
+        }
+        // Sbalit vše hned po vykreslení a navěsit dvojklik na docházkový řádek.
+        // Formulář opravy položky (pfrow) se dvojklikem NEotvírá — ten patří tlačítku;
+        // při sbalení se ale schová taky, ať pod řádkem nezůstane viset otevřený.
+        if(_subs.length){
+          _subs.forEach(function(x){ x.style.display='none'; });
+          var _sipka=function(){
+            var s=(_rozOpen?'▾':'▸');
+            _tdZak.innerHTML=(_hasRozpad
+              ? '<span class="sm">🧾 rozpad '+s+' ('+_rozpadN+'×)</span>'
+              : ((e2.project_ref?('🧾 '+esc(e2.project_ref)):'')+' <span class="sm">'+s+'</span>'));
+          };
+          _sipka();
+          tr0.style.cursor='pointer';
+          tr0.title='Dvojklik zobrazí nebo skryje úseky rozpadu pod řádkem.';
+          tr0.addEventListener('dblclick',function(ev){
+            // klik na tlačítko / pole necháváme jeho vlastní obsluze
+            if(ev.target.closest('button')||ev.target.closest('input')||ev.target.closest('select')) return;
+            _rozOpen=!_rozOpen;
+            _subs.forEach(function(x){
+              x.style.display=((_rozOpen&&!x._jeForm)?'':'none');
+            });
+            _sipka();
           });
         }
         if(!gone&&!isDE&&e2.kon)prevKon=e2.kon;

@@ -620,6 +620,50 @@ function openDay(uid,name,day){
             });
         });
       }
+      // Vrácení převodu (Jirka 5.8.2026). Není to zvláštní operace — je to týž
+      // převod opačným směrem, takže platí stejné pojistky (prázdný cílový den,
+      // zamčený měsíc, působnost) i stejný zápis do historie a upozornění člověku.
+      function openUnmove(pv){
+        if(!afx)return;
+        afx.innerHTML='';
+        var _den=dt.value;
+        var w=el('<div class="card"></div>');
+        w.appendChild(el('<div class="hd">↩ Vrátit převod</div>'));
+        w.appendChild(el('<div class="hint" style="margin:3px 0 8px;">Den <b>'+esc(dayLabel(_den))
+          +'</b> sem byl převeden z <b>'+esc(pv.z_txt||'')+'</b>'
+          +(pv.kdo?(' ('+esc(pv.kdo)+(pv.kdy?(', '+esc(pv.kdy)):'')+')'):'')+'. '
+          +'Vrácením se celá docházka přesune zpátky. Původní den musí být prázdný.</div>'));
+        var rb=reasonBox();
+        rb._input.value='vrácení převodu z '+(pv.z_txt||'');
+        w.appendChild(rb);
+        var st=el('<div class="errbar"></div>');w.appendChild(st);
+        var ok=el('<button class="b p full" style="margin-top:8px;">Vrátit zpátky na '+esc(pv.z_txt||'')+'…</button>');
+        w.appendChild(ok);
+        afx.appendChild(w);
+        ok.addEventListener('click',function(){
+          var duv=(rb._input.value||'').trim();
+          if(!duv){st.textContent='Důvod je povinný.';return;}
+          st.textContent='';
+          confirmBox(w,'Celá docházka se vrátí z <b>'+esc(dayLabel(_den))+'</b> zpátky na <b>'
+            +esc(pv.z_txt||'')+'</b>.<br>Důvod: '+esc(duv)+'<br><br>Pokračovat?',function(c1){
+              c1.remove();
+              confirmBox(w,'<b>⚠ Tuto akci nelze vrátit.</b> Zpátky by se den musel převést ručně.<br>'
+                +'Opravdu vrátit na <b>'+esc(pv.z_txt||'')+'</b>?',function(c2){
+                  api('POST','/api/v1/erp/app/attendance/fix/move-day',
+                      {uid:CTX.uid,day:_den,novy_den:pv.z,reason:duv}).then(function(r){
+                    if(r&&r.ok){
+                      afx.innerHTML='';
+                      CTX.day=pv.z;dt.value=pv.z;_hlavicka(pv.z);
+                      render();obnovLevy();
+                    }else{
+                      c2.remove();
+                      st.textContent='✗ '+((r&&r.error)||'chyba');
+                    }
+                  });
+                });
+            });
+        });
+      }
       function openAdd(prefZ,prefK,prefTyp){
         if(!afx)return;
         afx.innerHTML='';
@@ -654,7 +698,18 @@ function openDay(uid,name,day){
         // je to první nevratná operace nad celým dnem.
         var mb=el('<button class="b a" style="font-size:12.5px;padding:5px 12px;margin-left:6px;" title="Přesunout celou docházku tohoto dne na jiný den">📅 Převod dne</button>');
         afx=el('<div style="margin:8px 0;"></div>');
-        box.appendChild(ab);box.appendChild(mb);box.appendChild(afx);
+        box.appendChild(ab);box.appendChild(mb);
+        // Jirka 5.8.2026: tlačítko ZPĚT se ukáže JEN u dne, který sám vznikl převodem
+        // (server to pozná z historie oprav, ne z textu poznámky). Vrácení jde stejnou
+        // cestou jako převod — projde tedy i stejnými kontrolami, hlavně tou, že
+        // původní den musí být prázdný.
+        if(j.prevod&&j.prevod.z){
+          var zb=el('<button class="b" style="font-size:12.5px;padding:5px 12px;margin-left:6px;border-color:#7f93b0;" '
+            +'title="Vrátit tento den zpátky na '+esc(j.prevod.z_txt||'')+', odkud byl převeden">↩ Vrátit převod</button>');
+          box.appendChild(zb);
+          zb.addEventListener('click',function(){openUnmove(j.prevod);});
+        }
+        box.appendChild(afx);
         ab.addEventListener('click',function(){openAdd('','',null);});
         mb.addEventListener('click',function(){openMove();});
       }
@@ -1061,6 +1116,16 @@ function openDay(uid,name,day){
       }
       // Jirka 12.7.: systémové poznámky (stopy oprav, automaty…) POD tabulkou, ať je nahoře čistá
       if(maCentralu)box.appendChild(el('<div class="hint" style="margin-top:8px;">🏛 Záznamy z tabletu staré Centrály se opravují v Centrále (Dušan) — sem se přezrcadlí.</div>'));
+      // Jirka 5.8.2026: když den vznikl PŘEVODEM z jiného dne, musí to být vidět —
+      // jinak nikdo nepozná, že tahle docházka původně patřila jinam. Údaje jdou
+      // z historie oprav (append-only), ne z textu poznámky u záznamu.
+      if(j.prevod&&j.prevod.z){
+        poznBelow.push('<b>📅 Převod dne:</b> tento den byl převeden z <b>'
+          +esc(j.prevod.z_txt||'')+'</b>'
+          +(j.prevod.kdo?(' — '+esc(j.prevod.kdo)):'')
+          +(j.prevod.kdy?(', '+esc(j.prevod.kdy)):'')
+          +(j.prevod.duvod?('<br>Důvod: '+esc(j.prevod.duvod)):''));
+      }
       if(poznBelow.length){
         var pb=el('<div style="margin-top:10px;"></div>');
         pb.appendChild(el('<div class="sec" style="margin-top:0;">🗒 POZNÁMKY K ZÁZNAMŮM</div>'));

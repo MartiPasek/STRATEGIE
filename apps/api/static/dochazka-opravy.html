@@ -560,6 +560,66 @@ function openDay(uid,name,day){
       })();
       var afx=null;
       // Doplnění záznamu — z tlačítka i z řádku „mezera" (předvyplněné časy). Dušan 12.7.
+      // Převod dne (Jirka 5.8.2026). Co se přesouvá: celý den včetně historie —
+      // práce, přestávky, konec dne, absence, úseky rozpadu i stornované řádky.
+      // Kontroly (prázdný cíl, zamčený měsíc, budoucnost, působnost) dělá server;
+      // tady jen ukážeme, co se stane, a necháme to potvrdit dvakrát.
+      function openMove(){
+        if(!afx)return;
+        afx.innerHTML='';
+        var _den=dt.value;
+        var _pocD=(j.entries||[]).length, _pocU=0;
+        (j.entries||[]).forEach(function(e){
+          _pocU+=((e.polozky||[]).length)+((e.polozky_gone||[]).length);
+        });
+        var _kus=function(n,a,b,c){return n+'× '+(n===1?a:(n<5?b:c));};
+        var _co=_kus(_pocD,'záznam docházky','záznamy docházky','záznamů docházky')
+              +(_pocU?(' a '+_kus(_pocU,'úsek rozpadu','úseky rozpadu','úseků rozpadu')):'');
+        var w=el('<div class="card"></div>');
+        w.appendChild(el('<div class="hd">📅 Převod dne</div>'));
+        w.appendChild(el('<div class="hint" style="margin:3px 0 8px;">Celá docházka '
+          +esc(CTX.name||'')+' z <b>'+esc(dayLabel(_den))+'</b> se přesune na vybraný den. '
+          +'Přesouvá se '+esc(_co)+', včetně stornovaných řádků. '
+          +'Cílový den musí být prázdný.</div>'));
+        var dr2=dateRow(_den,null);
+        w.appendChild(dr2.row);
+        var rb=reasonBox();w.appendChild(rb);
+        var st=el('<div class="errbar"></div>');w.appendChild(st);
+        var ok=el('<button class="b p full" style="margin-top:8px;">Převést…</button>');
+        w.appendChild(ok);
+        afx.appendChild(w);
+        ok.addEventListener('click',function(){
+          var nd=(dr2.input.value||'').trim();
+          var duv=(rb._input.value||'').trim();
+          if(!nd){st.textContent='Vyber cílový den.';return;}
+          if(nd===_den){st.textContent='Cílový den je stejný jako otevřený.';return;}
+          if(nd>today()){st.textContent='Cílový den nesmí být v budoucnosti.';return;}
+          if(!duv){st.textContent='Důvod je povinný.';return;}
+          st.textContent='';
+          // krok 1 — co se stane
+          confirmBox(w,'Přesouvá se <b>'+esc(_co)+'</b><br>z <b>'+esc(dayLabel(_den))
+            +'</b> na <b>'+esc(dayLabel(nd))+'</b>.<br>Důvod: '+esc(duv)+'<br><br>Pokračovat?',
+            function(c1){
+              c1.remove();
+              // krok 2 — nevratnost
+              confirmBox(w,'<b>⚠ Tuto akci nelze vrátit.</b> Zpátky by se den musel převést ručně.<br>'
+                +'Opravdu převést na <b>'+esc(dayLabel(nd))+'</b>?',
+                function(c2){
+                  api('POST','/api/v1/erp/app/attendance/fix/move-day',
+                      {uid:CTX.uid,day:_den,novy_den:nd,reason:duv}).then(function(r){
+                    if(r&&r.ok){
+                      afx.innerHTML='';
+                      CTX.day=nd;dt.value=nd;_hlavicka(nd);
+                      render();obnovLevy();
+                    }else{
+                      c2.remove();
+                      st.textContent='✗ '+((r&&r.error)||'chyba');
+                    }
+                  });
+                });
+            });
+        });
+      }
       function openAdd(prefZ,prefK,prefTyp){
         if(!afx)return;
         afx.innerHTML='';
@@ -588,9 +648,15 @@ function openDay(uid,name,day){
       }
       if(!j.locked){
         var ab=el('<button class="b g" style="font-size:12.5px;padding:5px 12px;" title="Zapomenutý příchod, mezera v docházce…">➕ Přidat záznam</button>');
+        // Jirka 5.8.2026: „Převod dne" — člověk píchal na špatný den, editor celý den
+        // přesune jinam. Schválila Marti-AI (msg 12268) vč. podmínek: cílový den musí
+        // být prázdný, nesmí být v budoucnosti a potvrzuje se DVĚMA kroky, protože
+        // je to první nevratná operace nad celým dnem.
+        var mb=el('<button class="b a" style="font-size:12.5px;padding:5px 12px;margin-left:6px;" title="Přesunout celou docházku tohoto dne na jiný den">📅 Převod dne</button>');
         afx=el('<div style="margin:8px 0;"></div>');
-        box.appendChild(ab);box.appendChild(afx);
+        box.appendChild(ab);box.appendChild(mb);box.appendChild(afx);
         ab.addEventListener('click',function(){openAdd('','',null);});
+        mb.addEventListener('click',function(){openMove();});
       }
       var es=j.entries||[];
       if(!es.length){box.appendChild(el('<div class="hint">Žádné záznamy v tomto dni.</div>'));return;}

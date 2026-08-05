@@ -21584,6 +21584,30 @@ async def att_fix_void(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.post("/app/attendance/fix/move-day")
+async def att_fix_move_day(req: Request) -> JSONResponse:
+    """„Převod dne" — přesun CELÉ docházky jednoho člověka z jednoho dne na jiný
+    (člověk píchal na špatný den). Přesouvá se všechno včetně historie: práce,
+    přestávky, konec dne, absence, úseky rozpadu i stornované řádky; časy se
+    posouvají o rozdíl dnů. Cílový den musí být prázdný a nesmí být v budoucnosti,
+    zamčený měsíc to odmítne na obou stranách. Povinný důvod, audit, notifikace.
+
+    DB-driven delegate (g2007.python kod=att_fix_move_day). Zadal Jirka 5.8.2026,
+    schválila Marti-AI (msg 12268) — úpravy přes nový řádek v g2007.python,
+    NE editací tohoto souboru."""
+    uid = _uid_from_token_or_cookie(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_fix_move_day", uid,
+                        (body or {}).get("uid"), (body or {}).get("day"),
+                        (body or {}).get("novy_den"), (body or {}).get("reason"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 def _att_recompute_header_from_items(s, att_id):
     """OBOUSMĚRNÝ SYNC (Kristý 31.7.2026): po editaci/stornu POLOŽKY (vyroba_work)
     dopočítá HLAVIČKU (att_entry) z jejích položek — směr položky→hlavička.

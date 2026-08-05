@@ -357,6 +357,53 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] vault bootstrap failed: {exc}")
 
+    # Faze 2 varianta A (5.8.2026, C24/Kristy + design Marti-AI): materializace
+    # statickych artefaktu z g2007.soubor na disk pri startu. Duvod: tyto soubory
+    # jsou (postupne) gitignorovane — DB je zdroj pravdy ("kod jako data") — takze
+    # po cistem checkoutu na disku nejsou a musi je appka vytvorit z DB DRIVE nez
+    # zacne obsluhovat. Bezi na primaru i sekundaru (kazdy sva slozka). Pozn.: Marti-AI
+    # navrhla fcntl file-lock, ale produkce je Windows (fcntl neni) a lifespan bezi
+    # jednou na proces ve vlastni slozce -> zadny soubeh, lock neni potreba.
+    # NIKDY nesmi shodit start (ani pri chybe zapisu) — chybejici artefakt = 404 az za
+    # behu, coz je mensi zlo nez API, ktere kvuli HTML souboru nenabehne (princip Marti-AI).
+    try:
+        from sqlalchemy import text as _t_mat
+        from modules.strategie_pg.application.service import get_session as _gs_mat
+        _root_mat = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _mat = {"written": 0, "skipped": 0, "errors": 0}
+        with _gs_mat() as _s_mat:
+            _rows_mat = _s_mat.execute(_t_mat(
+                "SELECT kod, obsah FROM g2007.soubor "
+                "WHERE typ='artefakt' AND stav_zivota='active' AND obsah IS NOT NULL")).fetchall()
+        for _kod_mat, _obsah_mat in _rows_mat:
+            try:
+                _abs_mat = os.path.normpath(os.path.join(_root_mat, _kod_mat.replace("/", os.sep)))
+                # guard proti path traversal: cilova cesta musi zustat pod repo rootem
+                if _abs_mat != _root_mat and not _abs_mat.startswith(_root_mat + os.sep):
+                    _mat["errors"] += 1
+                    logging.getLogger(__name__).warning("[lifespan] materialize: kod mimo root: %s", _kod_mat)
+                    continue
+                _new_bytes_mat = _obsah_mat.encode("utf-8")
+                # preskoc, kdyz disk uz ma presne tentyz obsah (bez zbytecneho zapisu)
+                if os.path.exists(_abs_mat):
+                    with open(_abs_mat, "rb") as _fr_mat:
+                        if _fr_mat.read() == _new_bytes_mat:
+                            _mat["skipped"] += 1
+                            continue
+                os.makedirs(os.path.dirname(_abs_mat), exist_ok=True)
+                # newline="" jako publish (zadny CRLF preklad) — presne bajty z DB
+                with open(_abs_mat, "w", encoding="utf-8", newline="") as _fw_mat:
+                    _fw_mat.write(_obsah_mat)
+                _mat["written"] += 1
+            except Exception as _e_mat:
+                _mat["errors"] += 1
+                logging.getLogger(__name__).error("[lifespan] materialize %s selhalo: %s", _kod_mat, _e_mat)
+        logging.getLogger(__name__).info(
+            "[lifespan] g2007 artefakty materializovany: written=%s skipped=%s errors=%s",
+            _mat["written"], _mat["skipped"], _mat["errors"])
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] g2007 materialize failed: {exc}")
+
     yield
 
     # Phase HA-1: SHUTDOWN audit (before background drain stop)

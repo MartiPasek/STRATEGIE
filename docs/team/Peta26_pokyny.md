@@ -211,6 +211,24 @@ jako kdybych si připisovala cizí zásluhy."*
 - Když Peta výslovně řekne **„zápis do G2007"** → teprve tehdy do sdílené znalostní báze G2007 (`@@G2007ADD`).
 - **Pravidlo:** není‑li G2007 výslovně zmíněné, je zápis **jen a jen pro nás** (soukromý), ne sdílený.
 
+## 🗓️ SVÁTKY VE MZDÁCH — fond, stravenky, příplatky (Peťa 5.8.2026, závazné)
+Plné znění i s ověřením: **G2007 `doc-mzdy-svatky-fond-stravenky-prescas`**. Zkráceně:
+
+- **Svátek na pracovní den se proplácí, ale NEMÁ se odpracovat.** Do mzdy se připočte, aby byl
+  zaplacený, ale **do fondu pro výpočet přesčasu nepatří** — červenec 2026 = 22 dnů = **176 h**
+  (ne 184) a přesčas se počítá až nad 176. Peťa: *„těch 8 hodin nemají odpracovat, to se jim jen
+  zaplatí."*
+- **Stravenka za svátek nenáleží.** (Do 5.8.2026 se počítala všechna Po–Pá, takže za 6. 7. dostal
+  stravenku navíc úplně každý a člověk na mateřské vyšel 1 místo 0.)
+- **Práce ve svátek = vyšší příplatek.** Koeficienty (Týnka 5.8.2026): **svátek 2,00 · víkend 1,35 ·
+  běžný den 1,25**; „nahrazený" přesčas (kryje placené volno) 1,10 / 0,45 / 0,35. Rozděluje se
+  kaskádou: nejdřív svátky, pak víkendy, pak zbytek. Vše jde do složky **651**.
+- **Platí jen pro výrobu.** Kancelář (kategorie „Volná kancelářská doba (bez přesčasů)") přesčas
+  nedostává — Centrála jim ho jen dopočítává do sloupců, ale nevyplácí.
+- **Kalendář se doplňuje sám** — skript `kalendar_zajisti` (g2007.python) dopočítá české svátky
+  včetně pohyblivých Velikonoc a volá se automaticky ze stravenek i z přesčasů. Ruční firemní
+  výjimky v kalendáři nepřepisuje. Leden 2027 se doplní sám, **není potřeba to řešit ručně**.
+
 ## 🕐 OTEVŘENÉ VĚCI — AŽ PO MZDÁCH (Peťa 4.8.2026, nezačínat sám od sebe)
 Peťa je odložila vědomě, protože jsme v období zpracování mezd. **Nepouštět se do nich,
 dokud neřekne** — ale ani je nezapomenout.
@@ -300,6 +318,22 @@ a přičtením `nad_fond` se počítá dvakrát (u Horkého 185,13 místo ~176).
 **Kdo je „kancelář":** automat `att_automat_level_day` dopichuje jen lidem v kategorii
 s příznakem `dopichavat_fond`. Prakticky = kdo má v měsíci záznamy `fond_doplneni`
 nebo `nenarokova`. **Karta zaměstnance to nerozlišuje**, podle ní se rozhodovat nedá.
+
+### 🗓️ VÍKEND A SVÁTEK = CELÁ PRÁCE NAD FOND (Peťa 5.8.2026, jen kancelářští)
+Peťa: *„u kancelářských se píchá do fondu a nad fond, aby měl FPD v daném měsíci, a dělá se to
+v pracovních dnech — o víkendu se to musí dávat jako nad fond."*
+- **Fond se plní jen v PRACOVNÍCH dnech.** Co si kancelářský odpracuje v sobotu, v neděli
+  nebo o svátku, jde **celé** do nenárokové složky (nad fond) — ne jen přesah nad 8 h.
+- Jinak by víkend snižoval dopíchnutí ve všední dny a měsíc by „seděl" jen díky sobotě.
+- **Dílny a hodinových se to netýká** — automat na ně nejede vůbec.
+- V kódu: `g2007.python` kod=`att_automat_level_day`, CTE `netf` — pro nepracovní den
+  (dle `tenant.att_calendar_day`) se denní fond přepíše na **0**. Chybí-li den v kalendáři,
+  bere se jako pracovní (bezpečnější). Detail: G2007 `doc-dochazka-vikend-svatek-cely-nad-fond`.
+- **Automat se dá pustit cíleně** (idempotentní, přepočítá den znovu):
+  `POST /api/v1/erp/app/erp_registry/run` → `{"kod":"att_automat_level_day","args":[2,4,<emp_id>,"2026-07-06"]}`.
+  Noční catchup jede jen pár dnů zpět, starší měsíc takhle nedožene.
+- ⚠️ **Docházka i kalendář jedou na `tenant_id = 2`**, ne 1. S tenantem 1 vyjde prázdno
+  a vypadá to, jako by kalendář nebyl naplněný.
 
 ### ⛔ NEPŘÍTOMNOST OSVČ SE DO FONDU NEPOČÍTÁ (Peťa 4.8.2026, závazné)
 Peťa: *„nepřítomnost OSVČ není docházka, nemůže se počítat do fondu."*

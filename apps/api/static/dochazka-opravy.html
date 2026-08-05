@@ -712,33 +712,10 @@ function openDay(uid,name,day){
             pg.appendChild(tdc('','','text-align:right;white-space:nowrap;'));
             tb.appendChild(pg);
           });
-          // Kontrolní součet — POVINNĚ a viditelně (Marti-AI 5.8.2026), ne tooltip.
-          // Když se úseky rozejdou s hodinami řádku o víc než 0,02 h, je to červené
-          // varování: historie je neúplná a nesmí se tvářit, že sedí.
-          var _gs=0; _polG.forEach(function(p){ _gs+=(p.hours||0); });
-          var _gh=(e2.hours!=null?e2.hours:0), _gd=Math.abs(_gs-_gh), _gbad=(_gd>0.02);
-          var gr=document.createElement('tr');gr.className='pol';
-          gr.style.cssText='background:rgba(150,150,150,0.05);font-size:12px;'
-            +(_gbad?'color:#ff9b9b;':'color:#8b95a1;');
-          gr.appendChild(tdc('','', 'padding-left:16px;'));
-          gr.appendChild(tdc('',''));
-          gr.appendChild(tdc('<span class="sm" style="color:inherit;">součet</span>','','text-align:right;'));
-          gr.appendChild(tdc('<b>'+fmtDec(_gs)+'</b>','num','text-align:right;'));
-          var _gtxt=(_gbad?('⚠ nesedí s řádkem ('+fmtDec(_gh)+' h) — rozdíl '+fmtDec(_gd)+' h')
-                          :('✓ sedí s řádkem ('+fmtDec(_gh)+' h)'));
-          var gtd=tdc('<span class="sm" style="color:inherit;">'+_gtxt+'</span>');
-          gtd.colSpan=4; gr.appendChild(gtd);
-          tb.appendChild(gr);
-          // Úseky z ruční opravy do historie nepatří (to člověk nepíchal), ale ať je
-          // vidět, že tam byly a že jsme je vynechali schválně (Marti-AI 5.8.2026).
-          if(e2.polozky_gone_skryto>0){
-            var gx=document.createElement('tr');gx.className='pol';
-            gx.style.cssText='background:rgba(150,150,150,0.05);color:#8b95a1;font-size:11.5px;';
-            gx.appendChild(tdc('','', 'padding-left:16px;'));
-            var xtd=tdc('<span class="sm">+ '+e2.polozky_gone_skryto+'× úsek z ruční opravy (nezobrazeno — nejde o to, co člověk píchal)</span>');
-            xtd.colSpan=7; gx.appendChild(xtd);
-            tb.appendChild(gx);
-          }
+          // Jirka 5.8.2026: souhrnný řádek pod úseky ani hlášku o vynechaných úsecích
+          // z ruční opravy tu NECHCEME — jsou navíc a jen zabírají místo. Kontrola,
+          // že úseky sedí s hodinami řádku, zůstává na tom, kdo den prohlíží.
+          // (Servery vrací i `polozky_gone_skryto`, tady se záměrně nepoužívá.)
         }
         if(!gone&&!isDE&&e2.polozky&&e2.polozky.length){
           e2.polozky.forEach(function(p){

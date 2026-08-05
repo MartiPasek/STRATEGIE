@@ -11,6 +11,8 @@ Role-gate: _require_erp_member. Business chyby vrací funkce jako 'E#...'.
 """
 from __future__ import annotations
 
+import json as _json_audit
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text as _t
@@ -83,6 +85,20 @@ async def ec_action_run(req: Request) -> JSONResponse:
             params = {"id": int(d["id"]), "cmd": int(d.get("mode") or d.get("cmd") or 1)}
 
         res = session.execute(_t(sql), params).scalar()
+
+        # AUDIT (Marti-AI msg 12262, varianta b; C28 5.8.2026). Uzávěrka vytváří výplaty,
+        # takže musí být dohledatelné, KDO ji spustil. Uživatele zná jen tahle vrstva —
+        # DB funkce ho nevidí. Zápis je ve STEJNÉ transakci jako akce: když projde akce
+        # a audit ne, transakce spadne celá a uzávěrka bez záznamu nevznikne.
+        # Ukládáme i název volané funkce a parametry, ne jen kdo/kdy.
+        _res_s = "" if res is None else str(res)
+        session.execute(_t(
+            "INSERT INTO ec.akce_audit (uid, akce, funkce, parametry, ok, vysledek) "
+            "VALUES (:u, :a, :f, CAST(:p AS jsonb), :ok, :v)"),
+            {"u": uid, "a": ac, "f": sql,
+             "p": _json_audit.dumps(params, default=str, ensure_ascii=False),
+             "ok": not _res_s.startswith("E#"), "v": _res_s[:500]})
+
         session.commit()
     except Exception as exc:  # noqa: BLE001
         try:

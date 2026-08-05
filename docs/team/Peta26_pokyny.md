@@ -211,8 +211,19 @@ jako kdybych si připisovala cizí zásluhy."*
 - Když Peta výslovně řekne **„zápis do G2007"** → teprve tehdy do sdílené znalostní báze G2007 (`@@G2007ADD`).
 - **Pravidlo:** není‑li G2007 výslovně zmíněné, je zápis **jen a jen pro nás** (soukromý), ne sdílený.
 
-## 🗓️ SVÁTKY VE MZDÁCH — fond, stravenky, příplatky (Peťa 5.8.2026, závazné)
-Plné znění i s ověřením: **G2007 `doc-mzdy-svatky-fond-stravenky-prescas`**. Zkráceně:
+## 💰 MZDY — VLASTNÍ SLOŽKA: `docs/team/Peta26_mzdy.md` (Peťa 5.8.2026)
+**Než sáhneš na cokoli kolem mezd, přečti si `docs/team/Peta26_mzdy.md`** — je to „velká zeď"
+se všemi pravidly (odkud se berou hodiny, FPD, fond, svátky, stravenky, příplatky za přesčas,
+jednatelé, kalendář). Peťa je vysvětlovala opakovaně, 4. 8. na tom strávila šest hodin večer —
+**už se nemají znovu odvozovat**. Když tam odpověď není, zeptej se a **hned to tam dopiš**.
+Totéž v G2007: `doc-mzdy-svatky-fond-stravenky-prescas`.
+
+Nejdůležitější dvě věty odtamtud:
+- **Hodiny ber z naší docházky** (`tenant.att_den_hodiny`), NIKDY ze zrcadla Centrály
+  (`att_day_summary`) — opravy děláme u nás a do Centrály nedotečou.
+- **FPD = odpracováno + absence**; přesčas = FPD − měsíční fond, a **fond je bez svátků**.
+
+Zbytek zkráceně:
 
 - **Svátek na pracovní den se proplácí, ale NEMÁ se odpracovat.** Do mzdy se připočte, aby byl
   zaplacený, ale **do fondu pro výpočet přesčasu nepatří** — červenec 2026 = 22 dnů = **176 h**

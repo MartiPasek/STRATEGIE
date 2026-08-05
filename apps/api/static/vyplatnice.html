@@ -98,6 +98,10 @@
     <div class="prog" id="prog" style="display:none"><i id="progBar"></i></div>
     <span id="genMsg" class="mut" style="font-size:12px"></span>
   </div>
+  <!-- Peťa 5.8.2026: varování z generování MUSÍ být vidět (dřív mizela do odpovědi serveru). -->
+  <div id="genWarn" style="display:none;margin:10px 0 0;padding:10px 13px;border-radius:9px;
+       background:#2a1d10;border:1px solid #6b4a1f;border-left:3px solid #e0a34f;color:#f0d3a6;
+       font-size:12.6px;line-height:1.55"></div>
   <div id="cards" class="cards"></div>
   <div id="body"><div class="loading">Vyber firmu/období a načti…</div></div>
   <div class="note">
@@ -199,13 +203,17 @@ async function generuj(){
   msg.classList.add('run'); msg.textContent=stav+' · '+el();
   const tick=setInterval(()=>{msg.textContent=stav+' · '+el();},1000);
   pb.style.width='6%';
-  let clean=1, done=false, guard=0, vyst=0, hot=0, cil=0, chyba='';
+  let clean=1, done=false, guard=0, vyst=0, hot=0, cil=0, chyba='', warns=[];
+  const wbox=document.getElementById('genWarn'); wbox.style.display='none'; wbox.innerHTML='';
   try{
     while(!done && guard++<40){
       const d=await (await fetch('/api/v1/erp/app/mzdy/generuj?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&clean='+clean+'&max=8',
         {method:'POST',credentials:'include'})).json();
       if(!d.ok){ chyba=d.error||'neznámá chyba'; break; }
       clean=0; done=d.done; vyst=d.vystrahy||0; hot=d.hotovo||0; cil=d.cil||0;
+      // Peťa 5.8.2026: co se nepovedlo postavit (složky / zrcadla) MUSÍ být vidět, ne zmizet.
+      if(d.slozky_warn&&d.slozky_warn.length) warns=warns.concat(d.slozky_warn);
+      if(d.zrcadla_warn&&d.zrcadla_warn.length) warns=warns.concat(d.zrcadla_warn);
       const pct=cil?Math.max(6,Math.round(100*hot/cil)):6;
       pb.style.width=pct+'%';
       stav='⏳ Počítám mzdy… '+hot+'/'+cil+' hotovo'+(vyst?' · '+vyst+' s výstrahou':'');
@@ -218,6 +226,14 @@ async function generuj(){
   if(chyba){ msg.style.color='#ff9a9a'; msg.textContent='⚠ '+chyba+' (trvalo '+el()+')'; }
   else { msg.style.color='#86e8b0'; pb.style.width='100%';
          msg.textContent='✅ Hotovo · '+hot+'/'+cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+' · trvalo '+el(); }
+  if(warns.length){
+    const uniq=[...new Set(warns.map(x=>String(x)))];
+    wbox.innerHTML='<b>⚠ Pozor — něco se nepodařilo postavit a v páskách to bude chybět:</b>'+
+      '<ul style="margin:7px 0 0 18px;padding:0">'+
+      uniq.map(w=>'<li>'+w.replace(/</g,'&lt;')+'</li>').join('')+'</ul>'+
+      '<div style="margin-top:7px;color:#d9b98a">Oprav příčinu a pusť generování znovu.</div>';
+    wbox.style.display='block';
+  }
   btn.disabled=false;
   await load();
 }

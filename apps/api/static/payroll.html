@@ -41,6 +41,7 @@
   <div class="hd"><span onclick="goBackApp()" style="cursor:pointer;font-size:15px;color:#9fc0ff;padding:2px 8px 2px 0;">← Zpět</span><div class="ic">💰</div><h1>Mzdové podklady</h1>
     <span class="tab on" id="tab_p" onclick="setTab('p')">Podklady</span>
     <span class="tab" id="tab_k" onclick="setTab('k')">Kontrola vs Helios</span>
+    <span class="tab" id="tab_r" onclick="setTab('r')">Raporty prací</span>
     <div class="sp"></div>
     <select id="per"></select>
     <span class="tab" id="btnRecalc" onclick="recompute()" title="Přepočítá měsíční souhrn z naší docházky (att_entry)">🔄 Přepočítat</span>
@@ -52,6 +53,8 @@
 function goBackApp(){ if(window.parent&&window.parent!==window){ try{window.parent.postMessage("stgCloseOverlay","*");return;}catch(e){} } location.href="/mobile"; }
 const API="/api/v1/erp/app/payroll/summary";
 const APIK="/api/v1/erp/app/payroll/kontrola";
+const APIR="/api/v1/erp/app/payroll/raporty";
+let ROWS_R=[];
 const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
 const root=document.getElementById("root"), per=document.getElementById("per"), sub=document.getElementById("sub");
 async function j(u){const r=await fetch(u,{credentials:"include"});try{return await r.json()}catch(e){return{ok:false}}}
@@ -63,8 +66,67 @@ function setTab(t){
   TAB=t;
   document.getElementById("tab_p").classList.toggle("on",t==='p');
   document.getElementById("tab_k").classList.toggle("on",t==='k');
+  var tr=document.getElementById("tab_r"); if(tr) tr.classList.toggle("on",t==='r');
   if(t==='k'){ sub.textContent="Naše podklady (docházka) × Helios výplatnice. Hodiny = odpracováno+absence vs. Helios; ⚠ = chybí v jednom zdroji nebo rozdíl > 4 h."; loadK(CY,CM); }
+  else if(t==='r'){ sub.textContent="Raporty prací — mzdový podklad ke kontrole (karta na osobu jako v Centrále), z reálných dat STRATEGIE. OSVČ mimo."; loadR(CY,CM); }
   else { sub.textContent="Měsíční souhrn z docházky Centrály (hybridní fáze). Hodiny: odpracováno = montáž+režie."; load(CY,CM); }
+}
+function dispatchTab(){ (TAB==='k'?loadK:(TAB==='r'?loadR:load))(CY,CM); }
+function hh(v){ if(v==null||v===0) return '·'; return (Math.round(v*100)/100).toString().replace('.',','); }
+function kk(v){ if(v==null) return '·'; return Math.round(v).toLocaleString('cs-CZ'); }
+function cardBody(x,L){
+  const F=(l,v,s)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0"><span style="color:'+L+'">'+l+'</span><span'+(s?' style="font-weight:600"':'')+'>'+v+'</span></div>';
+  const rozdil=(x.celkem_hodin||0)-(x.fpd||0);
+  const podm=F('Základ',kk(x.zaklad))+F('Osob. ohod.',kk(x.os_ohod))+F('Fir. kultura',kk(x.fir_kultura))+F('Produkce',kk(x.produkce))+F('Garant',kk(x.garant))+F('Vedení lidí',kk(x.vedeni_lidi))+F('Kvalita',kk(x.kvalita))+F('Individ. ohodnocení',kk(x.individ))+F('Hod. sazba bez FK',kk(x.sazba_bez_fk),1)+F('Hod. sazba s FK',kk(x.sazba_s_fk),1);
+  const money=F('Finance zakázek','·')+F('Prémie za loajalitu',kk(x.loajalita))+F('Proplacení věrnostní pouk.',kk(x.vernostni),1)+F('Stravenky',x.stravenky_ks+' ks / '+kk(x.stravenky_kc)+' Kč',1);
+  const doch=F('Celkem hodin',hh(x.celkem_hodin),1)+F('FPD',hh(x.fpd))+F('Rozdíl',hh(rozdil))+F('Odpracováno',hh(x.odprac))+F('Přesčas',hh(x.prescas));
+  const absPairs=[['Dovolená',x.dovolena],['Nemoc',x.nemoc],['Sick',x.sickday],['OČR',x.ocr],['Lékař',x.lekar],['Montáž',x.montaz],['Mateřská',x.materska],['Náhr. volno',x.nahr_volno],['Nař. volno',x.nariz_volno],['Absence',x.absence],['Překážka',x.prekazka]];
+  const absH=absPairs.map(a=>F(a[0],hh(a[1]))).join('');
+  let pohyby = (x.pohyby&&x.pohyby.length) ? x.pohyby.map(p=>F(esc(p.typ),kk(p.castka))).join('') : '<span style="color:'+L+'">—</span>';
+  const line=(L==='#8295ad')?'#232c3b':'#ccc';
+  const foot='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">'
+    +'<div><span style="color:'+L+'">Sleva na dani</span><br>'+esc(x.sleva_na_dani)+'</div>'
+    +'<div><span style="color:'+L+'">Děti</span><br>'+(x.deti_pocet?esc(x.deti_jmena||('počet: '+x.deti_pocet)):'—')+'</div>'
+    +'<div style="text-align:right"><span style="color:'+L+'">Odměny/srážky celkem</span><br><b>'+kk(x.odmeny_srazky_celkem)+' Kč</b></div>'
+  +'</div>';
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12.5px">'
+      +'<div>'+podm+'</div><div>'+money+'<div style="margin-top:8px">'+doch+'</div></div></div>'
+    +'<div style="margin-top:10px;font-size:12px"><div style="color:'+L+';font-size:11px;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Absence (hod.)</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 16px">'+absH+'</div></div>'
+    +'<div style="margin-top:10px;font-size:12px"><div style="color:'+L+';font-size:11px;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Odměny/srážky</div>'+pohyby+'</div>'
+    +'<div style="margin-top:10px;border-top:1px solid '+line+';padding-top:8px;font-size:12.5px">'+foot+'</div>';
+}
+function cardScreen(x,i){
+  return '<div style="background:#141b29;border:1px solid #232c3b;border-radius:12px;padding:14px 16px;margin:0 0 12px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #232c3b;padding-bottom:8px;margin-bottom:10px">'
+      +'<div><b>'+esc(x.cislo)+' / '+esc(x.jmeno)+'</b> <span style="color:#8295ad">· '+esc(x.firma)+' · '+esc(x.typ)+' · úvazek '+hh(x.uvazek_den)+'</span></div>'
+      +'<span class="cbtn" style="cursor:pointer" onclick="printCards([ROWS_R['+i+']],\'Raport práce\')">🖨 Tisk</span>'
+    +'</div>'+cardBody(x,'#8295ad')+'</div>';
+}
+function cardPrint(x){
+  return '<div class="pc"><div class="ph"><div><b>'+esc(x.cislo)+' / '+esc(x.jmeno)+'</b> · '+esc(x.firma)+' · '+esc(x.typ)+' · úvazek '+hh(x.uvazek_den)+' · '+MN[CM]+' '+CY+'</div><div style="font-weight:700">Raporty prací</div></div>'+cardBody(x,'#555')+'</div>';
+}
+function printCards(list,title){
+  const w=window.open('','_blank'); if(!w){alert('Povol vyskakovací okna pro tisk.');return;}
+  const css='<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:14px;font-size:12px}.pc{border:1px solid #999;border-radius:6px;padding:10px 14px;margin:0 0 12px;page-break-inside:avoid}.ph{display:flex;justify-content:space-between;border-bottom:1px solid #bbb;padding-bottom:6px;margin-bottom:8px}b{font-weight:700}</style>';
+  const body=list.map(cardPrint).join('');
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title||'Raporty prací')+'</title>'+css+'</head><body>'+body+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},150);}</scr'+'ipt></body></html>');
+  w.document.close();
+}
+async function loadR(y,m){
+  root.innerHTML='<div class="loading">Načítám…</div>';
+  const q=(y&&m)?("?rok="+y+"&mesic="+m):"";
+  const r=await j(APIR+q);
+  if(!r||!r.ok){ root.innerHTML='<div class="err">'+((r&&r.error==='forbidden')?'Raporty jsou pro rodiče a mzdovou účetní.':'Chyba načtení.')+'</div>'; return; }
+  CY=r.rok;CM=r.mesic;ROWS_R=r.rows||[];
+  if(!LOADED){
+    per.innerHTML=(r.periods||[]).map(p=>'<option value="'+p.rok+'-'+p.mesic+'"'+((p.rok===r.rok&&p.mesic===r.mesic)?' selected':'')+'>'+MN[p.mesic]+' '+p.rok+'</option>').join('');
+    per.onchange=function(){const a=per.value.split("-");CY=+a[0];CM=+a[1];dispatchTab();};
+    LOADED=true;
+  }
+  if(!ROWS_R.length){ root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>'; return; }
+  const bar='<div style="display:flex;gap:10px;align-items:center;margin:4px 2px 12px"><b>'+ROWS_R.length+' karet</b> <span style="color:#8295ad">· '+MN[CM]+' '+CY+' · EC + ES</span><span style="flex:1"></span><span class="cbtn" style="cursor:pointer" onclick="printCards(ROWS_R,\'Raporty prací — '+MN[CM]+' '+CY+'\')">🖨 Tisk vše</span></div>';
+  root.innerHTML=bar+'<div class="muted" style="margin:0 2px 10px">Zdroj: podmínky = mzdové složky, docházka = att_entry, odměny/srážky = mzdové pohyby, sleva na dani = c_smlouva. „Finance zakázek" se doplní ve v2.</div>'+'<div>'+ROWS_R.map((x,i)=>cardScreen(x,i)).join('')+'</div>';
 }
 async function loadK(y,m){
   root.innerHTML='<div class="muted">Načítám kontrolu…</div>';
@@ -115,7 +177,7 @@ async function load(y,m){
   CY=r.rok;CM=r.mesic;
   if(!LOADED){
     per.innerHTML=(r.periods||[]).map(p=>'<option value="'+p.rok+'-'+p.mesic+'"'+((p.rok===r.rok&&p.mesic===r.mesic)?' selected':'')+'>'+MN[p.mesic]+' '+p.rok+'</option>').join('');
-    per.onchange=function(){const a=per.value.split("-");CY=+a[0];CM=+a[1];(TAB==='k'?loadK:load)(CY,CM);};
+    per.onchange=function(){const a=per.value.split("-");CY=+a[0];CM=+a[1];dispatchTab();};
     LOADED=true;
   }
   if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}

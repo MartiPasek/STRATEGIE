@@ -29721,59 +29721,21 @@ def banka_saldo(req: Request):
 
 @api_router.get("/app/dochazka/zakazky")
 def dochazka_zakazky_ep(req: Request):
-    """Docházka všech lidí s rozpadem po zakázkách (z tenant.vyroba_work + oz_zakazky).
-    Přehled PŘED přenosem do staré Centrály. Marti 8.7.2026.
+    """Docházka všech lidí s rozpadem po zakázkách (vyroba_work + ABSENCE i plánované).
+    DB-driven delegate → g2007.python kod='dochazka_zakazky' (migrace C24, Kristý 4.8.2026;
+    pravidlo „kód jako data"). Absence z att_entry jako pseudo-zakázka 'Absence', plánované
+    (budoucí) v období se počítají, odpracovaný čas se ořízne na dnešek. Původní inline logika
+    (vyroba_work only) je v git historii + g2007.python_historie.
     Viditelnost: VŠEM přihlášeným (Marti 8.7.2026 „všem", přes Jirku) — dřív jen cockpit."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    s = _g()
-    try:
-        if not uid:
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        today = _dt.date.today()
-        od = req.query_params.get("od") or today.replace(day=1).isoformat()
-        do = req.query_params.get("do") or today.isoformat()
-        src = (req.query_params.get("src") or "").strip()
-        # Jirka 23.7.2026: stornované záznamy (att_fix_void → kaskáda na vyroba_work) NEpočítat.
-        wh = "w.tenant_id=2 AND w.is_active AND w.datum >= :od AND w.datum <= :do"
-        params = {"od": od, "do": do}
-        if src in ("app", "centrala1"):
-            wh += " AND w.source_system = :src"
-            params["src"] = src
-        # Mobil interim (Jirka + Marti-AI 27.7.2026, DOCASNE do Q4 prestavby): me=1 => jen
-        # prihlaseny uzivatel. Mobil pak ukazuje "Prace po zakazkach" ze STEJNEHO zdroje
-        # (vyroba_work) a stejnym dotazem jako ERP prehled -> sedi 1:1. Sekce v mobilu je
-        # oznacena jako orientacni (NE mzdovy podklad). PO Q4 PRESTAVBE sjednotit na JEDEN
-        # zdroj pravdy (att_entry) a tuhle docasnou dvoji-sekci zrusit.
-        if (req.query_params.get("me") or "").strip() in ("1", "true", "ano") and uid:
-            wh += " AND w.user_id = :meuid"
-            params["meuid"] = int(uid)
-        rows = s.execute(_t("""
-            SELECT COALESCE(u.first_name||' '||u.last_name,'?') jmeno, w.user_id, w.cislo_zam,
-                   to_char(w.datum,'YYYY-MM-DD') datum_iso, to_char(w.datum,'DD.MM.YYYY') den,
-                   COALESCE(w.source_system,'?') src, trim(w.zakazka_ref) zak,
-                   COALESCE(z."Nazev",'') nazev, ROUND(COALESCE(w.hodiny,0)::numeric,2) hod,
-                   to_char(w.od,'HH24:MI') od_t, to_char(w.konec,'HH24:MI') kon_t,
-                   (SELECT vc.name FROM tenant.vyroba_cinnost vc WHERE vc.id=w.cinnost_id) cinnost,
-                   (SELECT string_agg(DISTINCT e.status, ',') FROM tenant.att_entry e
-                      JOIN tenant.att_employee ae ON ae.id=e.employee_id
-                     WHERE ae.user_id=w.user_id AND e.tenant_id=2 AND e.entry_date=w.datum) stav
-            FROM tenant.vyroba_work w
-            LEFT JOIN public.users u ON u.id=w.user_id
-            LEFT JOIN LATERAL (SELECT "Nazev" FROM tenant.oz_zakazky z2
-                               WHERE trim(z2."CisloZakazky")=trim(w.zakazka_ref) LIMIT 1) z ON true
-            WHERE """ + wh + """
-            ORDER BY w.datum DESC, jmeno, zak"""), params).mappings().all()
-        out = [dict(r) for r in rows]
-        lidi = len({r["user_id"] for r in out})
-        zaks = len({r["zak"] for r in out if r["zak"]})
-        hod = round(sum(float(r["hod"] or 0) for r in out), 1)
-        return {"ok": True, "od": od, "do": do, "src": src, "rows": out,
-                "souhrn": {"lidi": lidi, "zakazek": zaks, "hodin": hod, "radku": len(out)}}
-    finally:
-        s.close()
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api import erp_registry as _ereg
+    p = req.query_params
+    result = _ereg.call("dochazka_zakazky", uid, p.get("od"), p.get("do"),
+                        p.get("src"), p.get("me"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/dochazka/lide")
@@ -46427,6 +46389,175 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
                         "v_nas": bool(r[8]), "v_helios": bool(r[9]), "relation": r[10],
                         "davka": davka, "rozdil_abs": diff})
         return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+_RAPORTY_SQL = """
+WITH wc AS (
+  SELECT en.id eng_id, en.employee_id, en.company_id, upper(en.engagement_type) typ,
+         en.uvazek_tyden_h,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='zaklad'),0)        zaklad,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='os_ohodnoceni'),0) os_ohod,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='firemni_kodex'),0) fk,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='produkce'),0)      produkce,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='garant_odmena'),0) garant,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='vedeni_lidi'),0)   vedeni,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='kvalita'),0)       kvalita,
+         COALESCE(SUM(w.amount_planned) FILTER (WHERE ct.code='individualni'),0)  individ
+  FROM tenant.engagement en
+  LEFT JOIN tenant.wage_component w ON w.engagement_id=en.id
+  LEFT JOIN tenant.wage_component_type ct ON ct.id=w.component_type_id
+  WHERE en.tenant_id=2 AND en.is_current=true AND lower(en.engagement_type) IN ('hpp','dpp')
+  GROUP BY en.id, en.employee_id, en.company_id, en.engagement_type, en.uvazek_tyden_h
+),
+mv AS (
+  SELECT wm.engagement_id,
+         COALESCE(SUM(wm.amount) FILTER (WHERE ct.code='premie_loajalita'),0)     loajalita,
+         COALESCE(SUM(wm.amount) FILTER (WHERE ct.code='proplaceni_vernostni'),0) vernostni,
+         COALESCE(SUM(wm.amount) FILTER (WHERE ct.code NOT IN ('premie_loajalita','proplaceni_vernostni')),0) odmeny_srazky,
+         json_agg(json_build_object('typ', ct.label, 'castka', wm.amount) ORDER BY ct.label)
+           FILTER (WHERE ct.code NOT IN ('premie_loajalita','proplaceni_vernostni')) pohyby
+  FROM tenant.wage_movement wm
+  JOIN tenant.wage_component_type ct ON ct.id=wm.movement_type_id
+  WHERE wm.tenant_id=2 AND wm.period_year=:y AND wm.period_month=:m
+    AND wm.status IN ('approved','pending','draft')
+  GROUP BY wm.engagement_id
+),
+doch AS (
+  SELECT d.cislo_zam,
+         round(sum(d.cas_montaz+d.cas_rezie)::numeric,2) odprac,
+         round(sum(d.cas_celkem)::numeric,2) celkem,
+         round(sum(d.cas_prescas)::numeric,2) prescas,
+         round(sum(d.cas_dovolena)::numeric,2) dovolena,
+         round(sum(d.cas_nemoc)::numeric,2) nemoc,
+         round(sum(d.cas_sickday)::numeric,2) sickday,
+         round(sum(d.cas_ocr)::numeric,2) ocr,
+         round(sum(d.cas_lekar)::numeric,2) lekar,
+         round(sum(d.cas_montaz)::numeric,2) montaz,
+         round(sum(d.cas_materska)::numeric,2) materska,
+         round(sum(d.cas_nahr_volno)::numeric,2) nahr_volno,
+         round(sum(d.cas_nariz_volno)::numeric,2) nariz_volno,
+         round(sum(d.cas_absence)::numeric,2) absence_h,
+         round(sum(d.cas_prekazka)::numeric,2) prekazka,
+         count(*) FILTER (WHERE (d.cas_montaz+d.cas_rezie) > 0) stravenky_ks
+  FROM tenant.att_day_summary d
+  WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m
+  GROUP BY d.cislo_zam
+),
+fond AS (
+  SELECT count(*) wd FROM tenant.att_calendar_day c
+  WHERE c.tenant_id=2 AND c.is_workday=true
+    AND c.day BETWEEN make_date(:y,:m,1) AND (make_date(:y,:m,1)+INTERVAL '1 month - 1 day')::date
+),
+sleva AS (
+  SELECT DISTINCT ON (cs.user_id) cs.user_id, cs.sleva_poplatnik
+  FROM tenant.c_smlouva cs WHERE cs.tenant_id=2
+  ORDER BY cs.user_id, cs.platnost_od DESC NULLS LAST, cs.id DESC
+),
+deti AS (
+  SELECT usc.user_id, count(*) n,
+         string_agg(usc.child_name, ', ' ORDER BY usc.relief_order NULLS LAST, usc.id) jmena
+  FROM tenant.user_self_child usc
+  WHERE usc.tenant_id=2 AND COALESCE(usc.is_dependent,true)=true
+  GROUP BY usc.user_id
+)
+SELECT co.code AS firma, ae.cislo_zam AS cislo, ae.full_name AS jmeno,
+       wc.typ AS typ, (wc.uvazek_tyden_h/5.0) AS uvazek_den,
+       wc.zaklad AS zaklad, wc.os_ohod AS os_ohod, wc.fk AS fk, wc.produkce AS produkce,
+       wc.garant AS garant, wc.vedeni AS vedeni, wc.kvalita AS kvalita, wc.individ AS individ,
+       round(((wc.zaklad+wc.os_ohod+wc.individ)/174.0)::numeric,0) AS sazba_bezfk,
+       round(((wc.zaklad+wc.os_ohod+wc.individ+wc.fk)/174.0)::numeric,0) AS sazba_sfk,
+       COALESCE(doch.odprac,0) AS odprac, COALESCE(doch.celkem,0) AS celkem,
+       COALESCE(doch.prescas,0) AS prescas, COALESCE(doch.dovolena,0) AS dovolena,
+       COALESCE(doch.nemoc,0) AS nemoc, COALESCE(doch.sickday,0) AS sickday,
+       COALESCE(doch.ocr,0) AS ocr, COALESCE(doch.lekar,0) AS lekar,
+       COALESCE(doch.montaz,0) AS montaz, COALESCE(doch.materska,0) AS materska,
+       COALESCE(doch.nahr_volno,0) AS nahr_volno, COALESCE(doch.nariz_volno,0) AS nariz_volno,
+       COALESCE(doch.absence_h,0) AS absence_h, COALESCE(doch.prekazka,0) AS prekazka,
+       COALESCE(doch.stravenky_ks,0) AS stravenky_ks,
+       round((fond.wd * (wc.uvazek_tyden_h/5.0))::numeric,1) AS fond,
+       COALESCE(mv.loajalita,0) AS loajalita, COALESCE(mv.vernostni,0) AS vernostni,
+       COALESCE(mv.odmeny_srazky,0) AS odmeny_srazky, mv.pohyby AS pohyby,
+       sleva.sleva_poplatnik AS sleva_poplatnik,
+       COALESCE(deti.n,0) AS deti_n, deti.jmena AS deti_jmena
+FROM wc
+JOIN tenant.att_employee ae ON ae.id=wc.employee_id AND ae.tenant_id=2
+LEFT JOIN tenant.company co ON co.id=wc.company_id
+LEFT JOIN doch ON doch.cislo_zam::text = ae.cislo_zam
+CROSS JOIN fond
+LEFT JOIN mv ON mv.engagement_id = wc.eng_id
+LEFT JOIN sleva ON sleva.user_id = ae.user_id
+LEFT JOIN deti ON deti.user_id = ae.user_id
+WHERE (:firma = 'ALL' OR co.code = :firma)
+ORDER BY co.code, ae.full_name
+"""
+
+
+@api_router.get("/app/payroll/raporty")
+async def app_payroll_raporty(req: Request) -> JSONResponse:
+    """Raporty prací — mzdový podklad ke kontrole (karta na osobu jako v Centrále),
+    z reálných dat STRATEGIE: podmínky (wage_component), docházka (att_day_summary),
+    odměny/srážky (wage_movement), stravenky (docházka), sleva na dani (c_smlouva),
+    děti (user_self_child). Jen aktuální HPP/DPP poměry (OSVČ mimo). Rodič/mzdy read.
+    ?rok=&mesic=&firma=EC|ES|ALL (default ALL). C24 (Kristý) 4.8.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not (_app_parent(s, uid) or _has_capability(uid, 'mzdy', 'read')):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        periods = s.execute(_t(
+            "SELECT DISTINCT rok, mesic FROM tenant.att_day_summary WHERE tenant_id=2 AND rok IS NOT NULL "
+            "ORDER BY rok DESC, mesic DESC")).fetchall()
+        try:
+            y = int(req.query_params.get("rok") or 0)
+            m = int(req.query_params.get("mesic") or 0)
+        except Exception:
+            y = m = 0
+        if not (y and m):
+            if periods:
+                y, m = int(periods[0][0]), int(periods[0][1])
+            else:
+                import datetime as _d
+                _t0 = _d.date.today()
+                y, m = _t0.year, _t0.month
+        firma = (req.query_params.get("firma") or "ALL").upper()
+        if firma not in ("EC", "ES", "ALL"):
+            firma = "ALL"
+        rows = s.execute(_t(_RAPORTY_SQL), {"y": y, "m": m, "firma": firma}).mappings().all()
+
+        def fl(v):
+            return float(v) if v is not None else 0.0
+        out = []
+        for r in rows:
+            ks = int(r["stravenky_ks"] or 0)
+            sp = r["sleva_poplatnik"]
+            out.append({
+                "firma": r["firma"], "cislo": r["cislo"], "jmeno": r["jmeno"], "typ": r["typ"],
+                "uvazek_den": round(fl(r["uvazek_den"]), 2),
+                "zaklad": fl(r["zaklad"]), "os_ohod": fl(r["os_ohod"]), "fir_kultura": fl(r["fk"]),
+                "produkce": fl(r["produkce"]), "garant": fl(r["garant"]), "vedeni_lidi": fl(r["vedeni"]),
+                "kvalita": fl(r["kvalita"]), "individ": fl(r["individ"]),
+                "sazba_bez_fk": fl(r["sazba_bezfk"]), "sazba_s_fk": fl(r["sazba_sfk"]),
+                "odprac": fl(r["odprac"]), "celkem_hodin": fl(r["celkem"]), "prescas": fl(r["prescas"]),
+                "dovolena": fl(r["dovolena"]), "nemoc": fl(r["nemoc"]), "sickday": fl(r["sickday"]),
+                "ocr": fl(r["ocr"]), "lekar": fl(r["lekar"]), "montaz": fl(r["montaz"]),
+                "materska": fl(r["materska"]), "nahr_volno": fl(r["nahr_volno"]),
+                "nariz_volno": fl(r["nariz_volno"]), "absence": fl(r["absence_h"]),
+                "prekazka": fl(r["prekazka"]), "fpd": fl(r["fond"]),
+                "stravenky_ks": ks, "stravenky_kc": ks * 82,
+                "loajalita": fl(r["loajalita"]), "vernostni": fl(r["vernostni"]),
+                "odmeny_srazky_celkem": fl(r["odmeny_srazky"]),
+                "pohyby": (r["pohyby"] or []),
+                "sleva_na_dani": ("Uplatňuje slevu" if sp is True else ("Neuplatňuje slevu" if sp is False else "neuvedeno")),
+                "deti_pocet": int(r["deti_n"] or 0), "deti_jmena": (r["deti_jmena"] or ""),
+            })
+        return JSONResponse({"ok": True, "rok": y, "mesic": m, "firma": firma,
+                             "periods": [{"rok": p[0], "mesic": p[1]} for p in periods],
+                             "rows": out})
     finally:
         cm.__exit__(None, None, None)
 

@@ -26,7 +26,7 @@
 </head>
 <body>
 <h1>📋 Docházka po zakázkách</h1>
-<div class="sub">Rozpad odpracovaného času všech lidí po zakázkách (nový systém: app i tablet/Centrála). Seskupeno po lidech — táhni sloupec „Zakázka" do pruhu nahoře pro rozpad po zakázkách. <a href="/finance">← Finance</a></div>
+<div class="sub">Rozpad odpracovaného času všech lidí po zakázkách (nový systém: app i tablet/Centrála). Seskupeno po zakázkách a lidech. Absence (i plánované) jsou v samostatné skupině „Absence". <a href="/finance">← Finance</a></div>
 <div class="bar">
   <span class="muted" id="mesic_lbl">Měsíc:</span>
   <input type="month" id="mesic_od" title="Měsíc (v režimu od–do: od měsíce)">
@@ -73,12 +73,9 @@ function monthRange(ymOd,ymDo){
   const od=ymOd+'-01';
   const [y,m]=ymDo.split('-').map(Number);
   const last=new Date(y,m,0).getDate();
-  const today=new Date();
-  let doo=ymDo+'-'+String(last).padStart(2,'0');
-  // aktuální měsíc → do dneška
-  if(today.getFullYear()===y && (today.getMonth()+1)===m){
-    doo=today.toISOString().slice(0,10);
-  }
+  // celé zvolené období do konce měsíce — plánované (budoucí) absence spadající do
+  // období se tak započítají; odpracovaný čas ořízne na dnešek backend (LEAST).
+  const doo=ymDo+'-'+String(last).padStart(2,'0');
   return {od,doo};
 }
 async function load(){
@@ -91,12 +88,12 @@ async function load(){
   const rows=r.rows||[], su=r.souhrn||{};
   document.getElementById('kpi').innerHTML=
     box(su.lidi,'lidí')+box(su.zakazek,'zakázek')+box((su.hodin||0).toLocaleString('cs-CZ'),'hodin celkem')+box(su.radku,'segmentů');
-  document.getElementById('msg').textContent=rows.length?('Seskupeno po lidech. Sloupce lze řadit, filtrovat, přeskupovat'+(AGLite.isEnterprise()?' a exportovat do Excelu.':' a exportovat do CSV.')):'Za zvolené období nejsou žádné zakázkové segmenty.';
+  document.getElementById('msg').textContent=rows.length?('Seskupeno po zakázkách a lidech. Sloupce lze řadit, filtrovat, přeskupovat'+(AGLite.isEnterprise()?' a exportovat do Excelu.':' a exportovat do CSV.')):'Za zvolené období nejsou žádné zakázkové segmenty.';
   const cols=[
-    {headerName:'Člověk',field:'jmeno',rowGroup:true,hide:true},
+    {headerName:'Člověk',field:'jmeno',rowGroup:true,rowGroupIndex:1,hide:true},
     {headerName:'EC číslo',field:'cislo_zam',maxWidth:110,type:'numericColumn'},
     {headerName:'Den',field:'datum_iso',valueFormatter:fmtDen,maxWidth:130,sort:'desc'},
-    {headerName:'Zakázka',field:'zak',minWidth:120,enableRowGroup:true,cellStyle:{fontFamily:'ui-monospace,Menlo,monospace'}},
+    {headerName:'Zakázka',field:'zak',rowGroup:true,rowGroupIndex:0,hide:true,minWidth:120,enableRowGroup:true,cellStyle:{fontFamily:'ui-monospace,Menlo,monospace'}},
     {headerName:'Název zakázky',field:'nazev',flex:2,minWidth:240},
     {headerName:'Zdroj',field:'src',valueFormatter:srcLbl,maxWidth:150,enableRowGroup:true},
     {headerName:'Stav docházky',field:'stav',cellRenderer:p=>stavBadge(p),maxWidth:170},

@@ -29740,7 +29740,10 @@ def dochazka_zakazky_ep(req: Request):
         do = req.query_params.get("do") or today.isoformat()
         src = (req.query_params.get("src") or "").strip()
         # Jirka 23.7.2026: stornované záznamy (att_fix_void → kaskáda na vyroba_work) NEpočítat.
-        wh = "w.tenant_id=2 AND w.is_active AND w.datum >= :od AND w.datum <= :do"
+        # C24 Kristý 5.8.2026: odpracovaný čas ořízni na dnešek (LEAST) — období může sahat do
+        # konce měsíce kvůli plánovaným absencím níže; práce v budoucnu neexistuje.
+        wh = ("w.tenant_id=2 AND w.is_active AND w.datum >= :od "
+              "AND w.datum <= LEAST(CAST(:do AS date), CURRENT_DATE)")
         params = {"od": od, "do": do}
         if src in ("app", "centrala1"):
             wh += " AND w.source_system = :src"
@@ -29770,8 +29773,42 @@ def dochazka_zakazky_ep(req: Request):
             WHERE """ + wh + """
             ORDER BY w.datum DESC, jmeno, zak"""), params).mappings().all()
         out = [dict(r) for r in rows]
+        # --- ABSENCE (i plánované budoucí) z att_entry jako pseudo-zakázka 'Absence' ---
+        # C24 Kristý 5.8.2026: INLINE (ne g2007 delegate — ten po incidentu 5.8. visel/shazoval
+        # API, viz g2007.denik; k migraci do g2007 až po vyšetření). Druh (dovolená/nemoc…) je
+        # v poli 'nazev'. Jen v režimu „Vše" (src prázdný) — filtry App/Centrála se týkají práce.
+        if src not in ("app", "centrala1"):
+            awh = ("e.tenant_id=2 AND COALESCE(e.status,'')<>'superseded' "
+                   "AND e.entry_date >= :od AND e.entry_date <= :do")
+            aparams = {"od": od, "do": do}
+            if (req.query_params.get("me") or "").strip() in ("1", "true", "ano") and uid:
+                awh += " AND em.user_id = :meuid"
+                aparams["meuid"] = int(uid)
+            arows = s.execute(_t(
+                "SELECT COALESCE(u.first_name||' '||u.last_name, em.full_name,'?') jmeno, "
+                "       em.user_id, em.cislo_zam, "
+                "       to_char(e.entry_date,'YYYY-MM-DD') datum_iso, "
+                "       to_char(e.entry_date,'DD.MM.YYYY') den, "
+                "       CASE e.source "
+                "            WHEN 'mobile_app' THEN 'aplikace' WHEN 'tablet' THEN 'z Centrály' "
+                "            WHEN 'manual' THEN 'z Centrály' WHEN 'ec_import' THEN 'z Centrály' "
+                "            WHEN 'cssz_dpn' THEN 'ČSSZ' WHEN 'manual_fix' THEN 'ruční oprava' "
+                "            WHEN 'absence' THEN 'schválená žádost' WHEN 'plan_ec' THEN 'plán z Centrály' "
+                "            WHEN 'automat' THEN 'automat' ELSE COALESCE(e.source,'') END src, "
+                "       'Absence' zak, et.label nazev, "
+                "       ROUND(COALESCE(e.hours,0)::numeric,2) hod, "
+                "       to_char(e.started_at,'HH24:MI') od_t, to_char(e.ended_at,'HH24:MI') kon_t, "
+                "       et.label cinnost, e.status stav "
+                "FROM tenant.att_entry e "
+                "JOIN tenant.att_employee em ON em.id=e.employee_id "
+                "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id AND et.category='absence' "
+                "LEFT JOIN public.users u ON u.id=em.user_id "
+                "WHERE " + awh + " "
+                "ORDER BY e.entry_date DESC, jmeno"), aparams).mappings().all()
+            out.extend(dict(r) for r in arows)
         lidi = len({r["user_id"] for r in out})
-        zaks = len({r["zak"] for r in out if r["zak"]})
+        # 'Absence' je pseudo-skupina, ne skutečná zakázka → do počtu zakázek se nepočítá.
+        zaks = len({r["zak"] for r in out if r["zak"] and r["zak"] != "Absence"})
         hod = round(sum(float(r["hod"] or 0) for r in out), 1)
         return {"ok": True, "od": od, "do": do, "src": src, "rows": out,
                 "souhrn": {"lidi": lidi, "zakazek": zaks, "hodin": hod, "radku": len(out)}}

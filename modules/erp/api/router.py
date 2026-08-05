@@ -25642,7 +25642,17 @@ def _att_automat_recalc_day(employee_id, day, tenant: int = 2) -> None:
                     "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
                     "WHERE e.tenant_id=:t AND e.employee_id=:e "
                     "  AND e.entry_date=CAST(:d AS date) AND et.category='presence' "
-                    "  AND e.ended_at IS NULL AND e.status NOT IN ('superseded') LIMIT 1"),
+                    "  AND e.ended_at IS NULL AND e.status NOT IN ('superseded') "
+                    # ⚠️ POZOR (Peťa 5.8.2026): tyhle dvě podmínky tu MUSÍ zůstat.
+                    # Řádky automatu (fond_doplneni / nenarokova) mají kategorii
+                    # 'presence', NEMAJÍ časy (ended_at IS NULL) a nejsou superseded
+                    # — bez nich si tenhle guard viděl VLASTNÍ dopočtený řádek jako
+                    # „člověk ještě maká" a přepočet se už nikdy nespustil. Důsledek:
+                    # jakmile automat jednou za den něco dopíchl, žádná další oprava
+                    # toho dne se nepřepočítala (Peťa 5.8.: den skončil na 16,07 h,
+                    # protože zůstalo staré doplnění 7,10 vedle odpracovaných 8,97).
+                    "  AND e.started_at IS NOT NULL "
+                    "  AND COALESCE(e.source,'') <> 'automat' LIMIT 1"),
                     {"t": tenant, "e": int(employee_id), "d": d}).first()
                 s.commit()
             finally:

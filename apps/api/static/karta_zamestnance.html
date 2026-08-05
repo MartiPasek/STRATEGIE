@@ -598,7 +598,31 @@ function pheadHTML(p){
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
     '</div>'+
+    '<div id="leaveBox" style="margin-top:11px"></div>'+
     '</div></div>';
+}
+// Šárka 5.8.2026: dovolená + sick days v hlavičce (Pinya-styl), data z docházky (Péťa).
+async function loadLeave(uid){
+  const box=document.getElementById('leaveBox'); if(!box||!uid) return;
+  let d; try{ d=await j(API+'/app/hr/person-leave?uid='+uid); }catch(e){ box.style.display='none'; return; }
+  if(!d||!d.ok||!d.has){ box.style.display='none'; return; }
+  const num=(x)=> (x==null?'0':(''+x).replace('.',','));
+  const tile=(label,val,accent)=>'<div style="flex:1;min-width:74px;background:#122238;border:1px solid #1c3350;border-radius:10px;padding:8px 10px;text-align:center">'+
+    '<div style="font-size:19px;font-weight:800;color:'+(accent||'#eaf2ff')+';line-height:1.1">'+num(val)+'</div>'+
+    '<div style="font-size:10px;color:#8fa6c4;margin-top:2px;text-transform:uppercase;letter-spacing:.02em">'+label+'</div></div>';
+  const cols=[];
+  const dv=d.dovolena;
+  if(dv) cols.push('<div style="flex:1 1 280px;min-width:250px">'+
+    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🏖️ Dovolená '+d.rok+'</div>'+
+    '<div style="display:flex;gap:8px">'+tile('dní zbývá',dv.zbytek,(dv.zbytek<=0?'#ff8a7a':'#7fe0a0'))+tile('dní využito',dv.cerpano)+tile('dní v plánu',dv.plan)+'</div>'+
+    '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.prevod?(' (vč. převodu '+num(dv.prevod)+')'):'')+'</div></div>');
+  const sk=d.sick;
+  if(sk) cols.push('<div style="flex:1 1 180px;min-width:165px">'+
+    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+'</div>'+
+    '<div style="display:flex;gap:8px">'+tile('dní zbývá',sk.zbytek,(sk.zbytek<=0?'#ff8a7a':'#7fe0a0'))+tile('dní využito',sk.cerpano)+'</div></div>');
+  if(!cols.length){ box.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div style="display:flex;gap:16px 22px;flex-wrap:wrap">'+cols.join('')+'</div>';
 }
 function openP(uid,row){
   CUR_UID=uid;
@@ -618,6 +642,7 @@ function openP(uid,row){
   }
   h+='</div>';
   det.innerHTML=h;
+  loadLeave(uid);
 }
 
 // Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person, zobrazí a umožní HR editaci.

@@ -80,11 +80,46 @@ Peťa: *„těch 8 hodin nemají odpracovat, to se jim jen zaplatí."*
   Po–Pá, takže za 6. 7. dostal stravenku navíc úplně každý a člověk na mateřské vyšel 1 místo 0.
 - **Nárok:** HPP + po zkušební době + denní úvazek ≥ 6 h.
 - **Sazba 82 Kč/den.**
-- **Činnosti, za které stravenka nenáleží** (čísla z Centrály): 10, 12, 14, 25, 33, 34, 35, 39,
-  47, 50, 51, 54, 132, 133, 138 + dovolená, lékař, nemoc, OČR, montáž, mateřská.
-  **Nepatří tam:** 24 prac. úraz (jiná agenda), 37 nepřítomnost OSVČ (stravenky mají jen
-  zaměstnanci), **30 dovolená navíc** (za tu stravenka náleží).
+- **Činnosti, za které stravenka nenáleží — 21 čísel** (čísla z Centrály, ověřeno 5. 8. 2026
+  proti číselníku `EC_DilnaCinnosti` + `EC_Dochazka_CinnostiRezie`):
+
+  | č. | název | | č. | název |
+  |---|---|---|---|---|
+  | 9 | Služební cesta / montáž | | 39 | Neplacené volno |
+  | 10 | Nařízené volno | | 47 | Volno 70 % |
+  | 12 | Nahrazení volna | | 50 | Volno 80 % |
+  | 14 | Služeb. cesta/montáž – čas na cestě | | 51 | Volno 90 % |
+  | 20 | Dovolená | | 54 | Nepřítomen pro APS |
+  | 21 | Lékař | | 132 | Soukromé záležitosti |
+  | 22 | Nemoc | | 133 | Náhradní volno |
+  | 23 | OČR | | 138 | Překážka v práci |
+  | 25 | Paragraf | | | |
+  | 33 | Otcovská | | | |
+  | 34 | Ostatní/Nepřítomen – s náhradou mzdy | | | |
+  | 35 | Volno 60 % | | | |
+  | 36 | Mateřská dovolená | | | |
+
+- **Stravenka NÁLEŽÍ** (záměrně vynechané): **8** home office · **24** prac. úraz (jiná agenda) ·
+  **30 dovolená navíc** · **31** sick day (= přítomnost) · **37** nepřítomnost OSVČ (stravenky
+  mají jen zaměstnanci).
+- Když u záznamu číslo činnosti chybí, rozhodne **typ záznamu**: dovolená, lékař, nemoc, OČR,
+  mateřská, neplacené, volno 70/80/90 %.
 - Číslo činnosti drží `att_entry.ec_druh` (plní import z Centrály).
+
+### ⚠️ Náš seznam je ŠIRŠÍ než Centrála — a je to tak schválně (Peťa 5. 8. 2026)
+
+Procedura Centrály `EC_Mzdy_PrepocetMesicZam` odečítá jen **14** činností:
+9, 20, 21, 22, 23, 33, 34, 35, 36, 39, 47, 50, 51, 138.
+
+**My navíc vylučujeme 7:** 10 nařízené volno · 12 nahrazení volna · 14 čas na cestě ·
+25 paragraf · 54 nepřítomen pro APS · 132 soukromé záležitosti · 133 náhradní volno.
+Peťa 5. 8. 2026: *„nech to tak, mně to dává smysl."*
+
+**Nemoc (22):** Centrála ji odečítá až nad 2 hodiny (kdo odpracoval víc než 6 h, stravenku má),
+my ji odečítáme vždy. Peťa 5. 8. 2026: *„nech to jak to máme."*
+
+Rozdíl proti Centrále je tedy **vědomý, není to chyba k opravě**.
+Hlídá pojistka **`stravenky-vyloucene-cinnosti`**.
 
 ## 5. Příplatky za přesčas (jen VÝROBA)
 

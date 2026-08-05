@@ -37884,10 +37884,20 @@ async def diag_sql(req: Request) -> JSONResponse:
                     ("http://127.0.0.1:%s" % _srv6[1]) if _srv6[1] else "https://strategie-ai.com")
                 _checks6["selftest_base"] = _base6
                 try:
-                    _req6 = _ur6.Request(_base6 + _path6, headers={"User-Agent": "g2007-publish-selftest"})
-                    with _ur6.urlopen(_req6, timeout=10) as _resp6:
-                        _status6 = _resp6.status
-                        _content6 = _resp6.read().decode("utf-8", errors="replace")
+                    # ⚠️ OPRAVENO 5.8.2026 (C24/Kristy): self-test bezi UVNITR async def diag_sql.
+                    # Synchronni _ur6.urlopen() primo na event loopu ZMRAZI cely event loop -
+                    # a protoze self-test miri na 127.0.0.1 na TENTO SAMY proces, appka nemuze
+                    # obslouzit vlastni /mobile self-request => urlopen cekal do timeout=10 a
+                    # publikace se auto-vratila. Presmerovani na 127.0.0.1 (b984bf10) to samo
+                    # NEVYRESILO - problem neni sit, ale hladoveni event loopu. Stejna trida
+                    # chyby jako @@VPTRIAGE incident 2.8.2026 (viz vyse). Fix: blokujici urlopen
+                    # odsunout do vlakna pres asyncio.to_thread, at event loop obslouzi self-request.
+                    import asyncio as _aio6
+                    def _do_selftest6():
+                        _req6 = _ur6.Request(_base6 + _path6, headers={"User-Agent": "g2007-publish-selftest"})
+                        with _ur6.urlopen(_req6, timeout=10) as _resp6:
+                            return _resp6.status, _resp6.read().decode("utf-8", errors="replace")
+                    _status6, _content6 = await _aio6.to_thread(_do_selftest6)
                     _ok6 = (_status6 == 200 and len(_content6) > 0.5 * len(_new6)
                             and "internal server error" not in _content6.lower()
                             and "traceback" not in _content6.lower())

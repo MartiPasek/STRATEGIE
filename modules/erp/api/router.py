@@ -26877,6 +26877,61 @@ async def app_command_create(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.get("/app/mobile/poll-summary")
+async def app_mobile_poll_summary(req: Request) -> JSONResponse:
+    """Souhrnný poll pro mobilní appku (Marti + C23, 5.8.2026 — pomalost appky).
+
+    JEDEN request místo čtyř (commands/pending + sign/pending-count +
+    plan/approvals/users + plan/approvals/unapplied). V nativní appce je každé
+    volání přes JS most synchronní zámek celého JS vlákna WebView (authedFetch)
+    → 4 volání à 6 s = zamrzlé UI; sloučením klesne počet zámků o ~75 %.
+    Registrováno PŘED /app/{app_key}/commands/pending (route ordering gotcha —
+    literál před pattern). Dílčí handlery voláme in-process, žádná duplikace
+    logiky; 401/403 dílčích částí = 0 v souhrnu."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    import json as _json_ps
+
+    def _body(resp):
+        try:
+            if isinstance(resp, JSONResponse):
+                return _json_ps.loads(resp.body)
+            if isinstance(resp, dict):
+                return resp
+        except Exception:
+            pass
+        return None
+
+    cmd = plans = unap = sign = None
+    try:
+        cmd = _body(await app_commands_pending("mobile", req))
+    except Exception:
+        cmd = None
+    try:
+        plans = _body(await app_plan_approvals_users(req))
+    except Exception:
+        plans = None
+    try:
+        unap = _body(await app_plan_approvals_unapplied(req))
+    except Exception:
+        unap = None
+    try:
+        from modules.erp.api.contract_sign import sign_pending_count as _spc_ps
+        sign = _body(_spc_ps(req))
+    except Exception:
+        sign = None
+    cmd = cmd if (cmd and cmd.get("ok")) else {}
+    return JSONResponse({
+        "ok": True,
+        "commands": cmd.get("commands") or [],
+        "next_poll_s": cmd.get("next_poll_s") or 20,
+        "sign_count": int((sign or {}).get("count") or 0) if (sign or {}).get("ok") else 0,
+        "plan_total": int((plans or {}).get("total") or 0) if (plans or {}).get("ok") else 0,
+        "plan_unapplied": int((unap or {}).get("count") or 0) if (unap or {}).get("ok") else 0,
+    })
+
+
 @api_router.get("/app/{app_key}/commands/pending")
 async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
     """Appka načte čekající doporučení pro přihlášeného uživatele (token NEBO cookie)."""

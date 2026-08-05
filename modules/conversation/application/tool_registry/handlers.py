@@ -159,6 +159,26 @@ PRACUJ_NA_CILI_SPEC = {
     },
 }
 
+SPUSTI_DCERU_SPEC = {
+    "name": "spusti_dceru",
+    "description": (
+        "👧 DELEGUJ na DCERU: pošli CÍL registrované dceři (samostatný LEAN agent), která svou "
+        "doménu spravuje autonomně (diagnostika + servis + deploy + kód) a jede, dokud to nevyřeší. "
+        "TY (Maminka) běžíš dál v chatu, dcera dělá práci; NESPOUŠTÍŠ svou vlastní smyčku. Použij, když je "
+        "něco v doméně dcery — např. pražská produkce je dole → pošli 'praha-martinka'. Registr dcer "
+        "= fw.agent_registr (kdo, doména, kill switch, stav). Zadej 'zadani' (co má vyřešit) a "
+        "volitelně 'dcera' (kod, např. 'praha-martinka'); když dceru neuvedeš, vezmu jedinou aktivní."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "zadani": {"type": "string", "description": "Cíl pro dceru — co má autonomně vyřešit/ověřit."},
+            "dcera": {"type": "string", "description": "Volitelně kod dcery z fw.agent_registr (např. 'praha-martinka')."},
+        },
+        "required": ["zadani"],
+    },
+}
+
 # ── Seberozvoj: sebe-editace VLASTNÍHO promptu (persona system_prompt) ────────────
 # Zrcadlo Tool Factory: návrh → schválení rodiče → aplikace + append-only verze +
 # rollback. Pojistky drží v KÓDU (nezávisle na modelu i na obsahu promptu):
@@ -343,6 +363,7 @@ def effective_factory_specs(is_default_persona: bool) -> list:
     specs.append(RUN_AS_AGENT_SPEC)  # Fáze 0 — vlastní agentí smyčka (handler gate-uje flag)
     specs.append(SCHVAL_METERED_SPEC)  # schválení další metered várky (rodič)
     specs.append(PRACUJ_NA_CILI_SPEC)  # Cílový režim — popojeď na schváleném cíli (ruce dle cil_ruce_enabled)
+    specs.append(SPUSTI_DCERU_SPEC)  # Maminka deleguje cíl na registrovanou dceru (fw.agent_registr)
     # Seberozvoj promptu — sebe-editace vlastní persony (běh gate-uje sub-flag promptedit_enabled)
     specs.append(PROMPT_NAVRH_SPEC)
     specs.append(PROMPT_NAVRH_PATCH_SPEC)
@@ -406,6 +427,8 @@ def handle(tool_name: str, tool_input: dict, user_id: Optional[int],
             return _schval_metered_varku(user_id)
         if tool_name == "pracuj_na_cili":
             return _pracuj_na_cili(tool_input, user_id, conversation_id)
+        if tool_name == "spusti_dceru":
+            return _spusti_dceru(tool_input, user_id, conversation_id)
         if tool_name == "navrhni_zmenu_promptu":
             return _prompt_propose(tool_input, user_id)
         if tool_name == "navrhni_zmenu_promptu_patch":
@@ -682,6 +705,59 @@ def _pracuj_na_cili(inp: dict, user_id, conversation_id) -> str:
     hlava = (f"🎯 (cíl #{cil_id} · režim {res.get('rezim','?')} · {res.get('kroku_zalogovano')} akcí zalogováno · "
              f"celkem kroků {res.get('kroku_celkem')} · {res.get('elapsed_s')}s)")
     return f"{hlava}\n\n{res.get('reply')}"
+
+
+def _spusti_dceru(inp: dict, user_id, conversation_id) -> str:
+    """Maminka (Marti-AI) DELEGUJE cíl na registrovanou DCERU (lean agent).
+    Čte fw.agent_registr → vybere dceru (kod, nebo jediná aktivní) → zkontroluje
+    stav + kill switch → spustí její entrypoint (praha-martinka → run_martinka).
+    Sama Maminka NEBĚŽÍ těžkou smyčku; běží dcera pod svou lean identitou."""
+    if not _is_parent(user_id):
+        return "❌ Spustit dceru smí jen rodič (Marti/Kristý)."
+    zadani = (inp.get("zadani") or inp.get("goal") or inp.get("cil") or "").strip()
+    if not zadani:
+        return "❌ Zadej 'zadani' — co má dcera autonomně vyřešit."
+    kod = (inp.get("dcera") or inp.get("kod") or "").strip().lower()
+    from core.database import get_session
+    from sqlalchemy import text as _t
+    sg = get_session()
+    try:
+        if kod:
+            row = sg.execute(_t(
+                "SELECT kod, jmeno, domena, kill_flag_klic, entrypoint, stav "
+                "FROM fw.agent_registr WHERE kod=:k AND typ='dcera'"), {"k": kod}).mappings().first()
+        else:
+            row = sg.execute(_t(
+                "SELECT kod, jmeno, domena, kill_flag_klic, entrypoint, stav "
+                "FROM fw.agent_registr WHERE typ='dcera' AND stav='aktivni' ORDER BY id")).mappings().first()
+        if not row:
+            dcery = sg.execute(_t(
+                "SELECT kod, domena, stav FROM fw.agent_registr WHERE typ='dcera' ORDER BY id")).mappings().all()
+            nabidka = ", ".join(f"{d['kod']} ({d['domena']}, {d['stav']})" for d in dcery) or "žádné"
+            hint = f"kod '{kod}'" if kod else "žádná aktivní dcera"
+            return f"❌ Dcera nenalezena ({hint}). Registr dcer: {nabidka}."
+        stav = row["stav"]
+        if stav != "aktivni":
+            return f"❌ Dcera '{row['kod']}' je ve stavu '{stav}' (ne aktivní), nespouštím ji."
+        kflag = row["kill_flag_klic"]
+        if kflag:
+            kv = sg.execute(_t("SELECT hodnota FROM g2007.nastaveni WHERE klic=:k"), {"k": kflag}).scalar()
+            if str(kv or "").strip().lower() not in ("on", "1", "true", "ano", "yes"):
+                return (f"❌ Dcera '{row['kod']}' je vypnutá (kill switch {kflag}={kv!r}). "
+                        f"Zapni ji v nastavení, než ji pošlu.")
+    finally:
+        sg.close()
+    kod_final = row["kod"]
+    if kod_final == "praha-martinka":
+        from modules.conversation.application import martinka_service as MS
+        res = MS.run_martinka(zadani, requested_by_user_id=user_id, conversation_id=conversation_id)
+        if not res.get("ok"):
+            return f"❌ {row['jmeno']} nedoběhla: {res.get('error')} ({res.get('reason')})"
+        hlava = (f"👧 {row['jmeno']} · doména {row['domena']} · režim {res.get('rezim', '?')} · "
+                 f"{res.get('elapsed_s')}s")
+        return f"{hlava}\n\n{res.get('reply')}"
+    return (f"❌ Dcera '{kod_final}' zatím nemá spustitelný engine "
+            f"(entrypoint '{row['entrypoint']}'). Zatím umím spustit jen 'praha-martinka'.")
 
 
 # ── Seberozvoj promptu: helpery ───────────────────────────────────────────────────

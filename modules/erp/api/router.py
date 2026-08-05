@@ -37714,9 +37714,18 @@ async def diag_sql(req: Request) -> JSONResponse:
             import re as _re6
             _tag_pairs6 = [("<script", "</script>"), ("<div", "</div>"), ("<html", "</html>")]
             _tag_problems6 = []
+            # Pocita se nad OCISTENOU KOPII, ne nad publikovanym obsahem (ten se nemeni):
+            #  a) pryc radkove komentare - znacka napsana v komentari jako text
+            #     ("// el() parsuje v kontextu <div>") se jinak pocita jako otevreny tag;
+            #  b) "<\/" -> "</" - uvnitr JS retezce se uzaviraci znacka MUSI escapovat,
+            #     jinak by ukoncila obklopujici <script> blok; bez normalizace se takove
+            #     uzavreni nezapocita a vyjde falesny nesoulad.
+            # Oba pripady blokovaly publikaci /mobile, prestoze sestavene HTML bylo v poradku
+            # (C24/Kristy 5.8.2026, schvalil Marti; migrace bridge nastroju do g2007 az po dovolenych).
+            _chk6 = _re6.sub(r"(?m)^[ \t]*//.*$", "", _new6).replace("<\\/", "</")
             for _open6, _close6 in _tag_pairs6:
-                _no6 = len(_re6.findall(_re6.escape(_open6) + r"[\s>]", _new6, _re6.IGNORECASE))
-                _nc6 = _new6.lower().count(_close6)
+                _no6 = len(_re6.findall(_re6.escape(_open6) + r"[\s>]", _chk6, _re6.IGNORECASE))
+                _nc6 = _chk6.lower().count(_close6)
                 if _no6 != _nc6:
                     _tag_problems6.append("%s(%d) vs %s(%d)" % (_open6, _no6, _close6, _nc6))
             if _tag_problems6:

@@ -9,6 +9,26 @@
 
 ---
 
+## 0. ⭐ VŠECHNY VSTUPY JDOU ZE STRATEGIE, NE Z CENTRÁLY
+
+Peťa 5. 8. 2026: *„většina docházky už v červenci v Centrále není, proto nedává smysl se tam
+na něco koukat."*
+
+| co | odkud |
+|---|---|
+| hodiny, fond, přesčas | `tenant.att_den_hodiny` (naše docházka včetně oprav) |
+| stravenky | `tenant.att_entry` podle **čísla činnosti** (`ec_druh`) |
+| pracovní dny a svátky | `tenant.firemni_kalendar` (doplňuje se sám) |
+| základ, osobko, **hodinová sazba přesčasu** | `tenant.helios_wage_snapshot` (sazba = `HrHodsFK`, tedy **s FK**) |
+| příplatky, odměny, srážky | `tenant.wage_movement` |
+| prémie ze zakázek | příplatky → složka **651** (stará docházková cesta **vypnutá**) |
+| jednatelé a DPP | `tenant.mzdy_rucni_slozka` |
+
+⛔ **Zrcadlo Centrály `tenant.att_day_summary` se do mezd nepoužívá** — nemá naše opravy.
+
+Hlídá to pojistka **`mzdy-vstupy-ze-strategie`** a je to napsané i v hlavičce skriptu
+`mzdy_generuj`, takže to vidí každý, kdo ho otevře.
+
 ## 1. Odkud se berou hodiny — ZE STRATEGIE
 
 Hodiny pro mzdy se berou **z naší docházky**: funkce **`tenant.att_den_hodiny(2, od, do)`**.

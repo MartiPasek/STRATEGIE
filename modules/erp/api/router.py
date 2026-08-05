@@ -9857,6 +9857,33 @@ async def app_hr_terminated(req: Request) -> JSONResponse:
                 "odchod_key": (r[7].isoformat() if r[7] else ""),
                 "kategorie": _kategorie_prace(r[4]), "firma": (r[8] or ""),
             })
+        # Šárka 5.8.2026: doplnit i bývalé BEZ účtu (jen docházkový záznam, att_employee
+        # is_active=false) — aby „Ukončení zaměstnanci" ukázalo všechny skutečné bývalé,
+        # ne jen ty s archivovaným účtem. Dedup přes už zahrnuté user_id.
+        have = {o["user_id"] for o in out if o.get("user_id")}
+        ex = s.execute(_t(
+            "SELECT ae.id, ae.full_name, ae.cislo_zam, ae.user_id, "
+            " (SELECT max(e.smlouva_do) FROM tenant.engagement e WHERE e.employee_id=ae.id AND e.tenant_id=2) AS odchod, "
+            " (SELECT string_agg(DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
+            "         WHEN 2 THEN 'EUROSOFT - System' END,' / ') FROM tenant.engagement e "
+            "    WHERE e.employee_id=ae.id AND e.tenant_id=2) AS firma "
+            "FROM tenant.att_employee ae WHERE ae.tenant_id=2 AND ae.is_active=false")).fetchall()
+        for r in ex:
+            if r[3] and r[3] in have:
+                continue
+            cele = (r[1] or "").strip(); casti = cele.split()
+            prij = casti[-1] if len(casti) >= 2 else cele
+            nm = (prij + " " + " ".join(casti[:-1])).strip() if len(casti) >= 2 else cele
+            nm = nm or ("#" + str(r[2] or r[0]))
+            if q and q not in nm.lower():
+                continue
+            out.append({
+                "user_id": None, "att_emp_id": r[0], "cislo": (r[2] or ""),
+                "jmeno": nm, "prijmeni": prij, "pozice": "", "prac_email": "",
+                "nadrizeny": "", "odchod": (r[4].strftime("%d.%m.%Y") if r[4] else ""),
+                "odchod_key": (r[4].isoformat() if r[4] else ""),
+                "kategorie": "", "firma": (r[5] or ""), "bez_uctu": True,
+            })
         out.sort(key=lambda x: x["odchod_key"], reverse=True)
         return JSONResponse({"ok": True, "lide": out, "pocet": len(out)})
     except Exception as exc:

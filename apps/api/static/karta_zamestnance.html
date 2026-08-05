@@ -570,8 +570,8 @@ function renderTerminated(){
   const cc=document.getElementById('tmcnt'); if(cc) cc.textContent=f.length+' ukončených';
   if(!f.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Žádní ukončení zaměstnanci.</td></tr>'; return; }
   const c=(v)=> v?esc(v):'<span class="muted">—</span>';
-  tb.innerHTML=f.map(r=>'<tr onclick="openFromTable('+r.user_id+')">'+
-    '<td><span class="tnm">'+esc(r.jmeno)+'</span></td>'+
+  tb.innerHTML=f.map(r=>'<tr'+(r.user_id?(' onclick="openFromTable('+r.user_id+')" style="cursor:pointer"'):' style="opacity:.72"')+'>'+
+    '<td><span class="tnm">'+esc(r.jmeno)+'</span>'+(r.user_id?'':' <span class="muted" style="font-size:11px">(jen docházka)</span>')+'</td>'+
     '<td>'+c(r.pozice)+'</td>'+
     '<td>'+c(r.kategorie)+'</td>'+
     '<td>'+c(r.nadrizeny)+'</td>'+

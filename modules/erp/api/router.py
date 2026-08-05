@@ -15597,59 +15597,17 @@ async def ocr_start(req: Request) -> JSONResponse:
 
 @api_router.post("/app/ocr/end")
 async def ocr_end(req: Request) -> JSONResponse:
-    """Zaměstnanec ukončuje OČR: datum do + počet dní ošetřování → ke schválení."""
+    """DB-driven delegate (g2007.python kod=att_ocr_end). Puvodni telo migrovano do DB
+    dne 5.8.2026 (Jirka / Claude-28, schvalila Marti-AI) - KROK 1, beze zmeny chovani."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import datetime as _dt
     try:
         b = await req.json()
     except Exception:
         b = {}
-    try:
-        cid = int((b or {}).get("id"))
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Chybí id případu."})
-    try:
-        d_do = _dt.date.fromisoformat(str((b or {}).get("do") or "")[:10])
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatné datum do."})
-    try:
-        dny = int((b or {}).get("dny") or 0)
-    except Exception:
-        dny = 0
-    cm, s = _att_session()
-    try:
-        row = s.execute(_t("SELECT employee_id, user_id, datum_od, absence_request_id, osoba_jmeno "
-                           "FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
-        if int(row[1] or 0) != uid and not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "Není tvůj případ."}, status_code=403)
-        if d_do < row[2]:
-            return JSONResponse({"ok": False, "error": "Datum do je před datem od."})
-        s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, dny_count=:dn, stav='ukonceno', "
-                     "updated_at=now() WHERE id=:i"), {"dd": d_do, "dn": dny, "i": cid})
-        if row[3]:
-            s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
-                      {"dd": d_do, "a": row[3]})
-        try:  # celý rozsah OČR do docházky (od..do)
-            _ocr_fill_dochazka(s, row[0], row[2], d_do, row[1], "OČR: " + (row[4] or ""), "ocr_end")
-        except Exception:
-            pass
-        _abs_apprs = _abs_resolve(s, row[0], uid)
-        mgr = _abs_apprs[0] if _abs_apprs else None
-        msg = ("OČR (péče o: " + (row[4] or "") + ") ukončeno k " + str(d_do.day) + "." + str(d_do.month)
-               + ". (" + str(dny) + " dní) — ke schválení v Docházce → OČR.")
-        _abs_notify(s, _abs_apprs, "🧑‍⚕️ OČR ke schválení", msg)
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_ocr_end", uid, b)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/ocr/mine")
@@ -16517,55 +16475,17 @@ async def sick_start(req: Request) -> JSONResponse:
 
 @api_router.post("/app/sick/end")
 async def sick_end(req: Request) -> JSONResponse:
-    """Ukončení nemocenské: datum do → ke schválení."""
+    """DB-driven delegate (g2007.python kod=att_sick_end). Puvodni telo migrovano do DB
+    dne 5.8.2026 (Jirka / Claude-28, schvalila Marti-AI) - KROK 1, beze zmeny chovani."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import datetime as _dt
     try:
         b = await req.json()
     except Exception:
         b = {}
-    try:
-        cid = int((b or {}).get("id"))
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Chybí id případu."})
-    try:
-        d_do = _dt.date.fromisoformat(str((b or {}).get("do") or "")[:10])
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatné datum do."})
-    cm, s = _att_session()
-    try:
-        row = s.execute(_t("SELECT employee_id, user_id, datum_od, absence_request_id "
-                           "FROM tenant.att_sick_case WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
-        if int(row[1] or 0) != uid and not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "Není tvůj případ."}, status_code=403)
-        if d_do < row[2]:
-            return JSONResponse({"ok": False, "error": "Datum do je před datem od."})
-        s.execute(_t("UPDATE tenant.att_sick_case SET datum_do=:dd, stav='ukonceno', updated_at=now() "
-                     "WHERE id=:i"), {"dd": d_do, "i": cid})
-        if row[3]:
-            s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
-                      {"dd": d_do, "a": row[3]})
-        try:  # celý rozsah nemocenské do docházky (od..do)
-            _ocr_fill_dochazka(s, row[0], row[2], d_do, row[1], "Nemocenská", "sick_end", "sick")
-        except Exception:
-            pass
-        _abs_apprs = _abs_resolve(s, row[0], uid)
-        mgr = _abs_apprs[0] if _abs_apprs else None
-        _abs_notify(s, _abs_apprs, "🤒 Nemocenská ke schválení",
-                    "Nemocenská ukončena k " + str(d_do.day) + "." + str(d_do.month)
-                    + ". — ke schválení v Docházce → Nemoc/OČR.")
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_sick_end", uid, b)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/sick/mine")
@@ -16753,74 +16673,17 @@ async def med_balance(req: Request) -> JSONResponse:
 
 @api_router.post("/app/med/start")
 async def med_start(req: Request) -> JSONResponse:
-    """Zaměstnanec eviduje návštěvu lékaře + foto lístečku. Systém rozpočítá krytí:
-    sick day (do zůstatku) → lísteček (do limitu) → přesah neplacené."""
+    """DB-driven delegate (g2007.python kod=att_med_start). Puvodni telo migrovano do DB
+    dne 5.8.2026 (Jirka / Claude-28, schvalila Marti-AI) - KROK 1, beze zmeny chovani."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import datetime as _dt
     try:
         b = await req.json()
     except Exception:
         b = {}
-    try:
-        datum = _dt.date.fromisoformat(str((b or {}).get("datum") or "")[:10])
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatné datum návštěvy."})
-    cas_od = str((b or {}).get("cas_od") or "").strip()[:5] or None
-    cas_do = str((b or {}).get("cas_do") or "").strip()[:5] or None
-    typ = str((b or {}).get("typ") or "vyset").strip()[:20]
-    osoba = str((b or {}).get("osoba_jmeno") or "").strip()[:160] or None
-    vztah = str((b or {}).get("osoba_vztah") or "").strip()[:60] or None
-    zariz = str((b or {}).get("zarizeni") or "").strip()[:200] or None
-    note = str((b or {}).get("note") or "").strip()[:500] or None
-    foto_b, foto_mime = _parse_dataurl((b or {}).get("foto"))
-    h1, h2 = _hhmm_h(cas_od), _hhmm_h(cas_do)
-    doba = round(max(0.0, (h2 - h1)), 2) if (h1 is not None and h2 is not None and h2 > h1) else 0.0
-    cm, s = _att_session()
-    try:
-        emp = _att_employee(s, uid)
-        if not emp:
-            return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
-        company = _ocr_company(s, emp)
-        bal = _sick_balance_h(s, uid)
-        limit = _med_limit_h(s, uid)
-        kryto_sick = round(min(doba, bal["remaining_h"]), 2)
-        zbytek = round(max(0.0, doba - kryto_sick), 2)
-        propl = round(min(zbytek, limit), 2)
-        nepl = round(max(0.0, zbytek - propl), 2)
-        kryti = "sick_day" if zbytek <= 0 else ("listecek" if kryto_sick <= 0 else "kombinace")
-        cid = s.execute(_t(
-            "INSERT INTO tenant.att_med_note (tenant_id,employee_id,user_id,company,datum,cas_od,cas_do,"
-            "doba_h,typ,osoba_jmeno,osoba_vztah,zarizeni,foto,foto_mime,kryti,kryto_sick_h,"
-            "proplaceno_listecek_h,neplaceno_h,limit_h,stav,note,created_by_id) "
-            "VALUES (2,:e,:u,:co,:d,:o,:c,:db,:ty,:oj,:vz,:zr,:ft,:fm,:kr,:ks,:pl,:np,:lm,'nahlaseno',:nt,:u) "
-            "RETURNING id"),
-            {"e": emp, "u": uid, "co": company, "d": datum, "o": cas_od, "c": cas_do, "db": doba,
-             "ty": typ, "oj": osoba, "vz": vztah, "zr": zariz, "ft": foto_b, "fm": foto_mime,
-             "kr": kryti, "ks": kryto_sick, "pl": propl, "np": nepl, "lm": limit, "nt": note}).scalar()
-        who = s.execute(_t(
-            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
-            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
-            {"e": emp}).scalar() or "Zaměstnanec"
-        _abs_apprs = _abs_resolve(s, emp, uid)
-        mgr = _abs_apprs[0] if _abs_apprs else None
-        msg = (who + " eviduje lísteček od lékaře " + str(datum.day) + "." + str(datum.month) + "."
-               + (" (" + str(doba) + " h)" if doba else "")
-               + " — krytí: " + {"sick_day": "sick day", "listecek": "lísteček", "kombinace": "sick day + lísteček"}.get(kryti, kryti)
-               + ". Ke schválení v Docházce → Lékař.")
-        _abs_notify(s, _abs_apprs, "🩺 Lísteček od lékaře", msg)
-        s.commit()
-        return JSONResponse({"ok": True, "id": cid, "doba_h": doba, "kryti": kryti,
-                             "kryto_sick_h": kryto_sick, "proplaceno_listecek_h": propl,
-                             "neplaceno_h": nepl, "limit_h": limit, "balance": bal,
-                             "has_foto": bool(foto_b)})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_med_start", uid, b)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/med/mine")

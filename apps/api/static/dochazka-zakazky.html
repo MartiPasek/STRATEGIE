@@ -91,14 +91,14 @@ async function load(){
   document.getElementById('msg').textContent=rows.length?('Seskupeno po zakázkách a lidech. Sloupce lze řadit, filtrovat, přeskupovat'+(AGLite.isEnterprise()?' a exportovat do Excelu.':' a exportovat do CSV.')):'Za zvolené období nejsou žádné zakázkové segmenty.';
   const cols=[
     {headerName:'Člověk',field:'jmeno',rowGroup:true,rowGroupIndex:1,hide:true},
+    {headerName:'Zakázka',field:'zak',rowGroup:true,rowGroupIndex:0,hide:true,minWidth:120,enableRowGroup:true,cellStyle:{fontFamily:'ui-monospace,Menlo,monospace'}},
+    {headerName:'Hodiny',field:'hod',type:'numericColumn',aggFunc:'sum',maxWidth:120,
+      valueFormatter:p=>(p.value==null?'':Number(p.value).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2}))},
     {headerName:'EC číslo',field:'cislo_zam',maxWidth:110,type:'numericColumn'},
     {headerName:'Den',field:'datum_iso',valueFormatter:fmtDen,maxWidth:130,sort:'desc'},
-    {headerName:'Zakázka',field:'zak',rowGroup:true,rowGroupIndex:0,hide:true,minWidth:120,enableRowGroup:true,cellStyle:{fontFamily:'ui-monospace,Menlo,monospace'}},
     {headerName:'Název zakázky',field:'nazev',flex:2,minWidth:240},
     {headerName:'Zdroj',field:'src',valueFormatter:srcLbl,maxWidth:150,enableRowGroup:true},
     {headerName:'Stav docházky',field:'stav',cellRenderer:p=>stavBadge(p),maxWidth:170},
-    {headerName:'Hodiny',field:'hod',type:'numericColumn',aggFunc:'sum',maxWidth:120,
-      valueFormatter:p=>(p.value==null?'':Number(p.value).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2}))},
   ];
   await AGLite.mount('grid',cols,rows,{csvName:'dochazka_zakazky',totals:['hod'],
     height:'calc(100vh - 250px)',groupDefaultExpanded:0});

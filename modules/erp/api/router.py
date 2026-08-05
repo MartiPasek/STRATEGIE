@@ -9459,7 +9459,7 @@ async def app_hr_people(req: Request) -> JSONResponse:
                 " (SELECT string_agg(DISTINCT CASE lower(e.engagement_type) WHEN 'hpp' THEN 'HPP' "
                 "         WHEN 'osvc' THEN 'OSVČ' WHEN 'dpp' THEN 'DPP' ELSE upper(e.engagement_type) END, ' / ') "
                 "    FROM tenant.engagement e WHERE e.employee_id=ae.id AND e.tenant_id=2) AS typ "
-                "FROM tenant.att_employee ae WHERE ae.tenant_id=2 AND ae.is_active=false")).fetchall()
+                "FROM tenant.att_employee ae WHERE ae.tenant_id=2 AND ae.is_active=false AND COALESCE(TRIM(ae.full_name),'')<>''")).fetchall()
             for r in ex:
                 if r[3] and r[3] in _mam:
                     continue
@@ -9867,7 +9867,7 @@ async def app_hr_terminated(req: Request) -> JSONResponse:
             " (SELECT string_agg(DISTINCT CASE e.company_id WHEN 1 THEN 'EUROSOFT - Control' "
             "         WHEN 2 THEN 'EUROSOFT - System' END,' / ') FROM tenant.engagement e "
             "    WHERE e.employee_id=ae.id AND e.tenant_id=2) AS firma "
-            "FROM tenant.att_employee ae WHERE ae.tenant_id=2 AND ae.is_active=false")).fetchall()
+            "FROM tenant.att_employee ae WHERE ae.tenant_id=2 AND ae.is_active=false AND COALESCE(TRIM(ae.full_name),'')<>''")).fetchall()
         for r in ex:
             if r[3] and r[3] in have:
                 continue

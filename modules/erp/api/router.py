@@ -30380,6 +30380,17 @@ def _mzdy_predzprac_rows(firma):
     return _ereg.call("mzdy_predzprac_rows", firma)
 
 
+# Jednatelska cisla + sazba stravneho — VRACENO 5.8.2026 (C24/Kristy). Konstanty byly omylem
+# smazany commitem 9ce2af8c (31.7. migrace mzdy_*_rows do g2007.python) spolu s telem
+# _mzdy_stravenky_rows, ktere stalo tesne za nimi — ale inline blok jednatelskeho stravneho
+# v _mzdy_full_run (cesta @@MZDY) je pouziva dal => NameError, jednatele bez plneho stravneho.
+# Set overen v tenant.att_employee + potvrzen Marti i Kristy: Pasek EC=2, Pasek ES=41, Mozer EC=47.
+# (viz g2007 doc-system-strategie-jednatele-cisla-oprava-mzdy-vyplatnice)
+_STRAVENKA_KC = 82
+_STRAVENKA_MS = 793
+_JEDNATELE_CISLA = {2, 41, 47}
+
+
 def _mzdy_stravenky_rows(firma, rok, mesic):
     """Stravenky (MS 793) = pracovni dny (Po-Pa) MINUS dny s vyloucenou cinnosti, x 82 Kc.
     Pravidla (Peta 8.7.2026): NAROK = HPP + po zkusebni dobe + denni uvazek >= 6 h.

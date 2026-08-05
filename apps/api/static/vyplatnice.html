@@ -36,7 +36,11 @@
   .loading{padding:30px;text-align:center;color:#8295ad}
   .note{background:#141b29;border:1px solid #232c3b;border-left:3px solid #3b6bd4;border-radius:10px;padding:11px 14px;color:#aebccf;font-size:12.4px;line-height:1.5;margin-top:16px}
   .prog{height:8px;background:#1a2236;border-radius:5px;overflow:hidden;flex:1;min-width:120px;max-width:280px}
-  .prog>i{display:block;height:100%;background:linear-gradient(90deg,#5142a0,#7d6bff);width:0}
+  .prog>i{display:block;height:100%;background:linear-gradient(90deg,#5142a0,#7d6bff);width:0;transition:width .4s}
+  /* Peťa 5.8.2026: ať je VIDĚT, že generování pracuje (dřív to vypadalo, že se nic neděje). */
+  .prog.run>i{background-image:linear-gradient(90deg,#5142a0,#7d6bff),repeating-linear-gradient(45deg,#ffffff22 0 8px,transparent 8px 16px);background-blend-mode:overlay;animation:progstripe 1s linear infinite}
+  @keyframes progstripe{from{background-position:0 0,0 0}to{background-position:0 0,32px 0}}
+  #genMsg.run{color:#a99bff}
   .ovl{position:fixed;inset:0;background:#06080cdd;display:none;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;z-index:50}
   .ovl.on{display:flex}
   .pas{background:#0f1622;border:1px solid #283449;border-radius:14px;max-width:680px;width:100%;padding:0 0 8px}
@@ -100,6 +104,8 @@
     <b>Generovat mzdy (čistá voda)</b> = smaže období (jen regenerovaný set) a spustí Helios tok per člověk:
     generování → paušály (hp_VlozMzPausDoMzSloz) → výpočet (hp_VypocitejMzdu). Výstraha „Bonus dny" je
     YTD/config mezera (leden–květen), páska je spočtená. Po odsouhlasení jednotlivců se pásky zpřístupní lidem v appce.
+    <br><b>Během generování nechej stránku otevřenou</b> a nepřepínej firmu — počítání řídí tahle stránka,
+    zavřením nebo přepnutím se přeruší a zbytek lidí se nedopočítá. Vpravo od tlačítka běží stav a čas.
   </div>
 </div>
 
@@ -115,7 +121,13 @@ const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč"
 const fh=(n)=>!n?"":Number(n).toLocaleString("cs-CZ");
 let FIRMA="ES", LIDI=[];
 const ZAKL_SLEVA_POPLATNIK=2570; // Kč/měsíc – základní sleva na poplatníka (2026: 30 840 Kč/rok). Při změně legislativy měnit jen tuto hodnotu.
-function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
+function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));
+  // Peťa 5.8.2026: při přepnutí firmy zahoď starý postup i hlášku — jinak visí výsledek
+  // z předchozí firmy a vypadá to, že druhá firma je hotová, i když neběžela.
+  const _p=document.getElementById('prog'), _m=document.getElementById('genMsg');
+  if(_p){_p.style.display='none';_p.classList.remove('run');document.getElementById('progBar').style.width='0';}
+  if(_m){_m.textContent='';_m.classList.remove('run');}
+  load();}
 function rm(){return {r:document.getElementById('rok').value,m:document.getElementById('mesic').value};}
 // --- JMHZ (Jednotné měsíční hlášení zaměstnavatele → ČSSZ) ---
 function jmhzDownload(opravne){ const {r,m}=rm(); window.open('/api/v1/erp/app/mzdy/jmhz/xml?firma='+FIRMA+'&rok='+r+'&mesic='+m+(opravne?'&opravne=1':''),'_blank'); }
@@ -177,21 +189,35 @@ async function load(){
 async function generuj(){
   const {r,m}=rm(); const btn=document.getElementById('genBtn');
   if(!(await confirmBox('Opravdu chceš přegenerovat mzdy (čistá voda) pro <b>'+FIRMA+'</b> za období <b>'+m+'/'+r+'</b>?<br><span style="color:#8fa3bd">Smaže se toto období a přepočítá se znovu z Heliosu.</span>'))) return;
-  btn.disabled=true; document.getElementById('prog').style.display='block';
+  const prog=document.getElementById('prog');
+  btn.disabled=true; prog.style.display='block'; prog.classList.add('run');
   const pb=document.getElementById('progBar'), msg=document.getElementById('genMsg');
-  let clean=1, done=false, guard=0, vyst=0;
+  // Peťa 5.8.2026: „nevím, jestli to vůbec pracuje". Proto: hláška hned po spuštění,
+  // běžící vteřiny, pruhy v ukazateli a jasné HOTOVO na konci.
+  const t0=Date.now(); let stav='⏳ Připravuji období (mažu a stavím složky)…';
+  const el=()=>{const s=Math.round((Date.now()-t0)/1000);return s<60?s+' s':Math.floor(s/60)+' min '+(s%60)+' s';};
+  msg.classList.add('run'); msg.textContent=stav+' · '+el();
+  const tick=setInterval(()=>{msg.textContent=stav+' · '+el();},1000);
+  pb.style.width='6%';
+  let clean=1, done=false, guard=0, vyst=0, hot=0, cil=0, chyba='';
   try{
     while(!done && guard++<40){
       const d=await (await fetch('/api/v1/erp/app/mzdy/generuj?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&clean='+clean+'&max=8',
         {method:'POST',credentials:'include'})).json();
-      if(!d.ok){ msg.textContent='Chyba: '+(d.error||''); break; }
-      clean=0; done=d.done; vyst=d.vystrahy||0;
-      const pct=d.cil?Math.round(100*d.hotovo/d.cil):0;
+      if(!d.ok){ chyba=d.error||'neznámá chyba'; break; }
+      clean=0; done=d.done; vyst=d.vystrahy||0; hot=d.hotovo||0; cil=d.cil||0;
+      const pct=cil?Math.max(6,Math.round(100*hot/cil)):6;
       pb.style.width=pct+'%';
-      msg.textContent=d.hotovo+'/'+d.cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+(d.uvazlo?' · část neprošla':'');
-      if(d.uvazlo) break;
+      stav='⏳ Počítám mzdy… '+hot+'/'+cil+' hotovo'+(vyst?' · '+vyst+' s výstrahou':'');
+      msg.textContent=stav+' · '+el();
+      if(d.uvazlo){ chyba='část neprošla — zůstalo '+hot+'/'+cil; break; }
     }
-  }catch(e){ msg.textContent='Chyba: '+e.message; }
+  }catch(e){ chyba=e.message; }
+  clearInterval(tick);
+  prog.classList.remove('run'); msg.classList.remove('run');
+  if(chyba){ msg.style.color='#ff9a9a'; msg.textContent='⚠ '+chyba+' (trvalo '+el()+')'; }
+  else { msg.style.color='#86e8b0'; pb.style.width='100%';
+         msg.textContent='✅ Hotovo · '+hot+'/'+cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+' · trvalo '+el(); }
   btn.disabled=false;
   await load();
 }

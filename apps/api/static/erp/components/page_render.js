@@ -105,6 +105,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Odpovědnost (Šárka 5.8.2026): jádro hr.odpovednost = iframe karty v přehledu
+      // odpovědností (kdo schvaluje volno / kontroluje docházku, rychlé dovyplnění).
+      if (String(coreCode) === 'hr.odpovednost') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=odpovednost" title="Odpovědnost" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
       // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
       if (String(coreCode) === 'hr.sablony') {

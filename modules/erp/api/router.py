@@ -46550,6 +46550,13 @@ deti AS (
   FROM tenant.user_self_child usc
   WHERE usc.tenant_id=2 AND COALESCE(usc.is_dependent,true)=true
   GROUP BY usc.user_id
+),
+mont AS (
+  SELECT w.user_id, round(sum(w.hodiny)::numeric,1) montaz_h
+  FROM tenant.vyroba_work w
+  WHERE w.tenant_id=2 AND w.is_active AND w.cinnost_id = 16
+    AND w.datum BETWEEN make_date(:y,:m,1) AND (make_date(:y,:m,1)+INTERVAL '1 month - 1 day')::date
+  GROUP BY w.user_id
 )
 SELECT co.code AS firma, ae.cislo_zam AS cislo, ae.full_name AS jmeno,
        wc.typ AS typ, (wc.uvazek_tyden_h/5.0) AS uvazek_den,
@@ -46561,7 +46568,7 @@ SELECT co.code AS firma, ae.cislo_zam AS cislo, ae.full_name AS jmeno,
        COALESCE(doch.prescas,0) AS prescas, COALESCE(doch.dovolena,0) AS dovolena,
        COALESCE(doch.nemoc,0) AS nemoc, COALESCE(doch.sickday,0) AS sickday,
        COALESCE(doch.ocr,0) AS ocr, COALESCE(doch.lekar,0) AS lekar,
-       COALESCE(doch.montaz,0) AS montaz, COALESCE(doch.materska,0) AS materska,
+       COALESCE(mont.montaz_h,0) AS montaz, COALESCE(doch.materska,0) AS materska,
        COALESCE(doch.nahr_volno,0) AS nahr_volno, COALESCE(doch.nariz_volno,0) AS nariz_volno,
        COALESCE(doch.absence_h,0) AS absence_h, COALESCE(doch.prekazka,0) AS prekazka,
        COALESCE(doch.stravenky_ks,0) AS stravenky_ks,
@@ -46575,6 +46582,7 @@ JOIN tenant.att_employee ae ON ae.id=wc.employee_id AND ae.tenant_id=2
 LEFT JOIN public.users u ON u.id = ae.user_id
 LEFT JOIN tenant.company co ON co.id=wc.company_id
 LEFT JOIN doch ON doch.cislo_zam::text = ae.cislo_zam
+LEFT JOIN mont ON mont.user_id = ae.user_id
 CROSS JOIN fond
 LEFT JOIN mv ON mv.engagement_id = wc.eng_id
 LEFT JOIN sleva ON sleva.user_id = ae.user_id

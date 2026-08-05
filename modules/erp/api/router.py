@@ -11268,48 +11268,38 @@ async def app_hr_person_leave(req: Request):
         if not (_hr_can_manage(s, uid) or uid == tuid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rok = _dt.date.today().year
-        HPD = 8.0
-        # NÁROK (roční přídel) — z bilance od Péti. ČERPÁNO/PLÁN — ze SKUTEČNÉ docházky
-        # (att_day_summary), protože holiday_balance.cerpano_h není spolehlivě synchronizované.
+        # NÁROK z bilance od Péti (drženo v 8h-dnech → ÷8 = dny).
         bal = s.execute(_t(
-            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0), sb.narok_h "
+            "SELECT hb.narok_h, COALESCE(hb.prevod_h,0) "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id "
             "LEFT JOIN tenant.holiday_balance hb ON hb.engagement_id=e.id AND hb.rok=:r AND hb.tenant_id=2 "
-            "LEFT JOIN tenant.sick_day_balance sb ON sb.engagement_id=e.id AND sb.rok=:r AND sb.tenant_id=2 "
             "WHERE e.tenant_id=2 AND e.is_current=true AND ae.user_id=:u "
             "ORDER BY hb.id DESC NULLS LAST LIMIT 1"), {"u": tuid, "r": rok}).first()
+        # ČERPÁNO + PLÁN ze SKUTEČNÉ docházky. Přepočet hodin na dny DENNÍM FONDEM
+        # KAŽDÉHO DNE (fpd) → korektní i pro zkrácené úvazky a změnu úvazku během roku.
         agg = s.execute(_t(
             "SELECT "
-            " COALESCE(SUM(CASE WHEN datum<=current_date THEN cas_dovolena ELSE 0 END),0), "
-            " COALESCE(SUM(CASE WHEN datum> current_date THEN cas_dovolena ELSE 0 END),0), "
-            " COALESCE(SUM(cas_sickday),0) "
-            "FROM tenant.att_day_summary WHERE tenant_id=2 AND user_id=:u AND rok=:r"),
+            " COALESCE(SUM(CASE WHEN datum<=current_date THEN cas_dovolena/NULLIF(fpd,0) ELSE 0 END),0), "
+            " COALESCE(SUM(CASE WHEN datum> current_date THEN cas_dovolena/NULLIF(fpd,0) ELSE 0 END),0) "
+            "FROM tenant.att_day_summary WHERE tenant_id=2 AND user_id=:u AND rok=:r AND fpd>0"),
             {"u": tuid, "r": rok}).first()
-        dov_cerp_h = float(agg[0] or 0)
-        dov_plan_h = float(agg[1] or 0)
-        sick_cerp_h = float(agg[2] or 0)
-        hol_narok_h = (float(bal[0]) + float(bal[1])) if (bal and bal[0] is not None) else None
-        sick_narok_h = float(bal[2]) if (bal and bal[2] is not None) else None
-        if hol_narok_h is None and sick_narok_h is None and dov_cerp_h <= 0 and sick_cerp_h <= 0:
+        cerp = round(float(agg[0] or 0), 1)
+        plan = round(float(agg[1] or 0), 1)
+        narok = round((float(bal[0]) + float(bal[1])) / 8.0, 1) if (bal and bal[0] is not None) else None
+        prevod = round(float(bal[1]) / 8.0, 1) if (bal and bal[1] is not None) else 0
+        if narok is None and cerp <= 0 and plan <= 0:
             return JSONResponse({"ok": True, "has": False, "rok": rok})
-
-        def _d(h):
-            return None if h is None else round(float(h) / HPD, 1)
-
         dovolena = {
-            "narok": _d(hol_narok_h),
-            "prevod": _d(float(bal[1])) if (bal and bal[1] is not None) else 0,
-            "cerpano": _d(dov_cerp_h),
-            "plan": _d(dov_plan_h),
-            "zbytek": _d(hol_narok_h - dov_cerp_h - dov_plan_h) if hol_narok_h is not None else None,
-        } if (hol_narok_h is not None or dov_cerp_h > 0 or dov_plan_h > 0) else None
-        sick = {
-            "narok": _d(sick_narok_h if sick_narok_h is not None else 0),
-            "cerpano": _d(sick_cerp_h),
-            "zbytek": _d(sick_narok_h - sick_cerp_h) if sick_narok_h is not None else None,
-        } if (sick_narok_h is not None or sick_cerp_h > 0) else None
-        return JSONResponse({"ok": True, "has": True, "rok": rok, "dovolena": dovolena, "sick": sick})
+            "narok": narok,
+            "prevod": prevod,
+            "cerpano": cerp,
+            "plan": plan,
+            "zbytek": (round(narok - cerp - plan, 1) if narok is not None else None),
+        }
+        # Sick days dočasně skryté — sick_day_balance zatím nesedí s Centrálou;
+        # sladíme s Petřinou docházkou (per-osoba nárok, jednotka), pak zapneme.
+        return JSONResponse({"ok": True, "has": True, "rok": rok, "dovolena": dovolena, "sick": None})
     except Exception as exc:
         logger.exception("[hr_person_leave] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

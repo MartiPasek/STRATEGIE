@@ -614,8 +614,8 @@ async function loadLeave(uid){
   const dv=d.dovolena;
   if(dv) cols.push('<div style="flex:1 1 280px;min-width:250px">'+
     '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🏖️ Dovolená '+d.rok+'</div>'+
-    '<div style="display:flex;gap:8px">'+tile('dní zbývá',dv.zbytek,(dv.zbytek<=0?'#ff8a7a':'#7fe0a0'))+tile('dní využito',dv.cerpano)+tile('dní v plánu',dv.plan)+'</div>'+
-    '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.prevod?(' (vč. převodu '+num(dv.prevod)+')'):'')+'</div></div>');
+    '<div style="display:flex;gap:8px">'+tile('dní zbývá',(dv.zbytek==null?'—':dv.zbytek),(dv.zbytek==null?'#eaf2ff':(dv.zbytek<=0?'#ff8a7a':'#7fe0a0')))+tile('dní využito',dv.cerpano)+tile('dní v plánu',dv.plan)+'</div>'+
+    (dv.narok!=null?('<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.prevod?(' (vč. převodu '+num(dv.prevod)+')'):'')+'</div>'):'')+'</div>');
   const sk=d.sick;
   if(sk) cols.push('<div style="flex:1 1 180px;min-width:165px">'+
     '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+'</div>'+

@@ -11264,20 +11264,27 @@ async def app_hr_odpovednost_list(req: Request):
                 doch_zd = ("odvozeno" if doch_ids else "—"); doch_gp = (len(doch_ids) == 0)
             else:
                 doch_txt = "— nemá docházku —"; doch_zd = "—"; doch_gp = False
-            # Jednatelé (Pašek EC2/ES41, Mózer EC47) → volno jim nikdo neschvaluje (jsou na vrcholu). Šárka 6.8.2026
-            # jednatel bez výjimky = nikdo; s výjimkou má přednost výjimka
-            je_jednatel = str(r[7] or "") in ("2", "41", "47") and not vyj_ids
+            # Volno: výjimka > kdo nepíchá (nemá docházku) > jednatel (nikdo) > odvozeno. Šárka 6.8.2026
+            if vyj_ids:
+                vol_txt = ", ".join(nm.get(i, "#" + str(i)) for i in akt_ids)
+                vol_zd = "výjimka"
+                vol_sys = (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if sys_ids else "")
+                vol_gp = False
+            elif not _has_att:
+                vol_txt = "— nemá docházku —"; vol_zd = "—"; vol_sys = ""; vol_gp = False
+            elif str(r[7] or "") in ("2", "41", "47"):
+                vol_txt = "— nikdo (jednatel) —"; vol_zd = "jednatel"; vol_sys = ""; vol_gp = False
+            else:
+                vol_txt = ", ".join(nm.get(i, "#" + str(i)) for i in sys_ids)
+                vol_zd = ("odvozeno" if sys_ids else "—"); vol_sys = ""; vol_gp = (len(sys_ids) == 0)
             out.append({
                 "user_id": tuid, "emp_id": emp_id, "jmeno": r[2],
                 "firma": (r[3] or ""),
                 "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[4], r[4]) if r[4] else ""),
-                "volno_schvaluje": ("— nikdo (jednatel) —" if je_jednatel
-                                    else ", ".join(nm.get(i, "#" + str(i)) for i in akt_ids)),
-                "volno_zdroj": ("jednatel" if je_jednatel
-                                else ("výjimka" if vyj_ids else ("odvozeno" if sys_ids else "—"))),
-                "volno_system": ("" if je_jednatel
-                                 else (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if vyj_ids else "")),
-                "volno_gap": (False if je_jednatel else (len(akt_ids) == 0)),
+                "volno_schvaluje": vol_txt,
+                "volno_zdroj": vol_zd,
+                "volno_system": vol_sys,
+                "volno_gap": vol_gp,
                 "doch_kontrola": doch_txt,
                 "doch_zdroj": doch_zd,
                 "doch_gap": doch_gp,

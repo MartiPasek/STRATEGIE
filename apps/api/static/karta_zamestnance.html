@@ -264,6 +264,7 @@
     <div class="tbar">
       <input id="odsrch" placeholder="🔎 Hledat (jméno nebo schvalovatel)…" style="min-width:260px">
       <label class="chkline" style="margin-left:12px"><input type="checkbox" id="odgap" onchange="renderOdp()"> jen chybějící (mezery)</label>
+      <button onclick="odpPrint()" style="margin-left:12px;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">🖨 Tisk</button>
       <span id="odcnt" style="color:var(--muted);font-size:12.5px;margin-left:auto"></span>
     </div>
     <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Kdo komu <b>schvaluje volno</b> a <b>kontroluje docházku</b>. Aktuální schvalovatel = <b>výjimka</b> (má přednost), jinak <b>odvozeno</b> z organizační struktury (nadřízený → zástupce). „Nikdo" může být i záměrně (<b>jednatel</b>; <b>OSVČ v automatizaci</b> = o domluvě). Kdo nepíchá, má u docházky <b>„nemá docházku"</b>. Schvalovatele přepíšeš „výjimkou" v posledním sloupci (prázdná volba = zpět na odvozené).</div>
@@ -436,6 +437,18 @@ async function odpSet(uid,val){
   const d=await r.json().catch(()=>({ok:false,error:'server'}));
   if(!d.ok){ alert('Nepovedlo se uložit: '+(d.error||'')); return; }
   ODP_LOADED=false; loadOdp();
+}
+function odpPrint(){
+  if(!ODP||!ODP.length){ alert('Nejdřív se musí načíst přehled.'); return; }
+  const q=((document.getElementById('odsrch')||{}).value||'').toLowerCase();
+  const onlyGap=(document.getElementById('odgap')||{}).checked;
+  const f=ODP.filter(p=>(!q||(p.jmeno||'').toLowerCase().includes(q)||(p.volno_schvaluje||'').toLowerCase().includes(q)||(p.doch_kontrola||'').toLowerCase().includes(q))&&(!onlyGap||p.volno_gap));
+  const e2=s=>(s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const dt=new Date().toLocaleDateString('cs-CZ');
+  const rows=f.map(p=>'<tr><td>'+e2(p.jmeno)+'</td><td>'+e2([p.firma,p.stredisko].filter(Boolean).join(' · '))+'</td><td>'+e2(p.volno_schvaluje)+'</td><td>'+e2(p.doch_kontrola)+'</td></tr>').join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Odpovědnost</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:22px}h1{font-size:17px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:11.5px}th,td{border:1px solid #bbb;padding:5px 8px;text-align:left;vertical-align:top}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Odpovědnost — schvalování volna a kontrola docházky</h1><p class="sub">EUROSOFT · '+f.length+' osob · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma / středisko</th><th>Schvaluje volno</th><th>Kontroluje docházku</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+  const w=window.open('','_blank'); if(!w){ alert('Povol prosím vyskakovací okna, ať se tisk otevře.'); return; }
+  w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 350);
 }
 let TERM=[], TERM_LOADED=false;
 async function load(){

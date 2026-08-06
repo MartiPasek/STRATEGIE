@@ -11251,14 +11251,19 @@ async def app_hr_odpovednost_list(req: Request):
             except Exception:
                 doch_ids = []
             nm = _jmena_uid(s, list(set(sys_ids) | set(vyj_ids) | set(doch_ids)))
+            # Jednatelé (Pašek EC2/ES41, Mózer EC47) → volno jim nikdo neschvaluje (jsou na vrcholu). Šárka 6.8.2026
+            je_jednatel = str(r[7] or "") in ("2", "41", "47")
             out.append({
                 "user_id": tuid, "emp_id": emp_id, "jmeno": r[2],
                 "firma": (r[3] or ""),
                 "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[4], r[4]) if r[4] else ""),
-                "volno_schvaluje": ", ".join(nm.get(i, "#" + str(i)) for i in akt_ids),
-                "volno_zdroj": ("výjimka" if vyj_ids else ("odvozeno" if sys_ids else "—")),
-                "volno_system": (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if vyj_ids else ""),
-                "volno_gap": (len(akt_ids) == 0),
+                "volno_schvaluje": ("— nikdo (jednatel) —" if je_jednatel
+                                    else ", ".join(nm.get(i, "#" + str(i)) for i in akt_ids)),
+                "volno_zdroj": ("jednatel" if je_jednatel
+                                else ("výjimka" if vyj_ids else ("odvozeno" if sys_ids else "—"))),
+                "volno_system": ("" if je_jednatel
+                                 else (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if vyj_ids else "")),
+                "volno_gap": (False if je_jednatel else (len(akt_ids) == 0)),
                 "doch_kontrola": (", ".join(nm.get(i, "#" + str(i)) for i in doch_ids)
                                   if int(r[9] or 0) > 0 else "— nemá docházku —"),
                 "doch_zdroj": (("výjimka" if r[6] else ("odvozeno" if doch_ids else "—"))

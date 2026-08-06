@@ -356,6 +356,40 @@ proto v hrubé mzdě figuruje `+794 −4320`. Ověřeno u Svatoše do koruny až
 **Osobní ohodnocení nesmí jít do minusu** (Peťa 6. 8.) — když by vyšlo záporné, je nula
 (Bernardová).
 
+## 7d. ⚠️ OSOBNÍ MZDOVÝ KALENDÁŘ — proč změna úvazku „nezabere" (Peťa 6. 8. 2026)
+
+**Příznak:** člověku se změní úvazek (např. z 8 h na 7 h), na mzdové kartě v Heliosu je všechno
+správně — kalendář, týdenní i denní úvazek, základní mzda — a Helios přesto počítá **starý fond**.
+Základní plat pak vyjde vyšší, než má.
+
+**Příčina:** Helios drží u každého člověka **osobní mzdový kalendář** = kopii toho hlavního,
+která vznikne při prvním přiřazení. Z dokumentace Helios Inuvio:
+
+> *„Pokud provedete úpravu v hlavním mzdovém kalendáři, změny se do osobních kalendářů
+> nepromítnou automaticky, projeví se pouze u zaměstnanců, kterým kalendář **nově přiřadíte**."*
+
+> *„Při synchronizaci probíhá kontrola, která zjišťuje, v kterých měsících existuje pro vybraného
+> zaměstnance vypočtená mzda nebo zadané předzpracování. Pokud existuje mzda nebo předzpracování,
+> tak pro takový měsíc synchronizace **neprobíhá**."*
+
+**Řešení (ověřeno na Duspivové ES 50, červenec 2026):**
+
+1. **Smazat člověku vypočtenou mzdu** — dokud existuje, Helios úpravy mzdových údajů nepustí
+2. Na kartě opravit kalendář a úvazek (Mzdové údaje → 2 Zařazení → Tarif a úvazek)
+3. Zkontrolovat **Mzdy → Mzdové údaje → Osobní mzdový kalendář** — musí tam mít **aktivní** řádek
+   s novým kalendářem. Staré řádky (neaktivní) tam zůstávají jako historie, **nemazat je.**
+4. **Vygenerovat mzdu znovu**
+
+Konkrétně u Duspivové: základ 22 622 → **21 666 Kč** (fond 184 → **161 h**, odpracováno 142 → 119).
+
+**Kde to poznáš:** ve výplatnici u složky 1 nesedí hodiny. Spočítej `fond − absence`; když ti
+vyjde jiné číslo než tam je, má člověk starý osobní kalendář. Naše docházka je přitom správně —
+automat doplňoval do správného fondu (u Duspivové 116,59 odpracováno + 2,38 doplněno + 42
+dovolená = 161 h).
+
+**Nedělat:** neposouvat kvůli tomu aktuální mzdové období v Plzni. Je to nevratná uzávěrka
+v systému, který se opouští, a s tímhle problémem nesouvisí.
+
 ## 8. Ostatní ověřené věci
 
 - **Jednatelé:** EC 2 Pašek, EC 47 Mózer, **ES 41 Pašek** (číslo 15 neexistuje). Mají ruční

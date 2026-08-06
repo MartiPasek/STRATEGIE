@@ -233,12 +233,20 @@
     if (old && old.parentNode) old.parentNode.removeChild(old);
     var bar = document.createElement("div");
     bar.className = "ec-vyh-actionbar";
-    bar.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;padding:8px 10px;margin:0 0 10px 0;background:#f5f7fa;border:1px solid #e2e8f0;border-radius:8px;";
+    /* PRILEPENA NAHORE (C28 6.8.2026, podnet Dusana): obsah jadra je vyssi nez okno
+     * (~1 240 px proti ~860 viditelnym), takze se roluje - a lista tlacitek driv
+     * odrolovala pryc. Uzivatel u gridu dole uz nevidel, cim ma pokracovat.
+     * position:sticky ji drzi nahore po celou dobu rolovani.
+     * Zaroven kompaktneji (mensi padding a pismo), aby se veslo na JEDEN radek -
+     * osm tlacitek se driv lamalo do dvou a lista brala 85 px z vysky. */
+    bar.style.cssText = "position:sticky;top:0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;" +
+      "padding:6px 8px;margin:0 0 8px 0;background:#f5f7fa;border:1px solid #e2e8f0;" +
+      "border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);";
     ACTIONS.forEach(function (act) {
       var b = document.createElement("button");
       b.type = "button";
       b.textContent = act.label;
-      b.style.cssText = "cursor:pointer;padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:13px;line-height:1.2;";
+      b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
       b.onclick = function () { _run(inst, act, b); };
@@ -252,7 +260,7 @@
       var b = document.createElement("button");
       b.type = "button";
       b.textContent = act.label;
-      b.style.cssText = "cursor:pointer;padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:13px;line-height:1.2;";
+      b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
       b.onclick = function () { _vlastni(inst, act, b); };

@@ -31180,8 +31180,30 @@ def _mzdy_refresh_zrcadla(rok, mesic):
     (klíč `zrcadla_warn`) — žádné tiché přeskočení. Každý sync je transakční (rollback při
     chybě), takže při výpadku zůstane poslední dobré zrcadlo."""
     warn = []
-    for _nm, _fn in (("dochsum", _sync_dochazka_sumaden),
-                     ("zakazky", _sync_finance_zakazek),
+    # ── ZRCADLO DOCHÁZKY SE PLNÍ ZE STRATEGIE, NE Z CENTRÁLY (Kristý + Peťa 6. 8. 2026) ──
+    # Kristý: „tabulku můžeme použít, to je ok, ale musí být plněná daty ze STRATEGIE."
+    # Do 6. 8. 2026 se tu jako první krok pouštěl `_sync_dochazka_sumaden`, který
+    # att_day_summary smazal a natáhl znovu z Centrály (EC_Dochazka_SumaDen). Jenže
+    # v Centrále už červencová docházka většinou není — lidé se tam nepíchali a naše
+    # opravy tam nedotečou. Kristý s C24 proto 3. 8. udělaly přepočet z naší docházky
+    # (`att_day_summary_recompute`, tlačítko „Přepočítat" v /payroll), jenže generování
+    # mezd ho pokaždé přepsalo zpátky z Centrály.
+    # Rozsah 6. 8. 2026: hodiny se lišily u 39 lidí o 84,8 h, absence u 10 lidí
+    # (Zeman 24 h v zrcadle vs. 104 h u nás).
+    # Co na zrcadle visí: dovolená do Heliosu (složka 211, `_mzdy_absence_rows`),
+    # Landmark náhrady (`_mzdy_benefity_apply`) a náhradní volno v přesčasu.
+    # Přesčas a stravenky čtou naši docházku přímo, těch se to netýká.
+    # POZOR: recompute vrací u zmrazeného měsíce {ok: False} MÍSTO výjimky, proto se
+    # kontroluje i návratová hodnota — žádné tiché přeskočení.
+    try:
+        from modules.erp.api import erp_registry as _ereg_ads
+        _res_ads = _ereg_ads.call("att_day_summary_recompute", int(rok), int(mesic))
+        if isinstance(_res_ads, dict) and _res_ads.get("ok") is False:
+            warn.append("dochcalc: %s" % str(_res_ads.get("error"))[:150])
+    except Exception as _e:
+        warn.append("dochcalc: %s" % str(_e)[:150])
+    # zakázky a odměny zrcadlí Centrálu legitimně — ty zůstávají
+    for _nm, _fn in (("zakazky", _sync_finance_zakazek),
                      ("odmeny", _sync_odmeny_from_ec)):
         try:
             _fn(int(rok), month=int(mesic))

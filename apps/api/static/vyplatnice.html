@@ -124,6 +124,19 @@
 const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
 const fh=(n)=>!n?"":Number(n).toLocaleString("cs-CZ");
 let FIRMA="ES", LIDI=[];
+// Peťa 6.8.2026: kdy naposledy proběhlo generování — drží se per firma+období,
+// aby po přepnutí firmy bylo vidět, jak stará čísla na obrazovce jsou.
+const GEN_KDY={};
+const _casHHMM=(d)=>('generováno '+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'. '
+                     +String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'));
+function _ukazPosledniGen(){
+  const {r,m}=rm(); const g=GEN_KDY[FIRMA+'|'+r+'|'+m]; const el=document.getElementById('genMsg');
+  if(!el) return;
+  if(g){ el.style.color='#86e8b0';
+         el.textContent='✅ Hotovo · '+g.hot+'/'+g.cil+' spočteno'+(g.vyst?' · '+g.vyst+' s výstrahou':'')
+                        +' · trvalo '+g.trvalo+' · '+_casHHMM(g.kdy); }
+  else { el.textContent=''; }
+}
 const ZAKL_SLEVA_POPLATNIK=2570; // Kč/měsíc – základní sleva na poplatníka (2026: 30 840 Kč/rok). Při změně legislativy měnit jen tuto hodnotu.
 function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));
   // Peťa 5.8.2026: při přepnutí firmy zahoď starý postup i hlášku — jinak visí výsledek
@@ -131,6 +144,7 @@ function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b
   const _p=document.getElementById('prog'), _m=document.getElementById('genMsg');
   if(_p){_p.style.display='none';_p.classList.remove('run');document.getElementById('progBar').style.width='0';}
   if(_m){_m.textContent='';_m.classList.remove('run');}
+  _ukazPosledniGen();   // Peťa 6.8.2026: ukaž, kdy se naposledy generovala TATO firma
   load();}
 function rm(){return {r:document.getElementById('rok').value,m:document.getElementById('mesic').value};}
 // --- JMHZ (Jednotné měsíční hlášení zaměstnavatele → ČSSZ) ---
@@ -225,7 +239,12 @@ async function generuj(){
   prog.classList.remove('run'); msg.classList.remove('run');
   if(chyba){ msg.style.color='#ff9a9a'; msg.textContent='⚠ '+chyba+' (trvalo '+el()+')'; }
   else { msg.style.color='#86e8b0'; pb.style.width='100%';
-         msg.textContent='✅ Hotovo · '+hot+'/'+cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+' · trvalo '+el(); }
+         // Peťa 6.8.2026: „můžeš tam nechávat čas, kdy bylo generováno, ať je to vidět?"
+         // Zapamatujeme si okamžik dokončení pro tuhle firmu a období, ať hláška
+         // nezmizí při přepnutí a je jasné, jak stará čísla na obrazovce jsou.
+         GEN_KDY[FIRMA+'|'+r+'|'+m]={kdy:new Date(), hot:hot, cil:cil, vyst:vyst, trvalo:el()};
+         msg.textContent='✅ Hotovo · '+hot+'/'+cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+' · trvalo '+el()
+                         +' · '+_casHHMM(new Date()); }
   if(warns.length){
     const uniq=[...new Set(warns.map(x=>String(x)))];
     wbox.innerHTML='<b>⚠ Pozor — něco se nepodařilo postavit a v páskách to bude chybět:</b>'+

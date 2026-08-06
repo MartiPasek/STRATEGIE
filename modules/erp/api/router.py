@@ -11220,6 +11220,10 @@ async def app_hr_odpovednost_list(req: Request):
             if tuid in seen:
                 continue
             seen.add(tuid)
+            # Do přehledu odpovědností jen lidi s reálným poměrem (HPP nebo OSVČ).
+            # DPP brigádníci (Saxana aj.) a účty bez aktuálního poměru se nezobrazují. (Šárka 6.8.2026)
+            if "hpp" not in (r[8] or "").lower() and "osvc" not in (r[8] or "").lower():
+                continue
             # Automatizace = OSVČ PLC programátoři → nikdo (volno i docházka, o domluvě).
             # Výjimky: Mirek Mareš (9005, vede automatizaci) a Michal Šik (349, IT). (Šárka 6.8.2026)
             if (r[4] in ("002", "Automatizace") and "osvc" in (r[8] or "").lower()

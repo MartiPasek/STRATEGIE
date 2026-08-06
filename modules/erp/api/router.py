@@ -11232,7 +11232,7 @@ async def app_hr_odpovednost_list(req: Request):
                 out.append({
                     "user_id": tuid, "emp_id": emp_id, "jmeno": r[2], "firma": (r[3] or ""),
                     "stredisko": "Automatizace",
-                    "volno_schvaluje": "— nikdo (o domluvě) —", "volno_zdroj": "domluva",
+                    "volno_schvaluje": "— nemá docházku —", "volno_zdroj": "—",
                     "volno_system": "", "volno_gap": False,
                     "doch_kontrola": "— nemá docházku —", "doch_zdroj": "—", "doch_gap": False,
                 })

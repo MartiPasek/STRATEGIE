@@ -52,6 +52,18 @@
   .flt:focus{border-color:var(--accent)}
   .fbar{padding:8px 12px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .fexp{padding:2px 12px 8px;display:flex;gap:8px;align-items:center}
+  .viewtog{display:flex;gap:4px;margin-left:6px}
+  .viewtog button{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:6px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+  .viewtog button.on{background:#1e2a38;color:var(--title);border-color:#2b3a4a}
+  #tabview{max-width:none;margin:16px auto;padding:0 14px}
+  .tbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .tbar .flt{width:auto;min-width:140px}
+  .dtbl{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .dtbl th{position:sticky;top:0;z-index:1;background:var(--panel2);cursor:pointer;white-space:nowrap;user-select:none}
+  .dtbl th:hover{color:var(--title)}
+  .dtbl tbody tr{cursor:pointer}
+  .dtbl tbody tr:hover{background:#1b232d}
+  body.embed #tabview,body.embed .viewtog{display:none!important}
   /* Šárka 21.7.2026: embed režim = vloženo do karty zaměstnance (schová seznam + horní lištu) */
   body.embed .top{display:none}
   body.embed .wrap{grid-template-columns:1fr;margin:0;max-width:none;padding:0}
@@ -63,6 +75,7 @@
 <body>
 <div class="top">
   <div class="b">💰 Finanční podmínky</div>
+  <span class="viewtog"><button id="vw_karty" class="on" onclick="setView('karty')">🗂 Karty</button><button id="vw_tab" onclick="setView('tabulka')">📋 Tabulka</button></span>
   <span class="lock">🔒 citlivé · jen oprávnění</span>
 </div>
 <div class="wrap">
@@ -83,6 +96,18 @@
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
   </div>
   <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
+</div>
+<div id="tabview" style="display:none">
+  <div class="tbar">
+    <input id="tsrch" class="flt" style="width:200px" placeholder="🔎 Hledat jméno…">
+    <select id="tfirma" class="flt"><option value="">Všechny firmy</option><option value="EC">EUROSOFT-Control (EC)</option><option value="ES">EUROSOFT-System (ES)</option></select>
+    <select id="tdruh" class="flt"><option value="">Všechny typy</option><option value="HPP">HPP</option><option value="OSVC">OSVČ</option><option value="DPP">DPP</option></select>
+    <select id="tpoz" class="flt"><option value="">Všechny pozice</option></select>
+    <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tbyv" style="margin:0"> i bývalé</label>
+    <button class="sbtn" onclick="exportTab()">⬇ Export (CSV)</button>
+    <span class="ph" id="tcnt"></span>
+  </div>
+  <div style="overflow:auto;max-height:78vh"><table class="dtbl" id="dtbl"></table></div>
 </div>
 <script>
 const API="/api/v1/erp";
@@ -223,6 +248,94 @@ async function savePozice(eg,pid){
   const d=await _post('/app/hr/finance/pozice-save',{engagement_id:eg,position_id:pid?parseInt(pid,10):null});
   if(d.ok){ await load(); openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
 }
+
+/* ── Tabulkový přehled (Šárka 6.8.2026) — jako Centrála: řádek na člověka, řazení dle sloupců ── */
+let TAB=[], TABLOADED=false, tsort={col:'prijmeni',dir:1};
+const TCOLS=[
+  {k:'prijmeni',t:'Příjmení'},{k:'krestni',t:'Jméno'},{k:'cislo',t:'Č.'},
+  {k:'firmy',t:'Firma'},{k:'typy',t:'Druh'},{k:'pozice',t:'Pozice'},
+  {k:'uvazek',t:'Úvazek',num:1},{k:'zaklad',t:'Základ',num:1,kc:1},
+  {k:'os_ohod',t:'Os. ohod.',num:1,kc:1},{k:'premie',t:'Prémie',num:1,kc:1},
+  {k:'individ',t:'Individ.',num:1,kc:1},{k:'hruba',t:'Hrubá',num:1,kc:1},
+  {k:'stav',t:'Stav'}
+];
+function setView(v){
+  const isT=(v==='tabulka');
+  document.querySelector('.wrap').style.display=isT?'none':'';
+  document.getElementById('tabview').style.display=isT?'':'none';
+  document.getElementById('vw_tab').classList.toggle('on',isT);
+  document.getElementById('vw_karty').classList.toggle('on',!isT);
+  if(isT && !TABLOADED) loadTabulka();
+}
+async function loadTabulka(){
+  const _b=document.getElementById('tbyv');
+  const d=await j(API+"/app/hr/finance/tabulka"+((_b&&_b.checked)?"?vsichni=1":""));
+  const t=document.getElementById('dtbl');
+  if(!d.ok){t.innerHTML='<tbody><tr><td style="padding:16px">🔒 '+esc(d.error||'chyba')+'</td></tr></tbody>';return;}
+  TAB=d.radky||[]; TABLOADED=true;
+  const tp=document.getElementById('tpoz');
+  if(tp && POZ.length) tp.innerHTML='<option value="">Všechny pozice</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join('');
+  renderTab();
+}
+function tabFiltered(){
+  const q=_val('tsrch').toLowerCase(), ff=_val('tfirma').toUpperCase(), fd=_val('tdruh').toUpperCase(), fp=_val('tpoz');
+  let f=TAB.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
+    && (!ff||(p.firmy||'').toUpperCase().includes(ff))
+    && (!fd||(p.typy||'').toUpperCase().includes(fd))
+    && (!fp||(p.pozice||'')===fp));
+  const col=tsort.col, dir=tsort.dir, isnum=(TCOLS.find(c=>c.k===col)||{}).num;
+  f=f.slice().sort((a,b)=>{
+    let x,y;
+    if(col==='stav'){x=a.aktivni?1:0;y=b.aktivni?1:0;}
+    else{x=a[col];y=b[col];}
+    if(isnum||col==='stav') return ((x==null?-1:x)-(y==null?-1:y))*dir;
+    return String(x==null?'':x).localeCompare(String(y==null?'':y),'cs')*dir;
+  });
+  return f;
+}
+function renderTab(){
+  const f=tabFiltered();
+  const c=document.getElementById('tcnt'); if(c)c.textContent=f.length+' z '+TAB.length;
+  const arr=k=>tsort.col===k?(tsort.dir>0?' ▲':' ▼'):'';
+  let h='<thead><tr>'+TCOLS.map(c=>'<th onclick="tsortBy(\''+c.k+'\')"'+(c.num?' style="text-align:right"':'')+'>'+esc(c.t)+arr(c.k)+'</th>').join('')+'</tr></thead><tbody>';
+  if(!f.length){ h+='<tr><td colspan="'+TCOLS.length+'" style="text-align:center;color:var(--muted);padding:20px">Nic nenalezeno.</td></tr>'; }
+  f.forEach(p=>{
+    h+='<tr onclick="openFromTab('+p.user_id+')">';
+    TCOLS.forEach(c=>{
+      let v;
+      if(c.k==='stav') v=(p.aktivni===false?'<span style="color:#ff9a8a">bývalý</span>':'aktivní');
+      else if(c.k==='uvazek') v=(p.uvazek!=null?p.uvazek:'—');
+      else if(c.kc) v=(p[c.k]!=null?kc(p[c.k]):'—');
+      else v=esc(p[c.k]||'');
+      h+='<td'+(c.num?' class="num"':'')+'>'+v+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody>';
+  document.getElementById('dtbl').innerHTML=h;
+}
+function tsortBy(k){ if(tsort.col===k)tsort.dir*=-1; else {tsort.col=k;tsort.dir=1;} renderTab(); }
+function openFromTab(uid){ setView('karty'); openP(uid); }
+function exportTab(){
+  const rows=tabFiltered();
+  const esc2=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const cols=TCOLS.filter(c=>c.k!=='stav');
+  const head=cols.map(c=>c.t).concat(['Stav']);
+  const lines=[head.map(esc2).join(';')];
+  rows.forEach(p=>{
+    const r=cols.map(c=>(p[c.k]!=null?p[c.k]:''));
+    r.push(p.aktivni===false?'bývalý':'aktivní');
+    lines.push(r.map(esc2).join(';'));
+  });
+  const csv='﻿'+lines.join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='financni_podminky_tabulka_'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
+}
+['tsrch','tfirma','tdruh','tpoz'].forEach(id=>{const e=document.getElementById(id); if(e)e.addEventListener(id==='tsrch'?'input':'change',renderTab);});
+{const b=document.getElementById('tbyv'); if(b)b.addEventListener('change',loadTabulka);}
+
 if(new URLSearchParams(location.search).get('embed'))document.body.classList.add('embed');
 loadTypy();
 loadPozice();

@@ -12761,6 +12761,79 @@ async def app_hr_finance_lide(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/finance/tabulka")
+async def app_hr_finance_tabulka(req: Request) -> JSONResponse:
+    """CITLIVÉ — široký tabulkový přehled financí (jako Centrála): řádek na člověka,
+    sloupce základ / osobní ohod. / prémie / individuální / hrubá. Částky = skutečnost
+    (amount_real), fallback plán. Allowlist only. ?vsichni=1 zahrne i bývalé."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    vsichni = (req.query_params.get("vsichni") or "").lower() in ("1", "true", "ano")
+    _akt = "bool_or(en.smlouva_do IS NULL OR en.smlouva_do >= CURRENT_DATE)"
+    _having = "" if vsichni else (" HAVING " + _akt)
+    _amt = "SUM(COALESCE(wc.amount_real, wc.amount_planned))"
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT ae.user_id,"
+            " COALESCE((SELECT p.last_name FROM tenant.hr_person p WHERE p.user_id=ae.user_id"
+            "   AND p.tenant_id=2 AND p.is_current ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT u.last_name FROM public.users u WHERE u.id=ae.user_id), '') AS prijmeni,"
+            " COALESCE((SELECT p.first_name FROM tenant.hr_person p WHERE p.user_id=ae.user_id"
+            "   AND p.tenant_id=2 AND p.is_current ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT u.first_name FROM public.users u WHERE u.id=ae.user_id), '') AS krestni,"
+            " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo,"
+            " string_agg(DISTINCT co.code, '/' ORDER BY co.code) AS firmy,"
+            " string_agg(DISTINCT COALESCE(en.druh_text, en.engagement_type), ', ') AS typy,"
+            " string_agg(DISTINCT jp.label, ', ') AS pozice,"
+            " max(en.uvazek_real_tyden_h) AS uvazek,"
+            " " + _akt + " AS aktivni,"
+            " " + _amt + " FILTER (WHERE ct.code='zaklad') AS zaklad,"
+            " " + _amt + " FILTER (WHERE ct.code='os_ohodnoceni') AS os_ohod,"
+            " " + _amt + " FILTER (WHERE ct.code='premie') AS premie,"
+            " " + _amt + " FILTER (WHERE ct.code='individualni') AS individ,"
+            " " + _amt + " FILTER (WHERE ct.kind='monthly') AS hruba"
+            " FROM tenant.engagement en"
+            " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
+            " LEFT JOIN tenant.company co ON co.id=en.company_id"
+            " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
+            " LEFT JOIN tenant.wage_component wc ON wc.engagement_id=en.id AND wc.tenant_id=2"
+            " LEFT JOIN tenant.wage_component_type ct ON ct.id=wc.component_type_id"
+            " WHERE en.tenant_id=2 AND en.is_current AND ae.user_id IS NOT NULL"
+            " GROUP BY ae.user_id" + _having
+            + " ORDER BY prijmeni, krestni")).fetchall()
+
+        def _f(x):
+            return (float(x) if x is not None else None)
+        radky = []
+        for r in rows:
+            _prij = (r[1] or "").strip()
+            _krest = (r[2] or "").strip()
+            radky.append({
+                "user_id": r[0],
+                "prijmeni": _prij, "krestni": _krest,
+                "jmeno": (_prij + " " + _krest).strip() or ("ID " + str(r[0])),
+                "cislo": r[3] or "", "firmy": r[4] or "", "typy": r[5] or "",
+                "pozice": r[6] or "",
+                "uvazek": _f(r[7]), "aktivni": bool(r[8]),
+                "zaklad": _f(r[9]), "os_ohod": _f(r[10]), "premie": _f(r[11]),
+                "individ": _f(r[12]), "hruba": _f(r[13]),
+            })
+        return JSONResponse({"ok": True, "radky": radky, "pocet": len(radky),
+                             "vsichni": vsichni})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/finance/pozice-ciselnik")
 async def app_hr_finance_pozice_ciselnik(req: Request) -> JSONResponse:
     """CITLIVÉ — číselník pracovních pozic pro výběr. Allowlist only."""

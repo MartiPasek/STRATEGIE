@@ -23,11 +23,49 @@ na něco koukat."*
 | příplatky, odměny, srážky | `tenant.wage_movement` |
 | prémie ze zakázek | příplatky → složka **651** (stará docházková cesta **vypnutá**) |
 | jednatelé a DPP | `tenant.mzdy_rucni_slozka` |
-
-⛔ **Zrcadlo Centrály `tenant.att_day_summary` se do mezd nepoužívá** — nemá naše opravy.
+| denní souhrn docházky | `tenant.att_day_summary` — **od 6. 8. 2026 počítaný z naší docházky** (viz níže) |
 
 Hlídá to pojistka **`mzdy-vstupy-ze-strategie`** a je to napsané i v hlavičce skriptu
 `mzdy_generuj`, takže to vidí každý, kdo ho otevře.
+
+### ⚠️ OPRAVENO 6. 8. 2026 — zrcadlo docházky se plnilo z Centrály
+
+Do 6. 8. tady stálo, že *„zrcadlo `att_day_summary` se do mezd nepoužívá"*. **To nebyla
+pravda** — používalo se, a plnilo se přitom ze staré Centrály. Viselo na něm:
+
+- **dovolená do Heliosu** (složka 211) — dny z `att_entry`, ale **hodiny ze zrcadla**
+- **Landmark náhrady** (oblečení 794, home office 795, korekce 432) — **absence ze zrcadla**
+- **náhradní volno** v kaskádě přesčasu
+
+Rozsah: hodiny se lišily u **39 lidí o 84,8 h**, absence u 10. Zeman měl v Centrále 24 h
+dovolené, u nás 104 h — do mzdy mu šlo 24 h a náhrady se mu krátily, jako by skoro nechyběl.
+
+**Od 6. 8. se zrcadlo plní přepočtem z naší docházky** (`att_day_summary_recompute`,
+tlačítko „Přepočítat" v Mzdových podkladech) — a to na všech cestách: při generování mezd,
+přes `@@DOCHSUM`, i z řídicího pultu. Ověřeno na červencových výplatnicích: Zeman má
+složku 211 = **104 h / 13 dnů / 38 178 Kč**.
+
+Rozhodly Peťa + Kristý + Týnka. Kristý: *„tabulku můžeme použít, to je ok, ale musí být
+plněná daty ze STRATEGIE."* Detail: G2007 `doc-mzdy-zrcadlo-dochazky-ze-strategie`.
+
+**KVĚTEN 2026 je výjimka** — zůstává z Centrály (Peťa: *„ten květen ne, ten je z centrály
+správně"*, květnové mzdy se dělaly ještě z Centrály). Květen i červen 2026 jsou proto
+v seznamu zmrazených měsíců přímo v přepočtu, takže je nepřepíše ani ruční spuštění.
+
+### Co se pro mzdy ČTE z Centrály (stav k 6. 8. 2026)
+
+Jediné dvě věci:
+
+1. **Mzdové podmínky a hodinová sazba** — `helios_wage_snapshot`, snímek
+   z `EC_FinZamPodminky` (plní se **ruční** akcí, ne automatem)
+2. **Květen 2026** — viz výše, zůstává z Centrály
+
+**Všechno ostatní mzdy čtou ze STRATEGIE.**
+
+⚠️ **Nepleť „odkud mzdy čtou" s tím, „jak se tam data dostala"** (Peťa 6. 8. 2026).
+Příplatky a srážky mzdy berou z `tenant.wage_movement`, **tedy ze STRATEGIE** — a je
+jedno, že tam část přišla Jirkovým importem z Centrály a část jsme 5. 8. doplnili
+ručně z Excelu (65 řádků). Pro mzdy je zdroj naše tabulka, ne Centrála.
 
 ## 1. Odkud se berou hodiny — ZE STRATEGIE
 

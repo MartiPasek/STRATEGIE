@@ -11234,7 +11234,7 @@ async def app_hr_odpovednost_list(req: Request):
                     "stredisko": "Automatizace",
                     "volno_schvaluje": "— nikdo (o domluvě) —", "volno_zdroj": "domluva",
                     "volno_system": "", "volno_gap": False,
-                    "doch_kontrola": "— nikdo (o domluvě) —", "doch_zdroj": "domluva", "doch_gap": False,
+                    "doch_kontrola": "— nemá docházku —", "doch_zdroj": "—", "doch_gap": False,
                 })
                 continue
             # systémový/odvozený schvalovatel (resolver z org struktury)

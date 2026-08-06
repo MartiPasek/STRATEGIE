@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gender pay gap 2026</title>
+<style>
+  :root{--bg:#0f141a;--panel:#161c24;--panel2:#12181f;--line:#233040;--line2:#1e2730;
+        --txt:#cdd6e2;--title:#e8eef5;--accent:#aac8ec;--muted:#7f8ea0;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--txt);background:var(--bg)}
+  .top{background:var(--panel2);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+  .top .b{font-weight:800;font-size:16px;color:var(--title)}
+  .lock{margin-left:auto;font-size:11px;font-weight:700;color:#ffcf6b;background:#2a2312;border:1px solid #4a3a16;border-radius:20px;padding:3px 11px}
+  .wrap{max-width:1050px;margin:14px auto;padding:0 16px}
+  .sub{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+  h2{font-size:15px;color:var(--title);margin:20px 0 8px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:8px;font-size:12.5px}
+  .find{border-left:3px solid #d9534f;padding:8px 12px;margin:8px 0;background:#241a1a;border-radius:0 8px 8px 0}
+  .find.disp{border-color:#3a7fbf;background:#161f28}
+  .find.ok{border-color:#3a8a4d;background:#16281c}
+  .find b{color:var(--title)}
+  table{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:6px}
+  th{background:var(--panel2);text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:7px 9px;white-space:nowrap}
+  td{padding:6px 9px;border-top:1px solid var(--line2)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.gpg{background:#241a1a}
+  tr.disp{background:#161f28}
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;border-radius:20px;padding:1px 8px}
+  .t-gpg{background:#3a1f1f;color:#ff9a8a;border:1px solid #5a2a26}
+  .t-disp{background:#16283a;color:#8fc0ef;border:1px solid #2b4a66}
+  .t-ok{background:#16281c;color:#7fe0a0;border:1px solid #2b4a36}
+  .t-na{background:#1f2730;color:#8798a8;border:1px solid #33414f}
+  .foot{font-size:11.5px;color:var(--muted);margin:10px 2px}
+</style>
+</head>
+<body>
+<div class="top"><div class="b">⚖️ Gender pay gap 2026</div><span class="lock">🔒 citlivé · jen oprávnění</span></div>
+<div class="wrap">
+  <div class="sub">EUROSOFT Control + System · zdroj: auditní GPG tabulky (výpočet + podklady) · hranice směrnice o transparentnosti = <b>5 %</b></div>
+
+  <h2>🚩 Nesrovnalosti k řešení</h2>
+
+  <div class="find">
+    <b>System — elektromontér: GPG 9,55 %</b> (muži ⌀ 35 072 Kč × ženy ⌀ 31 723 Kč, ženy méně).
+    Nad hranicí 5 % → <b>nutné odůvodnit</b>. Info k úvazkům: většina má 40 h, jedna žena (Brudnová) má
+    <b>35 h</b> → pro férové srovnání porovnávat na plný úvazek (FTE) / hodinovou sazbu.
+  </div>
+  <div class="find">
+    <b>System — vedoucí projektů (obch. zástupce): GPG 58,52 %</b> (muž ⌀ 71 656 × žena ⌀ 29 725).
+    Vysoké číslo, ale <b>zkreslené úvazkem</b>: žena (Veverková) má <b>30 h</b> úvazek a nižší základ,
+    muž (Pašek) 40 h. Před závěrem <b>přepočítat na plný úvazek</b> — jinak číslo neobstojí.
+  </div>
+  <div class="find disp">
+    <b>Velké rozdíly mezi lidmi na stejné pozici</b> (rozptyl, bez ohledu na pohlaví):
+    elektromontér Control <b>37,67 %</b>, elektromontér System <b>65,12 %</b>,
+    vedoucí projektů System <b>141,06 %</b>. Není to gender gap, ale ukazuje na nejednotné odměňování
+    na stejné pozici → řešit v <b>kategorizaci a mzdových pásmech</b>.
+  </div>
+  <div class="find ok">
+    <b>Opraveno:</b> v auditním Excelu byla Novotná Šárka omylem vedená jako „Muž". <b>V naší databázi
+    (STRATEGIE) je správně jako žena</b> — chyba byla jen v tom exportu. V přehledu níže je personalistka
+    proto jako ženská pozice (jen jedna osoba → nelze porovnat).
+  </div>
+
+  <div class="panel"><b>Control:</b> žádná pozice nemá zároveň muže i ženy → skutečný gender gap
+    nelze spočítat (jen rozptyl uvnitř pozice). GPG srovnání dává smysl jen tam, kde jsou na pozici obě pohlaví.</div>
+
+  <h2>EUROSOFT — Control</h2>
+  <table id="tC"></table>
+  <h2>EUROSOFT — System</h2>
+  <table id="tS"></table>
+
+  <div class="foot">Legenda: <span class="tag t-gpg">GPG &gt; 5 %</span> gender mezera nad hranicí ·
+    <span class="tag t-disp">rozptyl</span> velké rozdíly na pozici · <span class="tag t-na">nelze porovnat</span> jen jedno pohlaví ·
+    <span class="tag t-ok">OK</span>. „⌀" = průměr. Zdroj pravdy pro odměnu = smlouva.</div>
+</div>
+<script>
+const C=[
+ ["referentka nákupu a logistiky",0,33795,"na",""],
+ ["referentka nákupu",0,37285,"na",""],
+ ["elektromontér",44442,0,"disp","rozptyl 37,67 %"],
+ ["mechanik",38941,0,"na",""],
+ ["asistentka do týmu vedení projektů",0,45984,"na",""],
+ ["zámečník",32206,0,"na",""],
+ ["elektromontér junior",41354,0,"na",""],
+ ["vedoucí projektů",75257,0,"na",""],
+ ["asistentka jednatele",0,59787,"na",""],
+ ["obchodně technický manažer",65394,0,"na",""]
+];
+const S=[
+ ["elektromontér",35072,31723,"gpg","GPG 9,55 % · rozptyl 65,12 % · Brudnová 35 h"],
+ ["elektroprojektant",70328,0,"na",""],
+ ["přípravář obráběcího centra Perforex",30702,0,"na",""],
+ ["asistentka jednatele a vedení společnosti",0,40147,"na",""],
+ ["asistentka týmu vedení projektů",0,38867,"na",""],
+ ["manažer kvality",0,51056,"na",""],
+ ["kalkulant",53239,0,"na",""],
+ ["referentka nákupu a logistiky",0,35632,"na",""],
+ ["SQL programátor pro IS Centrálu",0,51794,"na",""],
+ ["pracovník v příjmu zboží",0,36806,"na",""],
+ ["personalistka",0,54995,"na","Šárka (opraveno na ženu)"],
+ ["vedoucí projektů (obchodní zástupce)",71656,29725,"gpg","GPG 58,52 % — Veverková 30 h, zkresleno úvazkem"],
+ ["skladový asistent",28539,0,"na",""],
+ ["elektromontér pro přípravné práce ve výrobě",0,29172,"na",""],
+ ["zámečník",35665,0,"na",""]
+];
+function kc(n){return n?Math.round(n).toLocaleString('cs-CZ')+' Kč':'—';}
+function tagOf(f){return f==='gpg'?'<span class="tag t-gpg">GPG &gt; 5 %</span>':
+  f==='disp'?'<span class="tag t-disp">rozptyl</span>':
+  f==='na'?'<span class="tag t-na">nelze porovnat</span>':'<span class="tag t-ok">OK</span>';}
+function build(id,rows){
+  let h='<thead><tr><th>Pozice</th><th style="text-align:right">⌀ muž</th><th style="text-align:right">⌀ žena</th><th>Hodnocení</th><th>Poznámka</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const cls=r[3]==='gpg'?'gpg':(r[3]==='disp'?'disp':'');
+    h+='<tr class="'+cls+'"><td>'+r[0]+'</td><td class="num">'+kc(r[1])+'</td><td class="num">'+kc(r[2])+'</td><td>'+tagOf(r[3])+'</td><td style="color:var(--muted)">'+(r[4]||'')+'</td></tr>';
+  });
+  h+='</tbody>';document.getElementById(id).innerHTML=h;
+}
+build('tC',C);build('tS',S);
+</script>
+</body>
+</html>

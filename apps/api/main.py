@@ -1558,6 +1558,16 @@ def karta_zamestnance_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/gpg-prehled")
+def gpg_prehled_page():
+    """⚖️ Gender pay gap — auditní přehled a nesrovnalosti (Šárka 6.8.2026). CITLIVÉ.
+    Statická stránka; strom-uzel viditelný jen pro 8 (visibility_user_ids)."""
+    return FileResponse(os.path.join(static_dir, "gpg_prehled.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/denik")
 def denik_page():
     """Přehled účetního deníku — živé zápisy řazené dle jistoty (triáž pro účetní).

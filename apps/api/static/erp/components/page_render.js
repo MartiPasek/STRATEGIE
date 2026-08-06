@@ -51,6 +51,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Gender pay gap (Šárka 6.8.2026): jádro hr.gpg = iframe stránky /gpg-prehled
+      // (uzel restricted přes visibility_user_ids na 8). Tmavý ERP vzhled.
+      if (String(coreCode) === 'hr.gpg') {
+        mainContent.innerHTML = '<iframe src="/gpg-prehled" title="Gender pay gap" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Opravy docházky (Jirka 9.7.2026): jádro dochazka.opravy = iframe stránky
       // /dochazka-opravy (data gated přes _att_can_fix = skupina DOCHÁZKA - OPRAVY;
       // strom-uzel navíc restricted přes visibility_user_ids). Tmavý ERP vzhled.

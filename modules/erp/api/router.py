@@ -26188,7 +26188,12 @@ def _mirror_run_job(job_key):
         "mirror_ec_probe": lambda: _mirror_ec_probe(),
         "mirror_att_to_ec_test": lambda: _mirror_att_to_ec(test_one=True),
         "mirror_att_to_ec_dry": lambda: _mirror_att_to_ec(dry=True),
-        "sync_ec_dochazka_sumaden": lambda: _sync_dochazka_sumaden(),
+        # PŘEPOJENO 6. 8. 2026 (Peťa + Kristý): denní souhrn docházky se počítá z NAŠÍ
+        # docházky (att_entry), ne ze staré Centrály — tam už červencová data nejsou
+        # a naše opravy tam nedotečou. Zmrazené měsíce (05, 06/2026) přepočet odmítne.
+        "sync_ec_dochazka_sumaden": lambda: _ec_dochsum_ze_strategie(),
+        # KVĚTEN ZŮSTÁVÁ Z CENTRÁLY — Peťa 6. 8. 2026: „ten květen ne, ten je z centrály
+        # správně" (květnové mzdy se ještě dělaly z Centrály).
         "sync_sumaden_2026_05": lambda: _sync_dochazka_sumaden(2026, 5),
         "sync_ec_doklady": lambda: _sync_ec_doklady_zbozi(cap_per_table=300000),
         "sync_ec_kalkulace": lambda: _sync_ec_kalkulace(),
@@ -40019,7 +40024,18 @@ async def diag_sql(req: Request) -> JSONResponse:
             if len(_dp) < 2 or not _dp[0].isdigit() or not _dp[1].isdigit():
                 return JSONResponse({"ok": False, "error": "@@DOCHSUM <rok> <mesic>"})
             _dy, _dm = int(_dp[0]), int(_dp[1])
-            _ds = _sync_dochazka_sumaden(_dy, month=_dm)
+            # PŘEPOJENO 6. 8. 2026 (Peťa + Kristý): @@DOCHSUM plnil att_day_summary
+            # ze staré Centrály (EC_Dochazka_SumaDen). V Centrále už ale červencová
+            # docházka většinou není a naše opravy tam nedotečou, takže tudy šla do
+            # mezd cizí čísla (6. 8.: hodiny se lišily u 39 lidí o 84,8 h, dovolená
+            # u Zemana 24 h místo 104 h). Nově dělá totéž, co tlačítko „Přepočítat"
+            # v /payroll a co generování mezd — počítá z NAŠÍ docházky (att_entry)
+            # přes att_day_summary_recompute (C24/Kristý 3. 8. 2026).
+            # Peťa 6. 8.: „nahradíme funkci @@dochsum funkcí @@dochkalk."
+            # Zmrazené měsíce (05 a 06/2026 — mzdy hotové z Centrály) přepočet sám
+            # odmítne, viz FROZEN v g2007.python att_day_summary_recompute.
+            from modules.erp.api import erp_registry as _ereg_ds
+            _ds = _ereg_ds.call("att_day_summary_recompute", _dy, _dm)
             # Zároveň zrcadli prémie ze zakázek (OdmenazFinanciZak) za totéž období. Peta 7.7.2026.
             try:
                 _ds["finance_zakazek"] = _sync_finance_zakazek(_dy, month=_dm)
@@ -44986,9 +45002,33 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
 
 
 def _sync_dochazka_sumaden(year: int = 2026, month=None) -> dict:
-    """DB-driven delegate (g2007.python kod=sync_dochazka_sumaden). Puvodni telo migrovano do DB dne 31.7.2026, Faze D."""
+    """DB-driven delegate (g2007.python kod=sync_dochazka_sumaden). Puvodni telo migrovano do DB dne 31.7.2026, Faze D.
+
+    ⚠️ PLNÍ att_day_summary ZE STARÉ CENTRÁLY. Od 6. 8. 2026 se tudy běžně NECHODÍ —
+    zůstává jen pro květen 2026 (Peťa: „ten květen ne, ten je z centrály správně").
+    Pro všechno ostatní se používá `_ec_dochsum_ze_strategie` / att_day_summary_recompute.
+    """
     from modules.erp.api import erp_registry as _ereg
     return _ereg.call("sync_dochazka_sumaden", year, month)
+
+
+def _ec_dochsum_ze_strategie(year: int = 2026, month=None) -> dict:
+    """Denní souhrn docházky POČÍTANÝ z naší docházky (att_entry), ne zrcadlo Centrály.
+
+    Peťa + Kristý 6. 8. 2026 — tohle je od teď výchozí cesta pro att_day_summary.
+    Bez `month` projede celý rok (kromě zmrazených měsíců, které přepočet odmítne).
+    Delegát na g2007.python `att_day_summary_recompute` (C24/Kristý 3. 8. 2026).
+    """
+    from modules.erp.api import erp_registry as _ereg
+    mesice = [int(month)] if month else list(range(1, 13))
+    out = {"ok": True, "zdroj": "STRATEGIE (att_entry)", "mesice": {}}
+    for _m in mesice:
+        try:
+            _r = _ereg.call("att_day_summary_recompute", int(year), _m)
+            out["mesice"]["%04d-%02d" % (int(year), _m)] = _r
+        except Exception as _e:
+            out["mesice"]["%04d-%02d" % (int(year), _m)] = {"ok": False, "error": str(_e)[:200]}
+    return out
 
 
 
@@ -46672,7 +46712,7 @@ async def app_ops_run(req: Request) -> JSONResponse:
 _MIGRACE_STEPS = {
     "dochazka": [
         {"key": "sync_dochazka_sumaden",
-         "when": "Po měsíční uzávěrce v Centrále (případně průběžně). Natáhne DENNÍ SOUHRN docházky (mzdový podklad: odpracováno/dovolená/nemoc/OČR/… + fond) z EC_Dochazka_SumaDen za 2026."},
+         "when": "⚠️ UŽ NESPOUŠTĚT (Peťa + Kristý 6. 8. 2026). Natáhlo by DENNÍ SOUHRN docházky ze staré Centrály a přepsalo tím naše opravy — v Centrále už docházka většinou není. Denní souhrn se počítá z NAŠÍ docházky sám při generování mezd, nebo rucne tlacitkem Prepocitat v Mzdovych podkladech. Výjimka: květen 2026 (ten je z Centrály správně)."},
         {"key": "sync_vyroba_plan",
          "when": "Dle potřeby — když se v Centrále mění plán montérů (vstup pro vytížení dílny)."},
         {"key": "sync_plan_nepritomnost",
@@ -46680,7 +46720,7 @@ _MIGRACE_STEPS = {
     ],
     "mzdy": [
         {"key": "sync_dochazka_sumaden",
-         "when": "1) NEJDŘÍV — podklad odpracováno/absence za období (z docházky Centrály)."},
+         "when": "⚠️ UŽ NENÍ POTŘEBA (Peťa + Kristý 6. 8. 2026) — podklad odpracováno/absence si generování mezd spočítá samo z NAŠÍ docházky. Spuštění by data vrátilo na starou Centrálu, kde už červencová docházka není."},
         {"key": "sync_pasky",
          "when": "2) Po zpracování mezd v Heliosu (měsíčně) — zrcadlo výplatních pásek EC+ES."},
         {"key": "sync_fin",

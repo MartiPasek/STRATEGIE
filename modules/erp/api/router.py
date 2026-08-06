@@ -11265,7 +11265,8 @@ async def app_hr_odpovednost_list(req: Request):
             else:
                 doch_txt = "— nemá docházku —"; doch_zd = "—"; doch_gp = False
             # Jednatelé (Pašek EC2/ES41, Mózer EC47) → volno jim nikdo neschvaluje (jsou na vrcholu). Šárka 6.8.2026
-            je_jednatel = str(r[7] or "") in ("2", "41", "47")
+            # jednatel bez výjimky = nikdo; s výjimkou má přednost výjimka
+            je_jednatel = str(r[7] or "") in ("2", "41", "47") and not vyj_ids
             out.append({
                 "user_id": tuid, "emp_id": emp_id, "jmeno": r[2],
                 "firma": (r[3] or ""),

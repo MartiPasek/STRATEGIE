@@ -432,9 +432,11 @@ if(new URLSearchParams(location.search).get('embed'))document.body.classList.add
 loadTypy();
 loadPozice();
 // Šárka 21.7.2026: když přijde ?uid= (z karty zaměstnance), rovnou otevři tu osobu.
+// Šárka 6.8.2026: výchozí pohled = Tabulka (klik na řádek → karta detailu).
 load().then(function(){
   var u=new URLSearchParams(location.search).get('uid');
   if(u && !isNaN(parseInt(u))) openP(parseInt(u));
+  else if(!document.body.classList.contains('embed')) setView('tabulka');
 });
 </script>
 </body>

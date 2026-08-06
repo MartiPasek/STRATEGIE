@@ -350,8 +350,16 @@ def abs_promitni_zadost(s, rid, uid=None) -> int:
     # idempotence — shodně s /absence/decide
     s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=:t AND source_system='absence_req' "
                  "AND source_id=:i"), {"t": _TEN, "i": rid})
+    # Jirka 6.8.2026 (podnět Dušan, schválila Marti-AI): `ved_schvaleno` MUSÍ jít
+    # ze skutečného stavu žádosti, ne z výchozího True v `_zapis_dny`. Ten default
+    # patří správcovskému zadání („co zadá správce, platí hned" — Peťa 31.7.), ale
+    # sem se chodí i s obyčejnou žádostí z appky, která žádné rozhodnutí za sebou
+    # nemá. Bez toho dostal ✓ ve sloupci S i den u žádosti, kterou vedoucí nikdy
+    # neviděl — což je horší než prázdno, protože to vypadá jako rozhodnutí.
+    # Zápis dnů dopředu ZŮSTÁVÁ (pravidlo Peti z 30.7.), mění se jen ten příznak.
     dnu = _zapis_dny(s, int(emp), typ, d_od, d_do, float(hpd or 8),
-                     "absence ze žádosti", (uid or zad_uid), zdroj="absence", zad_id=rid)
+                     "absence ze žádosti", (uid or zad_uid), zdroj="absence", zad_id=rid,
+                     schvaleno=(stav == "approved"))
     if dnu:
         s.execute(_t("UPDATE tenant.att_absence_request SET materialized=true "
                      "WHERE id=:i AND tenant_id=:t"), {"i": rid, "t": _TEN})

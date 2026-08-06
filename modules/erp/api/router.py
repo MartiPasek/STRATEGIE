@@ -22044,6 +22044,56 @@ def _vyroba_can_manage(uid) -> bool:
         return False
 
 
+# ── Podklady OSVČ (fakturace) — konzole Výroby. Brána: rodiče + Dušan Havlát (41).
+#    Logika je v g2007.python (podklad_osvc_seznam, podklad_vyplaceni_pdf) — read-only.
+#    Tenké delegáty, C24/Kristy 6.8.2026.
+_PODKLAD_OSVC_UIDS = {41}  # Dušan Havlát
+
+
+def _podklad_osvc_can(uid) -> bool:
+    try:
+        return int(uid) in _PODKLAD_OSVC_UIDS or is_marti_parent(uid)
+    except Exception:
+        return False
+
+
+@api_router.get("/app/vyroba/podklad-osvc/seznam")
+async def app_vyroba_podklad_seznam(req: Request) -> JSONResponse:
+    """Seznam OSVČ pro výběr v konzoli Výroby (g2007.python podklad_osvc_seznam). Brána rodiče+Dušan."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        return JSONResponse(_ereg.call("podklad_osvc_seznam", uid))
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+
+
+@api_router.get("/app/vyroba/podklad-osvc/nahled")
+async def app_vyroba_podklad_nahled(req: Request) -> JSONResponse:
+    """Náhled + PDF (base64) podkladu k vyplacení pro daného zaměstnance (?uid=).
+    g2007.python podklad_vyplaceni_pdf. READ-ONLY, nic nezapisuje. Brána rodiče+Dušan."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    tgt = (req.query_params.get("uid") or "").strip()
+    if not tgt.isdigit():
+        return JSONResponse({"ok": False, "error": "chybí/špatné uid zaměstnance"}, status_code=400)
+    do_data = (req.query_params.get("do_data") or "").strip() or None
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        res = _ereg.call("podklad_vyplaceni_pdf", int(tgt), do_data)
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+    sc = res.pop("_status_code", 200) if isinstance(res, dict) else 200
+    return JSONResponse(res, status_code=sc)
+
+
 @api_router.get("/app/vyroba/can-manage")
 async def app_vyroba_can_manage(req: Request) -> JSONResponse:
     """DB-driven delegate (g2007.python kod=app_vyroba_can_manage). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""

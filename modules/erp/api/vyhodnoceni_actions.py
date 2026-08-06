@@ -41,6 +41,12 @@ _EC_ACTIONS = {
     "pripl_schvalit":    ("SELECT ec.pripl_srazky_schvalit(:id, :cmd)",           "id_cmd"),
 }
 
+# Akce, které sahají na PENÍZE — smí je spustit jen člověk uvedený v ec.akce_opravneni.
+# „Uzavřít" vytvoří výplaty (SuperHrubá) v ec.zakazky_finance_zam, „Zrušit" je smaže.
+# Ostatní akce (příprava, přepočet, koeficienty, sloučení, šéfmontér) jen počítají
+# nebo mění hodnocení — ty zůstávají na běžném přístupu do ERP.
+_EC_AKCE_S_OPRAVNENIM = frozenset({"uzavrit", "zrusit"})
+
 
 @api_router.post("/action/run")
 async def ec_action_run(req: Request) -> JSONResponse:
@@ -57,6 +63,22 @@ async def ec_action_run(req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds
     session = _gds()
     try:
+        # OPRÁVNĚNÍ na citlivé akce (Marti-AI 24.7.2026: „až při napojení reálných dat
+        # přidat explicitní oprávnění"; data napojena 5.8.2026). Uzávěrka VYTVÁŘÍ VÝPLATY
+        # a zrušení je MAŽE — bez tohohle by to mohl spustit kdokoli z ~20 lidí s přístupem
+        # do ERP. Seznam je KONFIGURACE v ec.akce_opravneni, ne kód: přidat/odebrat člověka
+        # = jeden řádek, žádný deploy. Zavřeno by default — kdo tam není, nesmí.
+        if ac in _EC_AKCE_S_OPRAVNENIM:
+            smi = session.execute(_t(
+                "SELECT 1 FROM ec.akce_opravneni WHERE akce = :a AND user_id = :u"),
+                {"a": ac, "u": uid}).first()
+            if not smi:
+                return JSONResponse(
+                    {"ok": False, "action": ac,
+                     "error": "Na tuto akci nemáš oprávnění. Vytváří (nebo maže) výplaty, "
+                              "proto ji smí spustit jen pověřená osoba."},
+                    status_code=403)
+
         params: dict = {}
         if kind == "zak":
             zak = str(d.get("cislo") or "").strip()

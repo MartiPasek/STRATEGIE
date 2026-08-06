@@ -63,7 +63,11 @@
   .dtbl th:hover{color:var(--title)}
   .dtbl tbody tr{cursor:pointer}
   .dtbl tbody tr:hover{background:#1b232d}
-  body.embed #tabview,body.embed .viewtog{display:none!important}
+  body.embed #tabview,body.embed #gpgview,body.embed .viewtog{display:none!important}
+  .gfind{border-left:3px solid #d9534f;padding:8px 12px;margin:8px 0;background:#241a1a;border-radius:0 8px 8px 0;font-size:12.5px}
+  .gfind.disp{border-color:#3a7fbf;background:#161f28}
+  .gfind.ok{border-color:#3a8a4d;background:#16281c}
+  .gtag{display:inline-block;font-size:10.5px;font-weight:700;border-radius:20px;padding:1px 8px}
   /* Šárka 21.7.2026: embed režim = vloženo do karty zaměstnance (schová seznam + horní lištu) */
   body.embed .top{display:none}
   body.embed .wrap{grid-template-columns:1fr;margin:0;max-width:none;padding:0}
@@ -75,7 +79,7 @@
 <body>
 <div class="top">
   <div class="b">💰 Finanční podmínky</div>
-  <span class="viewtog"><button id="vw_karty" class="on" onclick="setView('karty')">🗂 Karty</button><button id="vw_tab" onclick="setView('tabulka')">📋 Tabulka</button></span>
+  <span class="viewtog"><button id="vw_karty" class="on" onclick="setView('karty')">🗂 Karty</button><button id="vw_tab" onclick="setView('tabulka')">📋 Tabulka</button><button id="vw_gpg" onclick="setView('gpg')">⚖️ Gender pay gap</button></span>
   <span class="lock">🔒 citlivé · jen oprávnění</span>
 </div>
 <div class="wrap">
@@ -108,6 +112,16 @@
     <span class="ph" id="tcnt"></span>
   </div>
   <div style="overflow:auto;max-height:78vh"><table class="dtbl" id="dtbl"></table></div>
+</div>
+<div id="gpgview" style="display:none;max-width:1050px;margin:14px auto;padding:0 16px">
+  <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">EUROSOFT Control + System · zdroj: auditní GPG tabulky (výpočet + podklady) · hranice směrnice o transparentnosti = <b>5 %</b></div>
+  <h3 style="font-size:14px;color:var(--title);margin:6px 0 6px">🚩 Nesrovnalosti k řešení</h3>
+  <div id="gpgfind"></div>
+  <h3 style="font-size:14px;color:var(--title);margin:18px 0 6px">EUROSOFT — Control</h3>
+  <table class="dtbl" id="gpgC"></table>
+  <h3 style="font-size:14px;color:var(--title);margin:18px 0 6px">EUROSOFT — System</h3>
+  <table class="dtbl" id="gpgS"></table>
+  <div style="font-size:11.5px;color:var(--muted);margin:10px 2px">„⌀" = průměr. GPG jen tam, kde jsou na pozici obě pohlaví; jinak nutný přepočet na plný úvazek. Zdroj pravdy pro odměnu = smlouva.</div>
 </div>
 <script>
 const API="/api/v1/erp";
@@ -260,12 +274,53 @@ const TCOLS=[
   {k:'stav',t:'Stav'}
 ];
 function setView(v){
-  const isT=(v==='tabulka');
-  document.querySelector('.wrap').style.display=isT?'none':'';
-  document.getElementById('tabview').style.display=isT?'':'none';
-  document.getElementById('vw_tab').classList.toggle('on',isT);
-  document.getElementById('vw_karty').classList.toggle('on',!isT);
-  if(isT && !TABLOADED) loadTabulka();
+  document.querySelector('.wrap').style.display=(v==='karty')?'':'none';
+  document.getElementById('tabview').style.display=(v==='tabulka')?'':'none';
+  document.getElementById('gpgview').style.display=(v==='gpg')?'':'none';
+  document.getElementById('vw_karty').classList.toggle('on',v==='karty');
+  document.getElementById('vw_tab').classList.toggle('on',v==='tabulka');
+  document.getElementById('vw_gpg').classList.toggle('on',v==='gpg');
+  if(v==='tabulka' && !TABLOADED) loadTabulka();
+  if(v==='gpg' && !GPGLOADED){ renderGpg(); GPGLOADED=true; }
+}
+/* ── Gender pay gap (Šárka 6.8.2026) — jako záložka ve Finančních podmínkách ── */
+let GPGLOADED=false;
+const GPG_C=[
+ ["referentka nákupu a logistiky",0,33795,"na",""],["referentka nákupu",0,37285,"na",""],
+ ["elektromontér",44442,0,"disp","rozptyl 37,67 %"],["mechanik",38941,0,"na",""],
+ ["asistentka do týmu vedení projektů",0,45984,"na",""],["zámečník",32206,0,"na",""],
+ ["elektromontér junior",41354,0,"na",""],["vedoucí projektů",75257,0,"na",""],
+ ["asistentka jednatele",0,59787,"na",""],["obchodně technický manažer",65394,0,"na",""]];
+const GPG_S=[
+ ["elektromontér",35072,31723,"gpg","GPG 9,55 % · rozptyl 65,12 % · Brudnová 35 h"],
+ ["elektroprojektant",70328,0,"na",""],["přípravář obráběcího centra Perforex",30702,0,"na",""],
+ ["asistentka jednatele a vedení společnosti",0,40147,"na",""],["asistentka týmu vedení projektů",0,38867,"na",""],
+ ["manažer kvality",0,51056,"na",""],["kalkulant",53239,0,"na",""],
+ ["referentka nákupu a logistiky",0,35632,"na",""],["SQL programátor pro IS Centrálu",0,51794,"na",""],
+ ["pracovník v příjmu zboží",0,36806,"na",""],["personalistka",0,54995,"na","Šárka (opraveno na ženu)"],
+ ["vedoucí projektů (obchodní zástupce)",71656,29725,"gpg","GPG 58,52 % — Veverková 30 h, zkresleno úvazkem"],
+ ["skladový asistent",28539,0,"na",""],["elektromontér pro přípravné práce ve výrobě",0,29172,"na",""],
+ ["zámečník",35665,0,"na",""]];
+function gpgKc(n){return n?Math.round(n).toLocaleString('cs-CZ')+' Kč':'—';}
+function gpgTagCss(f){return f==='gpg'?'background:#3a1f1f;color:#ff9a8a;border:1px solid #5a2a26':
+  f==='disp'?'background:#16283a;color:#8fc0ef;border:1px solid #2b4a66':
+  f==='na'?'background:#1f2730;color:#8798a8;border:1px solid #33414f':'background:#16281c;color:#7fe0a0;border:1px solid #2b4a36';}
+function gpgTag(f){const t=f==='gpg'?'GPG &gt; 5 %':f==='disp'?'rozptyl':f==='na'?'nelze porovnat':'OK';
+  return '<span class="gtag" style="'+gpgTagCss(f)+'">'+t+'</span>';}
+function gpgTable(id,rows){
+  let h='<thead><tr><th>Pozice</th><th style="text-align:right">⌀ muž</th><th style="text-align:right">⌀ žena</th><th>Hodnocení</th><th>Poznámka</th></tr></thead><tbody>';
+  rows.forEach(r=>{const bg=r[3]==='gpg'?'background:#241a1a':(r[3]==='disp'?'background:#161f28':'');
+    h+='<tr style="'+bg+'"><td>'+esc(r[0])+'</td><td class="num">'+gpgKc(r[1])+'</td><td class="num">'+gpgKc(r[2])+'</td><td>'+gpgTag(r[3])+'</td><td style="color:var(--muted)">'+esc(r[4]||'')+'</td></tr>';});
+  document.getElementById(id).innerHTML=h+'</tbody>';
+}
+function renderGpg(){
+  document.getElementById('gpgfind').innerHTML=
+   '<div class="gfind"><b>System — elektromontér: GPG 9,55 %</b> (muži ⌀ 35 072 × ženy ⌀ 31 723, ženy méně). Nad hranicí 5 % → nutné odůvodnit. Info: většina 40 h, Brudnová 35 h → srovnávat na plný úvazek (FTE).</div>'+
+   '<div class="gfind"><b>System — vedoucí projektů (obch. zástupce): GPG 58,52 %</b> (muž ⌀ 71 656 × žena ⌀ 29 725). Zkresleno úvazkem: žena (Veverková) 30 h, nižší základ; muž (Pašek) 40 h. Před závěrem přepočítat na plný úvazek.</div>'+
+   '<div class="gfind disp"><b>Velké rozdíly na stejné pozici</b> (rozptyl, ne gender): elektromontér Control 37,67 %, System 65,12 %, vedoucí projektů System 141,06 % → řešit v kategorizaci a mzdových pásmech.</div>'+
+   '<div class="gfind ok"><b>Opraveno:</b> v auditním Excelu byla Šárka Novotná omylem jako „Muž". V naší databázi je správně jako žena — chyba byla jen v exportu.</div>'+
+   '<div style="font-size:12px;color:var(--muted);margin:6px 0"><b>Control:</b> žádná pozice nemá zároveň muže i ženy → gender gap nelze spočítat (jen rozptyl).</div>';
+  gpgTable('gpgC',GPG_C); gpgTable('gpgS',GPG_S);
 }
 async function loadTabulka(){
   const _b=document.getElementById('tbyv');

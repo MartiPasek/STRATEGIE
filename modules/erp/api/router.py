@@ -46811,6 +46811,8 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ⚠ MRTVÝ KÓD od 6. 8. 2026 — SQL Raportů prací žije v DB (g2007.python kod=payroll_raporty).
+# Tohle už nikdo nevolá; needituj to tady, změny dělej v DB. Ponecháno jen pro historii.
 _RAPORTY_SQL = """
 WITH wc AS (
   SELECT en.id eng_id, en.employee_id, en.company_id, upper(en.engagement_type) typ,
@@ -46928,66 +46930,24 @@ async def app_payroll_raporty(req: Request) -> JSONResponse:
     z reálných dat STRATEGIE: podmínky (wage_component), docházka (att_day_summary),
     odměny/srážky (wage_movement), stravenky (docházka), sleva na dani (c_smlouva),
     děti (user_self_child). Jen aktuální HPP/DPP poměry (OSVČ mimo). Rodič/mzdy read.
-    ?rok=&mesic=&firma=EC|ES|ALL (default ALL). C24 (Kristý) 4.8.2026."""
+    ?rok=&mesic=&firma=EC|ES|ALL (default ALL). C24 (Kristý) 4.8.2026.
+
+    DB-driven delegate (g2007.python kod=payroll_raporty). Tělo migrováno do DB
+    6. 8. 2026 (Claude-26 / Peťa) podle pravidla „kód žije v DB" (Marti 2.8.2026).
+    Zároveň opraveno: příplatek za přesčas („Prémie za loajalitu") byl v raportu
+    vždy 0 — četl se z tenant.wage_movement, kam se nikdy nezapisuje. Nově si
+    raport volá stejný výpočet jako mzdy (mzdy_loajalita_rows, složka 651).
+    Případné další úpravy dělej V DB, ne tady."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not (_app_parent(s, uid) or _has_capability(uid, 'mzdy', 'read')):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        periods = s.execute(_t(
-            "SELECT DISTINCT rok, mesic FROM tenant.att_day_summary WHERE tenant_id=2 AND rok IS NOT NULL "
-            "ORDER BY rok DESC, mesic DESC")).fetchall()
-        try:
-            y = int(req.query_params.get("rok") or 0)
-            m = int(req.query_params.get("mesic") or 0)
-        except Exception:
-            y = m = 0
-        if not (y and m):
-            if periods:
-                y, m = int(periods[0][0]), int(periods[0][1])
-            else:
-                import datetime as _d
-                _t0 = _d.date.today()
-                y, m = _t0.year, _t0.month
-        firma = (req.query_params.get("firma") or "ALL").upper()
-        if firma not in ("EC", "ES", "ALL"):
-            firma = "ALL"
-        rows = s.execute(_t(_RAPORTY_SQL), {"y": y, "m": m, "firma": firma}).mappings().all()
-
-        def fl(v):
-            return float(v) if v is not None else 0.0
-        out = []
-        for r in rows:
-            ks = int(r["stravenky_ks"] or 0)
-            sp = r["sleva_poplatnik"]
-            out.append({
-                "firma": r["firma"], "cislo": r["cislo"], "jmeno": r["jmeno"], "typ": r["typ"],
-                "uvazek_den": round(fl(r["uvazek_den"]), 2),
-                "zaklad": fl(r["zaklad"]), "os_ohod": fl(r["os_ohod"]), "fir_kultura": fl(r["fk"]),
-                "produkce": fl(r["produkce"]), "garant": fl(r["garant"]), "vedeni_lidi": fl(r["vedeni"]),
-                "kvalita": fl(r["kvalita"]), "individ": fl(r["individ"]),
-                "sazba_bez_fk": fl(r["sazba_bezfk"]), "sazba_s_fk": fl(r["sazba_sfk"]),
-                "odprac": fl(r["odprac"]), "celkem_hodin": fl(r["celkem"]), "prescas": fl(r["prescas"]),
-                "dovolena": fl(r["dovolena"]), "nemoc": fl(r["nemoc"]), "sickday": fl(r["sickday"]),
-                "ocr": fl(r["ocr"]), "lekar": fl(r["lekar"]), "montaz": fl(r["montaz"]),
-                "materska": fl(r["materska"]), "nahr_volno": fl(r["nahr_volno"]),
-                "nariz_volno": fl(r["nariz_volno"]), "absence": fl(r["absence_h"]),
-                "prekazka": fl(r["prekazka"]), "fpd": fl(r["fond"]),
-                "stravenky_ks": ks, "stravenky_kc": ks * 82,
-                "loajalita": fl(r["loajalita"]), "vernostni": fl(r["vernostni"]),
-                "odmeny_srazky_celkem": fl(r["odmeny_srazky"]),
-                "pohyby": (r["pohyby"] or []),
-                "sleva_na_dani": ("Uplatňuje slevu" if sp is True else ("Neuplatňuje slevu" if sp is False else "neuvedeno")),
-                "deti_pocet": int(r["deti_n"] or 0), "deti_jmena": (r["deti_jmena"] or ""),
-            })
-        return JSONResponse({"ok": True, "rok": y, "mesic": m, "firma": firma,
-                             "periods": [{"rok": p[0], "mesic": p[1]} for p in periods],
-                             "rows": out})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("payroll_raporty", uid,
+                        req.query_params.get("rok"),
+                        req.query_params.get("mesic"),
+                        req.query_params.get("firma"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/absence-registr")

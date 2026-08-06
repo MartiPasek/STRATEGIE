@@ -11209,7 +11209,8 @@ async def app_hr_odpovednost_list(req: Request):
             " EXISTS(SELECT 1 FROM tenant.att_odpovednost o WHERE o.tenant_id=2 AND o.agenda='dochazka' "
             "    AND o.user_id=ae.user_id AND o.aktivni=true AND (o.platnost_do IS NULL OR o.platnost_do>=current_date)) vyj_doch, "
             " ae.cislo_zam, (SELECT string_agg(DISTINCT lower(e2.engagement_type),'/') FROM tenant.engagement e2 "
-            "    WHERE e2.employee_id=ae.id AND e2.tenant_id=2 AND e2.is_current=true) typ "
+            "    WHERE e2.employee_id=ae.id AND e2.tenant_id=2 AND e2.is_current=true) typ, "
+            " (SELECT count(*) FROM tenant.att_entry en WHERE en.employee_id=ae.id AND en.tenant_id=2) n_att "
             "FROM tenant.att_employee ae LEFT JOIN public.users u ON u.id=ae.user_id "
             "WHERE ae.tenant_id=2 AND ae.is_active=true AND ae.user_id IS NOT NULL "
             "ORDER BY lower(COALESCE(u.last_name, ae.full_name)), lower(COALESCE(u.first_name,''))")).fetchall()
@@ -11258,9 +11259,11 @@ async def app_hr_odpovednost_list(req: Request):
                 "volno_zdroj": ("výjimka" if vyj_ids else ("odvozeno" if sys_ids else "—")),
                 "volno_system": (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if vyj_ids else ""),
                 "volno_gap": (len(akt_ids) == 0),
-                "doch_kontrola": ", ".join(nm.get(i, "#" + str(i)) for i in doch_ids),
-                "doch_zdroj": ("výjimka" if r[6] else ("odvozeno" if doch_ids else "—")),
-                "doch_gap": (len(doch_ids) == 0),
+                "doch_kontrola": (", ".join(nm.get(i, "#" + str(i)) for i in doch_ids)
+                                  if int(r[9] or 0) > 0 else "— nemá docházku —"),
+                "doch_zdroj": (("výjimka" if r[6] else ("odvozeno" if doch_ids else "—"))
+                               if int(r[9] or 0) > 0 else "—"),
+                "doch_gap": (len(doch_ids) == 0 if int(r[9] or 0) > 0 else False),
             })
         moznosti = []
         try:

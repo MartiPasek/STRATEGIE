@@ -379,6 +379,49 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
     dny = _pracovni_dny(s, d_od, d_do)
     if not dny:
         return 0
+    # ── POJISTKA PROTI DVOJÍMU ZAPSÁNÍ TÉŽE ABSENCE (Peťa 6. 8. 2026) ──────────
+    # Zadání Peti: „i kdyby vyskočilo 18 notifikací na schválení, má proběhnout jen
+    # příznak schválení, ne zakládat nové řádky."
+    # Co se stalo 24. 7. 2026: Čiviš (522) podal třikrát po sobě tutéž žádost
+    # o dovolenou na jeden den (#35, #36, #37). Vedoucí je 5. 8. všechny schválil
+    # a vznikly TŘI záznamy po 8 h = 24 h za jediný den. Nafoukla se mu tím
+    # absence, a tím i FPD a přesčas (16,34 h místo 0,34 h → příplatek 4 908 Kč
+    # místo ~100 Kč). Ve mzdách by to prošlo.
+    # Proč to staré chování nezachytilo: materializace žádosti maže jen SVOJE
+    # dřívější řádky (source_id = tato žádost), takže tři různé žádosti si
+    # navzájem nepřekážely.
+    # Pravidlo: den PŘESKOČÍME, pokud by se součet hodin téhož druhu absence za
+    # ten den dostal NAD denní úvazek. Půldny (4 + 4 = 8) tím zůstávají možné —
+    # blokuje se až to, co dohromady nedává smysl (8 + 8 = 16).
+    try:
+        # denní úvazek člověka (kolik hodin absence se za den vůbec vejde);
+        # když ho neznáme, bereme 8 h
+        _limit = s.execute(_t(
+            "SELECT COALESCE(MAX(g.uvazek_tyden_h),40)/5.0 FROM tenant.engagement g "
+            "WHERE g.employee_id=:e AND COALESCE(g.is_current,false)=true"),
+            {"e": emp}).scalar()
+        _limit = float(_limit or 8.0)
+        if _limit <= 0:
+            _limit = 8.0
+        _obsazeno = {}
+        for _r in s.execute(_t(
+            "SELECT entry_date, COALESCE(SUM(hours),0) FROM tenant.att_entry "
+            "WHERE tenant_id=:t AND employee_id=:e AND entry_type_id=:ti "
+            "  AND entry_date = ANY(:dny) "
+            "  AND status IS DISTINCT FROM 'superseded' "
+            "  AND status IS DISTINCT FROM 'announced' "
+            + ("  AND COALESCE(source_id,-1) <> :zid " if zad_id else "") +
+            "GROUP BY entry_date"),
+                dict({"t": _TEN, "e": emp, "ti": ti, "dny": list(dny)},
+                     **({"zid": zad_id} if zad_id else {}))).fetchall():
+            _obsazeno[_r[0]] = float(_r[1] or 0)
+        if _obsazeno:
+            dny = [d for d in dny
+                   if _obsazeno.get(d, 0.0) + float(hpd) <= _limit + 0.001]
+        if not dny:
+            return 0
+    except Exception:
+        pass  # pojistka nikdy nesmí shodit samotný zápis
     konec_min = min(1439, 360 + int(round(float(hpd) * 60)))
     konec = "%02d:%02d:00" % (konec_min // 60, konec_min % 60)
     # `ved_schvaleno` = zaškrtnutí „Schváleno" v okně (Peťa 31.7.2026). Co zadává

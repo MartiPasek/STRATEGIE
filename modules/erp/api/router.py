@@ -42319,129 +42319,18 @@ def _sync_mzdovy_list_from_helios() -> dict:
 
 
 def _sync_priplatky_from_ec() -> dict:
-    """Import příplatků/srážek EC_FinPriplatkySrazkyDefinice → tenant.wage_movement.
-    Idempotentní dle (import_src='EC_PRIPL', import_src_id=EC.ID) → re-sync živého
-    měsíce přepíše, nezduplikuje. Typ→movement_type přes kód, CisloZam→engagement.
-    Vrací {imported, skipped}. Marti 10.6.2026 — řádná UI sync akce, ne jednorázový skript."""
-    import json as _json_p
-    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-    from modules.strategie_pg.application import service as _pg
-    from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
+    """DB-driven delegate (g2007.python kod=sync_priplatky_from_ec). Telo migrovano do DB
+    6. 8. 2026 (C28/Jirka, schvalila Marti-AI msg 12356) na podnet Peti/C26.
 
-    # EC typ příplatku/srážky → náš kód wage_component_type
-    # ⚠️ Co tu NENÍ, se do wage_movement NEDOSTANE (níž `if mt is None: skipped`), a protože
-    # mzda se počítá z wage_movement, ten řádek pak nikomu nedojde. Ověřeno 27. 7. 2026 (C28):
-    # typ 23 „Odměna garant" (ReakceMzdy=true, MS 651) tady chyběl → řádek 19917 (Marek Honal,
-    # 7/2026, 250 Kč) propadal. Doplněno + mapování garant_odmena→HELIOS 651.
-    # Zbylé typy v datech 2026 bez mapy jsou ZÁMĚRNĚ mimo mzdu (ReakceMzdy=false, OSVČ větev):
-    # 42 „OSVČ – korekce neodpracovaných hodin", 43 „Telefonní tarif OSVČ".
-    TYP_MAP = {
-        37: "nahrada_obleceni", 40: "korekce_os_ohod", 38: "nahrada_home_office",
-        4: "srazka_telefon", 36: "odmeny_vp", 7: "jednorazova_odmena", 47: "cestovne",
-        44: "odmena_garant_ctvrt", 9: "proplaceni_vernostni", 13: "prispevek_novy_prac",
-        32: "odstupne", 5: "premie_proskoleni", 20: "fakturace_zaklad",
-        23: "garant_odmena",
-    }
-
-    def rows_of(sql):
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-        r = _json_p.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(r, dict):
-            if r.get("ok") is False:
-                raise RuntimeError(str(r.get("error")))
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    return r[k]
-        return r if isinstance(r, list) else []
-
-    cm = _pg.get_session()
-    s = cm.__enter__()
-    total = 0
-    skipped = 0
-    try:
-        type_id = {r2[0]: r2[1] for r2 in s.execute(_t(
-            "SELECT code, id FROM tenant.wage_component_type WHERE tenant_id = 2")).fetchall()}
-        eng_cache = {}
-
-        def eng_id(cislo):
-            key = str(cislo).strip()
-            if not key:
-                return None
-            if key in eng_cache:
-                return eng_cache[key]
-            r3 = s.execute(_t(
-                "SELECT en.id FROM tenant.att_employee e "
-                "JOIN tenant.engagement en ON en.employee_id = e.id AND en.is_current = true "
-                "WHERE e.tenant_id = 2 AND e.cislo_zam = :c ORDER BY en.id LIMIT 1"),
-                {"c": key}).first()
-            eng_cache[key] = r3[0] if r3 else None
-            return eng_cache[key]
-
-        last_id = 0
-        while True:
-            batch = rows_of(
-                "SELECT TOP 2000 d.ID, d.CisloZam, d.Typ, d.Castka, d.Hodiny, d.Sazba, "
-                "d.Mesicne, d.Mesic, d.Rok, d.Schvaleno, d.[Přeneseno] AS Preneseno, "
-                "CONVERT(varchar(10), d.PlatnostOd, 23) AS PlatOd, "
-                "CONVERT(varchar(10), d.PlatnostDo, 23) AS PlatDo, d.CisloZakazky "
-                "FROM EC_FinPriplatkySrazkyDefinice d "
-                "WHERE d.Rok = 2026 AND d.ID > %d ORDER BY d.ID" % last_id)
-            if not batch:
-                break
-            for b in batch:
-                last_id = int(b["ID"])
-                code = TYP_MAP.get(int(b.get("Typ") or 0))
-                mt = type_id.get(code) if code else None
-                eng = eng_id(b.get("CisloZam"))
-                if mt is None or eng is None:
-                    skipped += 1
-                    continue
-                castka = float(b.get("Castka") or 0)
-                hodiny = float(b.get("Hodiny") or 0)
-                sazba = float(b.get("Sazba") or 0)
-                if hodiny and not castka:
-                    amount, hours, rate = None, hodiny, (sazba or None)
-                else:
-                    amount, hours, rate = castka, None, None
-                if int(b.get("Preneseno") or 0) != 0:
-                    st = "exported"
-                elif int(b.get("Schvaleno") or 0) == 1:
-                    st = "approved"
-                else:
-                    st = "pending"
-                py = int(b.get("Rok"))
-                pm = int(b.get("Mesic") or 1)
-                vfrom = b.get("PlatOd") or ("%04d-%02d-01" % (py, pm))
-                vto = b.get("PlatDo") or None
-                s.execute(_t(
-                    "INSERT INTO tenant.wage_movement (tenant_id, engagement_id, movement_type_id,"
-                    " period_year, period_month, amount, hours, rate, is_recurring, valid_from,"
-                    " valid_to, status, exported_at, zakazka_ref, import_src, import_src_id, created_at)"
-                    " VALUES (2, :eng, :mt, :py, :pm, :amt, :hrs, :rate, :rec, :vf, :vt, :st,"
-                    " CASE WHEN :st = 'exported' THEN now() ELSE NULL END, :zak, 'EC_PRIPL', :sid, now())"
-                    " ON CONFLICT (tenant_id, import_src, import_src_id) DO UPDATE SET"
-                    " engagement_id = EXCLUDED.engagement_id, movement_type_id = EXCLUDED.movement_type_id,"
-                    " period_year = EXCLUDED.period_year, period_month = EXCLUDED.period_month,"
-                    " amount = EXCLUDED.amount, hours = EXCLUDED.hours, rate = EXCLUDED.rate,"
-                    " is_recurring = EXCLUDED.is_recurring, valid_from = EXCLUDED.valid_from,"
-                    " valid_to = EXCLUDED.valid_to, status = EXCLUDED.status,"
-                    " exported_at = EXCLUDED.exported_at, zakazka_ref = EXCLUDED.zakazka_ref"),
-                    {"eng": eng, "mt": mt, "py": py, "pm": pm, "amt": amount, "hrs": hours,
-                     "rate": rate, "rec": bool(int(b.get("Mesicne") or 0)), "vf": vfrom, "vt": vto,
-                     "st": st, "zak": (b.get("CisloZakazky") or None), "sid": int(b["ID"])})
-                total += 1
-            s.commit()
-        s.commit()
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        cm.__exit__(None, None, None)
-    return {"imported": total, "skipped": skipped}
+    Duvod migrace: puvodni TYP_MAP byl natvrdo v kodu a pokryval 14 z 49 typu Centraly.
+    Co v nem nebylo, se TISE zahodilo - presne tim se neprenaselo 47 radku "Odmeny z financi
+    zakazek" (EC typ 50, 18 lidi, 11 870 Kc za 7/2026). Nova verze v DB: prevodnik se cte
+    z ciselniku tenant.wage_component_type (ec_typ_id), typy 1/2/3 (DPP -> 700) a 17 (jednatel
+    -> 693) jsou zamerne blokovane kvuli rucnim mzdovym slozkam (Marti 10. 7. 2026, dvoji
+    zapocteni) a navratovka nese rozpad zahozenych radku {typ, duvod, pocet, castka, lidi}
+    misto holeho cisla 'skipped'."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_priplatky_from_ec")
 
 
 # ---------------------------------------------------------------------------

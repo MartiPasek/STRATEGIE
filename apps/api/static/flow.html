@@ -72,6 +72,7 @@ var TILES=[
   {id:'vyhodnoceni',ic:'📈', lb:'Výroba — vyhodnocení', sm:'efektivita montérů', ready:true},
   {id:'odvozy',  ic:'🚚', lb:'Odvozy',      sm:'doprava zákazníkovi', ready:true},
   {id:'fakturace',ic:'🧾', lb:'Fakturace',  sm:'stav fakturace', ready:true},
+  {id:'podklady',ic:'📄', lb:'Podklady OSVČ', sm:'fakturace dílny (OSVČ)', ready:true},
   {id:'analyza', ic:'📊', lb:'Analýza',     sm:'kde co vázne (celý flow)', ready:true}
 ];
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
@@ -99,6 +100,7 @@ function route(){
   if(v==='analyza'){ renderAnalyza(c); return; }
   if(v==='vp'){ renderVP(c); return; }
   if(v==='nakup'){ renderNakup(c); return; }
+  if(v==='podklady'){ renderPodklady(c); return; }
   if(SECVIEW[v]){
     if(SEC[v]){ SECVIEW[v](c, SEC[v]); }
     else { var ld=document.createElement('div'); ld.className='muted'; ld.textContent='Načítám…'; c.appendChild(ld);
@@ -176,6 +178,51 @@ function renderObchod(c,j){
   c.appendChild(t);
 }
 function muted(txt){var m=document.createElement('div');m.className='muted';m.textContent=txt;return m;}
+function renderPodklady(c){
+  var box=document.createElement('div'); c.appendChild(box);
+  box.innerHTML='<div class="muted">Načítám seznam dílny…</div>';
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/seznam',{credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if(!(j&&j.ok)){ box.innerHTML='<div class="err">Podklady OSVČ jsou jen pro vedoucího výroby (Dušan) a vedení.</div>'; return; }
+      var lidi=j.lidi||[];
+      box.innerHTML='<div class="muted" style="margin-bottom:10px">Vyber člověka z dílny → náhled toho, co je k fakturaci → PDF. Jen čtení, nic se nezapisuje.</div><div id="pdkList"></div><div id="pdkView"></div>';
+      var list=box.querySelector('#pdkList');
+      if(!lidi.length){ list.innerHTML='<div class="muted">Žádní OSVČ v dílně.</div>'; return; }
+      lidi.forEach(function(p){
+        var b=document.createElement('button'); b.className='chip'; b.style.margin='3px 6px 3px 0';
+        b.textContent=p.jmeno+' (č.'+p.cislo+')';
+        b.onclick=function(){ pdkOpen(p, box.querySelector('#pdkView')); };
+        list.appendChild(b);
+      });
+    }).catch(function(){ box.innerHTML='<div class="err">Chyba načítání seznamu.</div>'; });
+}
+function pdkOpen(p, view){
+  view.innerHTML='<div class="muted" style="margin-top:10px">Načítám náhled '+esc(p.jmeno)+'…</div>';
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/nahled?uid='+encodeURIComponent(p.uid),{credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(r){
+      if(!(r&&r.ok)){ view.innerHTML='<div class="err" style="margin-top:10px">Chyba: '+esc((r&&r.error)||'?')+'</div>'; return; }
+      var rows=r.radky||[];
+      var t='<div style="margin-top:12px;font-weight:600">'+esc(r.jmeno)+' — období '+esc(r.obdobi)+', sazba '+esc(r.sazba)+' Kč/h</div>';
+      if(!rows.length){ t+='<div class="muted" style="margin:6px 0">Nic k fakturaci (vše už objednáno).</div>'; }
+      else {
+        t+='<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px">'
+          +'<tr style="text-align:right;color:#9fb0c0"><th style="text-align:left">Č. zakázky</th><th>Již vypl.</th><th>Hodin</th><th>Vyplatit</th></tr>';
+        rows.forEach(function(x){ t+='<tr style="text-align:right;border-top:1px solid #22303f"><td style="text-align:left">'+esc(x.zakazka)+'</td><td>'+esc(x.jiz)+'</td><td>'+esc(x.hodiny)+'</td><td><b>'+esc(x.vyplatit)+'</b></td></tr>'; });
+        t+='<tr style="text-align:right;border-top:2px solid #22303f"><td style="text-align:left"><b>Celkem k fakturaci</b></td><td></td><td></td><td><b>'+esc(r.celkem)+' Kč</b></td></tr></table>';
+      }
+      t+='<button id="pdkPdf" style="margin-top:6px;cursor:pointer;background:#10b981;color:#04150e;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📄 Otevřít / tisk PDF</button>';
+      view.innerHTML=t;
+      view.querySelector('#pdkPdf').onclick=function(){ pdkPdf(r); };
+    }).catch(function(){ view.innerHTML='<div class="err" style="margin-top:10px">Chyba náhledu.</div>'; });
+}
+function pdkPdf(r){
+  try{ var bin=atob(r.pdf_b64), arr=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    var url=URL.createObjectURL(new Blob([arr],{type:'application/pdf'})); window.open(url,'_blank');
+  }catch(e){ alert('PDF chyba: '+e); }
+}
 function renderVyroba(c,j){
   var rows=(j&&j.vyroba)||[];
   function cnt(s){return rows.filter(function(r){return r.stav===s;}).length;}

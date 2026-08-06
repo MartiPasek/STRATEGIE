@@ -103,7 +103,7 @@
 <body>
 <div class="top">
   <div class="b">💰 Finanční podmínky</div>
-  <span class="viewtog"><button id="vw_karty" class="on" onclick="setView('karty')">🗂 Karty</button><button id="vw_tab" onclick="setView('tabulka')">📋 Tabulka</button><button id="vw_gpg" onclick="setView('gpg')">⚖️ Gender pay gap</button></span>
+  <span class="viewtog"><button id="vw_karty" class="on" onclick="setView('karty')">🗂 Karty</button><button id="vw_tab" onclick="setView('tabulka')">📋 Tabulka</button></span>
   <span class="lock">🔒 citlivé · jen oprávnění</span>
 </div>
 <div class="wrap">
@@ -302,12 +302,10 @@ const TCOLS=[
 function setView(v){
   document.querySelector('.wrap').style.display=(v==='karty')?'':'none';
   document.getElementById('tabview').style.display=(v==='tabulka')?'':'none';
-  document.getElementById('gpgview').style.display=(v==='gpg')?'':'none';
+  var _g=document.getElementById('gpgview'); if(_g)_g.style.display='none';
   document.getElementById('vw_karty').classList.toggle('on',v==='karty');
   document.getElementById('vw_tab').classList.toggle('on',v==='tabulka');
-  document.getElementById('vw_gpg').classList.toggle('on',v==='gpg');
   if(v==='tabulka' && !TABLOADED) loadTabulka();
-  if(v==='gpg' && !GPGLOADED){ renderGpg(); GPGLOADED=true; }
 }
 /* ── Gender pay gap (Šárka 6.8.2026) — jako záložka ve Finančních podmínkách ── */
 let GPGLOADED=false;

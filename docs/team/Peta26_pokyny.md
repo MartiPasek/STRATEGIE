@@ -187,6 +187,32 @@ na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá)
   Stejně tak „ostatní - kanceláře" bez čísla byla duplicita → platí činnost **6**.
 - **Kde to je celé:** G2007, znalost `doc-dochazka-cinnosti-ciselnik-centrala-vs-strategie`.
   Než se Peťy na cokoli kolem činností zeptáš, přečti si ji — už jsme to řešili 3×.
+- **Zrušené záznamy docházky (`superseded`) se do mezd NEPOČÍTAJÍ — dořešeno 6. 8. 2026.**
+  Filtr doplněn do `mzdy_absence_rows` a `mzdy_benefity_apply` (ostatní ho měly). Detail
+  i s dopadem (Jirkovský −5 043 Kč) je na zdi: `Peta26_mzdy.md`, oddíl 7b. **Duplicity
+  v docházce samy o sobě nejsou chyba** — přebytečné řádky jsou zrušené, platný je jeden.
+- **Landmark bere `OsOhodReal`, ne `OsOhod` — ověřeno 6. 8. 2026** proti podkladu přímo
+  od Landmarku (květen 2026). A počítá se **celá pohyblivá část** (osobní + prémie +
+  individuální), ne jen osobní ohodnocení. Detail na zdi, oddíl 7c. **Neodvozovat znovu.**
+
+## ⛔ NEŽ OHLÁSÍŠ CHYBU — OVĚŘ SI VLASTNÍ KONTROLU (Peťa 6. 8. 2026)
+
+Peťa 6. 8. ráno dostala hlášku *„je tam 6 chyb"*. **Žádná z nich chyba nebyla** — Claude‑26
+počítal kontrolu ze špatných vstupů (jen osobní ohodnocení místo celé pohyblivé částky).
+Peťa nad tím strávila večer zbytečně.
+
+**Pravidlo:** než něco označíš za chybu ve mzdách, projdi tenhle sled:
+
+1. **Sedí moje kontrola tam, kde sedět MÁ?** Když ti z padesáti lidí „nesedí" třicet,
+   chyba je skoro jistě v kontrole, ne v datech. Když nesedí dva, stojí za to se dívat dál.
+2. **Beru stejné vstupy jako výpočet?** Ne „podobné" — stejné. Přečti si zdroj skriptu
+   v `g2007.python` a vstupy si vytáhni odtud, ne z vlastní rekonstrukce.
+3. **Dopočítej zpětně.** Z výsledku ve výplatnici spočítej, jaký vstup by ho vysvětlil.
+   Když ti vyjde kulaté číslo (7 500, 8 500, 15 500), je vstup správný a chybu máš ty.
+4. **Teprve pak hlas.** A hlas počet, ne domněnky.
+
+Platí i obráceně: **když Peťa řekne „tohle je divné", je to skoro vždycky opravdu divné.**
+Neobhajovat vlastní hypotézu, jít do dat.
 
 ## PODPIS pod zprávami, které za Petru píšu (Peťa 29.7.2026, závazné)
 Když Peťa řekne „napiš zprávu / napiš mu / pošli jí" a text pak jen přepošle dál

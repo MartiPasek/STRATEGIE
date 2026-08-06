@@ -188,7 +188,106 @@ automaticky ze stravenek i z přesčasů — **leden 2027 se doplní sám**, nik
 | `kalendar_zajisti` | doplnění kalendáře na rok |
 | `mzdy_stravenky_rows` | stravenky — pracovní dny z kalendáře, vyloučené činnosti |
 | `mzdy_loajalita_rows` | přesčas — FPD z `att_den_hodiny`, fond bez svátků, koeficienty `_KOEF_*` |
+| `mzdy_absence_rows` | absence do Heliosu (dovolená 211, nemoc 200, lékař 243, OČR 251, mateřská 255) |
+| `mzdy_benefity_apply` | Landmark náhrady (oblečení 794, home office 795, korekce 432) |
 | `mzdy_generuj` | celý běh „čistá voda" |
+
+## 7b. ⛔ ZRUŠENÉ ZÁZNAMY DOCHÁZKY SE DO MEZD NEPOČÍTAJÍ (Peťa 6. 8. 2026)
+
+**Pravidlo:** každý mzdový výpočet, který čte `tenant.att_entry`, MUSÍ vyfiltrovat zrušené
+záznamy:
+
+```sql
+AND COALESCE(a.status,'') NOT IN ('superseded','announced')
+```
+
+**Proč to tu je.** Když se tatáž nepřítomnost dostane do docházky víckrát (plán z Centrály +
+docházka z Centrály + ruční oprava), přebytečné řádky se označí `superseded` a platný zůstane
+jeden. **Data jsou tím pádem v pořádku** — chyba byla v tom, že mzdy ten příznak ignorovaly
+a sčítaly i zrušené.
+
+**Co se stalo (červenec 2026):**
+
+| kdo | vykázáno | správně | dopad |
+|---|---|---|---|
+| Jirkovský ES 486 | 48 h nemoci (3 záznamy × 8 h × 2 dny) | 16 h | **−5 043 Kč** na základu |
+| Šafránková ES 381 | 232 h mateřské | 176 h | 0 Kč (mateřskou platí stát) |
+
+**Proč to trefilo jen je dva:** dovolená (211) bere hodiny z `att_day_summary`, kde se
+duplicity neprojeví, a dny přes `COUNT(DISTINCT entry_date)`. Ale **nemoc (200), lékař (243),
+OČR (251), neplacené (246) a mateřská (255) se sčítají přímo z `att_entry`** — tam filtr
+chyběl. Proto Zeman, Kolářová, Hájek ani Brudnová postižení nebyli, i když duplicity měli taky.
+
+**Stav filtru k 6. 8. 2026** (ověřeno čtením z `g2007.python`):
+
+| skript | filtr |
+|---|---|
+| `mzdy_absence_rows` | ✅ doplněn 6. 8. |
+| `mzdy_benefity_apply` | ✅ doplněn 6. 8. |
+| `mzdy_stravenky_rows` | ✅ měl už dřív |
+| `payroll_raporty` (podklad) | ✅ měl už dřív |
+
+> **Poznámka k diagnostice:** právě proto **podklad seděl a výplatnice ne**. Když se ti něco
+> takového rozejde, podívej se nejdřív na filtry zrušených záznamů — ne na cesty zápisu.
+> (Claude‑26 to nejdřív svedl na tři cesty zápisu; byla to slepá ulička.)
+
+### Tři cesty, kterými se nepřítomnost dostane do docházky
+
+Užitečné vědět, proč duplicity vůbec vznikají:
+
+| značka (`source`) | odkud | kontrola duplicit |
+|---|---|---|
+| `plan_ec` | plán nepřítomností z Centrály (`sync_plan_to_dochazka`) | ✅ nepřepisuje obsazený den |
+| `manual` | docházka z Centrály, řádek pořízený ručně v Centrále (`LoginFrom='C'`) | jen sama vůči sobě (přes `source_id`) |
+| `manual_fix` | ruční oprava ve „🛠 Správě docházky" | ✅ pojistka z 6. 8. (nepřekročí denní úvazek) |
+| `absence` | schválená žádost | ✅ pojistka z 6. 8. (jedna žádost, jedno schválení) |
+
+Duplicity v červenci vznikly tak, že plán z Centrály přišel 28. 6., skutečnost z Centrály
+30. 7. a ruční opravy pak 3.–6. 8. Každá vrstva o té předchozí nevěděla. **Nic je nepřidává
+znovu samo** — jsou to jednorázové akce, které se navrstvily.
+
+## 7c. Landmark — z čeho se počítá osobní ohodnocení (ověřeno 6. 8. 2026)
+
+**Do výpočtu jde `OsOhodReal`, NE `OsOhod`.** V podmínkách (`podminky.xlsx`, `helios_wage_snapshot`)
+jsou dvě různá čísla a u většiny lidí jsou stejná — liší se jen u těch, kterým se osobní
+ohodnocení navyšovalo kvůli Landmarku:
+
+| | OsOhod | OsOhodReal ← *tohle bere výpočet* |
+|---|---|---|
+| Dvořáková ES 49 | 16 300 | **5 550** |
+| Brudnová ES 356 | 11 500 | **7 162** |
+| Bernardová EC 475 | 10 681 | **4 047** |
+| ostatní (Svatoš, Artim…) | 7 500 | 7 500 |
+
+Peťa to vysvětlila poznámkou u Brudnové: *„Úprava osobního ohodnocení byla navýšena kvůli
+navýšení sazby za náhradu oblečení. Od 1. 1. 2024 úprava rozkladu mzdy kvůli Landmarku."*
+Čili `OsOhod` je částka **před rozkladem**, `OsOhodReal` je to, co má zbýt v penězích.
+
+**Ověřeno proti podkladu přímo od Landmarku** (`MZDY_EUROSOFT SYSTEM_2026_5.xlsm`, květen 2026,
+list „Vstupní data", sloupec *HPP osobní ohodnocení*): Dvořáková 5 550, Brudnová 7 162,
+Čiviš 8 500, Diviš 8 500, Bláha 9 500, Artim 7 500 — **sedí na korunu s tím, co počítá systém.**
+
+**Pozor: do výpočtu jde celá pohyblivá část, ne jen osobní ohodnocení.** Trunec = 6 500 osobní
++ 1 000 prémie + 2 000 individuální = **9 500**; Čiviš a Diviš = 7 500 + 1 000 = **8 500**;
+Veverka = **15 500**. Kdo počítá jen s `OsOhod`, dostane špatně a bude to vypadat jako chyba
+ve mzdách (Claude‑26 na to 6. 8. naletěl a hlásil šest neexistujících chyb).
+
+**Vzorec** (Petin Excel, ověřeno na jejích referenčních řádcích i na červencových datech):
+
+```
+poměr    = odpracováno / fond
+oděvy    = ZAOKROUHLIT(počet odpracovaných dnů × sazba)      sazba 279 dílna / 109 kancelář
+home off = ZAOKROUHLIT.NA.NÁSOBEK(poměr × nárok h; 0,5) × 43
+složka 432 = poměr × osobní ohodnocení − oděvy − home office
+```
+
+Ve výplatnici je vidět **výsledek po odečtení** (sloupec O), ne hodnota pro mzdový systém
+(sloupec N). Náhrada 794 se vyplácí **nezdaněná** — složka **4320** ji vyjímá ze základu daně,
+proto v hrubé mzdě figuruje `+794 −4320`. Ověřeno u Svatoše do koruny až na čistou mzdu
+(základ daně 47 858 → záloha 7 185 → na účet 45 642).
+
+**Osobní ohodnocení nesmí jít do minusu** (Peťa 6. 8.) — když by vyšlo záporné, je nula
+(Bernardová).
 
 ## 8. Ostatní ověřené věci
 

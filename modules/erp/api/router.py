@@ -11218,20 +11218,28 @@ async def app_hr_odpovednost_list(req: Request):
             if tuid in seen:
                 continue
             seen.add(tuid)
-            vol_ids = [int(x[0]) for x in s.execute(_t(
+            # systémový/odvozený schvalovatel (resolver z org struktury)
+            sys_ids = [int(x[0]) for x in s.execute(_t(
                 "SELECT * FROM tenant.resolve_approvers(2, :e, current_date)"), {"e": emp_id}).fetchall()]
+            # osobní výjimka (HR override) — pokud je, je to AKTUÁLNÍ schvalovatel
+            vyj_ids = [int(x[0]) for x in s.execute(_t(
+                "SELECT odpovedny_user_id FROM tenant.att_odpovednost WHERE tenant_id=2 AND agenda='volno' "
+                "AND user_id=:u AND aktivni=true AND (platnost_do IS NULL OR platnost_do>=current_date)"),
+                {"u": tuid}).fetchall()]
+            akt_ids = vyj_ids if vyj_ids else sys_ids
             try:
                 doch_ids = sorted(_att_fix_editors_for_emp(s, emp_id))
             except Exception:
                 doch_ids = []
-            nm = _jmena_uid(s, list(set(vol_ids) | set(doch_ids)))
+            nm = _jmena_uid(s, list(set(sys_ids) | set(vyj_ids) | set(doch_ids)))
             out.append({
                 "user_id": tuid, "emp_id": emp_id, "jmeno": r[2],
                 "firma": (r[3] or ""),
                 "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[4], r[4]) if r[4] else ""),
-                "volno_schvaluje": ", ".join(nm.get(i, "#" + str(i)) for i in vol_ids),
-                "volno_zdroj": ("výjimka" if r[5] else ("odvozeno" if vol_ids else "—")),
-                "volno_gap": (len(vol_ids) == 0),
+                "volno_schvaluje": ", ".join(nm.get(i, "#" + str(i)) for i in akt_ids),
+                "volno_zdroj": ("výjimka" if vyj_ids else ("odvozeno" if sys_ids else "—")),
+                "volno_system": (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if vyj_ids else ""),
+                "volno_gap": (len(akt_ids) == 0),
                 "doch_kontrola": ", ".join(nm.get(i, "#" + str(i)) for i in doch_ids),
                 "doch_zdroj": ("výjimka" if r[6] else ("odvozeno" if doch_ids else "—")),
                 "doch_gap": (len(doch_ids) == 0),

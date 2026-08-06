@@ -92,5 +92,14 @@ všech dokumentech.
 - Šablony jsou obecné vzory; konkrétní ustanovení (odstupné, výpovědní doba,
   srážky) vždy ověř podle situace a aktuální legislativy.
 
+## Certifikáty (grafika, ne pracovněprávní dokument)
+- **Certifikáty/** — certifikát k pracovnímu výročí (10 let a další). Jediná
+  položka v této složce, která **není** ve Verdaně: je to grafika do tisku,
+  proto **Galano Grotesque** (pravidlo: grafika do tisku = Galano,
+  pracovněprávní dokumenty = Verdana). Generuje se skriptem
+  `HR_sablony/certifikaty/gen_certifikat.py` (jméno v 1. pádě, netřeba skloňovat).
+  Detaily v `Certifikaty/README.md`, hotové kusy v `HR_sablony/_Vyplnene/`.
+
 ## Hotovo
 - HPP kancelář varianta **doplněna** (1. 7. 2026).
+- Certifikát k výročí (Galano, generátor) **doplněn** (5. 8. 2026).

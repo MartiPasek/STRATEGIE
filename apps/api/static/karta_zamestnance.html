@@ -419,10 +419,13 @@ function renderOdp(){
   tb.innerHTML=f.map(p=>{
     const vol = p.volno_gap ? '<span style="color:#ff8a7a;font-weight:700">— nikdo —</span>' : esc(p.volno_schvaluje);
     const doch = p.doch_gap ? '<span style="color:#ff8a7a;font-weight:700">— nikdo —</span>' : esc(p.doch_kontrola);
+    const zdrVol = p.volno_zdroj==='výjimka'
+      ? '<span class="schip" style="background:#2a2410;color:#E0A94A">výjimka</span>'+(p.volno_system?('<div style="font-size:10.5px;color:#5d6b7c;margin-top:2px">systém: '+esc(p.volno_system)+'</div>'):'')
+      : zdr(p.volno_zdroj);
     return '<tr'+(p.volno_gap?' style="background:#241414"':'')+'>'+
       '<td><span class="tnm">'+esc(p.jmeno)+'</span></td>'+
       '<td>'+esc([p.firma,p.stredisko].filter(Boolean).join(' · '))+'</td>'+
-      '<td>'+vol+'</td><td>'+zdr(p.volno_zdroj)+'</td>'+
+      '<td>'+vol+'</td><td>'+zdrVol+'</td>'+
       '<td>'+doch+'</td><td>'+zdr(p.doch_zdroj)+'</td>'+
       '<td><select onchange="odpSet('+p.user_id+',this.value)" style="max-width:210px;border:1px solid #2b3a4a;background:#0f141a;color:#cdd6e2;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px">'+opts+'</select></td>'+
       '</tr>';

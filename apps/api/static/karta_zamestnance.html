@@ -415,7 +415,7 @@ function renderOdp(){
   const cc=document.getElementById('odcnt'); if(cc) cc.textContent=f.length+' lidí'+(onlyGap?' (mezery)':'');
   if(!f.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Nic nenalezeno.</td></tr>'; return; }
   const opts='<option value="">— odvozeno ze struktury —</option>'+ODP_MOZ.map(m=>'<option value="'+m.user_id+'">'+esc(m.jmeno)+'</option>').join('');
-  const zdr=(z)=> z==='výjimka'?'<span class="schip" style="background:#2a2410;color:#E0A94A">výjimka</span>':(z==='odvozeno'?'<span class="muted">odvozeno</span>':'<span class="muted">—</span>');
+  const zdr=(z)=> z==='výjimka'?'<span class="schip" style="background:#2a2410;color:#E0A94A">výjimka</span>':(z==='odvozeno'?'<span class="muted">odvozeno</span>':(z==='domluva'?'<span class="muted">OSVČ · domluva</span>':'<span class="muted">—</span>'));
   tb.innerHTML=f.map(p=>{
     const vol = p.volno_gap ? '<span style="color:#ff8a7a;font-weight:700">— nikdo —</span>' : esc(p.volno_schvaluje);
     const doch = p.doch_gap ? '<span style="color:#ff8a7a;font-weight:700">— nikdo —</span>' : esc(p.doch_kontrola);

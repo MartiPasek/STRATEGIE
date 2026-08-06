@@ -11207,7 +11207,9 @@ async def app_hr_odpovednost_list(req: Request):
             " EXISTS(SELECT 1 FROM tenant.att_odpovednost o WHERE o.tenant_id=2 AND o.agenda='volno' "
             "    AND o.user_id=ae.user_id AND o.aktivni=true AND (o.platnost_do IS NULL OR o.platnost_do>=current_date)) vyj_volno, "
             " EXISTS(SELECT 1 FROM tenant.att_odpovednost o WHERE o.tenant_id=2 AND o.agenda='dochazka' "
-            "    AND o.user_id=ae.user_id AND o.aktivni=true AND (o.platnost_do IS NULL OR o.platnost_do>=current_date)) vyj_doch "
+            "    AND o.user_id=ae.user_id AND o.aktivni=true AND (o.platnost_do IS NULL OR o.platnost_do>=current_date)) vyj_doch, "
+            " ae.cislo_zam, (SELECT string_agg(DISTINCT lower(e2.engagement_type),'/') FROM tenant.engagement e2 "
+            "    WHERE e2.employee_id=ae.id AND e2.tenant_id=2 AND e2.is_current=true) typ "
             "FROM tenant.att_employee ae LEFT JOIN public.users u ON u.id=ae.user_id "
             "WHERE ae.tenant_id=2 AND ae.is_active=true AND ae.user_id IS NOT NULL "
             "ORDER BY lower(COALESCE(u.last_name, ae.full_name)), lower(COALESCE(u.first_name,''))")).fetchall()
@@ -11218,6 +11220,18 @@ async def app_hr_odpovednost_list(req: Request):
             if tuid in seen:
                 continue
             seen.add(tuid)
+            # Automatizace = OSVČ PLC programátoři → nikdo (volno i docházka, o domluvě).
+            # Výjimky: Mirek Mareš (9005, vede automatizaci) a Michal Šik (349, IT). (Šárka 6.8.2026)
+            if (r[4] in ("002", "Automatizace") and "osvc" in (r[8] or "").lower()
+                    and str(r[7] or "") not in ("9005", "349")):
+                out.append({
+                    "user_id": tuid, "emp_id": emp_id, "jmeno": r[2], "firma": (r[3] or ""),
+                    "stredisko": "Automatizace",
+                    "volno_schvaluje": "— nikdo (o domluvě) —", "volno_zdroj": "domluva",
+                    "volno_system": "", "volno_gap": False,
+                    "doch_kontrola": "— nikdo (o domluvě) —", "doch_zdroj": "domluva", "doch_gap": False,
+                })
+                continue
             # systémový/odvozený schvalovatel (resolver z org struktury)
             sys_ids = [int(x[0]) for x in s.execute(_t(
                 "SELECT * FROM tenant.resolve_approvers(2, :e, current_date)"), {"e": emp_id}).fetchall()]

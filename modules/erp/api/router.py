@@ -46960,98 +46960,19 @@ async def app_payroll_raporty(req: Request) -> JSONResponse:
 
 @api_router.get("/app/absence-registr")
 async def app_absence_registr(req: Request) -> JSONResponse:
-    """REGISTR ABSENCÍ (Peťa 21.7.2026) — jeden přehled všech nepřítomností,
-    NAŠICH i ZE STARÉ CENTRÁLY, jako měla Správa docházky v Centrále.
-
-    Absence dnes bydlí ve dvou úložištích a přehled je spojuje:
-      • tenant.att_absence_request — naše žádosti (mají od–do, poznámky, schválení)
-      • tenant.att_planned_absence — zrcadlo Centrály; to je ale PO DNECH, ne po
-        obdobích, takže po sobě jdoucí dny stejného druhu slučujeme do období
-        (gap-and-islands). Řádky se `src_id < 0` jsou naše absence zrcadlené zpátky
-        do Centrály — ty vynecháváme, jinak by byly v přehledu dvakrát.
-
-    Sloupec `zdroj` říká, kde se to zadalo (STRATEGIE / Centrála).
-    ?rok=2026 (default letošní), ?vse=1 = bez omezení rokem."""
+    """DB-driven delegate (g2007.python kod=absence_registr). Puvodni telo migrovano
+    do DB 6.8.2026 (C28/Jirka, schvalila Marti-AI) presunem 1:1 — logika, prava ani
+    vystup se migraci nemenily. Duvod: aby slo do vystupu pridat identitu zadosti
+    (req_id) a schvalovat absenci klikem primo z radku Registru absenci, aniz by
+    kazda dalsi zmena znamenala deploy."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    import datetime as _dt
-    cm, s = _att_session()
-    try:
-        # Docházkový registr: rodiče, HR, editoři oprav + držitelé zámku (Peťa/Šárka/Jirka)
-        if not (_app_parent(s, uid) or _hr_can_manage(s, uid)
-                or _att_can_fix(s, uid) or uid in _ATT_LOCK_UIDS):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        vse = str(req.query_params.get("vse") or "") in ("1", "true", "ano")
-        try:
-            rok = int(req.query_params.get("rok") or _dt.date.today().year)
-        except Exception:
-            rok = _dt.date.today().year
-        p = {"t": _ATT_TENANT, "y": rok}
-        f_req = "" if vse else " AND (EXTRACT(YEAR FROM r.datum_od)=:y OR EXTRACT(YEAR FROM r.datum_do)=:y) "
-        f_pln = "" if vse else " AND EXTRACT(YEAR FROM p.datum)=:y "
-        rows = s.execute(_t(
-            # ---- NAŠE žádosti -------------------------------------------------
-            "WITH nase AS ("
-            "  SELECT r.id, r.datum_od AS od, r.datum_do AS do_, "
-            "    COALESCE(et.label, r.typ) AS druh, "
-            "    r.hours_per_day AS hpd, r.stav, r.note, r.status_text, r.created_at, "
-            "    em.cislo_zam, "
-            "    COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
-            "             em.full_name) AS jmeno, "
-            "    COALESCE(NULLIF(TRIM(COALESCE(du.first_name,'')||' '||COALESCE(du.last_name,'')),''), "
-            "             NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'')) AS autor "
-            "  FROM tenant.att_absence_request r "
-            "  JOIN tenant.att_employee em ON em.id=r.employee_id "
-            "  LEFT JOIN public.users u ON u.id=em.user_id "
-            "  LEFT JOIN public.users du ON du.id=r.decided_by_user_id "
-            "  LEFT JOIN tenant.att_entry_type et ON et.tenant_id=r.tenant_id AND et.code=r.typ "
-            "  WHERE r.tenant_id=:t AND COALESCE(r.stav,'')<>'cancelled' " + f_req + "), "
-            # ---- CENTRÁLA: dny → období (gap-and-islands) ----------------------
-            "pl AS ("
-            "  SELECT p.user_id, p.cislo_zam, p.druh_kod, p.druh_nazev, p.schvaleno, "
-            "    p.datum, p.hodiny, "
-            "    p.datum - (row_number() OVER (PARTITION BY p.user_id, p.druh_kod, p.schvaleno "
-            "                                  ORDER BY p.datum))::int AS grp "
-            "  FROM tenant.att_planned_absence p "
-            "  WHERE p.tenant_id=:t AND p.src_id >= 0 " + f_pln + "), "
-            "cen AS ("
-            "  SELECT min(pl.datum) AS od, max(pl.datum) AS do_, "
-            "    max(pl.druh_nazev) AS druh, bool_or(pl.schvaleno) AS schvaleno, "
-            "    count(*) AS dnu, sum(COALESCE(pl.hodiny,0)) AS hodin, "
-            "    max(pl.cislo_zam) AS cislo_zam, pl.user_id "
-            "  FROM pl GROUP BY pl.user_id, pl.druh_kod, pl.schvaleno, pl.grp) "
-            # ---- spojení -------------------------------------------------------
-            "SELECT 'STRATEGIE' AS zdroj, n.stav, n.cislo_zam, n.jmeno, n.druh, "
-            "       n.od, n.do_, NULL::bigint AS dnu, n.hpd AS hodin, n.autor, "
-            "       n.created_at AS porizeno, n.note AS zam_pozn, n.status_text AS ved_pozn "
-            "FROM nase n "
-            "UNION ALL "
-            "SELECT 'Centrála', CASE WHEN c.schvaleno THEN 'approved' ELSE 'pending' END, "
-            "       c.cislo_zam, "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u2.first_name,'')||' '||COALESCE(u2.last_name,'')),''), "
-            "                (SELECT em2.full_name FROM tenant.att_employee em2 "
-            "                  WHERE em2.tenant_id=:t AND em2.user_id=c.user_id LIMIT 1)), "
-            "       c.druh, c.od, c.do_, c.dnu, c.hodin, NULL, NULL, NULL, NULL "
-            "FROM cen c LEFT JOIN public.users u2 ON u2.id=c.user_id "
-            "ORDER BY 6 DESC, 4"), p).fetchall()
-        s.commit()
-        out = []
-        for r in rows:
-            out.append({
-                "zdroj": r[0], "stav": r[1], "cislo_zam": r[2], "jmeno": r[3],
-                "druh": r[4],
-                "od": (r[5].isoformat() if r[5] else None),
-                "do": (r[6].isoformat() if r[6] else None),
-                "dnu": (int(r[7]) if r[7] is not None else None),
-                "hodin": (float(r[8]) if r[8] is not None else None),
-                "autor": r[9],
-                "porizeno": (r[10].strftime("%d.%m.%Y %H:%M") if r[10] else None),
-                "zam_pozn": r[11], "ved_pozn": r[12]})
-        return JSONResponse({"ok": True, "rok": rok, "vse": vse, "rows": out})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("absence_registr", uid,
+                        req.query_params.get("vse"), req.query_params.get("rok"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/absence-plan")

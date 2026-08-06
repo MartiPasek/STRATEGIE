@@ -11250,7 +11250,20 @@ async def app_hr_odpovednost_list(req: Request):
                 doch_ids = sorted(_att_fix_editors_for_emp(s, emp_id))
             except Exception:
                 doch_ids = []
-            nm = _jmena_uid(s, list(set(sys_ids) | set(vyj_ids) | set(doch_ids)))
+            vyj_doch = [int(x[0]) for x in s.execute(_t(
+                "SELECT odpovedny_user_id FROM tenant.att_odpovednost WHERE tenant_id=2 AND agenda='dochazka' "
+                "AND user_id=:u AND aktivni=true AND (platnost_do IS NULL OR platnost_do>=current_date)"),
+                {"u": tuid}).fetchall()]
+            nm = _jmena_uid(s, list(set(sys_ids) | set(vyj_ids) | set(doch_ids) | set(vyj_doch)))
+            _has_att = int(r[9] or 0) > 0
+            if vyj_doch:
+                doch_txt = ", ".join(nm.get(i, "#" + str(i)) for i in vyj_doch)
+                doch_zd = "výjimka"; doch_gp = False
+            elif _has_att:
+                doch_txt = ", ".join(nm.get(i, "#" + str(i)) for i in doch_ids)
+                doch_zd = ("odvozeno" if doch_ids else "—"); doch_gp = (len(doch_ids) == 0)
+            else:
+                doch_txt = "— nemá docházku —"; doch_zd = "—"; doch_gp = False
             # Jednatelé (Pašek EC2/ES41, Mózer EC47) → volno jim nikdo neschvaluje (jsou na vrcholu). Šárka 6.8.2026
             je_jednatel = str(r[7] or "") in ("2", "41", "47")
             out.append({
@@ -11264,11 +11277,9 @@ async def app_hr_odpovednost_list(req: Request):
                 "volno_system": ("" if je_jednatel
                                  else (", ".join(nm.get(i, "#" + str(i)) for i in sys_ids) if vyj_ids else "")),
                 "volno_gap": (False if je_jednatel else (len(akt_ids) == 0)),
-                "doch_kontrola": (", ".join(nm.get(i, "#" + str(i)) for i in doch_ids)
-                                  if int(r[9] or 0) > 0 else "— nemá docházku —"),
-                "doch_zdroj": (("výjimka" if r[6] else ("odvozeno" if doch_ids else "—"))
-                               if int(r[9] or 0) > 0 else "—"),
-                "doch_gap": (len(doch_ids) == 0 if int(r[9] or 0) > 0 else False),
+                "doch_kontrola": doch_txt,
+                "doch_zdroj": doch_zd,
+                "doch_gap": doch_gp,
             })
         moznosti = []
         try:

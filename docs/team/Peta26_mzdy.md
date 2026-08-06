@@ -246,7 +246,56 @@ Duplicity v červenci vznikly tak, že plán z Centrály přišel 28. 6., skute�
 30. 7. a ruční opravy pak 3.–6. 8. Každá vrstva o té předchozí nevěděla. **Nic je nepřidává
 znovu samo** — jsou to jednorázové akce, které se navrstvily.
 
-## 7c. Landmark — z čeho se počítá osobní ohodnocení (ověřeno 6. 8. 2026)
+## 7c. Landmark — VŠECHNO, co se u něj plete (ověřeno 6. 8. 2026)
+
+### ⭐ NEJDŘÍV: výpočet UŽ EXISTUJE — `lm_engine`. NEODVOZOVAT ZNOVU.
+
+`g2007.python`, kód **`lm_engine`** (aktivní, verze 2). V jeho popisu stojí:
+*„Ověřená matematika (Excel 45/45, Marti/Landmark e-mail 30. 6. 2026)"* — tedy **ověřeno na
+všech 45 případech** proti Excelu přímo od Landmarku. Volá se z `mzdy_benefity_apply`:
+
+```python
+obl, ho, korekce = _ereg.call("lm_engine", fond, odprac, obl_dny, obl_sazba, ho_hod_narok, osoh)
+```
+
+**Když máš kontrolovat Landmark, zavolej `lm_engine` a porovnej jeho výstup s výplatnicí.**
+Nepřepisuj si jeho vzorec do vlastního skriptu — Claude‑26 to 6. 8. udělal, ověřoval ho pak
+Petiným Excelem na dvou řádcích (místo hotových 45) a stálo to Peťu večer.
+
+### ⚠️ Landmark má JINÝ FOND než zbytek mezd — a je to schválně
+
+**Landmark počítá fond VČETNĚ svátků** (prostě všechny dny Po–Pá × denní úvazek), zatímco
+přesčas a stravenky ho počítají **BEZ svátků** (oddíl 3 a 4 výše). To NENÍ chyba:
+
+| měsíc | Landmark (se svátky) | přesčas/stravenky (bez svátků) |
+|---|---|---|
+| červenec 2026 | 23 dnů = **184 h** | 22 dnů = 176 h |
+| květen 2026 | 21 dnů = **168 h** | 19 dnů = 152 h |
+
+Potvrzeno přímo v podkladu od Landmarku (`MZDY_EUROSOFT SYSTEM_2026_5.xlsm`, buňka
+*Fond měsíce*): **„168 — včetne svatku"**. Kdo do Landmarku dosadí fond bez svátků, dostane
+u všech jiná čísla a bude to vypadat jako chyba ve mzdách.
+
+### Kdo na Landmark nárok má a kdo ne
+
+- **denní úvazek < 6 h → bez nároku** (Peťa 8. 7. 2026)
+- **ve zkušební době → bez nároku**, Landmark až po ní (Peťa 8. 7. 2026)
+- **jen HPP** (OSVČ ven)
+- **home office: 6 dnů napevno** pro každého, kdo na něj má nárok — nezávisle na tom, co si
+  člověk naklikal v self-service. Engine si to pak sám poměrově zkrátí podle odpracovaného fondu.
+- **nárok na home office = kancelář**, ale s pevnými výjimkami zapsanými v kódu:
+  **Bláha ES 476 je dílna a HO má**; **Hrůzová ES 442 a Nepodalová ES 489 jsou kancelář a HO nemají.**
+- **sazba za oděvy: 279 dílna / 109 kancelář**, home office 43 Kč/h
+
+### Zkrácené úvazky
+
+Fond se počítá **z denního úvazku člověka**, ne z osmihodinového: Novotná a Brudnová (7 h)
+→ 7 × 23 = 161 h; Bernardová (6,4 h) → 147,2 h. Ověřeno — u nich náhrady i základ sedí na korunu.
+Denní úvazek = `engagement.uvazek_tyden_h / 5` platný k danému měsíci.
+
+---
+
+### Z čeho se počítá osobní ohodnocení
 
 **Do výpočtu jde `OsOhodReal`, NE `OsOhod`.** V podmínkách (`podminky.xlsx`, `helios_wage_snapshot`)
 jsou dvě různá čísla a u většiny lidí jsou stejná — liší se jen u těch, kterým se osobní
@@ -267,9 +316,27 @@ navýšení sazby za náhradu oblečení. Od 1. 1. 2024 úprava rozkladu mzdy kv
 list „Vstupní data", sloupec *HPP osobní ohodnocení*): Dvořáková 5 550, Brudnová 7 162,
 Čiviš 8 500, Diviš 8 500, Bláha 9 500, Artim 7 500 — **sedí na korunu s tím, co počítá systém.**
 
-**Pozor: do výpočtu jde celá pohyblivá část, ne jen osobní ohodnocení.** Trunec = 6 500 osobní
-+ 1 000 prémie + 2 000 individuální = **9 500**; Čiviš a Diviš = 7 500 + 1 000 = **8 500**;
-Veverka = **15 500**. Kdo počítá jen s `OsOhod`, dostane špatně a bude to vypadat jako chyba
+### ⚠️ Osobní ohodnocení se skládá z VÍCE složek
+
+**Do výpočtu jde celá pohyblivá část, ne jen řádek „osobní ohodnocení".** V podmínkách jsou
+tyhle sloupce a sčítají se: `OsOhod` + `MzdPremie` + `IndividualOhod` + `OdmenaGarant` +
+`Produkce` + `VedeniLidi` + `FKodexKultur` + `Kvalita`.
+
+| kdo | rozpad | celkem do Landmarku |
+|---|---|---|
+| Trunec EC 465 | 6 500 osobní + 1 000 prémie + 2 000 individuální | **9 500** |
+| Čiviš ES 522 | 7 500 + 1 000 prémie | **8 500** |
+| Diviš ES 147 | 7 500 + 1 000 prémie | **8 500** |
+| Veverka EC 14 | 7 500 + 8 000 | **15 500** |
+| Svatoš EC 435 | 7 500 (nic navíc) | **7 500** |
+
+Ověřeno proti květnovému podkladu od Landmarku — tam je jeden sloupec *HPP osobní ohodnocení*
+a jsou v něm právě ty součty (Trunec 9 500, Čiviš 8 500, Diviš 8 500).
+
+**Poznávací znamení, že člověk má víc složek:** v podmínkách se mu liší `HrHodBezFK`
+od `HrHodsFK`. Kdo je má stejné, má jen základní osobní ohodnocení.
+
+Kdo počítá jen s `OsOhod`, dostane u těchhle lidí špatně a bude to vypadat jako chyba
 ve mzdách (Claude‑26 na to 6. 8. naletěl a hlásil šest neexistujících chyb).
 
 **Vzorec** (Petin Excel, ověřeno na jejích referenčních řádcích i na červencových datech):

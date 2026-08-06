@@ -203,6 +203,11 @@ Peťa nad tím strávila večer zbytečně.
 
 **Pravidlo:** než něco označíš za chybu ve mzdách, projdi tenhle sled:
 
+0. **Není na to už hotová funkce?** Podívej se do `g2007.python`, jestli výpočet neexistuje —
+   a když ano, **zavolej ho** a porovnej jeho výstup s výplatnicí. **Nikdy si vzorec
+   nepřepisuj do vlastního skriptu.** Landmark má `lm_engine`, ověřený na 45 případech
+   proti Excelu od Landmarku; Claude‑26 si ho 6. 8. přesto odvodil znovu a ověřoval
+   na dvou řádcích. Dvojí práce a riziko, že se v přepisu splete a nahlásí neexistující chyby.
 1. **Sedí moje kontrola tam, kde sedět MÁ?** Když ti z padesáti lidí „nesedí" třicet,
    chyba je skoro jistě v kontrole, ne v datech. Když nesedí dva, stojí za to se dívat dál.
 2. **Beru stejné vstupy jako výpočet?** Ne „podobné" — stejné. Přečti si zdroj skriptu

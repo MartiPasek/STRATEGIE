@@ -11983,7 +11983,8 @@ def _hr_vernost_dovolena(s):
                       {"p": pozn, "e": int(eid)})
             s.commit()
             try:
-                _task_notify(s, [13, 18], 2, "🏖️ Věrnostní den dovolené",
+                # Šárka 7.8.2026: věrnostní notifikaci posílat JEN Šárce (13), Petře ne.
+                _task_notify(s, [13], 2, "🏖️ Věrnostní den dovolené",
                              "%s dosáhl(a) 10 let ve firmě → automaticky přidán 1 den dovolené navíc. "
                              "Nezapomeň na certifikát." % (jmeno or ("ID " + str(user_id))))
                 s.commit()
@@ -12041,6 +12042,37 @@ def _hr_auto_narozeniny(s):
                 s.rollback()
             except Exception:
                 pass
+
+
+# Denní HR automaty — běží SERVEROVĚ (primary, self-gated 1×/den z att_sync smyčky),
+# takže narozeninová přání odejdou v den narozenin i bez otevřené nástěnky (Šárka 7.8.2026).
+_HR_DAILY_LAST = [None]
+
+
+def _hr_daily_pass():
+    """1×/den (po 7. hodině) na primáru: generátor úkolů, auto narozeninová přání,
+    věrnostní dny za 10 let. Idempotentní, best-effort. Volá se z att_sync smyčky."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    today = now.date().isoformat()
+    if _HR_DAILY_LAST[0] == today or now.hour < 7:
+        return
+    cm, s = _att_session()
+    try:
+        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena):
+            try:
+                fn(s)
+                s.commit()
+            except Exception as _e:
+                logger.warning("[hr_daily] %s: %s", getattr(fn, "__name__", "fn"), _e)
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+        _HR_DAILY_LAST[0] = today
+        logger.info("[hr_daily] denní HR automaty proběhly (%s)", today)
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.get("/app/hr/dashboard")
@@ -26197,6 +26229,10 @@ async def _att_sync_loop():
                 await loop.run_in_executor(None, _disk_space_monitor)
             except Exception as _de:
                 logger.warning("[disk_mon] %s", _de)
+            try:  # denní HR automaty (narozeniny/úkoly/věrnostní dny) — self-gated 1×/den po 7h
+                await loop.run_in_executor(None, _hr_daily_pass)
+            except Exception as _he:
+                logger.warning("[hr_daily] %s", _he)
         except _aio.CancelledError:
             break
         except Exception as e:

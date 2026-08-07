@@ -12092,13 +12092,17 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
             except Exception:
                 pass
         mimo = s.execute(_t(
-            "SELECT count(*) FROM (SELECT e.user_id,"
-            " (array_agg(t.code ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
-            " bool_or(t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) ho"
-            " FROM tenant.att_entry en JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
-            " JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
-            " WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
-            " GROUP BY e.user_id) q WHERE q.abs_code IS NOT NULL OR q.ho"),
+            "SELECT count(DISTINCT uid) FROM ("
+            " SELECT q.user_id AS uid FROM (SELECT e.user_id,"
+            "  (array_agg(t.code ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
+            "  bool_or(t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) ho"
+            "  FROM tenant.att_entry en JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
+            "  JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
+            "  WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
+            "  GROUP BY e.user_id) q WHERE q.abs_code IS NOT NULL OR q.ho"
+            " UNION SELECT pa.user_id FROM tenant.att_planned_absence pa"
+            "  WHERE pa.tenant_id=2 AND pa.datum=current_date AND pa.druh_nazev ILIKE :hopat"
+            "    AND pa.user_id IS NOT NULL) z"),
             {"hopat": "%home office%"}).scalar() or 0
         vyb = s.execute(_t(
             "SELECT title, position_text, date_open, date_valid_to FROM tenant.recruit_posting"
@@ -12125,7 +12129,7 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
             "   JOIN LATERAL (SELECT min(e3.smlouva_od) prvni FROM tenant.engagement e3"
             "     JOIN tenant.att_employee ae3 ON ae3.id=e3.employee_id AND ae3.tenant_id=2"
             "     WHERE ae3.user_id=eng.user_id AND e3.tenant_id=2) fs ON true"
-            "   WHERE fs.prvni IS NOT NULL AND fs.prvni < current_date-300 AND ((date_part('doy',fs.prvni)-date_part('doy',current_date)+366)::int%366) <= 7"
+            "   WHERE eng.user_id <> 1 AND fs.prvni IS NOT NULL AND fs.prvni < current_date-300 AND ((date_part('doy',fs.prvni)-date_part('doy',current_date)+366)::int%366) <= 7"
             " ) q ORDER BY dat")).fetchall()
         akt = []
         cnt = {"novy": 0, "narozeniny": 0, "vyroci": 0, "zkusebka": 0, "prodlouzeni": 0}
@@ -12279,24 +12283,31 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Šárka 7.8.2026: kromě odpíchnutého HO ukázat i PLÁNOVANÝ home office
+        # (att_planned_absence druh „Home office") — jinak plánovaný HO v přehledu chyběl.
         rows = s.execute(_t(
-            "SELECT q.user_id, q.abs_code, q.abs_label, q.ho, COALESCE("
+            "WITH ent AS ("
+            "  SELECT x.user_id, x.abs_code, x.abs_label, x.ho FROM (SELECT e.user_id,"
+            "    (array_agg(t.code  ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
+            "    (array_agg(t.label ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_label,"
+            "    bool_or(t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) ho"
+            "    FROM tenant.att_entry en"
+            "    JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
+            "    JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
+            "    WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
+            "    GROUP BY e.user_id) x WHERE x.abs_code IS NOT NULL OR x.ho),"
+            " hoplan AS (SELECT DISTINCT pa.user_id, NULL::text abs_code, NULL::text abs_label, true ho"
+            "    FROM tenant.att_planned_absence pa"
+            "    WHERE pa.tenant_id=2 AND pa.datum=current_date AND pa.druh_nazev ILIKE :hopat"
+            "      AND pa.user_id IS NOT NULL AND pa.user_id NOT IN (SELECT user_id FROM ent)),"
+            " q AS (SELECT * FROM ent UNION ALL SELECT * FROM hoplan)"
+            " SELECT q.user_id, q.abs_code, q.abs_label, q.ho, COALESCE("
             "  (SELECT trim(coalesce(p.first_name,'')||' '||coalesce(p.last_name,''))"
             "     FROM tenant.hr_person p WHERE p.user_id=q.user_id AND p.tenant_id=2 AND p.is_current"
             "     ORDER BY p.id DESC LIMIT 1),"
             "  (SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,''))"
             "     FROM public.users u WHERE u.id=q.user_id)) AS jmeno"
-            " FROM (SELECT e.user_id,"
-            "   (array_agg(t.code  ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
-            "   (array_agg(t.label ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_label,"
-            "   bool_or(t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) ho"
-            "   FROM tenant.att_entry en"
-            "   JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
-            "   JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
-            "   WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
-            "   GROUP BY e.user_id) q"
-            " WHERE q.abs_code IS NOT NULL OR q.ho"
-            " ORDER BY jmeno"),
+            " FROM q ORDER BY jmeno"),
             {"hopat": "%home office%"}).fetchall()
         def _ic(abs_code, ho):
             c = (abs_code or "").lower()
@@ -12411,7 +12422,9 @@ async def app_hr_jubilea(req: Request) -> JSONResponse:
                         "popis": "%d. narozeniny" % age,
                     })
             occ2 = _next_occ(smlouva_od)
-            if occ2 is not None and 0 <= (occ2 - today).days <= days:
+            # Šárka 7.8.2026: zakladatel (Marti, user 1) má poměr od založení firmy (2006) →
+            # neukazovat jako osobní pracovní výročí (20 let firmy jde zvlášť jako výročí firmy).
+            if occ2 is not None and user_id != 1 and 0 <= (occ2 - today).days <= days:
                 yrs = occ2.year - smlouva_od.year
                 # Šárka 23.7.2026: jen kulatá výročí (násobek 5); 10 let = +1 den dovolené.
                 if yrs >= 5 and yrs % 5 == 0:
@@ -12572,7 +12585,9 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
                                   "datum": occ.isoformat(), "datum_cz": _cz(occ), "za_dni": (occ - today).days,
                                   "roky": age, "tier": tier, "popis": "%d. narozeniny" % age})
             occ2 = _next_occ(smlouva_od)
-            if occ2 is not None and 0 <= (occ2 - today).days <= days:
+            # Šárka 7.8.2026: zakladatel (Marti, user 1) má poměr od založení firmy (2006) →
+            # neukazovat jako osobní pracovní výročí (20 let firmy jde zvlášť jako výročí firmy).
+            if occ2 is not None and user_id != 1 and 0 <= (occ2 - today).days <= days:
                 yrs = occ2.year - smlouva_od.year
                 # Šárka 23.7.2026: jen kulatá výročí (násobek 5) — ostatní nezajímavá.
                 # Certifikát po 5 letech donekonečna → každý násobek 5 = major.

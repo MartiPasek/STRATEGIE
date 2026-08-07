@@ -324,7 +324,7 @@ const GPG_S=[
  ["manažer kvality",0,51056,"na",""],["kalkulant",53239,0,"na",""],
  ["referentka nákupu a logistiky",0,35632,"na",""],["SQL programátor pro IS Centrálu",0,51794,"na",""],
  ["pracovník v příjmu zboží",0,36806,"na",""],["personalistka",0,54995,"na","Šárka (opraveno na ženu)"],
- ["vedoucí projektů (obchodní zástupce)",71656,29725,"gpg","GPG 58,52 % — Veverková 30 h, zkresleno úvazkem"],
+ ["vedoucí projektů (obchodní zástupce)",71656,29725,"gpg","GPG 58,52 % — Veverková jen 20 h úvazek (poloviční) → gap je hlavně tím"],
  ["skladový asistent",28539,0,"na",""],["elektromontér pro přípravné práce ve výrobě",0,29172,"na",""],
  ["zámečník",35665,0,"na",""]];
 function gpgKc(n){return n?Math.round(n).toLocaleString('cs-CZ')+' Kč':'—';}
@@ -342,7 +342,7 @@ function gpgTable(id,rows){
 function renderGpg(){
   document.getElementById('gpgfind').innerHTML=
    '<div class="gfind"><b>System — elektromontér: GPG 9,55 %</b> (muži ⌀ 35 072 × ženy ⌀ 31 723, ženy méně). Nad hranicí 5 % → nutné odůvodnit. Info: většina 40 h, Brudnová 35 h → srovnávat na plný úvazek (FTE).</div>'+
-   '<div class="gfind"><b>System — vedoucí projektů (obch. zástupce): GPG 58,52 %</b> (muž ⌀ 71 656 × žena ⌀ 29 725). Zkresleno úvazkem: žena (Veverková) 30 h, nižší základ; muž (Pašek) 40 h. Před závěrem přepočítat na plný úvazek.</div>'+
+   '<div class="gfind"><b>System — vedoucí projektů (obch. zástupce): GPG 58,52 %</b> (muž ⌀ 71 656 × žena ⌀ 29 725). Zkresleno úvazkem: žena (Veverková) má jen <b>20 h úvazek</b> (poloviční), muž (Pašek) 40 h — proto ten rozdíl. Přepočet na 40 h (40 300 Kč) NEODPOVÍDÁ realitě, má 20 h. Férové srovnání = přepočet na stejný úvazek.</div>'+
    '<div class="gfind disp"><b>Velké rozdíly na stejné pozici</b> (rozptyl, ne gender): elektromontér Control 37,67 %, System 65,12 %, vedoucí projektů System 141,06 % → řešit v kategorizaci a mzdových pásmech.</div>'+
    '<div class="gfind ok"><b>Opraveno:</b> v auditním Excelu byla Šárka Novotná omylem jako „Muž". V naší databázi je správně jako žena — chyba byla jen v exportu.</div>'+
    '<div style="font-size:12px;color:var(--muted);margin:6px 0"><b>Control:</b> žádná pozice nemá zároveň muže i ženy → gender gap nelze spočítat (jen rozptyl).</div>';

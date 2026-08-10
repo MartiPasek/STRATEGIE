@@ -22,6 +22,50 @@ Závazně:
 - Platí dvojnásob u čísel, mezd, nároků a jmen. Peťa mi věří v oblastech, kde si to
   sama neověří — tím spíš tam nesmím hádat.
 
+## 🗺️ SDÍLENÁ HODNOTA → NEJDŘÍV MAPA, NIC NEMĚNIT (Peťa 10. 8. 2026, podnět Kristý + Claude‑24)
+
+**Pravidlo:** než sáhnu na hodnotu, kterou plní nebo čte víc míst (sdílená tabulka, sloupec,
+podklad, číselník), udělám **nejdřív read‑only mapu** — a teprve pak cokoli měním.
+
+Mapa musí odpovědět na tři věci a u každého místa uvést `soubor:řádek` / `g2007.python kód`:
+
+1. **Kdo to ZAPISUJE / plní**
+2. **Kdo to ČTE**
+3. U každého: **běží AUTOMATICKY, nebo ručně?** A **ovlivní ho moje změna, nebo zůstane po staru?**
+
+Automatické zapisovatele (generování, sync, noční job) hledat obzvlášť pečlivě — ty tichounce
+vrátí změnu zpátky a nikdo si toho nevšimne.
+
+### Platí ve DVOU situacích, ne v jedné
+
+**(a) Když měním, JAK se hodnota plní.** Případ Kristý (červenec 2026): přepnuli jsme
+`att_day_summary`, aby se plnil z naší docházky. Ale generování mezd ho pořád přepisovalo
+z Centrály → náš přepočet se po každém generování tiše smazal, čísla se rozcházela u 39 lidí
+(~85 h) a stejný podklad dal ráno a večer jiný výsledek.
+
+**(b) Když hledám PŘÍČINU rozdílu.** Případ Claude‑26 (6. 8. 2026): u duplicitních absencí
+jsem se rozjel hledat **cesty zápisu**, našel tři a popsal je Peťě — a byla to slepá ulička.
+Skutečná příčina byla u **čtenářů**: data byla v pořádku (duplicity zrušené), ale mzdové
+výpočty ignorovaly příznak „zrušeno". Kdybych začal mapou zapisovatelů **i čtenářů**,
+viděl bych to hned. Takhle to Peťu stálo skoro hodinu večer.
+
+> **Poučení:** rozdíl mezi dvěma pohledy na tatáž data (podklad × výplatnice, ráno × večer)
+> je skoro vždycky o tom, **kdo je čte a s jakým filtrem** — ne o tom, kdo je zapsal.
+
+### Jak se ptát (spouštěcí slova, na která reaguju důkladně)
+
+> *„dopadová analýza"* · *„všechna místa"* · *„kdo zapisuje a kdo čte"* ·
+> *„co zůstane po staru"* · *„nejdřív mapa, neměň"*
+
+A po návrhu řešení se vždycky ještě zeptat: **„Co všechno jinde zůstane po staru a mohlo
+by se to rozejít?"**
+
+**Tohle mám nabízet sám**, ne čekat, až mě o to Peťa požádá. Když se chystám měnit sdílenou
+hodnotu nebo hledat příčinu rozdílu, řeknu rovnou: *„nejdřív udělám mapu, nic neměním"*.
+
+Kristý a Claude‑24 to mají ve `START_HERE_ID24.md` a v G2007 jako
+`doc-system-strategie-dopadova-mapa-sdilene-hodnoty`.
+
 ## Přístup k práci
 - Cílím na **maximální výsledek** a snažím se věc **dotáhnout sám**, vlastními nástroji —
   most (čtení DB, dotazy), `git pull`, úpravy souborů, nasazení přes blue‑green (vždy vratné).

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent pro Claude SQL bridge na macOS (ekvivalent NSSM sluzby z Windows).
+  Jirka (C28) + Claude, 10. 8. 2026.
+
+  Instalace:
+    cp scripts/cz.strategie.claude-sql.plist.template ~/Library/LaunchAgents/cz.strategie.claude-sql.plist
+    sed -i '' "s|__REPO__|$PWD|g" ~/Library/LaunchAgents/cz.strategie.claude-sql.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cz.strategie.claude-sql.plist
+  Kontrola:      launchctl list | grep strategie
+  Odinstalace:   launchctl bootout gui/$(id -u)/cz.strategie.claude-sql
+
+  Token v tomhle souboru NENI — run_bridge_macos.sh si ho cte z
+  ~/.strategie_deploy_token, takze se neobjevi ani v `launchctl print`.
+  ThrottleInterval 30 s brani cykleni, kdyz token jeste neexistuje.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>cz.strategie.claude-sql</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__REPO__/scripts/run_bridge_macos.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>WorkingDirectory</key>
+	<string>__REPO__</string>
+	<key>StandardOutPath</key>
+	<string>__REPO__/scripts/claude_sql/bridge.log</string>
+	<key>StandardErrorPath</key>
+	<string>__REPO__/scripts/claude_sql/bridge.err.log</string>
+</dict>
+</plist>

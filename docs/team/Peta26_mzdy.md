@@ -432,6 +432,80 @@ Ale v docházce po něm zůstává **533 záznamů až do konce roku** (plán m�
 ty tam budou dál, jen nepřibývají nové. Pojistka je tedy hlavně prevence, kdyby to někdo
 znovu spustil.
 
+## 7f. 🤒 NEMOCENSKÁ — celý postup krok za krokem (Peťa 10. 8. 2026)
+
+**Klíčové:** náhradu za nemoc **nepočítá STRATEGIE**. My posíláme jen **dny a hodiny**
+(složka 200), aby Helios správně zkrátil základ. **Peníze dopočítá Helios** — ale ne sám,
+musí se mu to říct akcí **Likvidace**. Do 10. 8. 2026 to nikdo nevěděl, protože všechny
+starší nemoci byly buď migrované ze staré Centrály, nebo tak krátké, že nic nenáleželo.
+
+### Postup (ověřeno na Jirkovském ES 486 a Navrátilovi EC 472)
+
+1. **Evidence DNP → Nový** → vybrat zaměstnance → **Přenos**
+2. Vyplnit: **Druh dávky = Nemoc**, **číslo rozhodnutí** z neschopenky (z datové schránky),
+   **Začátek = datum**, hodiny 0. **Konec nech prázdný, když nemoc pokračuje.**
+   *(„Trvání DNP – lístky na peníze" i „Přechod NM → DNP" nech prázdné.)*
+3. **DNP k proplacení** → odklikat dotazy (Ano) → **Vlož všechny**
+   *(„Vlož označené" u víc dnů nefunguje.)*
+   ⚠️ **Napřed musí být v předzpracování smazaná naše složka 200**, jinak to hlásí
+   *„Zadaná nepřítomnost se překrývá s jinou"*.
+4. **Přegenerovat mzdy** — tím se složka 200 vrátí (posílá ji STRATEGIE)
+5. **Výpočet mzdy → najít člověka → poklikat → poklikat na složku 200 → Likvidace**
+6. Zkontrolovat částku, doplnit **číslo rozhodnutí**, dát **OK**
+
+Vznikne složka **213 Nemocenská - náhrada** s částkou. Datum „do" v likvidaci je **konec
+měsíce**, ne konec nemoci — u pokračující nemoci se likvidace udělá každý měsíc znovu.
+
+### ⚠️ Pásma nejsou karenční doba
+
+V okně likvidace jsou „Pásmo 1" a „Pásmo 2" — to jsou **redukční pásma průměru**, ne
+karence. **Náhrada náleží i za první tři dny.** (Jirkovský měl 2 dny celé v Pásmu 1
+a dostal 1 639 Kč.) Karenční dobu od 1. 1. 2025 sice zákon zavedl, ale **u nás se náhrada
+vyplácí od prvního dne** — potvrdila paní účetní i Helios sám.
+
+### Kontrolní příklady (červenec 2026)
+
+| kdo | dny / hodiny | PHV | náhrada 213 |
+|---|---|---|---|
+| Jirkovský ES 486 | 2 dny / 16 h | 189,60 | **1 639 Kč** |
+| Navrátil EC 472 | 8 dnů / 64 h | 185,64 | **6 416 Kč** |
+| Porner EC 533 (červen, pracovní úraz) | 3 dny / 24 h | — | 2 666 Kč |
+
+## 7g. 🧾 PLATEBNÍ PŘÍKAZY KE MZDÁM — kompletní postup (Peťa 10. 8. 2026)
+
+**Platáky ke mzdám vznikají v HELIOSU, STRATEGIE si je jen načte.** Negenerujeme je my.
+
+### V Heliosu
+
+**Mzdy → Definice platebních příkazů** → označit **Mzdy na účet + Odvody na úřady +
+Kooperativa** *(Exekuce jen když někdo exekuci má)* → karta **Akce** → **Generování**
+(levý blok „Platební příkazy") → zadat **datum splatnosti** → OK.
+
+⚠️ **Když už příkazy jednou vygenerované byly**, hlásí *„Platební příkazy již byly
+vygenerovány dříve"* a **nic neudělá**. Pak nejdřív **Zrušení** (hned vedle Generování,
+tentýž levý blok) a teprve pak **Generování**.
+
+⚠️ **Nemaž řádky uvnitř příkazu ručně** — zůstane prázdná hlavička, kterou Helios pořád
+považuje za vygenerovaný příkaz, a Zrušit ji z přehledu „Platební příkazy tuzemské" nejde.
+(10. 8. nás to stálo hodinu.)
+
+### Ve STRATEGII
+
+**Platební centrum → 🧾 Platáky k platbě → 💰 Načíst mzdové platáky z Heliosu** →
+vybrat firmu a období → **Náhled** (nic nezapisuje) → **Vytvořit tyto platáky**.
+
+Soubory se ukládají do **`D:\data\RB\Platební příkazy\<EC|ES>\<RRRRMMDD splatnosti>\`**
+a v příkazu pro banku je **splatnost z Heliosu** (do 10. 8. 2026 se tam chybně dosazoval
+dnešek — opraveno).
+
+### Jak si ověřit, že sedí
+
+Porovnat **počet plateb a součet platáku „Mzdy na účet"** proti složce **933 Výplata na účet**
+ve výplatnicích. Musí sedět na korunu i na počet. Kdo má nulovou výplatu (mateřská), platbu
+nemá — proto může být plateb o jednoho míň než lidí.
+
+Červenec 2026: EC 17 plateb / 598 867 Kč · ES 32 plateb / 1 207 197 Kč.
+
 ## 8. Ostatní ověřené věci
 
 - **Jednatelé:** EC 2 Pašek, EC 47 Mózer, **ES 41 Pašek** (číslo 15 neexistuje). Mají ruční

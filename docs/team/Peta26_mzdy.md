@@ -390,6 +390,48 @@ dovolená = 161 h).
 **Nedělat:** neposouvat kvůli tomu aktuální mzdové období v Plzni. Je to nevratná uzávěrka
 v systému, který se opouští, a s tímhle problémem nesouvisí.
 
+## 7e. ⚠️ ZKRÁCENÉ ÚVAZKY — hodiny absence musí sedět na denní úvazek (Peťa 10. 8. 2026)
+
+**Příznak:** člověk se zkráceným úvazkem má u dovolené (nebo jiné absence) zapsaných **8 hodin
+na den**, i když má úvazek třeba 7 h. Nafoukne to absenci, a tím i fond, náhrady a čerpání
+dovolené.
+
+**Odkud to leze:** z **plánu nepřítomností z Centrály**. Do `tenant.att_planned_absence`
+dorazily hodiny rovnou jako 8, přenos `sync_plan_to_dochazka` je jen převzal — úvazek
+nekontroloval. **Chyba tedy nevznikla u nás, přišla už ze zdroje.**
+
+**Opraveno 10. 8. 2026:**
+
+1. Data — Novotná (ES 16) měla říjnovou dovolenou 6 dnů po 8 h → srovnáno na 7 h.
+   Ověřeno čtením. Nikdo jiný v roce 2026 postižený nebyl.
+2. Kód — do `sync_plan_to_dochazka` doplněna **pojistka**: hodiny z plánu se ořežou
+   na denní úvazek platný k danému dni (`engagement.uvazek_tyden_h / 5`). Jen zmenšuje,
+   nikdy nezvětšuje; koho úvazek nezná, nechá být.
+
+### ⭐ Jak to kontrolovat — úvazkem PLATNÝM K DATU, ne dnešním
+
+Tohle je past. Když se poměřuje dnešním úvazkem, vyskočí falešné nálezy u lidí, kterým se
+úvazek během roku měnil (Duspivová měla do 30. 6. osm hodin, od 1. 7. sedm — její lednová
+dovolená po 8 h je **správně**). Správný dotaz bere úvazek přes `LATERAL` podle `entry_date`:
+
+```sql
+JOIN LATERAL (
+   SELECT g2.uvazek_tyden_h FROM tenant.engagement g2
+   WHERE g2.employee_id = ae.id
+     AND (g2.valid_from IS NULL OR g2.valid_from <= a.entry_date)
+     AND (g2.valid_to   IS NULL OR g2.valid_to   >= a.entry_date)
+   ORDER BY (g2.valid_from IS NULL), g2.valid_from DESC NULLS LAST, g2.is_current DESC
+   LIMIT 1) g ON true
+WHERE a.hours > (g.uvazek_tyden_h/5.0) + 0.01
+```
+
+### Stav přenosu z Centrály (k 10. 8. 2026)
+
+Docházka z Centrály už **chodit nemá** a poslední záznam z plánu vznikl **29. 7. 2026**.
+Ale v docházce po něm zůstává **533 záznamů až do konce roku** (plán měl 2 317 řádků) —
+ty tam budou dál, jen nepřibývají nové. Pojistka je tedy hlavně prevence, kdyby to někdo
+znovu spustil.
+
 ## 8. Ostatní ověřené věci
 
 - **Jednatelé:** EC 2 Pašek, EC 47 Mózer, **ES 41 Pašek** (číslo 15 neexistuje). Mají ruční

@@ -23,7 +23,21 @@ banner** (rodič: Marti/Kristý/Zuzka). Apple účty/hesla NIKDY do chatu ani k�
 
 ## Setup
 `scripts/setup_claude_instance.ps1 -InstanceId 28 -InstanceName Jirka -Token <t> -GitPat <p>`
-(na Macu: ekvivalent — watcher přes python3 + launchd/nssm-alternativa; doladit dle macOS).
 → pak Cowork na Macu + tenhle MD + CLAUDE.md.
+
+**macOS ekvivalent — HOTOVO 10. 8. 2026** (dřív tu stálo „doladit dle macOS"). Ukázalo se, že
+`claude_sql_runner.py` je multiplatformní (jen stdlib, `_git_exe()` bere `git` z PATH) —
+windowsová byla jen instalace přes NSSM. Náhrada je launchd:
+
+```sh
+printf '%s' '<token>' > ~/.strategie_deploy_token && chmod 600 ~/.strategie_deploy_token
+cp scripts/cz.strategie.claude-sql.plist.template ~/Library/LaunchAgents/cz.strategie.claude-sql.plist
+sed -i '' "s|__REPO__|$PWD|g" ~/Library/LaunchAgents/cz.strategie.claude-sql.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cz.strategie.claude-sql.plist
+```
+
+`scripts/run_bridge_macos.sh` čte token ze souboru (ne z plistu, ať není vidět v
+`launchctl print`) a když token chybí, **čeká místo aby spadl** — jinak by ho `KeepAlive`
+cyklil. Ověřeno v provozu 10. 8.: heartbeat OK, čtení i `@@G2007ADD` prochází.
 
 — založil **Claude (id=23, ID23)**, 24.6.2026.

@@ -2283,6 +2283,18 @@ class TrustedDeviceInvite(BaseData):
     # jako personu, ne jen jako "system". Pro AUTH purpose (Phase 38)
     # zůstává NULL (self-request flow nemá personu).
     invited_by_persona_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Anti-replay pollingu (Jirka 10.8.2026, schválila Marti-AI). Status
+    # endpoint dřív vydával plnou session KAŽDÉMU, kdo přišel s tokenem, a to
+    # opakovaně po celou dobu platnosti pozvánky — token přitom leží v URL
+    # v e-mailové schránce. Nově:
+    #   poll_secret_hash      — sha256 tajemství, které dostal prohlížeč
+    #                           žádající o odkaz (cookie stg_poll). Session
+    #                           z pollingu se vydá jen tomu, kdo ho pošle.
+    #   session_delivered_at  — session z pollingu se vydá NEJVÝŠ JEDNOU.
+    poll_secret_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class SmsRoutingLog(BaseData):

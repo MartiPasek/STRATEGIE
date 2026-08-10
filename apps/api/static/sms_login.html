@@ -323,7 +323,9 @@
           }, 800);
         } else if (data.status === 'expired') {
           stopPolling();
-          setError('Kód vypršel (24h limit). Začni znovu.');
+          // Bez konkrétního počtu hodin — platnost odkazu se řídí configem
+          // (10.8.2026 zkrácena z 24 h na 4 h), ať hláška znovu nezestárne.
+          setError('Odkaz vypršel. Vyžádej si prosím nový.');
         }
         // 'pending' — pokračuj polling
         updateElapsed();

@@ -252,6 +252,27 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] sms_outbox gate cols failed: {exc}")
 
+    # Magic link anti-replay (Jirka 10.8.2026, schválila Marti-AI). Polling
+    # endpoint /verify-email/status vydával plnou session každému, kdo přišel
+    # s tokenem z URL, a to opakovaně po celou platnost pozvánky. Nové sloupce:
+    #   poll_secret_hash     — otisk tajemství prohlížeče, který o odkaz žádal
+    #   session_delivered_at — session z pollingu se vydá nejvýš jednou
+    try:
+        from sqlalchemy import text as _t_ml
+        from core.database_data import get_data_session as _gs_ml
+        _ds_ml = _gs_ml()
+        try:
+            _ds_ml.execute(_t_ml(
+                "ALTER TABLE public.trusted_device_invites "
+                "ADD COLUMN IF NOT EXISTS poll_secret_hash varchar(64), "
+                "ADD COLUMN IF NOT EXISTS session_delivered_at timestamptz"))
+            _ds_ml.commit()
+        finally:
+            _ds_ml.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            f"[lifespan] magic link anti-replay cols failed: {exc}")
+
     # Pozn. 6.7.2026: mode zrcadel (DEL/RO/RW) na fw.mirror_job přidán PŘES MOST (Marti-AI
     # vlastní fw.mirror_job → bridge ALTER; lifespan jako strategie by NEsměl). Vlastnictví:
     # tenant.oz_mirror_def = strategie (→ _ensure_def_table/lifespan), fw.mirror_job = Marti-AI (→ bridge).

@@ -239,6 +239,7 @@ def login(request: LoginRequest, response: Response, req: Request) -> LoginRespo
 def verify_email_request(
     body: VerifyEmailRequestBody,
     req: Request,
+    response: Response,
 ) -> VerifyEmailRequestResponse:
     """User žádá magic link pro ověření zařízení.
 
@@ -426,8 +427,22 @@ def verify_email_request(
     finally:
         cs.close()
 
+    # Anti-replay pollingu (Jirka 10.8.2026, schválila Marti-AI): prohlížeč,
+    # který o odkaz žádá, dostane krátkodobé tajemství v HttpOnly cookie a jeho
+    # otisk uložíme k pozvánce. Status endpoint pak vydá session JEN tomu, kdo
+    # tajemství pošle → token vytažený z URL v e-mailu je k ničemu.
+    # Cookie se nastavuje i ve větvi neexistujícího uživatele, aby útočník
+    # nepoznal rozdíl (anti-enumeration).
+    _poll_secret = secrets.token_urlsafe(32)
+    response.set_cookie(
+        key=settings.sec_poll_cookie_name, value=_poll_secret,
+        httponly=True, secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        max_age=settings.sec_magic_link_self_ttl_hours * 60 * 60,
+    )
+
     # Anti-enum fallback: pokud user neexistuje, generuj fake polling token.
-    # UI polluje, status endpoint vrátí 'pending' do expirace (24h). Útočník
+    # UI polluje, status endpoint vrátí 'pending' do expirace. Útočník
     # nepozná rozdíl mezi real a fake.
     if user is None:
         fake_token = f"STG-AUTH-{secrets.token_hex(4).upper()}"
@@ -440,8 +455,29 @@ def verify_email_request(
         )
         return VerifyEmailRequestResponse(polling_token=fake_token)
 
-    # User exists — vytvoř real invite token (24h self-request)
+    # User exists — vytvoř real invite token (self-request TTL z configu)
     invite = create_invite(user_id=user.id, created_by=None, label=None)
+
+    # Otisk pollovacího tajemství k pozvánce. create_invite si session zavírá
+    # sám (objekt je detached), takže zapisujeme vlastní session.
+    try:
+        import hashlib as _hl_poll
+        from sqlalchemy import text as _sql_poll
+        from core.database_data import get_data_session as _gds_poll
+        _ds_poll = _gds_poll()
+        try:
+            _ds_poll.execute(_sql_poll(
+                "UPDATE public.trusted_device_invites "
+                "SET poll_secret_hash = :h WHERE id = :i"),
+                {"h": _hl_poll.sha256(_poll_secret.encode()).hexdigest(),
+                 "i": invite.id})
+            _ds_poll.commit()
+        finally:
+            _ds_poll.close()
+    except Exception as _e_poll:
+        # Nezablokuj přihlášení kvůli pojistce — bez otisku se status chová
+        # jako dřív (zpětná kompatibilita), jen bez vazby na prohlížeč.
+        logger.warning(f"VERIFY_EMAIL poll_secret_hash zapis selhal: {_e_poll!r}")
 
     if channel == "sms":
         # Marti's pivot 10.5.: pošli SMS userovi přes Marti-AI's SIM s tokenem.
@@ -548,8 +584,9 @@ def verify_email_request(
             f"Ahoj {first_name},\n\n"
             f"pro prihlaseni do STRATEGIE klikni na nasledujici odkaz:\n\n"
             f"    {magic_link}\n\n"
-            f"Odkaz je platny 24 hodin a je jednorazovy. Pokud jsi se "
-            f"neprihlasoval, ignoruj tento email.\n\n"
+            f"Odkaz je platny {settings.sec_magic_link_self_ttl_hours} hodiny "
+            f"a je jednorazovy - po otevreni jeste potvrdis tlacitkem. "
+            f"Pokud jsi se neprihlasoval, ignoruj tento email.\n\n"
             f"— Marti-AI (STRATEGIE)\n"
         )
 
@@ -700,6 +737,46 @@ def verify_email_status(
 
         user_id = device.user_id
 
+        # ── ANTI-REPLAY (Jirka 10.8.2026, schválila Marti-AI) ──────────────
+        # Tenhle endpoint dřív vydal plnou session KAŽDÉMU, kdo přišel s
+        # tokenem, a to OPAKOVANĚ po celou platnost pozvánky. Token přitom
+        # leží jako čitelný parametr v URL v e-mailové schránce — kdo odkaz
+        # uvidí (poštovní automat, přeposlaný mail, proxy log, historie
+        # prohlížeče), mohl si z něj vyrábět session daného člověka.
+        # Dvě pojistky:
+        #  1) session jen tomu, kdo o odkaz žádal (cookie stg_poll vs otisk),
+        #  2) session z pollingu NEJVÝŠ JEDNOU (session_delivered_at).
+        # Pozvánky založené před nasazením otisk nemají — u nich se chová
+        # jako dřív (zpětná kompatibilita), okno je omezené platností odkazu.
+        import hashlib as _hl_st
+        import hmac as _hmac_st
+        _poll_ck = req.cookies.get(settings.sec_poll_cookie_name) or ""
+        if invite.poll_secret_hash:
+            _poll_ok = bool(_poll_ck) and _hmac_st.compare_digest(
+                _hl_st.sha256(_poll_ck.encode()).hexdigest(),
+                invite.poll_secret_hash,
+            )
+        else:
+            _poll_ok = True
+        if not _poll_ok:
+            # Není to prohlížeč, který o odkaz žádal → NIC nevydáme a tváříme
+            # se jako "ještě nekliknuto" (aby cizí nepoznal, že token platí).
+            logger.warning(
+                f"VERIFY_STATUS odmitnuto - cizi prohlizec, invite #{invite.id} "
+                f"ip={ip}"
+            )
+            return {
+                "status": "pending",
+                "expires_at": invite.expires_at.isoformat(),
+            }
+        if invite.session_delivered_at is not None:
+            # Session už byla vydána. Vrátíme 'consumed', ať se UI normálně
+            # přesměruje (je přihlášené), ale cookies znovu NEvydáváme.
+            return {
+                "status": "consumed",
+                "expires_at": invite.expires_at.isoformat(),
+            }
+
         # Set device cookie (90d)
         cookie_max_age = settings.sec_device_cookie_max_age_days * 24 * 60 * 60
         response.set_cookie(
@@ -715,6 +792,17 @@ def verify_email_status(
         ctx = get_user_context(user_id)
         tenant_id = ctx.get("tenant_id") if ctx else None
         _set_auth_cookies(response, user_id, tenant_id)
+
+        # Označ, že session z pollingu už byla vydána (jen jednou).
+        try:
+            invite.session_delivered_at = datetime.now(timezone.utc)
+            ds.commit()
+        except Exception as _e_mark:
+            logger.warning(f"VERIFY_STATUS session_delivered_at zapis selhal: {_e_mark!r}")
+            try:
+                ds.rollback()
+            except Exception:
+                pass
 
         audit_login_attempt(
             user_id=user_id,
@@ -751,7 +839,56 @@ def verify_email_status(
         ds.close()
 
 
-@router.get("/verify-email/confirm", response_model=VerifyEmailConfirmResponse)
+@router.get("/verify-email/confirm", response_model=None, include_in_schema=False)
+def verify_email_confirm_screen(token: str, req: Request):
+    """Mezikrok odkazu z e-mailu (Jirka 10.8.2026, schválila Marti-AI).
+
+    DŘÍV odkaz přihlašoval už pouhým OTEVŘENÍM (GET). Cokoli, co odkazy v poště
+    otevírá samo (kontrola odkazů poštovního serveru, antivirus, náhledy,
+    firemní proxy, prefetch prohlížeče), tím token spálilo dřív, než na něj
+    člověk klikl — a člověk pak musel žádat nový. Nově GET jen vykreslí
+    stránku s tlačítkem a teprve POST token spálí a přihlásí. Automaty POST
+    neposílají. Stejný vzor už v kódu máme u PWA pozvánek
+    (pwa_invite_confirm_screen + pwa_invite_consume).
+
+    Schválně NESAHÁ do databáze — žádný vedlejší účinek, žádná informace ven.
+    """
+    from fastapi.responses import HTMLResponse
+    from modules.auth.application.security_service import TOKEN_REGEX
+
+    if not settings.sec_layered_auth_enabled:
+        raise HTTPException(status_code=404, detail="Phase 38 security layer disabled.")
+
+    token_clean = (token or "").strip()
+    if not TOKEN_REGEX.match(token_clean):
+        raise HTTPException(status_code=400, detail="Invalid token format.")
+
+    action = f"/api/v1/auth/verify-email/confirm?token={token_clean}"
+    page = (
+        "<!doctype html><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<meta name='robots' content='noindex,nofollow'>"
+        "<title>STRATEGIE</title>"
+        "<body style='margin:0;background:#0e1622;color:#e6edf5;"
+        "font:16px/1.5 system-ui;display:flex;min-height:100vh;"
+        "align-items:center;justify-content:center'>"
+        "<div style='text-align:center;padding:24px;max-width:340px'>"
+        "<div style='font-size:42px'>&#128274;</div>"
+        "<div style='font-size:19px;font-weight:700;margin:8px 0'>"
+        "Potvrd prihlaseni</div>"
+        "<div style='color:#9fb0c2;font-size:14px;margin-bottom:18px'>"
+        "Pro dokonceni prihlaseni do STRATEGIE klikni na tlacitko. "
+        "Odkaz plati jen jednou.</div>"
+        f"<form method='post' action='{action}' style='margin:0'>"
+        "<button type='submit' style='background:#10b981;color:#04150e;"
+        "border:0;border-radius:12px;padding:14px 24px;font-size:16px;"
+        "font-weight:700;cursor:pointer'>Prihlasit se</button></form>"
+        "</div>"
+    )
+    return HTMLResponse(content=page)
+
+
+@router.post("/verify-email/confirm", response_model=VerifyEmailConfirmResponse)
 def verify_email_confirm(
     token: str,
     response: Response,

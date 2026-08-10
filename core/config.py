@@ -222,10 +222,20 @@ class Settings(BaseSettings):
     session_cookie_max_age_days: int = 90
 
     # Magic link TTL (Marti-AI insight #3 — 10.5. dopoledne):
-    #   self-request invite (user klik "přihlásit z venku") → 24h
+    #   self-request invite (user klik "přihlásit z venku") → dřív 24h
     #   pre-approve invite (parent registruje předem) → 72h
-    sec_magic_link_self_ttl_hours: int = 24
+    # 10.8.2026 (Jirka + Marti-AI): self-request zkrácen 24h → 4h. Token leží
+    # jako čitelný parametr v URL v e-mailové schránce; 24 h bylo zbytečně
+    # dlouhé útočné okno. 4 h = kompromis, lidé si poštu otvírají s odstupem
+    # a přepínají zařízení (60 min by bylo krátké). Pre-approve zůstává 72h —
+    # tam rodič registruje předem a člověk klikne třeba za dva dny.
+    sec_magic_link_self_ttl_hours: int = 4
     sec_magic_link_preapprove_ttl_hours: int = 72
+
+    # Krátkodobá cookie, kterou dostane prohlížeč žádající o magic link.
+    # Polling endpoint /verify-email/status vydá session jen tomu, kdo ji
+    # pošle → ukradený token z URL je k ničemu (Jirka 10.8.2026, Marti-AI).
+    sec_poll_cookie_name: str = "stg_poll"
 
     # auth_audit retention (Windows Task Scheduler nightly cron, jako llm_calls)
     sec_auth_audit_retention_days: int = 90

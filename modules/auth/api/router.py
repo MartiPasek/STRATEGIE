@@ -34,14 +34,18 @@ def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -
     cookie_secure=True (jen HTTPS). samesite=lax aby fungoval cross-origin
     top-level GET (napr. invitation link).
     """
+    # Platnost session z konfigurace (90 dní). Middleware
+    # session_rolling_middleware v apps/api/main.py ji při každém použití
+    # posouvá dopředu → uživatel, který appku používá, nevyprší nikdy.
+    _sess_max_age = settings.session_cookie_max_age_days * 24 * 60 * 60
     response.set_cookie(
         key="user_id", value=str(user_id),
-        httponly=True, max_age=60*60*24*30,
+        httponly=True, max_age=_sess_max_age,
         secure=settings.cookie_secure, samesite=settings.cookie_samesite,
     )
     response.set_cookie(
         key="tenant_id", value=str(tenant_id or ""),
-        httponly=True, max_age=60*60*24*30,
+        httponly=True, max_age=_sess_max_age,
         secure=settings.cookie_secure, samesite=settings.cookie_samesite,
     )
     # Sdílený telefon (Claude-24 + Kristý 11.6.2026): krátkodobý JS-čitelný marker,

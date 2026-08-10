@@ -213,6 +213,14 @@ class Settings(BaseSettings):
     sec_device_cookie_max_age_days: int = 90
     sec_device_cookie_name: str = "strategie_device_token"
 
+    # Platnost přihlašovací session (cookie user_id / tenant_id).
+    # Jirka 10.8.2026 + souhlas Marti-AI: dřív natvrdo 30 dní BEZ obnovování →
+    # každý uživatel appky vypadl přesně 30. den po přihlášení, i když ji
+    # otevíral denně (doběh červencové vlny = 6 lidí za jedno dopoledne).
+    # Nově 90 dní + klouzavé prodlužování v session middleware (apps/api/main.py),
+    # takže lhůta běží od POSLEDNÍHO použití, ne od přihlášení.
+    session_cookie_max_age_days: int = 90
+
     # Magic link TTL (Marti-AI insight #3 — 10.5. dopoledne):
     #   self-request invite (user klik "přihlásit z venku") → 24h
     #   pre-approve invite (parent registruje předem) → 72h

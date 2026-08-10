@@ -30,7 +30,7 @@ import os
 import uuid
 
 from core.config import settings
-from core.logging import setup_logging
+from core.logging import get_logger, setup_logging
 # Phase 38.4 Krok 14g Etapa A (16.5.2026) — DB Log Infrastructure
 from core.log_queue import (
     DiagLogHandler,
@@ -661,11 +661,136 @@ def _fi_extract_user_context(request: Request) -> dict[str, object | None]:
                 "tenant_id": None, "tenant_name": None}
 
 
+# ── Trvalé přihlášení v appce (Jirka 10.8.2026, odsouhlasila Marti-AI) ──
+# PROBLÉM: cookie user_id měla natvrdo 30 dní a nastavovala se JEN při
+# přihlášení — nikde se neobnovovala. Každý uživatel appky proto vypadl přesně
+# 30. den po přihlášení, i když ji otevíral denně. 10.8. doběhla červencová
+# vlna onboardingu → 6 lidí za jedno dopoledne muselo znovu přes e-mailový odkaz.
+#
+# ŘEŠENÍ (dvě části):
+#   A) klouzavé prodloužení — lhůta běží od POSLEDNÍHO použití, ne od přihlášení,
+#      takže kdo appku používá, nevyprší mu nikdy (Set-Cookie max 1× denně),
+#   B) tiché obnovení — když session přesto vyprší, ale telefon pošle platný
+#      strategie_device_token (90 dní), server přihlášení obnoví sám bez e-mailu.
+#
+# Podmínka Marti-AI k bodu B: tiché obnovení jen pro řadové lidi (role employee
+# a member), NIKDY pro správce (is_admin), rodiče (is_marti_parent), roli owner
+# ani ambassador. POZOR: NEkontroluje se users.status='active' — zaměstnanci,
+# kteří si nikdy nenastavili heslo, mají status 'pending' (ověřeno 10.8.: všech
+# 6 postižených lidí bylo 'pending'), a právě jim to má pomoct. Ven jdou jen
+# 'disabled' a 'archived'.
+_SESS_REFRESH_COOKIE = "stg_sess_ref"   # datum posledního prodloužení (YYYY-MM-DD)
+_sess_log = get_logger("strategie.session")
+
+
+def _sess_parse_cookies(raw: str) -> dict[str, str]:
+    """Cookies ze syrové hlavičky. Schválně NEčteme request.cookies — ta se
+    v Requestu cachuje a bod B mění hlavičky ve scope; cache by pak držela
+    starý (nepřihlášený) stav."""
+    out: dict[str, str] = {}
+    for part in (raw or "").split(";"):
+        if "=" in part:
+            k, _, v = part.partition("=")
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _sess_cookie_kwargs() -> dict:
+    return {
+        "httponly": True,
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "max_age": settings.session_cookie_max_age_days * 24 * 60 * 60,
+    }
+
+
+def _sess_restore_from_device(device_token: str) -> tuple[int, int | None] | None:
+    """Bod B — komu smí server obnovit přihlášení podle známého zařízení.
+    Vrací (user_id, tenant_id) nebo None. Nikdy nevyhazuje výjimku."""
+    try:
+        _tok = uuid.UUID((device_token or "").strip())
+    except Exception:
+        return None
+    try:
+        from sqlalchemy import text as _sess_sql
+        from core.database_data import get_data_session
+        s = get_data_session()
+        try:
+            row = s.execute(_sess_sql("""
+                SELECT td.user_id,
+                       COALESCE(u.last_active_tenant_id, ut.tenant_id) AS tenant_id
+                  FROM public.trusted_devices td
+                  JOIN public.users u ON u.id = td.user_id
+                  JOIN LATERAL (
+                        SELECT x.tenant_id
+                          FROM public.user_tenants x
+                         WHERE x.user_id = td.user_id
+                           AND x.role IN ('employee', 'member')
+                         ORDER BY x.id
+                         LIMIT 1
+                       ) ut ON TRUE
+                 WHERE td.device_token = CAST(:tok AS uuid)
+                   AND td.revoked_at IS NULL
+                   AND td.expires_at > now()
+                   AND COALESCE(u.is_admin, false) = false
+                   AND COALESCE(u.is_marti_parent, false) = false
+                   AND COALESCE(u.status, '') NOT IN ('disabled', 'archived')
+                 LIMIT 1
+            """), {"tok": str(_tok)}).first()
+        finally:
+            s.close()
+        if row is None:
+            return None
+        return int(row[0]), (int(row[1]) if row[1] is not None else None)
+    except Exception:
+        return None
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
     request.state.request_id = request_id
     set_request_id(request_id)
+
+    # Session A+B. Musí být PŘED vším, co sahá na request.cookies (Fix K,
+    # HR presence, ambasador guard) — jednak ať z obnovené session těží taky,
+    # jednak ať se cookies nezacachují v původním (nepřihlášeném) stavu.
+    _sess_ck = _sess_parse_cookies(request.headers.get("cookie") or "")
+    # Cesty /api/v1/auth/* si cookies řídí samy (login, logout, exit-demo,
+    # potvrzení odkazu, impersonace) — tam NESAHAT. Bez téhle výjimky by
+    # prodloužení přepsalo odhlášení a člověk by se z appky nedostal ven.
+    _sess_hands_off = (
+        (request.url.path or "").startswith("/api/v1/auth/")
+        or bool(_sess_ck.get("stg_demo"))    # demo je záměrně jen na jedno spuštění
+        or bool(_sess_ck.get("imp_token"))   # impersonace má vlastní krátkou platnost
+    )
+    _sess_restored = False
+    if not _sess_hands_off and not _sess_ck.get("user_id"):
+        _sess_dev = _sess_ck.get(settings.sec_device_cookie_name)
+        if _sess_dev:
+            _sess_hit = _sess_restore_from_device(_sess_dev)
+            if _sess_hit:
+                _sess_uid_new, _sess_tid_new = _sess_hit
+                _sess_ck["user_id"] = str(_sess_uid_new)
+                _sess_ck["tenant_id"] = str(_sess_tid_new or "")
+                _sess_restored = True
+                # Identitu propašuj i do TOHOTO requestu, ať appka nemusí
+                # čekat na další načtení stránky (scope sdílí i endpoint).
+                try:
+                    _sess_add = f"; user_id={_sess_uid_new}; tenant_id={_sess_tid_new or ''}"
+                    request.scope["headers"] = [
+                        ((k, v + _sess_add.encode()) if k == b"cookie" else (k, v))
+                        for (k, v) in request.scope["headers"]
+                    ]
+                except Exception:
+                    pass  # nevadí — cookie se stejně nastaví na odpovědi
+                try:
+                    _sess_log.info(
+                        f"SESSION_RESTORE tiché obnovení ze známého zařízení "
+                        f"user_id={_sess_uid_new} path={request.url.path}"
+                    )
+                except Exception:
+                    pass
 
     # Fix K (21.5. rano, Marti's "nejsou zde zapsany core_id, comp_def_id,
     # tenant, user" catch): propaguj user+ERP context do contextvars, aby
@@ -972,6 +1097,33 @@ async def request_id_middleware(request: Request, call_next):
                        uid=_bd_uid, ip_str=_bd_ip(request), source="browser")
     except Exception:
         pass
+
+    # Session A — klouzavé prodloužení. Lhůta běží od posledního použití.
+    # Set-Cookie posíláme nejvýš 1× denně (marker stg_sess_ref), takže to
+    # nezatěžuje běžný provoz. Po tichém obnovení (bod B) vždy.
+    try:
+        _sess_uid_cur = _sess_ck.get("user_id")
+        # POJISTKA: když si identitu nastavuje sama odpověď (sdílený telefon —
+        # přepnutí uživatele PINem v ERP endpointu mimo /auth/*), nesmíme za ni
+        # přilepit vlastní Set-Cookie se starým user_id — poslední Set-Cookie
+        # v prohlížeči vyhrává a přepnutí by se tiše vrátilo zpět.
+        _sess_resp_sets_uid = False
+        for _hk, _hv in (getattr(response, "raw_headers", None) or []):
+            if _hk.lower() == b"set-cookie" and _hv.lstrip().lower().startswith(b"user_id="):
+                _sess_resp_sets_uid = True
+                break
+        if (not _sess_hands_off and not _sess_resp_sets_uid
+                and _sess_uid_cur and _sess_uid_cur.isdigit()
+                and hasattr(response, "set_cookie")):
+            import datetime as _sess_dt
+            _sess_today = _sess_dt.date.today().isoformat()
+            if _sess_restored or _sess_ck.get(_SESS_REFRESH_COOKIE) != _sess_today:
+                _sess_kw = _sess_cookie_kwargs()
+                response.set_cookie("user_id", _sess_uid_cur, **_sess_kw)
+                response.set_cookie("tenant_id", _sess_ck.get("tenant_id") or "", **_sess_kw)
+                response.set_cookie(_SESS_REFRESH_COOKIE, _sess_today, **_sess_kw)
+    except Exception:
+        pass  # nikdy neshazuj request kvůli prodloužení session
 
     try:
         response.headers["X-Request-Id"] = request_id

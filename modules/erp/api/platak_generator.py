@@ -782,9 +782,14 @@ async def platak_mzdy_import(req: Request):
         if not (_ro.get("ok") and _ro.get("rows")):
             return JSONResponse({"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}, status_code=400)
         idobd = int(_ro["rows"][0][0])
+        # Peťa 10. 8. 2026: bereme i DatumSplatnosti z Heliosu (sloupec 10). Do 10. 8. se do
+        # souboru pro banku i do názvu složky dosazovalo DNEŠNÍ datum — takže mzdový platák
+        # se splatností 13. 8. odešel do banky jako splatný dnes a ležel ve složce podle dneška.
+        # U mzdových platáků platí splatnost z Heliosu, ne dnešek (na rozdíl od platáků z faktur).
         q = ("SELECT p.ID, dv.Nazev, p.Mena, r.Castka, "
              "ISNULL(r.VariabilniSymbol,''), ISNULL(r.KonstantniSymbol,''), ISNULL(r.SpecifickySymbol,''), "
-             "ISNULL(bs.CisloUctu,''), ISNULL(pu.KodUstavu,''), ISNULL(r.UcelPlatby,'') "
+             "ISNULL(bs.CisloUctu,''), ISNULL(pu.KodUstavu,''), ISNULL(r.UcelPlatby,''), "
+             "CONVERT(varchar(8), p.DatumSplatnosti, 112) "
              "FROM " + cloud_db + ".dbo.TabPlatTuz p "
              "JOIN " + cloud_db + ".dbo.TabDefPlatPrik dv ON p.MzdPredpis=dv.Kod AND p.IdMzdObd=dv.IdObdobi "
              "JOIN " + cloud_db + ".dbo.TabPlatTuzR r ON r.IDHlavaPP=p.ID "
@@ -801,7 +806,8 @@ async def platak_mzdy_import(req: Request):
         for row in rows:
             plid = int(row[0])
             if plid not in groups:
-                groups[plid] = {"nazev": _clean(row[1]), "mena": (_clean(row[2]) or "CZK").upper(), "lines": []}
+                groups[plid] = {"nazev": _clean(row[1]), "mena": (_clean(row[2]) or "CZK").upper(),
+                                "splat": (_clean(row[10]) if len(row) > 10 else ""), "lines": []}
             groups[plid]["lines"].append(row)
         nas = _NAS_UCET.get(frm, "")
         dnes = _dt.date.today()
@@ -812,6 +818,16 @@ async def platak_mzdy_import(req: Request):
             if g["mena"] != "CZK":
                 out.append({"platak": g["nazev"], "preskoceno": "zatím jen CZK tuzemské", "mena": g["mena"]})
                 continue
+            # splatnost z Heliosu (RRRRMMDD) -> pro soubor RRMMDD a pro nazev slozky.
+            # Kdyz by chybela, spadneme zpet na dnesek (chovani do 10. 8. 2026).
+            _sp8 = (g.get("splat") or "").strip()
+            _sp_den = dnes
+            if len(_sp8) == 8 and _sp8.isdigit():
+                try:
+                    _sp_den = _dt.date(int(_sp8[0:4]), int(_sp8[4:6]), int(_sp8[6:8]))
+                except Exception:
+                    _sp_den = dnes
+            _sp6 = _sp_den.strftime("%y%m%d")
             lines = []
             suma = 0.0
             for i, row in enumerate(g["lines"], start=1):
@@ -820,10 +836,10 @@ async def platak_mzdy_import(req: Request):
                 lines.append(render_tuz_line(
                     porad=i, datum_vytv=dv6, castka=castka, ks=_clean(row[5]), vs=_clean(row[4]),
                     ss=_clean(row[6]), kod_ustavu_prij=_clean(row[8]), ucet_prij=_clean(row[7]),
-                    ucet_klient=nas, datum_splat=dv6, ucel=(_clean(row[9]) or g["nazev"])))
+                    ucet_klient=nas, datum_splat=_sp6, ucel=(_clean(row[9]) or g["nazev"])))
             content = b"".join(ln.encode("cp1250") + b"\r\n" for ln in lines)
             b64c = _b64.b64encode(content).decode("ascii")
-            abs_dir, fn = _target(frm, "CZK", dnes, now)
+            abs_dir, fn = _target(frm, "CZK", _sp_den, now)
             fn = fn[:-4] + "_" + str(plid) + fn[-4:]   # unikátní soubor per platák
             info = {"platak": g["nazev"], "mena": "CZK", "pocet": len(lines),
                     "suma": round(suma, 2), "soubor": fn, "cesta": abs_dir + "\\",

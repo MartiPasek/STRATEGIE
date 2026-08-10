@@ -109,8 +109,10 @@ class VerifyEmailRequestResponse(BaseModel):
     ok: bool = True
     polling_token: str | None = None     # Token pro UI polling /status?token=X
     message: str = (
-        "Pokud má e-mail platný účet, odeslali jsme magic link. "
-        "Zkontrolujte schránku (platnost 24 hodin)."
+        # Bez konkrétního počtu hodin — platnost se řídí configem
+        # (10.8.2026 zkrácena z 24 h na 4 h), ať hláška znovu nezestárne.
+        "Pokud má e-mail platný účet, odeslali jsme přihlašovací odkaz. "
+        "Zkontrolujte schránku."
     )
 
 

@@ -854,8 +854,11 @@ async def platak_mzdy_import(req: Request):
                     pid = s.execute(_t(
                         "INSERT INTO tenant.bank_platak (firma, typ, mena, nas_ucet, datum_vytvoreni, "
                         "datum_splatnosti, pocet_polozek, suma, stav, soubor_nazev, soubor_cesta, poznamka, vytvoril_user_id) "
-                        "VALUES (:firma,'tuz','CZK',:nas,CURRENT_DATE,CURRENT_DATE,:pocet,:suma,'vygenerovano',:fn,:cesta,:pozn,:uid) RETURNING id"),
+                        # splatnost = z Heliosu (ne dnesek) - at v prehledu plataku sedi s tim,
+                        # co je v souboru pro banku. Peta 10. 8. 2026.
+                        "VALUES (:firma,'tuz','CZK',:nas,CURRENT_DATE,CAST(:splat AS date),:pocet,:suma,'vygenerovano',:fn,:cesta,:pozn,:uid) RETURNING id"),
                         {"firma": frm, "nas": nas, "pocet": len(lines), "suma": round(suma, 2),
+                         "splat": _sp_den.isoformat(),
                          "fn": fn, "cesta": abs_dir + "\\", "pozn": "MZDY: " + g["nazev"], "uid": int(uid)}).scalar()
                     s.flush()
                     _mcp_file_write(abs_dir, fn, b64c)

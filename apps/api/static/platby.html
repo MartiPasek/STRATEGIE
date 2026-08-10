@@ -903,7 +903,9 @@ function loadPlatplat(){
 function renderPlatplat(){
   var b=document.getElementById('platplat-body');var list=_platakGen;
   var h='<div class="sub">Naše vygenerované platáky čekající na odeslání do banky. Zamykají saldo (faktury zmizí z Návrhů). Klikni na soubor pro detail + obsah; smazání uvolní zámek (saldo se vrátí).</div>';
-  h+='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn" style="padding:6px 14px;font-size:12.5px" onclick="openSoubory()">📁 Soubory na disku</button></div>';
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">'+
+     '<button class="btn" style="padding:6px 14px;font-size:12.5px;border-color:#2e7d5b;background:#12291f;color:#7ee0b0" onclick="openMzdyImport()" title="Natáhne mzdové platební příkazy vygenerované v Heliosu (mzdy na účet, odvody na úřady, Kooperativa)">💰 Načíst mzdové platáky z Heliosu</button>'+
+     '<button class="btn" style="padding:6px 14px;font-size:12.5px" onclick="openSoubory()">📁 Soubory na disku</button></div>';
   h+='<div class="grp"><div class="gh"><div class="t">🧾 '+list.length+' platáku k platbě</div></div>';
   if(!list.length){b.innerHTML=h+'<div class="load" style="padding:16px">Zatím žádné vygenerované platáky. Vygeneruj je v záložce „Návrhy k platbě".</div></div>';return;}
   h+='<table><thead><tr><th>Vytvořeno</th><th>Firma</th><th></th><th>Soubor</th><th class="r">Plateb</th><th class="r">Suma</th><th></th></tr></thead><tbody>';
@@ -916,6 +918,68 @@ function renderPlatplat(){
   });
   b.innerHTML=h+'</tbody></table></div>';
 }
+/* ── Načtení mzdových platáků z Heliosu (Peťa 10. 8. 2026) ────────────────────
+   Platáky ke mzdám vznikají v Heliosu (Mzdy → generování platebních příkazů).
+   Sem se jen natáhnou. Napřed VŽDY náhled, teprve po potvrzení se vytvoří —
+   ať se omylem nevyrobí platáky, které nikdo nechtěl. */
+function openMzdyImport(){
+  var d=new Date(); d.setMonth(d.getMonth()-1);
+  var r=d.getFullYear(), m=d.getMonth()+1;
+  var h='<div class="ov on" id="mzimp-bg" style="z-index:70"><div class="modal" style="max-width:760px">'+
+    '<div class="mh"><div class="t">💰 Načíst mzdové platáky z Heliosu</div>'+
+    '<button class="x" onclick="closeMzdyImport()">✕</button></div>'+
+    '<div class="mb">'+
+    '<div class="sub" style="margin-bottom:12px">Platáky ke mzdám se vytvářejí <b>v Heliosu</b> — tady se jen načtou. '+
+    'Než se něco vytvoří, uvidíš náhled.</div>'+
+    '<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">'+
+    '<label style="font-size:12.5px">Firma<br><select id="mzimp-firma" style="margin-top:4px;padding:6px 10px;background:#0d1520;color:#dbe7f5;border:1px solid #2a3a4f;border-radius:6px">'+
+    '<option value="EC">EC — EUROSOFT Control</option><option value="ES">ES — EUROSOFT System</option></select></label>'+
+    '<label style="font-size:12.5px">Rok<br><input id="mzimp-rok" type="number" value="'+r+'" style="margin-top:4px;width:90px;padding:6px 10px;background:#0d1520;color:#dbe7f5;border:1px solid #2a3a4f;border-radius:6px"></label>'+
+    '<label style="font-size:12.5px">Měsíc<br><input id="mzimp-mesic" type="number" min="1" max="12" value="'+m+'" style="margin-top:4px;width:70px;padding:6px 10px;background:#0d1520;color:#dbe7f5;border:1px solid #2a3a4f;border-radius:6px"></label>'+
+    '<button class="btn" onclick="mzdyImportNahled(this)">🔍 Náhled</button></div>'+
+    '<div id="mzimp-out"><div class="load" style="padding:10px">Vyber firmu a období a dej Náhled.</div></div>'+
+    '</div></div></div>';
+  var w=document.createElement('div'); w.innerHTML=h; document.body.appendChild(w.firstChild);
+}
+function closeMzdyImport(){var e=document.getElementById('mzimp-bg');if(e)e.remove();}
+function _mzimpParams(){
+  return {firma:document.getElementById('mzimp-firma').value,
+          rok:parseInt(document.getElementById('mzimp-rok').value,10),
+          mesic:parseInt(document.getElementById('mzimp-mesic').value,10)};
+}
+function mzdyImportNahled(btn){
+  var p=_mzimpParams(), out=document.getElementById('mzimp-out');
+  var _t=btn.textContent; btn.disabled=true; btn.textContent='Načítám…';
+  out.innerHTML='<div class="load" style="padding:10px">Ptám se Heliosu…</div>';
+  fetch('/api/v1/erp/app/platby/platak/mzdy-import',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({firma:p.firma,rok:p.rok,mesic:p.mesic,dry:true})})
+    .then(function(r){return r.json();}).then(function(d){
+      btn.disabled=false; btn.textContent=_t;
+      if(!d||!d.ok){out.innerHTML='<div class="load" style="padding:10px;color:#ffb3ae">'+esc((d&&d.error)||'Nepovedlo se.')+'</div>';return;}
+      var list=d.plataky||[];
+      if(!list.length){out.innerHTML='<div class="load" style="padding:10px">V Heliosu nejsou pro '+p.mesic+'/'+p.rok+' žádné platební příkazy. Nejdřív je vygeneruj v Heliosu.</div>';return;}
+      var h='<div class="grp"><div class="gh"><div class="t">K načtení: '+list.length+' platáků · '+money(d.suma_celkem,'CZK')+'</div></div>'+
+        '<table><thead><tr><th>Platák</th><th class="r">Plateb</th><th class="r">Suma</th></tr></thead><tbody>';
+      list.forEach(function(g){h+='<tr><td>'+esc(g.platak)+'</td><td class="r">'+g.pocet+'</td><td class="r money">'+money(g.suma,g.mena||'CZK')+'</td></tr>';});
+      h+='</tbody></table></div>'+
+        '<div style="text-align:center;margin-top:12px"><button class="btn" style="padding:8px 18px;border-color:#2e7d5b;background:#12291f;color:#7ee0b0" onclick="mzdyImportPotvrd(this)">✅ Vytvořit tyto platáky</button></div>'+
+        '<div class="sub" style="margin-top:8px;text-align:center">Vytvoří se soubory pro banku a platáky se objeví v seznamu níže.</div>';
+      out.innerHTML=h;
+    }).catch(function(){btn.disabled=false;btn.textContent=_t;out.innerHTML='<div class="load" style="padding:10px;color:#ffb3ae">Chyba spojení.</div>';});
+}
+function mzdyImportPotvrd(btn){
+  var p=_mzimpParams(); var _t=btn.textContent; btn.disabled=true; btn.textContent='Vytvářím…';
+  fetch('/api/v1/erp/app/platby/platak/mzdy-import',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({firma:p.firma,rok:p.rok,mesic:p.mesic})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok){btn.disabled=false;btn.textContent=_t;window.alert('Nepovedlo se: '+((d&&d.error)||'chyba'));return;}
+      closeMzdyImport(); loadPlatplat();
+      window.alert('Hotovo — načteno '+((d.plataky||[]).length)+' platáků.');
+    }).catch(function(){btn.disabled=false;btn.textContent=_t;window.alert('Chyba při vytváření.');});
+}
+
 var _importy=[];
 function loadImporty(){
   var b=document.getElementById('importy-body');

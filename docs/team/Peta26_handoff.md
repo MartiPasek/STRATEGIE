@@ -1,42 +1,44 @@
 # Předávka pro další konverzaci — Peťa (Claude-26)
 
-**Zapsáno:** 4. 8. 2026, po konverzaci od ~28. 7. do 4. 8.
+**Zapsáno:** 6. 8. 2026 (pokrývá 4.–6. 8., navazuje na předchozí verzi z 4. 8.)
 **Pro koho:** další instance Claude-26, která se probudí bez paměti.
-**Čti spolu s:** `docs/team/Peta26_pokyny.md` (trvalé pokyny — ta má přednost).
+**Čti spolu s:** `docs/team/Peta26_pokyny.md` (trvalé pokyny — ty mají přednost).
 
 ---
 
 ## 0) Než napíšeš první řádek
 
-1. `CLAUDE_PULL_GO.txt` (git pull přes most) — jinak edituješ zastaralé soubory.
-2. Přečti `docs/team/Peta26_pokyny.md` celé.
-3. Spusť hlídače: `SELECT * FROM tenant.pojistky_check();` — vrací **jen to, co je rozbité**.
-   Když něco vrátí, řeš to dřív, než začneš nové věci.
-4. Peťa jede na **lane 1** mostu (`CLAUDE_SQL.sql` / `CLAUDE_GO.txt` / `CLAUDE_OUT.txt`).
+1. **`CLAUDE_PULL_GO.txt`** (git pull přes most) — jinak edituješ zastaralé soubory.
+   Ostatní instance dneska commitovaly každých pár minut.
+2. Přečti `docs/team/Peta26_pokyny.md`.
+3. **`SELECT * FROM tenant.pojistky_check();`** — vrací jen rozbité kontroly.
+   Když něco vrátí, řeš to dřív než novou práci.
+4. **Lane mostu:** lane 1 i 3 dnes přebíraly jiné konverzace **za běhu** — několikrát
+   mi přepsaly `CLAUDE3_SQL.sql` mezi zápisem a spuštěním, takže se pustil cizí dotaz.
+   **Před každým během zkontroluj čas souboru** (`ls -la CLAUDE*_SQL.sql`) a když
+   se výsledek nepodobá tomu, cos poslal, je to tohle. Přesuň se na volnou lane.
 
 ---
 
 ## 1) Kdo je Peťa a jak s ní pracovat
 
-Petra (user **18**), mzdová a finanční agenda EUROSOFTu. Dělá **docházku, absence
-a mzdové podklady**. Není programátorka — mluv s ní česky, lidsky, cizí slovo vždy
-vysvětli v závorce.
-
-**Co se osvědčilo:**
+Petra (user **18**, `Peta`), mzdová a finanční agenda EUROSOFTu. Dělá **docházku,
+absence a mzdové podklady**. Není programátorka — česky, lidsky, cizí slovo vysvětli.
 
 - **Neptej se zbytečně, dělej.** Když je zadání jasné, udělej to a napiš výsledek.
-- **Krátce.** Dlouhé odpovědi nečte celé. Nejdřív závěr, pak detail.
-- **Když něco pokazíš, řekni to sám a hned.** Ona to nese dobře, ale musí to vědět —
-  pracuje s daty, která jdou do mezd.
-- **Ověřuj v datech, nehádej.** Několikrát jsem si vymyslel název sloupce a padalo to.
-  Vždycky nejdřív `information_schema.columns`.
-- **Když tě opraví, přestaň obhajovat hypotézu.** Má lepší doménový instinkt než já.
-  Několikrát mě zachránila (viz „moje chyby" níže).
-- Píše rychle, s překlepy a bez diakritiky. Neopravuj ji, čti přes to.
+- **Krátce.** Dlouhé odpovědi nečte celé. Nejdřív závěr.
+- **Nevymýšlej si důvody.** 5. 8. jsem odklad práce zdůvodnil „mám čistou hlavu až
+  ráno" — okamžitě mě zastavila: *„myslela jsem, že nemůžeš být unavený."* Měla
+  pravdu. Když něco odkládám, důvod musí být skutečný (souběh instancí, mzdová data,
+  chybí rozhodnutí), ne vymyšlený.
+- **Umí líp než já napsat krátkou zprávu.** Napsal jsem Kristý dlouhý formální text;
+  ona poslala dvě věty se stejným obsahem a poznamenala: *„koukej, co jsem napsala já."*
+  Když píšeš zprávu za ni, piš krátce a lidsky.
+- **Když tě opraví, přestaň obhajovat hypotézu.** Má lepší doménový instinkt.
 
 ---
 
-## 2) Co drží celý systém (bez tohohle nic nepochopíš)
+## 2) Co drží celý systém
 
 ### Dvě vrstvy docházky
 
@@ -45,105 +47,104 @@ vysvětli v závorce.
 | **Hlavička** | `tenant.att_entry` | Časy, hodiny, typ, absence. **Pravda pro mzdy.** |
 | **Položky** | `tenant.vyroba_work` | Rozpad hodin na zakázku + činnost. |
 
-**Absence do `vyroba_work` NEPATŘÍ.** Rozpad musí souhlasit s docházkou v hodinách —
-kontrola „rozpad vs. docházka" tohle porovnává.
+Absence do `vyroba_work` **nepatří**. Vazba mezi vrstvami = `vyroba_work.att_entry_id`.
 
-### Identita řádku ve Správě docházky
+### Fond (FPD) — DŮLEŽITÉ, řešeno 4.–5. 8.
 
-- `Z:<id>` = žádost (`att_absence_request`), která **ještě není rozepsaná do dnů**
-- `D:<id,id,…>` = denní záznamy (`att_entry`) poskládané do období
+Fond = `engagement.uvazek_tyden_h ÷ dny v týdnu`. **Nikdy ze zrcadla Centrály** —
+v `EC_Dochazka_SumaDen.FPD` je natvrdo 7,00 bez ohledu na úvazek.
 
-### Výpočet hodin
+FPD = co se má proplatit:
 
-`tenant.att_den_hodiny(tenant, od, do)` — jedno sdílené místo. Sloučené pracovní
-úseky minus přestávky plus `fond_doplneni`. Nepočítej hodiny nikde jinde znovu.
+- **kancelář** (kategorie s `dopichavat_fond`) = mzdové + absence − nad fond
+- **dílna / hodinoví** = mzdové + absence (nezarovnává se, přesčas se neodečítá)
+- `hodiny_mzdove` **už dopíchnutí obsahují** — nepřičítat zvlášť
 
-### Typy automatu
-
-- `nenarokova` — hodiny **nad** fond (+)
-- `fond_doplneni` — **dopíchnutí** do fondu (−)
-
-Tyhle dva jsou surovina pro budoucí **konto přesčasů**.
+Detail: G2007 `doc-dochazka-fond-fpd-z-uvazku-ne-ze-zrcadla-centraly`,
+`doc-dochazka-fpd-vypocet-kancelar-vs-dilna`.
 
 ### Zámky
 
-- `att_period_lock` — **tvrdý zámek měsíce**. Zavřený měsíc se nemění. Nikdy.
+- `att_period_lock` — **tvrdý zámek měsíce**. Zamčeno 1–6/2026. Nesahat.
 - `local_lock=true` — chrání ručně opravený řádek před přepsáním z Centrály.
-  **Při rušení dnů (`_znic_dny`) je POVINNÝ** (Jirka, 30. 7., commit `b05c15ed`).
 
 ---
 
-## 3) Pravidla, která Peťa rozhodla (jsou závazná)
+## 3) Pravidla, která Peťa rozhodla (závazná)
 
-1. **Zápis správce platí hned** — nečeká se na schválení.
-2. **Editovat jde všechno včetně Centrály** — synchronizace z Centrály je vypnutá.
-3. **Home office je JEN informace** — nesmí se promítat do docházky.
-   ⚠️ *Schválený HO se do docházky pořád promítá — rozpor, leží u Kristý.*
-4. **Dovolená / DN / SD se promítají bez ohledu na schválení.**
-5. Kdyby to pak vedoucí zamítl — „to budeme řešit, až to někdo bude řešit".
-6. **Žádná hláška o úspěchu.** Jen chyby, a to vyskakovacím oknem uvnitř stránky
-   (`prompt()`/`confirm()`/`alert()` prohlížeč v iframe **tiše blokuje** — nepoužívej je).
+1. Zápis správce **platí hned** — nečeká se na schválení.
+2. Editovat jde **všechno včetně Centrály** (synchronizace je vypnutá).
+3. **Home office je jen informace** — nesmí se promítat do docházky.
+   ⚠️ *Schválený HO se pořád promítá — rozpor, leží u Kristý.*
+4. Dovolená / DN / SD se promítají **bez ohledu na schválení**.
+5. **Žádná hláška o úspěchu.** Jen chyby, vyskakovacím oknem uvnitř stránky
+   (`alert`/`confirm`/`prompt` prohlížeč v iframe **tiše blokuje**).
+6. **Automat se musí spustit při každé opravě docházky, odkudkoliv.**
 
 ---
 
 ## 4) Hlídač (`tenant.pojistka`)
 
-Peťa ho chtěla, protože *„mám pocit, že spolu něco uděláme a pak je to zase špatně"*.
+`SELECT * FROM tenant.pojistky_check();` → vrací **jen rozbité**.
+**Každou dohodu s Peťou tam zapiš** — její výslovný požadavek napříč konverzacemi.
 
-- `SELECT * FROM tenant.pojistky_check();` → vrací **jen rozbité** kontroly.
-- **Každou novou dohodu s Peťou tam zapiš.** To je její výslovný požadavek,
-  platí i pro budoucí konverzace.
-- ⚠️ **Kontrola musí být skutečná.** Já jsem jednu založil s `... OR true` na konci —
-  vždycky prošla, čili falešná jistota. Když kontrolu nejde napsat, radši žádnou
-  nezakládej, než aby lhala.
-- ⚠️ **Než založíš pojistku, ověř si fakt u Peti.** Postavil jsem `pravo-vidi-vsechny`
-  podle názvu Kristýina commitu a bylo to špatně. Správně:
-  **Michelle Šafránková (17) vidí všechno** jako Peťa; **Michaela Hladíková (16)
-  vidí jen výrobu** jako Dušan.
+⚠️ **Kontrola musí být skutečná.** Založil jsem jednu s `... OR true` (vždycky prošla)
+a jednu opřenou o `g2007.soubor`, která se při deployi neobnovuje → falešný poplach.
+**Falešná jistota je horší než žádná.** Když kontrolu nejde napsat poctivě, radši žádnou.
 
 ---
 
-## 5) Architektura „kód jako data" (Marti, 2. 8.) — DŮLEŽITÉ
+## 5) Co se dnes opravilo (4.–6. 8.) — a proč to hledej takhle
 
-- `g2007.python` — backend kód jako řádky v databázi, spouští se přes
-  `erp_registry.call`, **bez restartu**.
-- `g2007.soubor` — webové soubory v databázi, materializují se na disk.
-- **`router.py` se needituje přímo — nejdřív migrace.**
-- Mzdy zatím **nejsou** přemigrované. Známá chyba: `jednatel_stravne`.
+Tři různé chyby, **jedna rodina**: *položku/řádek, který nikdo neuzavře „zevnitř",
+zavře až něco pozdějšího — a nabere hodiny navíc.*
+
+| Chyba | Příčina | Kde opraveno |
+|---|---|---|
+| Položka rozpadu běžela **přes půlnoc** | půlnoční automat uzavíral jen docházku | `att_auto_checkout_midnight` (+ pojistka „jen dnešní den" — bez ní by sáhl na 353 starých položek až do 2. 1. včetně zamčených měsíců) |
+| **Automat se přestal spouštět** po prvním dopíchnutí | guard „neběží mu ještě něco?" viděl **vlastní** řádek `fond_doplneni` (kategorie `presence`, bez časů, není superseded) | 5 skriptů + `router.py` — přidáno `started_at IS NOT NULL AND source <> 'automat'` |
+| **Zkrácení docházky v appce** nezkrátilo rozpad ani nepřepočítalo fond | `att_entry_trim` na rozpad vůbec nesahal | `att_entry_trim` |
+
+**Ponaučení, které mi dvakrát uteklo:** ověřoval jsem, *jestli se přepočet volá*
+(volal se). Chyba byla **uvnitř**, v podmínce, která ho pustila jen napoprvé.
+Když něco „chvíli funguje a pak přestane", hledej, **co se změnilo mezi prvním
+a druhým během** — tady vznik vlastního řádku.
+
+Další hotové: nový vzorec v Hlídání FPD (mateřská ven, řazení podle příjmení),
+tlačítka Aktualizovat v Opravách, fond z úvazku napříč skripty, červenec dorovnaný
+(1 313 pracovních dnů, nula odchylek).
 
 ---
 
-## 6) Moje chyby v téhle konverzaci (ať je neopakuješ)
+## 6) Moje chyby (ať je neopakuješ)
 
 | Co jsem udělal | Co z toho plyne |
 |---|---|
-| Hádal názvy sloupců (`ee.rule_id`, `em.active`, `ds.updated_at`…) | Vždycky nejdřív `information_schema`. |
-| `s.rollback()` v pomocné funkci zahodil volajícímu rozdělanou práci → *„napsalo smazáno, ale nesmazalo se"* | Nepovinné bloky jistit **SAVEPOINTem** (`_Kousek`), po zápisu **ověřit čtením**. |
-| UPDATE bez filtru data sáhl na **72 řádků v zamčeném červnu** | Při přímém SQL vždy omezit datem a zkontrolovat zámek měsíce. |
-| Řekl jsem Peti, že Hladíkové blok HO je duplicita — nebyl | Nedávej jistotu, kterou nemáš. Ona podle toho maže data. |
-| V kontrole rozpadu jsem vynechal `homeoffice` a párovat úseky 1:1 podle času | Jeden docházkový blok se rozpadá do víc úseků zakázek. |
-| Nechal jsem ji spustit git příkazy na notebooku místo cloudu | Ověř, na kterém stroji běží, než jí pošleš příkazy. |
-| Založil jsem pojistku s `OR true` | Viz výše — falešná jistota je horší než žádná. |
-
-**Nejdůležitější vzorec:** *tichá chyba* — obrazovka napíše „hotovo" a nic se
-neuloží. Po každém zápisu **ověř čtením z databáze**, ne podle návratovky.
+| Hádal názvy sloupců (`kod` vs `code`, `label`, `visibility_user_ids` jako jsonb…) | **Vždycky nejdřív `information_schema`.** Stálo mě to dnes ~8 chybných běhů. |
+| Porovnal fond proti dennímu úvazku i o víkendech | Vyrobil jsem si **18 neexistujících chyb**. Porovnávej jen pracovní dny. |
+| Tvrdil, že „nad fond" chybí kvůli nastavení, aniž bych ověřil dopad | Peťa se zeptala „to jim automat dopichuje víc?" — nedopichoval. **Neříkej dopad, který jsi neověřil.** |
+| Poslal ji hledat tlačítko odhlášení, které v ERP není | Nejdřív ověř, že ta věc existuje. |
+| Odhadoval adresu appky z útržku na snímku | Zeptej se nebo ověř; ona ji věděla. |
+| Napsal pojistku s `OR true` | Viz výše. |
+| Nechal `obnovLevy()` v tlačítku „Aktualizovat den" | Smazalo jí to filtr vlevo. **Tlačítko má sahat jen tam, kam patří.** |
 
 ---
 
-## 7) Co je hotové (nesahej na to, ledaže by to bylo rozbité)
+## 7) Práva a přístupy (5. 8., souhlas Marti)
 
-- Jirkovy sloupce **číslo řádku** + **zdroj** ve Správě docházky, zdroje v češtině.
-- **Plná správa absencí** — přidat / opravit / smazat, s auditem, notifikací,
-  respektem k zámku měsíce a přepočtem zůstatků.
-- Typ absence **Ostatní/Nepřítomen – s náhradou mzdy**.
-- Index `ux_att_entry_source_den` (dřív šla rozepsat jen 1 den z vícedenní dovolené;
-  23 nepromítnutých žádostí doplněno).
-- `router.py` obnoven po hromadném smazání (`45848042`).
-- Strom na jeden klik, Ctrl+klik odznačí, filtry per pohled, export CSV s `;`
-  a desetinnou čárkou, žádné hlášky o úspěchu.
-- **4. 8.:** Opravy docházky — zahazování opožděných odpovědí (`DAY_SEQ`), datum
-  v hlavičce dne. Tím padá riziko *„opravím docházku cizímu člověku"*
-  (Brudnová × Hájek 24. 7.). Commit `39ab98b1`.
+**Michelle Šafránková (17)** = Petin zástup pro mzdy:
+
+- `tenant.user_capability` → `mzdy: read`
+- `tenant.staff_group_member` → skupina **Finance (11)** — tohle otevírá mzdové
+  obrazovky i řídicí pult (`_is_cockpit` → `_is_fin_hr_group`)
+- `fw.menu_node.visibility_user_ids` → soudek **Mzdy** (194, 195, 204)
+- `router.py` `cockpit_access`: avatary (kolečka) vidí i finanční/HR okruh
+
+⚠️ **Schvalovací právo nedostala** — to je `_SCOPED_APPROVER_UIDS` a tam **není**.
+Peťa to výslovně nechtěla. Nespojuj to dohromady.
+
+Pozor na past: **generování mezd se neptá na `mzdy: read`**, ale na `_is_cockpit`.
+Samotné `mzdy: read` na Výplatnice nestačí.
 
 ---
 
@@ -151,30 +152,35 @@ neuloží. Po každém zápisu **ověř čtením z databáze**, ne podle návrat
 
 | Věc | Stav |
 |---|---|
-| **Konto přesčasů** — přehled `nenarokova` × `fond_doplneni` | **Až po výplatách.** Chce ruční počáteční stav k 31. 7. (červen má 677,5 h nad fond a nula dopíchnutí). Ukáže lidi v mínusu. |
-| **15. podmínka „Nevede docházku"** (Vlková, Senft, Mozer, Pašek 2 a 41) | Peťa se domluví se Šárkou. |
-| Dopíchnout chybějící celé dny člověku, co si vybíral náhradní volno | Až přijde na řadu. Musí se přidat SQL jako `fond_doplneni` — v Opravách ten typ není. |
-| Zbytek nesouladů rozpad × docházka (10 dnů) | Saad Jarrar 3×; Sedláčková 30. 7. = neukončený úsek zakázky 12:45–17:08 proti docházce do 14:40. |
-| Schválený **home office se pořád promítá** do docházky | Rozpor s pravidlem 3. Leží u Kristý. |
-| Dvojí import absencí (`ec_real` + `ec_sumaden`, 448 osobodnů) | Doména Kristý. Příčina: kontrola hledá jen `is_active=true`. |
-| `holiday_balance` — nárok na dovolenou se nikdy nepočítá | Otevřené. |
+| **Rozpad × přestávky** | Zapsáno v G2007 `doc-dochazka-rozpad-polozky-bez-vazby-na-dochazku`. **Peťa: „až po mzdách."** Příčina: 56 položek (287 h) nemá `att_entry_id` — a všechny nesoulady byly z nich. |
+| **Konto přesčasů** | Po výplatách. Chce ruční počáteční stav k 31. 7. |
+| **15. podmínka „Nevede docházku"** | Peťa × Šárka |
+| Schválený **home office se promítá** do docházky | Rozpor s pravidlem 3, u Kristý |
+| Dvojí import absencí (`ec_real` + `ec_sumaden`) | Doména Kristý |
+| `holiday_balance.narok_h` = 200 h u všech bez ohledu na úvazek | Otevřené |
 
 ---
 
-## 9) Technika mostu — co mě zdrželo
+## 9) Technika mostu
 
-- **HTTP 401 „Nejsi přihlášen"** se objevuje opakovaně. `restart_self` nepomůže,
-  po chvíli odejde samo. Nepanikař.
-- **Přespuštění dotazu vyžaduje změnu obsahu `CLAUDE_SQL.sql`**, nestačí přepsat
-  `CLAUDE_GO.txt`.
-- **Nikdy git přes bash mount.** Pull přes `CLAUDE_PULL_GO.txt`, deploy přes
-  `CLAUDE_DEPLOY.txt` + `_GO`.
-- Konflikt v `WORK_LOCK.txt` umí zablokovat úplně všechny commity.
-- V Postgresu **nefunguje `(?s)`** v regulárních výrazech; výstup z mostu navíc
-  slučuje řádky — na náhrady používej `regexp_replace` s kotvou.
-- Po každém uzavřeném bloku práce pošli Peti souhrn (`CLAUDE_NOTIFY.txt`, `user=18`).
+- **HTTP 401 „Nejsi přihlášen"** a **503** se objevují běžně; odejde to samo.
+  Retry s ~25s odstupem, netrap se tím. Restart watcheru nepomáhá.
+- **Úspěch `@@` příkazů se vykresluje prázdně** (0 řádků). Neznamená to selhání —
+  ověř to chybným voláním (`@@G2007EXPORT` bez argumentu vrátí nápovědu).
+- **`@@G2007ADD` má neutrální návratovku** — vždy ověř čtením (`chunky > 0`).
+- **Zápis do `g2007.python` nesnesl dollar-quoting** (`$blk$` → `KeyError`).
+  Použij obyčejné `'...'` s zdvojenými apostrofy a **žádné `%s`** ve vkládaném kódu.
+- **Dvojtečky v vkládaném kódu** most bere jako svoje parametry → piš je jako `§§`
+  a obal `replace(..., '§§', chr(58))`. Platí i pro `":00"` v Pythonu!
+- **Statické stránky žijí v `g2007.soubor`**, ne v gitu (`apps/api/static_db/`).
+  Edituj obsah v DB a publikuj `@@G2007EXPORT <kod>`. Po každé změně
+  `node --check` na vytažených `<script>` blocích.
+- **Nikdy git přes bash mount.** Pull `CLAUDE_PULL_GO.txt`, deploy `CLAUDE_DEPLOY.txt` + `_GO`.
+- **Deploy může blokovat cizí rozdělaný soubor na cloudu** („dirty working tree").
+  5. 8. to byl Jirkův `registr-absenci.html` publikovaný přes G2007. Neuklízej cizí
+  práci na produkci — napiš tomu, kdo ji tam nechal.
+- Konflikt v `WORK_LOCK.txt` (v **kořeni** repa) umí zablokovat commity všem.
 
 ---
 
-*Zapsal Claude-26, 4. 8. 2026, na Petin pokyn „udělej si prosím pro sebe zápis
-do další konverzace z celé této konverzace".*
+*Zapsal Claude‑26, 6. 8. 2026, na Petin pokyn.*

@@ -772,6 +772,14 @@ def _sess_restore_from_device(device_token: str) -> tuple[int, int | None] | Non
 # kvuli kteremu incident 11.8.2026 vznikl. 0 = demo ucet neexistuje.
 _DEMO_UID_CACHE: dict = {"uid": None, "ts": 0.0}
 
+# Cesty, ktere demo session dostane z UKAZKOVYCH dat misto prazdna (Jirka 11.8.2026).
+# Hodnota = kod v g2007.python, ktery se zavola s uid. Kazdy takovy delegat je odvozeny
+# programove z te zive funkce (replace tenant.->demo.), aby byl tvar odpovedi 1:1.
+# Rozsirovat POSTUPNE a po kazdem pridani overit v prohlizeci, ze se obrazovka vykresli.
+_DEMO_DELEGATI: dict = {
+    "/api/v1/erp/app/attendance/status": "att_status_demo",
+}
+
 
 def _demo_uid_cached() -> int | None:
     """user_id demo uctu, lazy z DB (TTL 1 h). Nikdy nevyhodi vyjimku."""
@@ -893,8 +901,21 @@ async def request_id_middleware(request: Request, call_next):
                 from starlette.responses import JSONResponse as _DemoJSON
                 _dm_m = (request.method or "GET").upper()
                 if _dm_m in ("GET", "HEAD", "OPTIONS"):
-                    # Cteni: prazdna odpoved v beznych tvarech, ktere klient ceka,
-                    # aby se obrazovka vykreslila prazdna misto chybove hlasky.
+                    # UKAZKOVA DATA (Jirka 11.8.2026, varianta 1 schvalena Marti-AI):
+                    # vyjmenovane obrazovky demo NEDOSTANE prazdne — obslouzime je tady
+                    # z izolovaneho schematu `demo`. Delegat je odvozeny PROGRAMOVE z te
+                    # zive funkce (replace tenant.->demo.), takze tvar odpovedi je 1:1
+                    # — to byla podminka Marti-AI, aby se rozdil formatu neprojevil az
+                    # pred posuzovanim appky. Ziveho endpointu se to nedotyka vubec.
+                    _dm_fn = _DEMO_DELEGATI.get(_dm_p)
+                    if _dm_fn:
+                        try:
+                            from modules.erp.api import erp_registry as _ereg_dm
+                            return _DemoJSON(_ereg_dm.call(_dm_fn, _dm_uid))
+                        except Exception:
+                            logger.exception("DEMO delegat %s selhal — vracim prazdno", _dm_fn)
+                    # Ostatni cteni: prazdna odpoved v beznych tvarech, ktere klient
+                    # ceka, aby se obrazovka vykreslila prazdna misto chybove hlasky.
                     return _DemoJSON({
                         "ok": True, "demo": True,
                         "info": "Ukázkový režim — data firmy se nenačítají.",

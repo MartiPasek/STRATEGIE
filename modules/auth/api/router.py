@@ -1107,6 +1107,17 @@ def demo_login(req: Request, next: str = "/mobile"):
     resp.set_cookie(key="tenant_id", value=str(tenant_id or ""), httponly=True, secure=_sc, samesite=_ss)
     resp.set_cookie(key="stg_demo", value="1", httponly=False, secure=_sc, samesite=_ss)
     logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest} (session-scoped, no handoff)")
+
+    # UKAZKOVA DATA (Jirka 11.8.2026, schvalila Marti-AI): pri kazdem demo prihlaseni
+    # se uklidi to, co v ukazce nadelal demo ucet, a ukazkova sada (schema demo) se
+    # srovna do vychozi podoby. Ukazkova data se NIKDY nemazou — Jirkovo zadani zni
+    # "smazat se mohou jen data vznikla akcemi demo uctu, ukazkova data tam musi zustat".
+    # Best-effort: kdyby seed selhal, prihlaseni do dema to NESMI shodit.
+    try:
+        from modules.erp.api import erp_registry as _ereg_demo
+        logger.info("DEMO_LOGIN seed %s", _ereg_demo.call("demo_seed"))
+    except Exception:
+        logger.exception("DEMO_LOGIN seed selhal — pokracuji, demo jede bez obnovy dat")
     return resp
 
 

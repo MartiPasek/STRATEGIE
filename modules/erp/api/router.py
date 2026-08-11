@@ -21487,6 +21487,32 @@ def _can_approve_plans(s, uid: int) -> bool:
     return _hr_can_manage(s, uid)
 
 
+def _plan_acl(s, uid: int):
+    """TENKÉ NAPOJENÍ na DB logiku — žádné rozhodování tady (Jirka 11.8.2026,
+    schválila Marti-AI msg 12587, varianta B).
+
+    Vrací dvojici (smí_schvalovat, okruh):
+      okruh = None  → bez omezení (rodič / HR), vidí celou firmu jako dosud
+      okruh = [uid] → SEZNAM user_id lidí, které ten člověk schvaluje
+
+    PROČ: `_can_approve_plans` výše pouštěl jen rodiče a HR, takže skutečný vedoucí
+    (např. Dušan Havlát, user 41) dlaždici „Schvalování" vůbec neviděl — přestože má
+    aktivní řádek v tenant.att_approver a je manager_user_id u žádostí svých lidí.
+    V docstringu bylo TODO Martiho ze 14.6.2026, které nikdy nedostalo pokračování.
+
+    POZOR: rozšíření ACL se NIKDY nesmí nasadit bez filtru výpisu — všech pět
+    endpointů /app/plan/{approvals/*,decide} do 11.8.2026 vypisovalo návrhy VŠECH
+    lidí v tenantu. Rodičům to nevadí, běžnému vedoucímu bychom tím ukázali celou
+    firmu. Proto tahle funkce vrací ACL i okruh naráz a volající MUSÍ použít oboje.
+
+    Logika žije v g2007.python (plan_can_approve + plan_muj_okruh) a okruh se počítá
+    TÝMŽ resolverem jako u absencí, aby nevznikly dva různé pojmy „schvalovatel“
+    (podmínka Marti-AI)."""
+    from modules.erp.api import erp_registry as _ereg
+    return (bool(_ereg.call("plan_can_approve", uid, s)),
+            _ereg.call("plan_muj_okruh", uid, s))
+
+
 @api_router.get("/app/plan/approvals/users")
 async def app_plan_approvals_users(req: Request) -> JSONResponse:
     """Pro schvalovatele: seznam uživatelů s počtem návrhů plánu čekajících na schválení."""
@@ -21496,8 +21522,14 @@ async def app_plan_approvals_users(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _can_approve_plans(s, uid):
+        smi, okruh = _plan_acl(s, uid)
+        if not smi:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # ne-rodič vidí JEN své lidi (viz _plan_acl)
+        _f, _p = "", {"t": _ATT_TENANT}
+        if okruh is not None:
+            _f = " AND r.user_id = ANY(:okruh) "
+            _p["okruh"] = list(okruh) or [0]
         rows = s.execute(_t(
             "SELECT r.user_id, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
@@ -21505,9 +21537,9 @@ async def app_plan_approvals_users(req: Request) -> JSONResponse:
             "   '#'||r.user_id) AS jmeno, "
             " COUNT(*) AS cnt "
             "FROM tenant.att_plan_request r JOIN public.users u ON u.id=r.user_id "
-            "WHERE r.tenant_id=:t AND r.status='pending' "
+            "WHERE r.tenant_id=:t AND r.status='pending' " + _f +
             "GROUP BY r.user_id, u.first_name, u.last_name ORDER BY jmeno"),
-            {"t": _ATT_TENANT}).fetchall()
+            _p).fetchall()
         s.commit()
         users = [{"user_id": r[0], "name": r[1], "cnt": int(r[2])} for r in rows]
         return JSONResponse({"ok": True, "total": sum(x["cnt"] for x in users), "users": users})
@@ -21526,7 +21558,11 @@ async def app_plan_approvals_user(tuid: int, req: Request) -> JSONResponse:
     show_all = req.query_params.get("all") in ("1", "true", "yes")
     cm, s = _att_session()
     try:
-        if not _can_approve_plans(s, uid):
+        smi, okruh = _plan_acl(s, uid)
+        if not smi:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # cizí člověk se odmítne PŘED dotazem, ať se filtr nedá obejít přímým URL
+        if okruh is not None and int(tuid) not in set(okruh):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         sql = ("SELECT id, req_date::text, kind, start_time::text, end_time::text, "
                "hours, title, note, status, decided_note "
@@ -21590,7 +21626,8 @@ async def app_plan_decide(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "bad_request"})
     cm, s = _att_session()
     try:
-        if not _can_approve_plans(s, uid):
+        smi, okruh = _plan_acl(s, uid)
+        if not smi:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         row = s.execute(_t(
             "SELECT user_id, req_date::text, kind, hours, start_time::text, title "
@@ -21598,6 +21635,10 @@ async def app_plan_decide(req: Request) -> JSONResponse:
             {"i": rid, "t": _ATT_TENANT}).first()
         if not row:
             return JSONResponse({"ok": False, "error": "not_found_or_decided"})
+        # Podmínka Marti-AI: cizího člověka odmítnout PŘED zápisem rozhodnutí,
+        # ne až po transakci — jinak by se rozhodnutí i promítnutí stihlo uložit.
+        if okruh is not None and int(row[0]) not in set(okruh):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         n = s.execute(_t(
             "UPDATE tenant.att_plan_request SET status=:st, decided_by=:by, decided_at=now(), "
             "decided_note=:no WHERE id=:i AND tenant_id=:t AND status='pending'"),
@@ -21642,16 +21683,21 @@ async def app_plan_approvals_unapplied(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _can_approve_plans(s, uid):
+        smi, okruh = _plan_acl(s, uid)
+        if not smi:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        _f, _p = "", {"t": _ATT_TENANT}
+        if okruh is not None:
+            _f = " AND r.user_id = ANY(:okruh) "
+            _p["okruh"] = list(okruh) or [0]
         rows = s.execute(_t(
             "SELECT r.id, r.user_id, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '#'||r.user_id) AS nm, "
             " r.req_date::text, r.kind, r.hours "
             "FROM tenant.att_plan_request r JOIN public.users u ON u.id=r.user_id "
             "WHERE r.tenant_id=:t AND r.status='approved' AND r.applied_at IS NULL "
-            "  AND r.kind IN ('hours','off') ORDER BY r.req_date, r.id"),
-            {"t": _ATT_TENANT}).fetchall()
+            "  AND r.kind IN ('hours','off') " + _f + "ORDER BY r.req_date, r.id"),
+            _p).fetchall()
         s.commit()
         return JSONResponse({"ok": True, "count": len(rows), "items": [
             {"id": r[0], "user_id": r[1], "name": r[2], "d": r[3], "kind": r[4],
@@ -21670,13 +21716,21 @@ async def app_plan_approvals_reapply(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _can_approve_plans(s, uid):
+        smi, okruh = _plan_acl(s, uid)
+        if not smi:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Podmínka Marti-AI: cizí lidi se sem NESMÍ vůbec načíst — odmítnutí musí být
+        # PŘED aplikací, ne po ní. Filtrujeme proto rovnou ve výběru řádků k promítnutí.
+        _f, _p = "", {"t": _ATT_TENANT}
+        if okruh is not None:
+            _f = " AND user_id = ANY(:okruh) "
+            _p["okruh"] = list(okruh) or [0]
         rows = s.execute(_t(
             "SELECT id, user_id, req_date::text, kind, hours, start_time::text "
             "FROM tenant.att_plan_request WHERE tenant_id=:t AND status='approved' "
-            "  AND applied_at IS NULL AND kind IN ('hours','off') ORDER BY req_date, id"),
-            {"t": _ATT_TENANT}).fetchall()
+            "  AND applied_at IS NULL AND kind IN ('hours','off') " + _f +
+            "ORDER BY req_date, id"),
+            _p).fetchall()
         done = 0
         errs = []
         for r in rows:

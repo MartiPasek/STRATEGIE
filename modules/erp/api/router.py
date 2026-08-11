@@ -31539,8 +31539,17 @@ def mzdy_generuj(req: Request):
             status_code=400)
     clean = (qp.get("clean") or "") in ("1", "true", "ano")
     cislo = qp.get("cislo") or qp.get("zam")
+    # ?only_clean=1 → období se JEN vyčistí a nic se negeneruje (Peťa 11. 8. 2026).
+    # Pro případ, kdy se mzda omylem vygeneruje do špatného období — Helios ji pak
+    # nedovolí smazat ručně, dokud období není aktuální. Čistí se toutéž ověřenou
+    # cestou jako „čistá voda“ (jen Automat=1 / neuzavřené), takže uzavřené a ruční
+    # mzdy zůstanou nedotčené. Vyžaduje clean=1 zároveň.
+    only_clean = (qp.get("only_clean") or "") in ("1", "true", "ano")
+    if only_clean:
+        clean = True
     result = _ereg.call("mzdy_generuj", uid, firma=_f, rok=_r,
-                         mesic=_m, maxn=qp.get("max"), clean=clean, cislo=cislo)
+                         mesic=_m, maxn=qp.get("max"), clean=clean, cislo=cislo,
+                         only_clean=only_clean)
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

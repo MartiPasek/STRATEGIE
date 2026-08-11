@@ -778,12 +778,26 @@ _DEMO_UID_CACHE: dict = {"uid": None, "ts": 0.0}
 # zakladani zamestnance), aby byl tvar odpovedi 1:1 — podminka Marti-AI.
 # Rozsirovat POSTUPNE a po kazdem pridani overit, ze se obrazovka opravdu vykresli.
 _DEMO_DELEGATI: dict = {
-    "/api/v1/erp/app/attendance/status":      ("att_status_demo", ()),
-    "/api/v1/erp/app/attendance/whereabouts": ("att_whereabouts_demo", ("den",)),
-    # POZOR: /attendance/day-detail zde ZAMERNE NENI. Odvozeni att_day_detail_demo
-    # useklo 1227 znaku (regexp na odstraneni _att_employee sezral i navazujici kod),
-    # radek v g2007.python je proto ve stavu 'navrzeny'. Pridat az po rucnim prepsani
-    # a overeni — porovnat delku s originalem, nez se zapoji.
+    # Bez parametru
+    "/api/v1/erp/app/attendance/status":           ("att_status_demo", ()),
+    "/api/v1/erp/app/attendance/absence/inbox":    ("att_absence_inbox_demo", ()),
+    "/api/v1/erp/app/attendance/absence/mine":     ("att_absence_mine_demo", ()),
+    "/api/v1/erp/app/attendance/announced-future": ("att_announced_future_demo", ()),
+    "/api/v1/erp/app/attendance/fix/allowed":      ("att_fix_allowed_demo", ()),
+    "/api/v1/erp/app/attendance/fix/audit":        ("att_fix_audit_list_demo", ()),
+    "/api/v1/erp/app/attendance/fix/cinnosti":     ("att_fix_cinnosti_demo", ()),
+    "/api/v1/erp/app/attendance/fix/lide":         ("att_fix_lide_demo", ()),
+    "/api/v1/erp/app/attendance/fix/queue":        ("att_fix_queue_demo", ()),
+    "/api/v1/erp/app/attendance/fix/zakazky":      ("att_fix_zakazky_demo", ()),
+    "/api/v1/erp/app/attendance/period-lock":      ("att_period_lock_demo", ()),
+    "/api/v1/erp/app/attendance/unconfirmed":      ("att_unconfirmed_demo", ()),
+    # S parametry z URL — poradi MUSI sedet s puvodnim volanim v router.py
+    "/api/v1/erp/app/attendance/whereabouts":      ("att_whereabouts_demo", ("den",)),
+    "/api/v1/erp/app/attendance/daily":            ("att_daily_demo", ("days",)),
+    "/api/v1/erp/app/attendance/day-detail":       ("att_day_detail_demo", ("day", "user_id")),
+    "/api/v1/erp/app/attendance/fix/day":          ("att_fix_day_demo", ("day", "uid")),
+    "/api/v1/erp/app/attendance/list":             ("att_list_demo", ("days", "user_id")),
+    "/api/v1/erp/app/attendance/real":             ("att_real_demo", ("from", "to")),
 }
 
 

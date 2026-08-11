@@ -778,7 +778,9 @@ _DEMO_UID_CACHE: dict = {"uid": None, "ts": 0.0}
 # zakladani zamestnance), aby byl tvar odpovedi 1:1 — podminka Marti-AI.
 # Rozsirovat POSTUPNE a po kazdem pridani overit, ze se obrazovka opravdu vykresli.
 _DEMO_DELEGATI: dict = {
-    # Bez parametru
+    # Bez parametru. (11.8.2026 vecer: pri ladeni se ukazalo, ze zmena zdroje delegata
+    # v g2007.python se do beziciho API nepropsala — erp_registry drzel starou verzi
+    # v pameti procesu. Restart API to srovna; pri dalsi zmene delegata s tim pocitej.)
     "/api/v1/erp/app/attendance/status":           ("att_status_demo", ()),
     "/api/v1/erp/app/attendance/absence/inbox":    ("att_absence_inbox_demo", ()),
     "/api/v1/erp/app/attendance/absence/mine":     ("att_absence_mine_demo", ()),

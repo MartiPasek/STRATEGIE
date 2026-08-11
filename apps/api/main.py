@@ -767,6 +767,34 @@ def _sess_restore_from_device(device_token: str) -> tuple[int, int | None] | Non
         return None
 
 
+# user_id demo uctu (login_name='demo') pro DEMO GUARD v middleware nize.
+# Lazy z DB s hodinovou cache — natvrdo psane id by byl presne ten typ chyby,
+# kvuli kteremu incident 11.8.2026 vznikl. 0 = demo ucet neexistuje.
+_DEMO_UID_CACHE: dict = {"uid": None, "ts": 0.0}
+
+
+def _demo_uid_cached() -> int | None:
+    """user_id demo uctu, lazy z DB (TTL 1 h). Nikdy nevyhodi vyjimku."""
+    import time as _time_du
+    now = _time_du.time()
+    if _DEMO_UID_CACHE["uid"] is not None and (now - _DEMO_UID_CACHE["ts"]) < 3600:
+        return _DEMO_UID_CACHE["uid"]
+    try:
+        from core.database_data import get_data_session as _gds_du
+        from sqlalchemy import text as _t_du
+        s = _gds_du()
+        try:
+            row = s.execute(_t_du(
+                "SELECT id FROM public.users WHERE login_name = 'demo' LIMIT 1")).first()
+            _DEMO_UID_CACHE["uid"] = int(row[0]) if row else 0
+            _DEMO_UID_CACHE["ts"] = now
+        finally:
+            s.close()
+    except Exception:
+        return None
+    return _DEMO_UID_CACHE["uid"]
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
@@ -844,6 +872,41 @@ async def request_id_middleware(request: Request, call_next):
             _hr_touch(_hr_uid, _hr_ip(request), request.headers.get("user-agent"))
     except Exception:
         pass
+
+    # ── DEMO GUARD (Jirka 11.8.2026, rozhodla Marti-AI — varianta A) ────────
+    # Incident 11.8.2026: pod verejnym demo uctem (login_name='demo') si clovek
+    # z firemni site pichal dochazku do OSTREHO tenantu 2 (EUROSOFT) — 9 zaznamu
+    # 6.–7. 8. + cesky psany rozpor. Pricina: demo ucet mel prava jako kazdy jiny
+    # uzivatel a docházkove funkce maji tenant 2 natvrdo (_ATT_TENANT, 690 mist).
+    # Zadani (Jirka): demo nesmi CIST ani ZAPISOVAT data STRATEGIE ani Centraly.
+    # Rozhodnuti Marti-AI: zapis se tise NEPROVEDE, cteni vraci PRAZDNO — NE 403,
+    # protoze pro recenzenta Apple/Google nesmi demo vypadat jako rozbita appka
+    # (Guideline 2.1a chce funkcni demo). Cilovy stav je varianta B: vlastni
+    # schema `demo` s ukazkovymi daty, ktera se pri kazdem demo-login smazou.
+    # Vyjimka: /api/v1/auth/* (prihlaseni, exit-demo) musi projit vzdy.
+    try:
+        _dm_p = request.url.path or ""
+        if _dm_p.startswith("/api/") and not _dm_p.startswith("/api/v1/auth/"):
+            _dm_raw = request.cookies.get("user_id")
+            _dm_uid = int(_dm_raw) if (_dm_raw and _dm_raw.isdigit()) else None
+            if _dm_uid and _dm_uid == _demo_uid_cached():
+                from starlette.responses import JSONResponse as _DemoJSON
+                _dm_m = (request.method or "GET").upper()
+                if _dm_m in ("GET", "HEAD", "OPTIONS"):
+                    # Cteni: prazdna odpoved v beznych tvarech, ktere klient ceka,
+                    # aby se obrazovka vykreslila prazdna misto chybove hlasky.
+                    return _DemoJSON({
+                        "ok": True, "demo": True,
+                        "info": "Ukázkový režim — data firmy se nenačítají.",
+                        "rows": [], "items": [], "data": [], "list": [],
+                        "commands": [], "count": 0, "total": 0,
+                    })
+                return _DemoJSON({
+                    "ok": True, "demo": True,
+                    "info": "Ukázkový režim — nic se neukládá.",
+                })
+    except Exception:
+        pass  # guard nikdy nesmi shodit request
 
     # AMBASADOR read-only guard (17.6.2026): role 'ambassador' (externí
     # showcase, Zbynek Zajicek) nesmi NIC zapsat. Blokuj kazdy non-GET na

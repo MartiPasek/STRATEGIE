@@ -375,6 +375,33 @@ def _typ_id(s, code):
                      {"t": _TEN, "c": code}).scalar()
 
 
+def _sd_check(emp, typ_code, hpd, den=None):
+    """Sick day jen CELÉ HODINY nebo PŘESNĚ PŮLDEN (Peťa 10. 8. 2026).
+
+    Spouštěč: 5. 8. se do docházky dostal sick day na 1,35 h (drobné dopočtené
+    z časů) a 10. 8. založil formulář „Úprava absence" záznam na 8,00 h místo
+    1,00 h, protože měl hodiny natvrdo. Půlden je podmínka zvlášť, protože
+    u sedmihodinového dne nevychází na celou hodinu (3,50 h).
+
+    Samotné pravidlo ŽIJE V DATABÁZI (g2007.python kód=att_sd_kontrola), takže
+    se dá změnit i vypnout za běhu, bez nasazování a bez restartu. Tady je jen
+    pár řádků, které se ho zeptají.
+
+    Vrací text chyby, nebo None když je vše v pořádku.
+    """
+    if str(typ_code or "").strip() != "sickday":
+        return None
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        r = _ereg.call("att_sd_kontrola", emp, "sickday", hpd,
+                       den.isoformat() if den else None) or {}
+    except Exception:
+        return None  # kontrola nikdy nesmí shodit samotný zápis
+    if r.get("ok", True):
+        return None
+    return r.get("error") or "Neplatný počet hodin sick day."
+
+
 def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix", zad_id=None,
                schvaleno=True):
     """Založí absenční denní záznamy na pracovní dny rozsahu. Vrací počet dnů.
@@ -547,6 +574,9 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
             bad = _smi(s, uid, emp)
             if bad:
                 return _chyba(bad[0], bad[1])
+            chyba_sd = _sd_check(emp, typ, hpd, d_od)
+            if chyba_sd:
+                return _chyba(chyba_sd)
             zam = _zamek(s, [r[1], r[2], d_od, d_do])
             if zam:
                 return _chyba(zam, 409)
@@ -583,6 +613,9 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         bad = _smi(s, uid, emp)
         if bad:
             return _chyba(bad[0], bad[1])
+        chyba_sd = _sd_check(emp, typ, hpd, d_od)
+        if chyba_sd:
+            return _chyba(chyba_sd)
         stare = [r[2] for r in rows]
         zam = _zamek(s, stare + [d_od, d_do])
         if zam:
@@ -660,6 +693,9 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         if not r:
             return _chyba("Pracovník s číslem %s není v evidenci docházky." % cislo, 404)
         emp, zam_uid = int(r[0]), r[1]
+        chyba_sd = _sd_check(emp, typ, hpd, d_od)
+        if chyba_sd:
+            return _chyba(chyba_sd)
         bad = _smi(s, uid, emp)
         if bad:
             return _chyba(bad[0], bad[1])

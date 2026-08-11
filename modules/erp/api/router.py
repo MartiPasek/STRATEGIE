@@ -31521,10 +31521,26 @@ def mzdy_generuj(req: Request):
     uid = _uid_from_token_or_cookie(req)
     from modules.erp.api import erp_registry as _ereg
     qp = req.query_params
+    # ── POJISTKA (Peťa 11. 8. 2026): BEZ VÝSLOVNĚ ZADANÉHO OBDOBÍ NEGENERUJEME ──
+    # Parametry se čtou JEN z adresy (query string). Kdo je pošle v těle requestu (JSON),
+    # dorazí sem prázdné — a dřív se v tu chvíli tiše dosadily defaulty "ES + dnešní
+    # rok/měsíc" a vygeneroval se AKTUÁLNÍ měsíc jiné firmy, než volající chtěl.
+    # Stalo se 10. 8. 2026: požadavek s JSON {firma:'EC', rok:2026, mesic:7} vygeneroval
+    # 8 lidí do ES za SRPEN. Radši chyba než tiché generování špatného období.
+    # UI (vyplatnice.html) posílá firma/rok/mesic v adrese vždy → tahle kontrola ho neomezí.
+    _f = (qp.get("firma") or "").strip()
+    _r = (qp.get("rok") or "").strip()
+    _m = (qp.get("mesic") or "").strip()
+    if not (_f and _r and _m):
+        return JSONResponse(
+            {"ok": False, "error": "Chybí firma/rok/mesic. Posílají se v ADRESE, ne v těle "
+                                   "požadavku: POST /app/mzdy/generuj?firma=EC&rok=2026&mesic=7 "
+                                   "— bez nich se negeneruje nic (dřív se tiše vzal aktuální měsíc)."},
+            status_code=400)
     clean = (qp.get("clean") or "") in ("1", "true", "ano")
     cislo = qp.get("cislo") or qp.get("zam")
-    result = _ereg.call("mzdy_generuj", uid, firma=qp.get("firma"), rok=qp.get("rok"),
-                         mesic=qp.get("mesic"), maxn=qp.get("max"), clean=clean, cislo=cislo)
+    result = _ereg.call("mzdy_generuj", uid, firma=_f, rok=_r,
+                         mesic=_m, maxn=qp.get("max"), clean=clean, cislo=cislo)
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

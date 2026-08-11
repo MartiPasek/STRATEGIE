@@ -843,7 +843,10 @@ function renderPU(edit){
     const pozn = tbl(edit?rIN('Poznámka','note',po.note,po.id):rRO('Poznámka', po.note));
     const audit=(po.zmenil||po.zmeneno)?'<div style="font-size:10.5px;color:#5d6b7c;padding:4px 16px 8px">naposledy upravil: '+esc(po.zmenil||'—')+(po.zmeneno?(' · '+esc(po.zmeneno)):'')+'</div>':'';
     h+='<div style="margin:6px 0 2px;border-top:1px solid #1e2730">'+
-      '<div style="font-weight:800;color:#e8eef5;padding:8px 16px 2px">'+esc(po.firma)+' · '+esc(po.typ)+'</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px 2px">'+
+        '<span style="font-weight:800;color:#e8eef5">'+esc(po.firma)+' · '+esc(po.typ)+'</span>'+
+        (edit?'':'<a href="#" onclick="pomerOpen('+po.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Změna / prodloužení</a>')+
+      '</div>'+
       grp('Zařazení')+zar+grp('Smlouva')+sml+grp('Úvazek')+uva+grp('Poznámka')+pozn+audit+'</div>';
   }
   if(!(d.pomery||[]).length) h+='<div class="empty">Žádný aktuální pracovní poměr.</div>';
@@ -925,6 +928,45 @@ async function termCommit(){
   if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
   const o=document.getElementById('termOv'); if(o)o.remove();
   alert('Poměr ukončen k '+d.datum+'.'+(d.plne_ukonceni?' Plné ukončení.':'')+(d.byl_schvalovatel?' Byl schvalovatel — přiřaď náhradníka.':'')+(d.majetek_nevraceno>0?(' Nevrácený majetek: '+d.majetek_nevraceno+'.'):''));
+  pracUdaje();
+}
+
+// Šárka 11.8.2026: Změna / prodloužení poměru (doba určitá↔neurčitá, úvazek) — cinkne účetní+HR.
+function pomerOpen(eid){
+  const po=((PU_DATA&&PU_DATA.pomery)||[]).find(x=>x.id===eid)||{};
+  const neurc=(po.doba!=='určitá');
+  let ov=document.getElementById('pzOv');
+  if(!ov){ ov=document.createElement('div'); ov.id='pzOv'; ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50'; document.body.appendChild(ov); }
+  ov.innerHTML='<div style="background:#161c24;border:1px solid #233040;border-radius:12px;padding:18px;width:min(480px,94vw);color:#cdd6e2">'+
+    '<div style="font-weight:800;color:#e8eef5;font-size:16px;margin-bottom:4px">✏️ Změna / prodloužení poměru</div>'+
+    '<div style="color:#7f8ea0;font-size:12px;margin-bottom:12px">'+esc((po.firma||'')+' · '+(po.typ||''))+' — zapíše se do STRATEGIE a cinkne mzdové účetní i HR.</div>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block">Doba trvání'+
+      '<select id="pz_doba" onchange="pzToggle()" style="'+_TIN+'">'+
+        '<option value="neurcita"'+(neurc?' selected':'')+'>na dobu neurčitou</option>'+
+        '<option value="urcita"'+(neurc?'':' selected')+'>na dobu určitou (do data)</option>'+
+      '</select></label>'+
+    '<label id="pz_dowrap" style="font-size:12px;color:#7f8ea0;display:'+(neurc?'none':'block')+';margin-top:8px">Konec smlouvy<input id="pz_do" type="date" style="'+_TIN+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block;margin-top:8px">Úvazek (h/týden, nepovinné)<input id="pz_uv" type="number" step="0.5" value="'+(po.uvazek||'')+'" style="'+_TIN+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block;margin-top:8px">Důvod / poznámka (nepovinné)<input id="pz_duvod" style="'+_TIN+'"></label>'+
+    '<div style="display:flex;gap:10px;align-items:center;margin-top:14px">'+
+      '<button onclick="pomerSubmit('+eid+')" style="border:1px solid #2a5a3a;background:#26603a;color:#e8ffe8;border-radius:8px;padding:8px 14px;font:inherit;font-weight:800;cursor:pointer">Uložit změnu</button>'+
+      '<a href="#" onclick="var o=document.getElementById(\'pzOv\');if(o)o.remove();return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+      '<span id="pz_msg" style="font-size:12px;margin-left:auto"></span>'+
+    '</div></div>';
+}
+function pzToggle(){ const d=document.getElementById('pz_doba').value; document.getElementById('pz_dowrap').style.display=(d==='urcita')?'block':'none'; }
+async function pomerSubmit(eid){
+  const msg=document.getElementById('pz_msg');
+  const doba=document.getElementById('pz_doba').value;
+  const smlouva_do=document.getElementById('pz_do').value;
+  if(doba==='urcita' && !smlouva_do){ msg.style.color='#E0A94A'; msg.textContent='Zadej datum konce.'; return; }
+  const body={id:eid,doba:doba,smlouva_do:smlouva_do,uvazek:document.getElementById('pz_uv').value,duvod:document.getElementById('pz_duvod').value.trim()};
+  msg.style.color='#7f8ea0'; msg.textContent='Ukládám…';
+  const r=await fetch(API+'/app/hr/pomer-zmena',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
+  const o=document.getElementById('pzOv'); if(o)o.remove();
+  alert('Poměr upraven: '+(d.doba==='neurcita'?'na dobu neurčitou':'na dobu určitou do '+(d.smlouva_do||''))+'. Cinklo účetní i HR.');
   pracUdaje();
 }
 

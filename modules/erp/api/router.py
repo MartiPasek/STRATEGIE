@@ -10461,6 +10461,92 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/hr/pomer-zmena")
+async def app_hr_pomer_zmena(req: Request):
+    """HR změna / prodloužení poměru (Šárka 11.8.2026): doba trvání (určitá do data /
+    na dobu neurčitou), volitelně úvazek. Zapíše tenant.engagement (+ audit do note) a
+    cinkne mzdové účetní (Fajmonová) + HR. Zdroj pravdy Centrála i STRATEGIE — mzdový
+    modul (user_smlouva/Helios) dořeší účetní podle echa."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    eid = int((b or {}).get("id") or 0)
+    doba = str((b or {}).get("doba") or "").strip().lower()
+    duvod = (str((b or {}).get("duvod") or "").strip() or None)
+
+    def _d(v):
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+    smlouva_do = _d((b or {}).get("smlouva_do"))
+    try:
+        uvazek = float((b or {}).get("uvazek")) if str((b or {}).get("uvazek") or "").strip() not in ("", "null") else None
+    except Exception:
+        uvazek = None
+    if not eid or doba not in ("urcita", "neurcita"):
+        return JSONResponse({"ok": False, "error": "Chybí poměr nebo doba."}, status_code=400)
+    if doba == "urcita" and not smlouva_do:
+        return JSONResponse({"ok": False, "error": "U doby určité zadej datum konce."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT ae.user_id, ae.full_name, e.engagement_type "
+            "FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "WHERE e.id=:id AND e.tenant_id=2"), {"id": eid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Poměr nenalezen."}, status_code=404)
+        tuid, jmeno, etyp = int(row[0]), (row[1] or ("ID " + str(row[0]))), (row[2] or "poměr")
+        who = _self_person_name(s, uid) or ("HR #" + str(uid))
+        novy_do = None if doba == "neurcita" else smlouva_do
+        _MES = ["", "ledna", "února", "března", "dubna", "května", "června",
+                "července", "srpna", "září", "října", "listopadu", "prosince"]
+        dnes = _dt.date.today()
+        popis = ("na dobu neurčitou" if doba == "neurcita"
+                 else ("na dobu určitou do " + smlouva_do.strftime("%d.%m.%Y")))
+        uv_txt = ((", úvazek %g h/týd" % uvazek) if uvazek else "")
+        pozn = "[změna %d. %s %d] Poměr %s%s (HR: %s)." % (
+            dnes.day, _MES[dnes.month], dnes.year, popis, uv_txt, who)
+        if duvod:
+            pozn += " Důvod: " + duvod
+        sets = ("smlouva_do=:do, valid_to=:do, changed_by_text=:by, changed_at=now(), "
+                "note = CASE WHEN COALESCE(note,'')='' THEN :pz ELSE note || E'\\n' || :pz END")
+        params = {"do": novy_do, "by": who, "pz": pozn, "id": eid}
+        if uvazek is not None:
+            sets = "uvazek_tyden_h=:uv, " + sets
+            params["uv"] = uvazek
+        s.execute(_t("UPDATE tenant.engagement SET " + sets + " WHERE id=:id AND tenant_id=2 AND is_current=true"), params)
+        s.commit()
+        try:
+            prijemci = set(_self_hr_recipients(s))
+            faj = s.execute(_t("SELECT id FROM public.users WHERE first_name ILIKE 'Petra' AND last_name ILIKE 'Fajmon%' LIMIT 1")).scalar()
+            if faj:
+                prijemci.add(int(faj))
+            _abs_notify(s, [p for p in prijemci if p != uid],
+                        "Změna poměru: " + jmeno,
+                        jmeno + " — " + etyp.upper() + " změněn " + popis + uv_txt +
+                        ". Prosím promítni do mezd/Heliosu.")
+            s.commit()
+        except Exception as _ne:
+            logger.warning("[pomer_zmena notify] %s", _ne)
+        return JSONResponse({"ok": True, "jmeno": jmeno, "doba": doba,
+                             "smlouva_do": (novy_do.strftime("%d.%m.%Y") if novy_do else None)})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_pomer_zmena] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Svěřený majetek (Šárka 24.7.2026): IT + oblečení + klíče/přístupy + skříňka + ostatní ──
 # IT navíc napojen na fw.hr_device. Klíče/přístupy = klíče od kanceláří, vstupní čipy.
 _ASSET_KAT = ["IT", "Oblečení", "Klíče a přístupy", "Skříňka", "Ostatní"]

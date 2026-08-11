@@ -12049,9 +12049,106 @@ def _hr_auto_narozeniny(s):
 _HR_DAILY_LAST = [None]
 
 
+_HR_RESUME_LAST = [None]
+
+
+def _hr_mesicni_resume(s):
+    """Měsíční personální resumé (Šárka 11.8.2026): PŘESNĚ 5 dní před koncem měsíce
+    pošle na HR skupinu e-mail se změnami za měsíc (nástupy, výstupy, změny poměru
+    a podmínek vč. věrnostních dnů, nové dokumenty v kartě) — ať má paní účetní
+    prostor zapsat do Heliosu. Self-gated (den days_left==5) + měsíční marker.
+    Idempotentní, best-effort. Volá se z _hr_daily_pass (1×/den)."""
+    from sqlalchemy import text as _t
+    import datetime as _dt, calendar as _cal
+    today = _dt.date.today()
+    last_day = _cal.monthrange(today.year, today.month)[1]
+    if (last_day - today.day) != 5:
+        return
+    marker = "%04d-%02d" % (today.year, today.month)
+    if _HR_RESUME_LAST[0] == marker:
+        return
+    _MES = ["", "leden", "únor", "březen", "duben", "květen", "červen",
+            "červenec", "srpen", "září", "říjen", "listopad", "prosinec"]
+    first = _dt.date(today.year, today.month, 1)
+    lastd = _dt.date(today.year, today.month, last_day)
+    p = {"first": first, "today": today, "lastday": lastd}
+
+    def esc(x):
+        return (str(x or "")).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    nastupy = s.execute(_t(
+        "SELECT ae.full_name, upper(e.engagement_type), to_char(e.smlouva_od,'DD.MM.YYYY') "
+        "FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+        "WHERE e.tenant_id=2 AND e.smlouva_od BETWEEN :first AND :lastday ORDER BY e.smlouva_od"), p).fetchall()
+    vystupy = s.execute(_t(
+        "SELECT ae.full_name, upper(e.engagement_type), to_char(e.smlouva_do,'DD.MM.YYYY') "
+        "FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+        "WHERE e.tenant_id=2 AND e.smlouva_do BETWEEN :first AND :lastday ORDER BY e.smlouva_do"), p).fetchall()
+    zmeny = s.execute(_t(
+        "SELECT ae.full_name, to_char(e.changed_at,'DD.MM.'), COALESCE(e.note,'') "
+        "FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+        "WHERE e.tenant_id=2 AND e.changed_at::date BETWEEN :first AND :today "
+        "  AND (e.smlouva_od IS NULL OR e.smlouva_od < :first) "
+        "  AND (e.smlouva_do IS NULL OR e.smlouva_do > :lastday) "
+        "ORDER BY e.changed_at"), p).fetchall()
+    dokumenty = s.execute(_t(
+        "SELECT COALESCE((SELECT ae.full_name FROM tenant.att_employee ae "
+        "                 WHERE ae.user_id=d.user_id AND ae.tenant_id=2 AND ae.full_name IS NOT NULL LIMIT 1), "
+        "                TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''))), d.nazev, COALESCE(d.kategorie,'') "
+        "FROM tenant.employee_document d LEFT JOIN public.users u ON u.id=d.user_id "
+        "WHERE d.tenant_id=2 AND d.uploaded_at::date BETWEEN :first AND :today ORDER BY d.uploaded_at"), p).fetchall()
+
+    def _last(note):
+        ls = [x for x in (note or "").splitlines() if x.strip()]
+        return ls[-1] if ls else "změna poměru"
+
+    def sekce(nadpis, radky):
+        if not radky:
+            return ""
+        return "<h3 style='margin:14px 0 4px'>" + esc(nadpis) + "</h3><ul style='margin:0'>" + \
+               "".join("<li>" + r + "</li>" for r in radky) + "</ul>"
+
+    parts = [
+        sekce("Nástupy", [esc(r[0]) + " — " + esc(r[1]) + ", nástup " + esc(r[2]) for r in nastupy]),
+        sekce("Výstupy", [esc(r[0]) + " — " + esc(r[1]) + ", konec " + esc(r[2]) for r in vystupy]),
+        sekce("Změny poměru a podmínek", [esc(r[0]) + " (" + esc(r[1]) + ") — " + esc(_last(r[2])) for r in zmeny]),
+        sekce("Nové dokumenty v kartě", [esc(r[0]) + " — " + esc(r[1]) + (" [" + esc(r[2]) + "]" if r[2] else "") for r in dokumenty]),
+    ]
+    telo = "".join(x for x in parts if x) or "<p>Žádné personální změny za tento měsíc k dnešnímu dni.</p>"
+    nadpis = "Personální změny za %s %d — přehled k %d. %s %d" % (
+        _MES[today.month], today.year, today.day, _MES[today.month], today.year)
+    body = ("<p>Ahoj,</p><p>měsíční přehled personálních změn (posílá se 5 dní před koncem "
+            "měsíce, ať je prostor na zápis do Heliosu):</p>" + telo +
+            "<p style='color:#6b7280;font-size:12px'>Automaticky z HR karty STRATEGIE.</p>")
+
+    clen = s.execute(_t(
+        "SELECT DISTINCT m.user_id, "
+        " (SELECT c.contact_value FROM public.user_contacts c WHERE c.user_id=m.user_id "
+        "   AND c.contact_type='email' AND COALESCE(c.status,'active')='active' "
+        "   ORDER BY COALESCE(c.is_primary,false) DESC, c.id LIMIT 1) em "
+        "FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+        "WHERE g.tenant_id=2 AND NOT g.archived AND g.name='HR'")).fetchall()
+    try:
+        from modules.notifications.application.email_service import queue_email
+    except Exception:
+        return
+    poslano = 0
+    for user_id, em in clen:
+        if not em:
+            continue
+        try:
+            queue_email(to=em, subject=nadpis, body=body, user_id=int(user_id), purpose="hr_mesicni_resume")
+            poslano += 1
+        except Exception as _qe:
+            logger.warning("[hr_resume] send %s: %s", em, _qe)
+    _HR_RESUME_LAST[0] = marker
+    logger.info("[hr_resume] měsíční resumé odesláno %d příjemcům (%s)", poslano, marker)
+
+
 def _hr_daily_pass():
     """1×/den (po 7. hodině) na primáru: generátor úkolů, auto narozeninová přání,
-    věrnostní dny za 10 let. Idempotentní, best-effort. Volá se z att_sync smyčky."""
+    věrnostní dny za 10 let, měsíční personální resumé. Idempotentní, best-effort.
+    Volá se z att_sync smyčky."""
     import datetime as _dt
     now = _dt.datetime.now()
     today = now.date().isoformat()
@@ -12059,7 +12156,7 @@ def _hr_daily_pass():
         return
     cm, s = _att_session()
     try:
-        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena):
+        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena, _hr_mesicni_resume):
             try:
                 fn(s)
                 s.commit()

@@ -773,11 +773,17 @@ def _sess_restore_from_device(device_token: str) -> tuple[int, int | None] | Non
 _DEMO_UID_CACHE: dict = {"uid": None, "ts": 0.0}
 
 # Cesty, ktere demo session dostane z UKAZKOVYCH dat misto prazdna (Jirka 11.8.2026).
-# Hodnota = kod v g2007.python, ktery se zavola s uid. Kazdy takovy delegat je odvozeny
-# programove z te zive funkce (replace tenant.->demo.), aby byl tvar odpovedi 1:1.
-# Rozsirovat POSTUPNE a po kazdem pridani overit v prohlizeci, ze se obrazovka vykresli.
+# Hodnota = (kod v g2007.python, nazvy query parametru predanych za uid). Kazdy delegat
+# je odvozeny programove z te zive funkce (replace tenant.->demo., firma 9999, zadne
+# zakladani zamestnance), aby byl tvar odpovedi 1:1 — podminka Marti-AI.
+# Rozsirovat POSTUPNE a po kazdem pridani overit, ze se obrazovka opravdu vykresli.
 _DEMO_DELEGATI: dict = {
-    "/api/v1/erp/app/attendance/status": "att_status_demo",
+    "/api/v1/erp/app/attendance/status":      ("att_status_demo", ()),
+    "/api/v1/erp/app/attendance/whereabouts": ("att_whereabouts_demo", ("den",)),
+    # POZOR: /attendance/day-detail zde ZAMERNE NENI. Odvozeni att_day_detail_demo
+    # useklo 1227 znaku (regexp na odstraneni _att_employee sezral i navazujici kod),
+    # radek v g2007.python je proto ve stavu 'navrzeny'. Pridat az po rucnim prepsani
+    # a overeni — porovnat delku s originalem, nez se zapoji.
 }
 
 
@@ -907,11 +913,13 @@ async def request_id_middleware(request: Request, call_next):
                     # zive funkce (replace tenant.->demo.), takze tvar odpovedi je 1:1
                     # — to byla podminka Marti-AI, aby se rozdil formatu neprojevil az
                     # pred posuzovanim appky. Ziveho endpointu se to nedotyka vubec.
-                    _dm_fn = _DEMO_DELEGATI.get(_dm_p)
-                    if _dm_fn:
+                    _dm_spec = _DEMO_DELEGATI.get(_dm_p)
+                    if _dm_spec:
+                        _dm_fn, _dm_args = _dm_spec
                         try:
                             from modules.erp.api import erp_registry as _ereg_dm
-                            return _DemoJSON(_ereg_dm.call(_dm_fn, _dm_uid))
+                            _dm_qp = [request.query_params.get(_a) for _a in _dm_args]
+                            return _DemoJSON(_ereg_dm.call(_dm_fn, _dm_uid, *_dm_qp))
                         except Exception:
                             logger.exception("DEMO delegat %s selhal — vracim prazdno", _dm_fn)
                     # Ostatni cteni: prazdna odpoved v beznych tvarech, ktere klient

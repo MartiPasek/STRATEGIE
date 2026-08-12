@@ -12323,13 +12323,18 @@ async def app_hr_novinky(req: Request) -> JSONResponse:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
-            "SELECT id, nadpis, COALESCE(text,''), pro, dulezite, "
-            " to_char(platnost_od,'YYYY-MM-DD'), to_char(platnost_do,'YYYY-MM-DD'), aktivni, "
-            " (platnost_od<=current_date AND (platnost_do IS NULL OR platnost_do>=current_date) AND aktivni) "
-            "FROM tenant.hr_novinka WHERE tenant_id=2 "
-            "ORDER BY dulezite DESC, platnost_od DESC, id DESC")).fetchall()
+            "SELECT n.id, n.nadpis, COALESCE(n.text,''), n.pro, n.dulezite, "
+            " to_char(n.platnost_od,'YYYY-MM-DD'), to_char(n.platnost_do,'YYYY-MM-DD'), n.aktivni, "
+            " (n.platnost_od<=current_date AND (n.platnost_do IS NULL OR n.platnost_do>=current_date) AND n.aktivni), "
+            " to_char(n.datum_akce,'YYYY-MM-DD'), COALESCE(n.cas,''), COALESCE(n.misto,''), n.rsvp, "
+            " (SELECT COALESCE(SUM(o.pocet),0) FROM tenant.hr_novinka_odpoved o WHERE o.novinka_id=n.id AND o.odpoved='ano'), "
+            " (SELECT count(*) FROM tenant.hr_novinka_odpoved o WHERE o.novinka_id=n.id AND o.odpoved='ne') "
+            "FROM tenant.hr_novinka n WHERE n.tenant_id=2 "
+            "ORDER BY n.dulezite DESC, n.platnost_od DESC, n.id DESC")).fetchall()
         polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "pro": r[3], "dulezite": r[4],
-                    "od": r[5], "do": (r[6] or ""), "aktivni": r[7], "bezi": r[8]} for r in rows]
+                    "od": r[5], "do": (r[6] or ""), "aktivni": r[7], "bezi": r[8],
+                    "datum_akce": (r[9] or ""), "cas": r[10], "misto": r[11], "rsvp": r[12],
+                    "prijde": int(r[13] or 0), "neprijde": int(r[14] or 0)} for r in rows]
         return JSONResponse({"ok": True, "polozky": polozky})
     except Exception as exc:
         logger.exception("[hr_novinky] %s", exc)
@@ -12356,6 +12361,9 @@ async def app_hr_novinka_save(req: Request) -> JSONResponse:
     if pro not in ("zam", "hr"):
         pro = "zam"
     dulezite = bool((b or {}).get("dulezite"))
+    rsvp = bool((b or {}).get("rsvp"))
+    cas = (str((b or {}).get("cas") or "").strip() or None)
+    misto = (str((b or {}).get("misto") or "").strip() or None)
 
     def _d(v):
         try:
@@ -12364,6 +12372,7 @@ async def app_hr_novinka_save(req: Request) -> JSONResponse:
             return None
     od = _d((b or {}).get("od")) or _dt.date.today()
     do = _d((b or {}).get("do"))
+    datum_akce = _d((b or {}).get("datum_akce"))
     aktivni = bool((b or {}).get("aktivni", True))
     try:
         rid = int((b or {}).get("id") or 0)
@@ -12377,15 +12386,16 @@ async def app_hr_novinka_save(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         if rid:
             s.execute(_t("UPDATE tenant.hr_novinka SET nadpis=:n, text=:t, pro=:p, dulezite=:d, "
-                         "platnost_od=:od, platnost_do=:do, aktivni=:ak, updated_at=now() "
-                         "WHERE id=:id AND tenant_id=2"),
+                         "platnost_od=:od, platnost_do=:do, aktivni=:ak, datum_akce=:da, cas=:cas, "
+                         "misto=:mi, rsvp=:rsvp, updated_at=now() WHERE id=:id AND tenant_id=2"),
                       {"n": nadpis, "t": text_, "p": pro, "d": dulezite, "od": od, "do": do,
-                       "ak": aktivni, "id": rid})
+                       "ak": aktivni, "da": datum_akce, "cas": cas, "mi": misto, "rsvp": rsvp, "id": rid})
         else:
             rid = int(s.execute(_t(
-                "INSERT INTO tenant.hr_novinka (tenant_id, nadpis, text, pro, dulezite, platnost_od, platnost_do, aktivni, created_by) "
-                "VALUES (2, :n, :t, :p, :d, :od, :do, :ak, :by) RETURNING id"),
-                {"n": nadpis, "t": text_, "p": pro, "d": dulezite, "od": od, "do": do, "ak": aktivni, "by": uid}).scalar())
+                "INSERT INTO tenant.hr_novinka (tenant_id, nadpis, text, pro, dulezite, platnost_od, platnost_do, aktivni, datum_akce, cas, misto, rsvp, created_by) "
+                "VALUES (2, :n, :t, :p, :d, :od, :do, :ak, :da, :cas, :mi, :rsvp, :by) RETURNING id"),
+                {"n": nadpis, "t": text_, "p": pro, "d": dulezite, "od": od, "do": do, "ak": aktivni,
+                 "da": datum_akce, "cas": cas, "mi": misto, "rsvp": rsvp, "by": uid}).scalar())
         s.commit()
         return JSONResponse({"ok": True, "id": rid})
     except Exception as exc:
@@ -12438,14 +12448,139 @@ async def app_novinky_me(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         rows = s.execute(_t(
-            "SELECT id, nadpis, COALESCE(text,''), dulezite, to_char(platnost_od,'DD.MM.YYYY') "
-            "FROM tenant.hr_novinka WHERE tenant_id=2 AND pro='zam' AND aktivni "
-            " AND platnost_od<=current_date AND (platnost_do IS NULL OR platnost_do>=current_date) "
-            "ORDER BY dulezite DESC, platnost_od DESC, id DESC LIMIT 20")).fetchall()
-        polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "dulezite": r[3], "od": r[4]} for r in rows]
+            "SELECT n.id, n.nadpis, COALESCE(n.text,''), n.dulezite, to_char(n.platnost_od,'DD.MM.YYYY'), "
+            " to_char(n.datum_akce,'DD.MM.YYYY'), COALESCE(n.cas,''), COALESCE(n.misto,''), n.rsvp, "
+            " (SELECT o.odpoved FROM tenant.hr_novinka_odpoved o WHERE o.novinka_id=n.id AND o.user_id=:u) "
+            "FROM tenant.hr_novinka n WHERE n.tenant_id=2 AND n.pro='zam' AND n.aktivni "
+            " AND n.platnost_od<=current_date AND (n.platnost_do IS NULL OR n.platnost_do>=current_date) "
+            "ORDER BY n.dulezite DESC, n.platnost_od DESC, n.id DESC LIMIT 20"), {"u": uid}).fetchall()
+        polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "dulezite": r[3], "od": r[4],
+                    "datum_akce": (r[5] or ""), "cas": r[6], "misto": r[7], "rsvp": r[8],
+                    "moje": (r[9] or "")} for r in rows]
         return JSONResponse({"ok": True, "polozky": polozky})
     except Exception as exc:
         logger.exception("[novinky_me] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/novinka-rsvp")
+async def app_novinka_rsvp(req: Request) -> JSONResponse:
+    """Potvrzení účasti zaměstnance na akci z Novinky."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        nid = int((b or {}).get("id") or 0)
+    except Exception:
+        nid = 0
+    odp = str((b or {}).get("odpoved") or "").strip().lower()
+    if odp not in ("ano", "ne"):
+        return JSONResponse({"ok": False, "error": "Neplatná odpověď."}, status_code=400)
+    try:
+        pocet = max(1, int((b or {}).get("pocet") or 1))
+    except Exception:
+        pocet = 1
+    if not nid:
+        return JSONResponse({"ok": False, "error": "Chybí novinka."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        ok = s.execute(_t("SELECT 1 FROM tenant.hr_novinka WHERE id=:i AND tenant_id=2 AND pro='zam' AND rsvp=true"), {"i": nid}).first()
+        if not ok:
+            return JSONResponse({"ok": False, "error": "U této novinky se účast nepotvrzuje."}, status_code=400)
+        s.execute(_t(
+            "INSERT INTO tenant.hr_novinka_odpoved (tenant_id, novinka_id, user_id, odpoved, pocet) "
+            "VALUES (2, :n, :u, :o, :p) ON CONFLICT (novinka_id, user_id) DO UPDATE SET "
+            " odpoved=EXCLUDED.odpoved, pocet=EXCLUDED.pocet, updated_at=now()"),
+            {"n": nid, "u": uid, "o": odp, "p": pocet})
+        s.commit()
+        return JSONResponse({"ok": True, "odpoved": odp})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[novinka_rsvp] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/novinka-ics")
+async def app_novinka_ics(req: Request):
+    """Kalendářový soubor (.ics) pro akci z Novinky."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        nid = int(req.query_params.get("id") or 0)
+    except Exception:
+        nid = 0
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t("SELECT nadpis, COALESCE(text,''), datum_akce, COALESCE(cas,''), COALESCE(misto,'') "
+                         "FROM tenant.hr_novinka WHERE id=:i AND tenant_id=2"), {"i": nid}).first()
+        if not r or not r[2]:
+            return Response(status_code=404)
+        nadpis, popis, den, cas, misto = r[0], r[1], r[2], r[3], r[4]
+        hh, mm = 9, 0
+        try:
+            if cas and ":" in cas:
+                hh, mm = int(cas.split(":")[0]), int(cas.split(":")[1][:2])
+        except Exception:
+            hh, mm = 9, 0
+        start = _dt.datetime(den.year, den.month, den.day, hh, mm)
+        end = start + _dt.timedelta(hours=2)
+
+        def _fmt(d):
+            return d.strftime("%Y%m%dT%H%M%S")
+
+        def _esc(x):
+            return str(x or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+        ics = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//STRATEGIE//HR//CS\r\nBEGIN:VEVENT\r\n"
+               "UID:novinka-" + str(nid) + "@strategie-ai.com\r\nDTSTAMP:" + _fmt(_dt.datetime.now()) + "\r\n"
+               "DTSTART:" + _fmt(start) + "\r\nDTEND:" + _fmt(end) + "\r\n"
+               "SUMMARY:" + _esc(nadpis) + "\r\n"
+               + ("LOCATION:" + _esc(misto) + "\r\n" if misto else "")
+               + ("DESCRIPTION:" + _esc(popis) + "\r\n" if popis else "")
+               + "END:VEVENT\r\nEND:VCALENDAR\r\n")
+        return Response(content=ics, media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": "attachment; filename=akce-" + str(nid) + ".ics"})
+    except Exception as exc:
+        logger.exception("[novinka_ics] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/novinka-rsvp")
+async def app_hr_novinka_rsvp(req: Request) -> JSONResponse:
+    """HR: kdo potvrdil účast na akci (seznam)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        nid = int(req.query_params.get("id") or 0)
+    except Exception:
+        nid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), o.odpoved, o.pocet "
+            "FROM tenant.hr_novinka_odpoved o LEFT JOIN public.users u ON u.id=o.user_id "
+            "WHERE o.novinka_id=:n AND o.tenant_id=2 ORDER BY o.odpoved, 1"), {"n": nid}).fetchall()
+        lide = [{"jmeno": (r[0] or "?"), "odpoved": r[1], "pocet": int(r[2] or 1)} for r in rows]
+        return JSONResponse({"ok": True, "lide": lide})
+    except Exception as exc:
+        logger.exception("[hr_novinka_rsvp] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

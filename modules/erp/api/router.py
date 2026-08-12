@@ -19789,12 +19789,23 @@ async def app_hr_person(req: Request) -> JSONResponse:
                     v = v.isoformat()
                 vals[c] = ("" if v is None else str(v))
         skryte = _skryta_self_pole(vals)
+        # Provenience polí (Šárka 12.8.2026): poslední záznam z auditu na pole → kdo/kdy/odkud.
+        # Pole bez záznamu = původní import z Centrály (v aplikaci neupraveno) — bez data.
+        prov = {}
+        for pr in s.execute(_t(
+            "SELECT DISTINCT ON (field_name) field_name, change_source, "
+            "  to_char(changed_at,'DD.MM.YYYY') dat, "
+            "  (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
+            "     FROM public.users u WHERE u.id=changed_by) kdo "
+            "FROM tenant.user_self_data_log WHERE tenant_id=2 AND user_id=:u "
+            "ORDER BY field_name, changed_at DESC"), {"u": tuid}).fetchall():
+            prov[pr[0]] = {"src": pr[1], "at": pr[2], "by": pr[3] or ""}
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
             if skey == "pamet":
                 continue
             items = [{"key": f[0], "label": f[1], "type": f[3], "sensitive": f[4],
-                      "value": vals.get(f[0], "")} for f in _SELF_FIELDS
+                      "value": vals.get(f[0], ""), "prov": prov.get(f[0])} for f in _SELF_FIELDS
                      if f[2] == skey and f[0] not in skryte]
             if items:
                 secs.append({"key": skey, "label": slabel, "items": items})

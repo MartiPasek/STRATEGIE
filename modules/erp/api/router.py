@@ -12180,6 +12180,16 @@ def _hr_generuj_ukoly(s):
     _ensure("Poslat výrobní směrnice (Dušan) — Q%d/%d" % (qend.month // 3, qend.year), qend,
             "Na konci kvartálu (%s) poslat Dušanovi výrobní směrnice. Opakuje se každý kvartál." % _d(qend))
 
+    # Organizační tabule (ISO 9001) — týden před koncem kvartálu zaznamenat změny
+    # a aktualizovat tištěnou verzi v hale EUROSOFT (Šárka 12.8.2026).
+    _ensure("Organizační tabule (ISO 9001) — aktualizovat za Q%d/%d" % (qend.month // 3, qend.year),
+            qend - _dt.timedelta(days=7),
+            "Týden před koncem kvartálu (%s): zaznamenat VŠECHNY změny organizační tabule za kvartál "
+            "a aktualizovat tištěnou verzi v hale budovy EUROSOFT. ISO 9001 — dokument systému řízení "
+            "kvality: každou i sebemenší změnu VERZOVAT (verze, datum, kdo schválil — stačí do zápatí "
+            "papírů v ISO šanonu); u vchodu do budovy tyto údaje jen na audit. Okamžité změny musí být "
+            "hned v elektronické podobě ve Strategii. Opakuje se každý kvartál." % _d(qend))
+
     # 4) LinkedIn článek → každé úterý (příprava út, zveřejnění út/čt)
     tue = today + _dt.timedelta(days=(1 - today.weekday()) % 7)   # nejbližší úterý (dnes, je-li úterý)
     _ensure("Připravit článek na LinkedIn — týden od %s" % _d(tue), tue,

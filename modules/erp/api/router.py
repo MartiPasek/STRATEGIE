@@ -11979,7 +11979,7 @@ def _hr_generuj_ukoly(s):
         "SELECT ae.full_name, e.zkusebni_do FROM tenant.engagement e"
         " JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
         " WHERE e.tenant_id=2 AND e.is_current AND e.zkusebni_do IS NOT NULL"
-        "   AND e.zkusebni_do BETWEEN current_date AND current_date + 60"
+        "   AND e.zkusebni_do BETWEEN current_date AND current_date + 31"
         "   AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)")).fetchall():
         if not (jm or "").strip():
             continue
@@ -11994,7 +11994,7 @@ def _hr_generuj_ukoly(s):
         "SELECT ae.full_name, e.smlouva_do FROM tenant.engagement e"
         " JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
         " WHERE e.tenant_id=2 AND e.is_current AND e.smlouva_do IS NOT NULL"
-        "   AND e.smlouva_do BETWEEN current_date AND current_date + 60")).fetchall():
+        "   AND e.smlouva_do BETWEEN current_date AND current_date + 62")).fetchall():
         if not (jm or "").strip():
             continue
         jm = jm.strip()

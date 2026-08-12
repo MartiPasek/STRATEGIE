@@ -11,7 +11,7 @@
     { ic: "✅", t: "Úkoly", d: "Moje HR úkoly a připomínky.", st: "live", act: "ukoly" },
     { ic: "🏖️", t: "Mimo kancelář", d: "Kdo dnes není ve firmě (absence + home office).", st: "live", act: "mimo" },
     { ic: "🎂", t: "Narozeniny a výročí", d: "Blížící se narozeniny a výročí nástupu.", st: "live" },
-    { ic: "🆕", t: "Noví + budoucí nástupy", d: "Kdo nastoupil za poslední rok a kdo teprve nastoupí.", st: "live" },
+    { ic: "🚀", t: "Onboarding a nové nástupy", d: "Kdo už nastoupil (nováčci) a kdo teprve nastoupí.", st: "live" },
     { ic: "🧲", t: "Výběrová řízení", d: "Běžící nábor, editace, publikace (Teamio).", st: "live", go: "/recruit" },
     { ic: "🔔", t: "Notifikace", d: "Konce smluv, prohlídky, propadající školení.", st: "soon" },
     { ic: "✅", t: "Úkoly", d: "HR úkoly z jednoho místa.", st: "soon" },
@@ -57,16 +57,16 @@
       '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '    <div class="hrp-panel">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">🆕</span> Noví + budoucí <span class="hrp-cnt" id="hrpNoviCnt"></span></div>' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🚀</span> Onboarding <span class="hrp-cnt" id="hrpOnbCnt"></span></div>' +
+      '      <div id="hrpOnbList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
+      '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🆕</span> Nové nástupy <span class="hrp-cnt" id="hrpNoviCnt"></span></div>' +
       '      <div id="hrpNoviList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🧲</span> Výběrová řízení <span class="hrp-cnt" id="hrpVrCnt"></span></div>' +
       '      <div id="hrpVrList"><div class="hrp-empty">Načítám…</div></div>' +
-      '    </div>' +
-      '    <div class="hrp-panel hrp-feed">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
-      '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
       '  <div class="hrp-panel">' +
@@ -93,14 +93,14 @@
         var bEl = el.querySelector("#hrpBadges"), aEl = el.querySelector("#hrpAkt");
         if (!d || !d.ok) {
           bEl.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>';
-          aEl.innerHTML = ""; return;
+          if (aEl) aEl.innerHTML = ""; return;
         }
         var b = d.badges || {};
         bEl.innerHTML =
           badge(0, "Aktuálně ve firmě", "vefirme", "hrpBadgeVeFirme") +
           badge(b.mimo, "Mimo kancelář dnes", "mimo") +
           badge(b.naroz, "Narozeniny / výročí (7 dní)") +
-          badge(b.novi, "Noví + budoucí nástupy", null, "hrpBadgeNovi") +
+          badge(b.novi, "Nové nástupy (budoucí)", null, "hrpBadgeNovi") +
           badge(b.vyberka, "Běžící výběrová řízení");
         var _mb = bEl.querySelector('[data-act="mimo"]');
         if (_mb) { _mb.onclick = openMimo; }
@@ -108,12 +108,13 @@
         if (_vf) { _vf.onclick = openVeFirme; }
         loadVeFirme(el);
         renderVyberka(el, d.vyberka || {});
-        var akt = d.aktuality || [];
-        if (!akt.length) { aEl.innerHTML = '<div class="hrp-empty">Žádné aktuality.</div>'; return; }
-        aEl.innerHTML = akt.map(function (a) {
-          var mil = (a.typ === "milnik" || a.typ === "vyroci_firmy");
-          return '<div class="hrp-row' + (mil ? ' hrp-row-mil' : '') + '"><span class="hrp-ic">' + esc(a.ikona || "•") + '</span><span>' + esc(a.text) + '</span></div>';
-        }).join("");
+        if (aEl) {
+          var akt = d.aktuality || [];
+          aEl.innerHTML = akt.length ? akt.map(function (a) {
+            var mil = (a.typ === "milnik" || a.typ === "vyroci_firmy");
+            return '<div class="hrp-row' + (mil ? ' hrp-row-mil' : '') + '"><span class="hrp-ic">' + esc(a.ikona || "•") + '</span><span>' + esc(a.text) + '</span></div>';
+          }).join("") : '<div class="hrp-empty">Žádné aktuality.</div>';
+        }
       })
       .catch(function () {
         var bEl = el.querySelector("#hrpBadges");
@@ -323,31 +324,34 @@
   // Panel „Noví a budoucí nástupy" — živě z Centrály (Šárka 23.7.2026). Zahrnuje i
   // ještě nenastoupivší (příznak budouci) — kvůli přehledu, koho čekáme.
   function loadNovi(root) {
-    var list = root.querySelector("#hrpNoviList");
-    var cnt = root.querySelector("#hrpNoviCnt");
-    if (!list) return;
+    var onb = root.querySelector("#hrpOnbList"), onbc = root.querySelector("#hrpOnbCnt");
+    var list = root.querySelector("#hrpNoviList"), cnt = root.querySelector("#hrpNoviCnt");
+    if (!list && !onb) return;
     fetch("/api/v1/erp/app/hr/novi", { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (d) {
         if (!d || !d.ok) {
-          list.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>'; return;
+          if (list) list.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>';
+          return;
         }
         var novi = d.novi || [];
-        if (cnt) { cnt.textContent = "(" + novi.length + ")"; }
-        var nb = document.getElementById("hrpBadgeNovi");
-        if (nb) { nb.textContent = novi.length; }
-        if (!novi.length) {
-          list.innerHTML = '<div class="hrp-empty">Za posledních 12 měsíců žádný nový nástup.</div>'; return;
-        }
-        list.innerHTML = novi.map(function (p) {
+        var fut = novi.filter(function (p) { return p.budouci; });
+        var joined = novi.filter(function (p) { return !p.budouci; });
+        function row(p, ic) {
           var chip = p.budouci ? '<span class="hrp-chip nastup">nastoupí</span>' : '';
           var ty = p.typ ? '<span class="hrp-ntyp">' + esc(p.typ) + '</span>' : '';
-          return '<div class="hrp-mrow"><span class="hrp-mic">' + (p.budouci ? '🔜' : '🆕') + '</span>' +
+          return '<div class="hrp-mrow"><span class="hrp-mic">' + ic + '</span>' +
             '<div><div class="hrp-mnm">' + esc(p.jmeno) + ' ' + chip + '</div>' +
             '<div class="hrp-mdv">' + ty + ' nástup ' + esc(p.nastup || '—') + '</div></div></div>';
-        }).join("");
+        }
+        if (cnt) cnt.textContent = "(" + fut.length + ")";
+        var nb = document.getElementById("hrpBadgeNovi");
+        if (nb) nb.textContent = fut.length;
+        if (list) list.innerHTML = fut.length ? fut.map(function (p) { return row(p, "🔜"); }).join("") : '<div class="hrp-empty">Žádné budoucí nástupy.</div>';
+        if (onbc) onbc.textContent = "(" + joined.length + ")";
+        if (onb) onb.innerHTML = joined.length ? joined.map(function (p) { return row(p, "🚀"); }).join("") : '<div class="hrp-empty">Žádní čerství nováčci.</div>';
       })
-      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+      .catch(function () { if (list) list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
 
   // Panel „Moje úkoly" — nativní úkoly STRATEGIE (/app/task, view=moje) vedle Aktualit.

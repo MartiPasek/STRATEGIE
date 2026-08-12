@@ -744,7 +744,7 @@ async function zakUdaje(){
 function _zuProv(pr){
   // Provenience pole: needitováno = původní import z Centrály (bez data);
   // jinak skutečný zdroj z auditu (zaměstnanec / HR) + datum.
-  if(!pr) return '<span title="Původní údaj z Centrály (import), v aplikaci neupraveno" style="color:#5d6b7c;font-size:10px;white-space:nowrap">· Centrála</span>';
+  if(!pr) return '<span title="Původní údaj z importu, v aplikaci neupraveno" style="color:#5d6b7c;font-size:10px;white-space:nowrap">· Import</span>';
   const first=(pr.by||'').split(' ')[0];
   const who = pr.src==='self' ? 'zaměstnanec' : ('HR'+(first?(' '+first):''));
   const col = pr.src==='self' ? '#7fb2e8' : '#E0A94A';
@@ -766,7 +766,7 @@ function renderZU(edit){
   const btn = edit
     ? '<span><a href="#" onclick="zakUdajeSave();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a> &nbsp;·&nbsp; <a href="#" onclick="renderZU(false);return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></span>'
     : '<a href="#" onclick="renderZU(true);return false;" style="color:#aac8ec;text-decoration:none">✏️ Upravit</a>';
-  const legenda = edit ? '' : '<span style="font-size:10.5px;color:#7f8ea0;margin:0 auto 0 14px">Zdroj: <span style="color:#5d6b7c">Centrála</span> · <span style="color:#7fb2e8">zaměstnanec</span> · <span style="color:#E0A94A">HR</span></span>';
+  const legenda = edit ? '' : '<span style="font-size:10.5px;color:#7f8ea0;margin:0 auto 0 14px">Zdroj: <span style="color:#5d6b7c">Import</span> · <span style="color:#7fb2e8">zaměstnanec</span> · <span style="color:#E0A94A">HR</span></span>';
   let h=pheadHTML(p)+
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #1e2730">'+
     '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">🧾 Základní údaje</span>'+legenda+

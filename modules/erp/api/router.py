@@ -13055,13 +13055,33 @@ _BDAY_HTML = (
     '<tr><td style="padding:20px 20px 0;"><img src="cid:narozeniny_banner" width="600" alt="Vše nejlepší" style="display:block;width:100%%;max-width:600px;border-radius:10px;"></td></tr>'
     '<tr><td style="padding:26px 40px 34px;color:#33404d;">'
     '<p style="margin:0 0 18px;font-size:19px;font-weight:bold;color:#23145F;">%(osloveni)s %(jmeno)s,</p>'
-    '<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5a6069;">přejeme Ti k narozeninám hodně zdraví, štěstí a pohody &mdash; pracovní i osobní.</p>'
-    '<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#5a6069;">Děkujeme, že jsi součástí týmu EUROSOFT. Vážíme si Tě a jsme rádi, že Tě máme.</p>'
-    '<p style="margin:0 0 22px;font-size:16px;font-weight:bold;color:#C78A00;">Užij si svůj den! 🎉</p>'
+    '%(telo)s'
     '<hr style="border:none;border-top:1px solid #ece8de;margin:0 0 16px;">'
     '<p style="margin:0;font-size:14px;font-weight:bold;color:#2b3a4a;">Za celý tým EUROSOFT</p>'
     '</td></tr></table></td></tr></table>'
 )
+
+# Varianty textu přání (Šárka 12.8.2026 — ať nechodí každý rok stejné). Rotují podle
+# roku a člověka. Banner + oslovení + podpis zůstávají. Text je bezpohlavní.
+_BDP = '<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5a6069;">%s</p>'
+_BDG = '<p style="margin:0 0 22px;font-size:16px;font-weight:bold;color:#C78A00;">%s</p>'
+_BDAY_TEXTS = [
+    (_BDP % "přejeme Ti k narozeninám hodně zdraví, štěstí a pohody &mdash; pracovní i osobní."
+     + _BDP % "Děkujeme, že jsi součástí týmu EUROSOFT. Vážíme si Tě a jsme rádi, že Tě máme."
+     + _BDG % "Užij si svůj den! 🎉"),
+    (_BDP % "všechno nejlepší k narozeninám! Ať Ti nový rok přinese spoustu radosti, pohody a splněných přání."
+     + _BDP % "Jsme moc rádi, že Tě máme v týmu EUROSOFT &mdash; díky za všechno, co děláš."
+     + _BDG % "Oslav to ve velkém stylu! 🥳"),
+    (_BDP % "k narozeninám Ti přejeme pevné zdraví, hodně energie a den plný úsměvů."
+     + _BDP % "Díky, že s námi táhneš za jeden provaz &mdash; v týmu EUROSOFT jsi velká opora."
+     + _BDG % "Ať se Ti daří &mdash; dnes i celý další rok! 🎂"),
+    (_BDP % "srdečně gratulujeme k narozeninám! Přejeme Ti klid, radost a spoustu hezkých chvil s lidmi kolem Tebe."
+     + _BDP % "Vážíme si Tě a jsme vděční, že jsi součástí EUROSOFTu."
+     + _BDG % "Užij si to naplno! 🎈"),
+    (_BDP % "všechno nej k narozeninám! Ať máš pořád důvod k úsměvu a kolem sebe lidi, na které se můžeš spolehnout."
+     + _BDP % "Díky, že patříš do týmu EUROSOFT &mdash; jsme rádi, že Tě tu máme."
+     + _BDG % "Krásné narozeniny! 🎉"),
+]
 
 
 def _is_fem(jmeno):
@@ -13117,7 +13137,10 @@ def _bday_html(jmeno):
     fem = _is_fem(full)
     vok = _vokativ(krestni, fem)   # 5. pád: Iva -> Ivo
     je = vok.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return _BDAY_HTML % {"osloveni": ("Milá" if fem else "Milý"), "jmeno": je}
+    import datetime as _dt
+    rok = _dt.date.today().year
+    idx = (rok + sum(ord(c) for c in (krestni or "x"))) % len(_BDAY_TEXTS)
+    return _BDAY_HTML % {"osloveni": ("Milá" if fem else "Milý"), "jmeno": je, "telo": _BDAY_TEXTS[idx]}
 
 
 @api_router.get("/app/hr/gratulace")

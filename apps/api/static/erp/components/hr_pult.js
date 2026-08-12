@@ -45,7 +45,7 @@
       // Novinky hned pod nimi (viditelné); Úkoly jsou samostatný uzel (dlaždice „Úkoly").
       '  <div class="hrp-blocks hrp-cols3">' +
       '    <div class="hrp-panel">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Dnes aktuálně ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Aktuálně ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
       '      <div id="hrpVeFirmeList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '    <div class="hrp-panel">' +
@@ -98,10 +98,11 @@
         var b = d.badges || {};
         bEl.innerHTML =
           badge(0, "Aktuálně ve firmě", "vefirme", "hrpBadgeVeFirme") +
-          badge(b.mimo, "Mimo kancelář dnes", "mimo") +
-          badge(b.naroz, "Narozeniny / výročí (7 dní)") +
-          badge(b.novi, "Nové nástupy (budoucí)", null, "hrpBadgeNovi") +
-          badge(b.vyberka, "Běžící výběrová řízení");
+          badge(b.mimo, "Mimo kancelář", "mimo") +
+          badge(b.naroz, "Narozeniny a výročí") +
+          badge(0, "Onboarding", null, "hrpBadgeOnb") +
+          badge(b.novi, "Nové nástupy", null, "hrpBadgeNovi") +
+          badge(b.vyberka, "Výběrová řízení");
         var _mb = bEl.querySelector('[data-act="mimo"]');
         if (_mb) { _mb.onclick = openMimo; }
         var _vf = bEl.querySelector('[data-act="vefirme"]');
@@ -151,7 +152,7 @@
   function openVeFirme() {
     var m = ensureModal(); m.classList.add('on');
     m.querySelector('.hrp-modal-card').classList.remove('hrp-modal-wide');
-    m.querySelector('#hrpModalTitle').textContent = '🏢 Dnes aktuálně ve firmě (' + VEFIRME.lide.length + ')';
+    m.querySelector('#hrpModalTitle').textContent = '🏢 Aktuálně ve firmě (' + VEFIRME.lide.length + ')';
     var h = VEFIRME.lide.map(function (p) {
       return '<div class="hrp-mrow"><span class="hrp-mic" style="background:#12301f;color:#5ee0b7">●</span>' +
         '<div><div class="hrp-mnm">' + esc(p.jmeno) + '</div>' +
@@ -347,6 +348,8 @@
         if (cnt) cnt.textContent = "(" + fut.length + ")";
         var nb = document.getElementById("hrpBadgeNovi");
         if (nb) nb.textContent = fut.length;
+        var nbo = document.getElementById("hrpBadgeOnb");
+        if (nbo) nbo.textContent = joined.length;
         if (list) list.innerHTML = fut.length ? fut.map(function (p) { return row(p, "🔜"); }).join("") : '<div class="hrp-empty">Žádné budoucí nástupy.</div>';
         if (onbc) onbc.textContent = "(" + joined.length + ")";
         if (onb) onb.innerHTML = joined.length ? joined.map(function (p) { return row(p, "🚀"); }).join("") : '<div class="hrp-empty">Žádní čerství nováčci.</div>';
@@ -568,7 +571,7 @@
       '.hrp-blocks .hrp-jhint{display:none;}' +
       '.hrp-ntyp{display:inline-block;font-size:10.5px;font-weight:700;padding:0 7px;border-radius:20px;background:#1f2a37;color:#aac8ec;margin-right:5px;}' +
       '.hrp-chip.nastup{background:#241d0c;color:#e0a400;}' +
-      '.hrp-badges{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px;}' +
+      '.hrp-badges{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:12px;}' +
       '.hrp-badge{background:#161c24;border:1px solid #233040;border-radius:12px;padding:9px 13px;}' +
       '.hrp-n{font-size:22px;font-weight:800;color:#e8eef5;line-height:1;}' +
       '.hrp-l{font-size:11.5px;color:#7f8ea0;margin-top:2px;}' +

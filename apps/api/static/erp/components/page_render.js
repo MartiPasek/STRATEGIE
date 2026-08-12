@@ -133,6 +133,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Posty – lidé (Šárka 12.8.2026): jádro hr.posty = plochý seznam všech
+      // přiřazení post↔člověk (jako „Posty - lidi" v Centrále). Jen ke čtení.
+      if (String(coreCode) === 'hr.posty') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=posty" title="Posty – lidé" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
       // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
       if (String(coreCode) === 'hr.sablony') {

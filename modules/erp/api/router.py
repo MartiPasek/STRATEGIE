@@ -11563,6 +11563,48 @@ async def app_hr_organigram_osoba(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/posty-lide")
+async def app_hr_posty_lide(req: Request):
+    """Posty – lidé (Šárka 12.8.2026): plochý seznam VŠECH přiřazení post↔člověk jako
+    v Centrále (řada „Posty - lidi"). Sloupce: (ne)aktivní, jméno, název postu, pořadí,
+    divize, nadřazený post, produkt (kompetence), platnost do. Jen ke ČTENÍ. HR-gated."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT COALESCE(a.aktivni,true) AS aktivni, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "    NULLIF(TRIM(COALESCE(ae.full_name,'')),''), '— externě —') AS jmeno, "
+            "  p.nazev, p.poradi, p.divize, pp.nazev AS nadrazeny, p.produkt, a.platnost_do, "
+            "  COALESCE(a.zastupce_role,0) AS zast "
+            "FROM tenant.org_post_assign a "
+            "JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            "LEFT JOIN tenant.org_post pp ON pp.id=p.parent_post_id AND pp.tenant_id=2 "
+            "LEFT JOIN tenant.att_employee ae ON ae.id=a.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN public.users u ON u.id=ae.user_id "
+            "WHERE a.tenant_id=2 "
+            "ORDER BY p.poradi NULLS LAST, p.nazev, jmeno")).fetchall()
+        out = [{"aktivni": bool(r[0]), "jmeno": (r[1] or ""), "nazev": (r[2] or ""),
+                "poradi": (r[3] or ""), "divize": (r[4] if r[4] is not None else ""),
+                "nadrazeny": (r[5] or ""), "produkt": (r[6] or ""),
+                "platnost_do": (r[7].isoformat() if r[7] else ""), "zastupce": bool(r[8])}
+               for r in rows]
+        return JSONResponse({"ok": True, "radky": out, "pocet": len(out)})
+    except Exception as exc:
+        logger.exception("[hr_posty_lide] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
     """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""

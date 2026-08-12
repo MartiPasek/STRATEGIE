@@ -303,6 +303,25 @@
     <div id="orgtree" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="postycard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">🗂️ Posty – lidé</b>
+      <span id="postycnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <input id="postysrch" oninput="postyFilter()" placeholder="🔎 Hledat jméno, post, produkt…" style="margin-left:12px;min-width:260px">
+      <label class="chkline" style="margin-left:12px;font-size:12px"><input type="checkbox" id="postyAkt" onchange="postyFilter()" checked> jen aktivní</label>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Všechna přiřazení post↔člověk z organizační struktury (jako „Posty – lidi" v Centrále). Jen ke čtení.</div>
+    <div class="tblscroll" style="padding:0 8px 16px">
+      <table class="ptbl" id="postytbl" style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr>
+          <th style="text-align:center">Akt.</th><th>Jméno</th><th>Název postu</th><th style="text-align:center">Pořadí</th><th style="text-align:center">Divize</th><th>Nadřazený post</th><th>Produkt (kompetence)</th><th>Platnost do</th>
+        </tr></thead>
+        <tbody id="postybody"><tr><td colspan="8" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -351,8 +370,10 @@ function setView(v){
   const oc=document.getElementById('odpcard'); if(oc) oc.style.display=(v==='odpovednost')?'':'none';
   const ukc=document.getElementById('ukolycard'); if(ukc) ukc.style.display=(v==='ukoly')?'':'none';
   const ogc=document.getElementById('organigramcard'); if(ogc) ogc.style.display=(v==='organigram')?'':'none';
+  const psc=document.getElementById('postycard'); if(psc) psc.style.display=(v==='posty')?'':'none';
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
+  if(v==='posty'){ loadPostyLide(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -500,7 +521,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty'){ setView(v); }
 }catch(e){} })();
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
@@ -581,6 +602,40 @@ function orgFilter(){
   box.innerHTML=hits.map(p=>{
     const lide=(p.lide||[]).map(x=>esc(x.jmeno)).join(', ')||'neobsazeno';
     return '<div style="padding:6px 2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px"><b>'+esc(p.nazev)+'</b> <span style="color:#9fb3cc">— '+lide+'</span></div>';
+  }).join('');
+}
+let POSTY_LIDE=null;
+async function loadPostyLide(){
+  const body=document.getElementById('postybody'); if(!body) return;
+  if(POSTY_LIDE){ postyFilter(); return; }
+  body.innerHTML='<tr><td colspan="8" class="empty">Načítám…</td></tr>';
+  let d; try{ d=await j(API+'/app/hr/posty-lide'); }catch(e){ body.innerHTML='<tr><td colspan="8" class="empty">✗ síť</td></tr>'; return; }
+  if(!d.ok){ body.innerHTML='<tr><td colspan="8" class="empty">🔒 '+esc(d.error||'chyba')+'</td></tr>'; return; }
+  POSTY_LIDE=d.radky||[];
+  postyFilter();
+}
+function postyFilter(){
+  const body=document.getElementById('postybody'), cnt=document.getElementById('postycnt');
+  if(!body||!POSTY_LIDE) return;
+  const q=(document.getElementById('postysrch').value||'').trim().toLowerCase();
+  const jenAkt=document.getElementById('postyAkt').checked;
+  let r=POSTY_LIDE;
+  if(jenAkt) r=r.filter(x=>x.aktivni);
+  if(q) r=r.filter(x=>(x.jmeno+' '+x.nazev+' '+x.produkt+' '+x.nadrazeny).toLowerCase().includes(q));
+  if(cnt) cnt.textContent='('+r.length+' řádků)';
+  if(!r.length){ body.innerHTML='<tr><td colspan="8" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  body.innerHTML=r.map(function(x){
+    const akt=x.aktivni?'<span style="color:#7fe0a0">✔</span>':'<span style="color:#5d6b7c">✗</span>';
+    const nm=esc(x.jmeno)+(x.zastupce?' <span style="color:#E0A94A;font-size:10px">(zást.)</span>':'');
+    return '<tr style="border-top:1px solid #1e2730;'+(x.aktivni?'':'opacity:.5')+'">'+
+      '<td style="text-align:center;padding:4px 6px">'+akt+'</td>'+
+      '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+nm+'</td>'+
+      '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+esc(x.nazev)+'</td>'+
+      '<td style="text-align:center;padding:4px 6px;color:#7f8ea0">'+esc(''+(x.poradi||''))+'</td>'+
+      '<td style="text-align:center;padding:4px 6px;color:#cdd6e2">'+esc(''+(x.divize||''))+'</td>'+
+      '<td style="padding:4px 8px;color:#cdd6e2">'+esc(x.nadrazeny||'')+'</td>'+
+      '<td style="padding:4px 8px;color:#9fb3cc">'+esc(x.produkt||'')+'</td>'+
+      '<td style="padding:4px 8px;white-space:nowrap;color:#cdd6e2">'+(x.platnost_do?esc(x.platnost_do):'')+'</td></tr>';
   }).join('');
 }
 function naplnPozice(){

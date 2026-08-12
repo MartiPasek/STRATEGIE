@@ -25295,6 +25295,17 @@ async def app_work_set_cinnost(req: Request) -> JSONResponse:
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
                      cinnost_id=ci, cinnost_name=cn, cinnost_icon=cic, is_rezie=_rz)
+            # Peťa + Claude-26, 12.8.2026: CHYBĚLO — DOPLNIT VAZBU ROZPADU NA PÍCHNUTÍ.
+            # _wa_open() zakládá nový úsek rozpadu, ale att_entry_id nevyplňuje; doplňuje
+            # ho až _att_apply_work_selection(). U výběru zakázky (set-projekt) i u přepnutí
+            # na režii se volala, u ZMĚNY ČINNOSTI ne — a tak vznikaly „sirotci": řádky
+            # rozpadu bez vazby, které nejsou vidět v Opravách a dělají falešné hlášky
+            # o chybějícím rozpadu i falešné překryvy (poznámka Peťa 5.8.2026).
+            # Reálně 132 řádků / 386 h / 43 lidí za 1.7.–12.8.2026; typický případ
+            # Zdeněk Diviš 10.8.2026 (5:55, 8:34 a 9:21 = tři změny činnosti = tři sirotci).
+            # Vedlejší efekt téhož: v docházce zůstala stará zakázka, zatímco rozpad už
+            # běžel na nové — proto se volá i tady, stejně jako u ostatních dvou cest.
+            _att_apply_work_selection(s, emp, _pr, _rz)
         # Marti 18.6.: zapamatuj poslední činnost pro kontext (Režie / konkrétní zakázka)
         _ctx = "REZIE" if _rz else (_pr or None)
         if _ctx:

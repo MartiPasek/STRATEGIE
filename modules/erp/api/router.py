@@ -12884,24 +12884,31 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
             return (7, "Ostatní")
         # Šárka 12.8.2026: u absencí dopočítat OBDOBÍ (od–do) — souvislý blok
         # plánovaných absencí obsahující dnešek (víkend přemostěn: mezera ≤ 3 dny).
+        # Zdroj dat je DVOJÍ: potvrzené absence žijí v att_entry (např. Bernardová),
+        # plánované v att_planned_absence (např. Kristý) — proto je sjednotíme.
         import datetime as _dtm
         from collections import defaultdict as _dd
         uids_abs = [r[0] for r in rows if r[1]]
         obdobi = {}
         if uids_abs:
             prows = s.execute(_t(
-                "SELECT user_id, datum, COALESCE(druh_nazev,'') FROM tenant.att_planned_absence "
-                "WHERE tenant_id=2 AND user_id = ANY(:us) "
-                "  AND datum BETWEEN current_date - 60 AND current_date + 180 "
-                "ORDER BY user_id, datum"), {"us": uids_abs}).fetchall()
+                "SELECT e.user_id, en.entry_date FROM tenant.att_entry en "
+                "  JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2 "
+                "  JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+                "  WHERE t.category='absence' AND COALESCE(en.status,'') NOT IN ('superseded','announced') "
+                "    AND e.user_id = ANY(:us) "
+                "    AND en.entry_date BETWEEN current_date - 60 AND current_date + 180 "
+                "UNION "
+                "SELECT pa.user_id, pa.datum FROM tenant.att_planned_absence pa "
+                "  WHERE pa.tenant_id=2 AND pa.user_id = ANY(:us) "
+                "    AND pa.datum BETWEEN current_date - 60 AND current_date + 180"),
+                {"us": uids_abs}).fetchall()
             byu = _dd(list)
-            for u, dd, dr in prows:
-                byu[u].append((dd, dr))
+            for u, dd in prows:
+                byu[u].append(dd)
             today = _dtm.date.today()
-            for u, items in byu.items():
-                dnes = [dr for dd, dr in items if dd == today]
-                druh = dnes[0] if dnes else (items[0][1] if items else "")
-                dates = sorted(dd for dd, dr in items if dr == druh)
+            for u, ds in byu.items():
+                dates = sorted(set(ds))
                 if today not in dates:
                     continue
                 si = dates.index(today)

@@ -633,8 +633,13 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
         start = zac + ":00"
         konec = kon + ":00"
     else:
-        start = "06:00:00"
-        konec_min = min(1439, 360 + int(round(float(hpd) * 60)))
+        # RÁMEC DNE 8:00 → 8:00 + denní úvazek (Peťa 12.8.2026: „v Centrále jsme
+        # dávali vždy 8–16, většinu věcí chceme jako v C"). Do 12.8. se počítalo
+        # od 6:00, což neodpovídalo tomu, na co jsou lidi z Centrály zvyklí.
+        # Konec plyne z hodin za den, takže u sedmihodinového úvazku vyjde 8–15.
+        # Na mzdy to nemá vliv — sdílený výpočet hodin časy u absencí nečte.
+        start = "08:00:00"
+        konec_min = min(1439, 480 + int(round(float(hpd) * 60)))
         konec = "%02d:%02d:00" % (konec_min // 60, konec_min % 60)
     # `ved_schvaleno` = zaškrtnutí „Schváleno" v okně (Peťa 31.7.2026). Co zadává
     # správce, platí rovnou — v přehledu se to hned ukáže s ✓ ve sloupci S.

@@ -10149,11 +10149,35 @@ async def app_hr_photo_get(target_uid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/photo-me")
+async def app_hr_photo_me(req: Request):
+    """Vlastní profilová fotka přihlášeného (pro mobil — bez znalosti uid)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT foto, mime FROM tenant.employee_photo "
+            "WHERE tenant_id=2 AND user_id=:u AND status='approved' "
+            "ORDER BY uploaded_at DESC LIMIT 1"), {"u": uid}).first()
+        if not row or not row[0]:
+            return Response(status_code=404)
+        return Response(content=bytes(row[0]), media_type=(row[1] or "image/jpeg"),
+                        headers={"Cache-Control": "private, max-age=60"})
+    except Exception as exc:
+        logger.exception("[hr_photo_me] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/photo/upload")
 async def app_hr_photo_upload(req: Request, file: UploadFile = File(...),
                               target_uid: int = Form(0)):
-    """Nahraje fotku. Vlastník (sám sebe) → 'pending' (čeká na schválení HR).
-    HR → rovnou 'approved'; může nahrát i za jiného (target_uid)."""
+    """Nahraje profilovou fotku. Šárka 12.8.2026: BEZ schvalování — vlastní i HR upload jde
+    rovnou 'approved'; při vlastní změně cinkne oznámení HR. Má to být profilovka, ne avatar."""
     import datetime as _dt
     from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
@@ -10172,18 +10196,25 @@ async def app_hr_photo_upload(req: Request, file: UploadFile = File(...),
             data, mime = _foto_zmensit(raw)
         except Exception:
             return JSONResponse({"ok": False, "error": "Nepodařilo se načíst obrázek (podporováno JPG/PNG)."}, status_code=400)
-        novy_stav = "approved" if is_hr else "pending"
-        s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u AND status=:st"),
-                  {"u": cil, "st": novy_stav})
+        # Šárka 12.8.2026: fotka se NESCHVALUJE — nahraje se rovnou (approved), HR jen cinkne oznámení.
+        s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u"), {"u": cil})
         s.execute(_t(
             "INSERT INTO tenant.employee_photo (tenant_id, user_id, status, mime, foto, uploaded_by, "
             " approved_by, approved_at, created_by_text) "
-            "VALUES (2, :u, :st, :m, :f, :by, :apby, :apat, :ct)"),
-            {"u": cil, "st": novy_stav, "m": mime, "f": data, "by": uid,
-             "apby": (uid if is_hr else None), "apat": (_dt.datetime.now() if is_hr else None),
+            "VALUES (2, :u, 'approved', :m, :f, :by, :by, now(), :ct)"),
+            {"u": cil, "m": mime, "f": data, "by": uid,
              "ct": ("HR upload" if is_hr else "vlastní upload")})
         s.commit()
-        return JSONResponse({"ok": True, "status": novy_stav})
+        # vlastní změna → oznámení HR (bez schvalování)
+        if cil == uid and not is_hr:
+            try:
+                jm = _self_person_name(s, uid)
+                _abs_notify(s, _self_hr_recipients(s), "Změna profilové fotky",
+                            (jm or ("ID " + str(uid))) + " si změnil(a) profilovou fotku v aplikaci.")
+                s.commit()
+            except Exception as _ne:
+                logger.warning("[photo self notify] %s", _ne)
+        return JSONResponse({"ok": True, "status": "approved"})
     except Exception as exc:
         logger.exception("[hr_photo_upload] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

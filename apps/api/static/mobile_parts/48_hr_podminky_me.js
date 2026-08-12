@@ -171,6 +171,34 @@
       if(!j||!j.ok){ cont.innerHTML='<div class="hint">Nepodařilo se načíst ('+esc((j&&j.error)||"chyba")+').</div>'; return; }
       cont.appendChild(el('<div style="font-size:22px;font-weight:800;margin:2px 0 4px;">🪪 Moje osobní údaje</div>'));
       cont.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:12px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vpravo skoč rovnou na sekci; ťukni do seznamu a lišta se schová pro plnou šířku.</div>'));
+      (function(){
+        var pc=el('<div style="display:flex;align-items:center;gap:14px;background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>');
+        var img=el('<img alt="Moje fotka" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:#0a1226;border:1px solid #2b3a5c;">');
+        var ph=el('<div style="width:64px;height:64px;border-radius:50%;background:#122238;border:1px solid #2b3a5c;display:none;align-items:center;justify-content:center;font-size:26px;">🙂</div>');
+        img.onerror=function(){ img.style.display="none"; ph.style.display="flex"; };
+        img.src="/api/v1/erp/app/hr/photo-me?t="+Date.now();
+        var right=el('<div style="flex:1;min-width:0;"></div>');
+        right.appendChild(el('<div style="font-weight:700;font-size:15px;margin-bottom:2px;">Profilová fotka</div>'));
+        right.appendChild(el('<div class="hint" style="line-height:1.5;margin-bottom:8px;">Nahraj svou <b>profilovou</b> fotku (portrét), ne obrázek. Změní se hned, HR dostane oznámení.</div>'));
+        var fi=el('<input type="file" accept="image/*" style="display:none;">');
+        var btn=el('<button style="padding:8px 14px;border:1px solid #2b3a5c;background:#122238;color:#e8eefc;border-radius:9px;font-size:14px;">📷 Změnit fotku</button>');
+        var st=el('<span class="hint" style="margin-left:10px;"></span>');
+        btn.addEventListener("click",function(){ fi.click(); });
+        fi.addEventListener("change",function(){
+          var f=fi.files&&fi.files[0]; if(!f) return;
+          if(f.size>8*1024*1024){ st.style.color="#f88"; st.textContent="Soubor je moc velký (max 8 MB)."; return; }
+          st.style.color="#9fb2d4"; st.textContent="Nahrávám…";
+          var fd=new FormData(); fd.append("file",f);
+          fetch("/api/v1/erp/app/hr/photo/upload",{method:"POST",credentials:"same-origin",body:fd})
+            .then(function(r){return r.json();}).then(function(r){
+              if(r&&r.ok){ st.style.color="#5ee0b7"; st.textContent="Uloženo ✓"; ph.style.display="none"; img.style.display=""; img.src="/api/v1/erp/app/hr/photo-me?t="+Date.now(); }
+              else { st.style.color="#f88"; st.textContent="Chyba: "+((r&&r.error)||"nepodařilo se"); }
+            }).catch(function(){ st.style.color="#f88"; st.textContent="Chyba sítě."; });
+        });
+        right.appendChild(btn); right.appendChild(st); right.appendChild(fi);
+        pc.appendChild(img); pc.appendChild(ph); pc.appendChild(right);
+        cont.appendChild(pc);
+      })();
       (j.sections||[]).forEach(function(sec,i){
         var sid="mesec_"+i; anchors.push({label:(sec.label||("Sekce "+(i+1))),id:sid});
         var card=el('<div id="'+sid+'" style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>');

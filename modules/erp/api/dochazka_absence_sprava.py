@@ -101,6 +101,20 @@ def _den(v):
         return None
 
 
+def _cas_hhmm(v):
+    """'HH:MM' (i 'HH:MM:SS') → 'HH:MM'. None, když prázdné nebo nesmysl."""
+    t = str(v or "").strip()[:5]
+    if len(t) != 5 or t[2] != ":":
+        return None
+    try:
+        h, m = int(t[:2]), int(t[3:])
+    except ValueError:
+        return None
+    if 0 <= h <= 23 and 0 <= m <= 59:
+        return "%02d:%02d" % (h, m)
+    return None
+
+
 def _pracovni_dny(s, d_od, d_do):
     """Pracovní dny v rozsahu podle firemního kalendáře (stejně jako absence/decide)."""
     from sqlalchemy import text as _t
@@ -277,6 +291,115 @@ def _chyba(text, kod=400):
     return JSONResponse({"ok": False, "error": text}, status_code=kod)
 
 
+# ── DOPOČET ČASU LÉKAŘE Z MEZERY V DOCHÁZCE ─────────────────────────────────
+# Peťa 12.8.2026: „vybrala bych člověka, zadala 1,04 a ty bys to dopočítal do
+# volného?" — ano, ale na tlačítko, ne samo (Peťa: „klidně na nějaké tlačítko").
+# Proč vůbec: lékař leží UVNITŘ dne mezi píchnutími. Sdílený výpočet hodin
+# (tenant.att_den_hodiny) sčítá absence prostým součtem a časy u nich nečte —
+# bez času nejde poznat, že se hodina překrývá s odpracovanou dobou, a započetla
+# by se dvakrát. Tohle najde díru mezi píchnutími a lékaře do ní posadí.
+@doch_zak_tab_router.post("/app/dochazka-abs/najdi-mezeru")
+async def dochazka_abs_najdi_mezeru(req: Request) -> JSONResponse:
+    """Najde v dni mezeru mezi píchnutími, kam se vejde zadaný počet hodin.
+
+    Body: {cislo_zam, datum: 'YYYY-MM-DD', hodin: 1.04}
+    Vrací {ok, cas_od, cas_do, popis} nebo srozumitelné „nejde, protože…".
+    """
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    uid = _kdo(req)
+    if not uid:
+        return _chyba("unauthorized", 401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    cislo = str((b or {}).get("cislo_zam") or "").strip()
+    den = _den((b or {}).get("datum"))
+    try:
+        hod = float(str((b or {}).get("hodin") or "").replace(",", "."))
+    except (TypeError, ValueError):
+        hod = 0.0
+    if not cislo or not den:
+        return _chyba("Vyber pracovníka a datum.")
+    if hod <= 0:
+        return _chyba("Nejdřív vyplň počet hodin.")
+    potreba = int(round(hod * 60))
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        emp = s.execute(_t("SELECT id FROM tenant.att_employee "
+                           "WHERE tenant_id=:t AND cislo_zam::text=:c ORDER BY id LIMIT 1"),
+                        {"t": _TEN, "c": cislo}).scalar()
+        if not emp:
+            return _chyba("Pracovník s číslem %s není v evidenci docházky." % cislo, 404)
+        # Píchnutá přítomnost toho dne (bez pauz a bez automatových dopočtů) —
+        # z ní se poskládají obsazené úseky a mezi nimi se hledá díra.
+        rows = s.execute(_t(
+            "SELECT EXTRACT(EPOCH FROM (e.started_at - e.entry_date))/60, "
+            "       EXTRACT(EPOCH FROM (e.ended_at   - e.entry_date))/60 "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d "
+            "  AND et.category='presence' AND COALESCE(e.source,'')<>'automat' "
+            "  AND e.status IS DISTINCT FROM 'superseded' "
+            "  AND e.status IS DISTINCT FROM 'announced' "
+            "  AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
+            "ORDER BY e.started_at"), {"t": _TEN, "e": int(emp), "d": den}).fetchall()
+        useky = sorted([(int(r[0]), int(r[1])) for r in rows if r[1] and r[1] > r[0]])
+        if not useky:
+            # Den bez jediného píchnutí → od šesté ranní (Peťa 12.8.2026).
+            # Není s čím se překrývat, tak se drží stejný rámec jako u ostatních
+            # absencí zadaných správcem.
+            do = min(1439, 360 + potreba)
+            return JSONResponse({"ok": True,
+                                 "cas_od": "06:00",
+                                 "cas_do": "%02d:%02d" % (do // 60, do % 60),
+                                 "popis": "ten den nemá žádné píchnutí — dáno od 6:00"})
+        # sloučení překrývajících se úseků
+        slouc = []
+        for za, do in useky:
+            if slouc and za <= slouc[-1][1]:
+                slouc[-1][1] = max(slouc[-1][1], do)
+            else:
+                slouc.append([za, do])
+        # díry MEZI úseky (uvnitř dne) — první, do které se to vejde
+        for i in range(len(slouc) - 1):
+            volno = slouc[i + 1][0] - slouc[i][1]
+            if volno >= potreba:
+                za = slouc[i][1]
+                do = za + potreba
+                return JSONResponse({"ok": True,
+                                     "cas_od": "%02d:%02d" % (za // 60, za % 60),
+                                     "cas_do": "%02d:%02d" % (do // 60, do % 60),
+                                     "popis": "mezera mezi píchnutími %02d:%02d–%02d:%02d"
+                                              % (slouc[i][1] // 60, slouc[i][1] % 60,
+                                                 slouc[i + 1][0] // 60, slouc[i + 1][0] % 60)})
+        # žádná díra uvnitř — nabídneme čas těsně PŘED prvním píchnutím
+        # (typické „byl jsem ráno u doktora a pak přišel do práce")
+        za = slouc[0][0] - potreba
+        if za >= 0:
+            return JSONResponse({"ok": True,
+                                 "cas_od": "%02d:%02d" % (za // 60, za % 60),
+                                 "cas_do": "%02d:%02d" % (slouc[0][0] // 60, slouc[0][0] % 60),
+                                 "popis": "před příchodem do práce"})
+        # ani před příchodem se to nevejde → za posledním odchodem
+        do = slouc[-1][1] + potreba
+        if do <= 1439:
+            return JSONResponse({"ok": True,
+                                 "cas_od": "%02d:%02d" % (slouc[-1][1] // 60, slouc[-1][1] % 60),
+                                 "cas_do": "%02d:%02d" % (do // 60, do % 60),
+                                 "popis": "po odchodu z práce"})
+        return _chyba("Do toho dne se %s h nevejde — člověk má napícháno skoro celý den. "
+                      "Vyplň prosím čas ručně." % str(hod).replace(".", ","))
+    except Exception as exc:  # noqa: BLE001
+        return _chyba(str(exc)[:200], 500)
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
 # ── META: druhy absencí + stav synchronizace z Centrály ──────────────────────
 @doch_zak_tab_router.get("/app/dochazka-abs/meta")
 def dochazka_abs_meta(req: Request) -> JSONResponse:
@@ -403,10 +526,17 @@ def _sd_check(emp, typ_code, hpd, den=None):
 
 
 def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix", zad_id=None,
-               schvaleno=True):
+               schvaleno=True, cas_od=None, cas_do=None):
     """Založí absenční denní záznamy na pracovní dny rozsahu. Vrací počet dnů.
     Rámec dne 06:00 → 06:00+hodiny (stejně jako materializace schválené žádosti),
-    aby s nimi uměly pracovat i „Opravy docházky" (ty odmítají záznamy bez času)."""
+    aby s nimi uměly pracovat i „Opravy docházky" (ty odmítají záznamy bez času).
+
+    SKUTEČNÝ ČAS (Peťa 12.8.2026, zatím jen Lékař): když přijdou `cas_od`/`cas_do`
+    ('HH:MM'), zapíše se rámec podle nich, ne od šesté ranní. Důvod: lékař leží
+    UVNITŘ pracovního dne mezi píchnutími a sdílený výpočet hodin
+    (`tenant.att_den_hodiny`) sčítá absence prostým součtem — bez časů nejde poznat,
+    jestli se hodina nepřekrývá s odpracovanou dobou, a započítala by se dvakrát.
+    Hodiny si v tom případě řídí volající (počítá je z časů a pole je zamčené)."""
     from sqlalchemy import text as _t
     ti = _typ_id(s, typ_code)
     if not ti:
@@ -457,18 +587,26 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
             return 0
     except Exception:
         pass  # pojistka nikdy nesmí shodit samotný zápis
-    konec_min = min(1439, 360 + int(round(float(hpd) * 60)))
-    konec = "%02d:%02d:00" % (konec_min // 60, konec_min % 60)
+    zac = _cas_hhmm(cas_od)
+    kon = _cas_hhmm(cas_do)
+    if zac and kon:
+        start = zac + ":00"
+        konec = kon + ":00"
+    else:
+        start = "06:00:00"
+        konec_min = min(1439, 360 + int(round(float(hpd) * 60)))
+        konec = "%02d:%02d:00" % (konec_min // 60, konec_min % 60)
     # `ved_schvaleno` = zaškrtnutí „Schváleno" v okně (Peťa 31.7.2026). Co zadává
     # správce, platí rovnou — v přehledu se to hned ukáže s ✓ ve sloupci S.
-    par = [{"e": emp, "d": d, "ti": ti, "h": float(hpd), "u": uid, "et": konec,
+    par = [{"e": emp, "d": d, "ti": ti, "h": float(hpd), "u": uid,
+            "st": start, "et": konec,
             "n": (pozn or "")[:250], "src": zdroj, "ss": ("absence_req" if zad_id else None),
             "si": zad_id, "sch": bool(schvaleno)} for d in dny]
     s.execute(_t(
         "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
         "started_at,ended_at,status,source,source_system,source_id,is_active,note,"
         "ved_schvaleno,created_by_id,created_at,updated_at) "
-        "VALUES (%d,:e,:d,:ti,:h,:d + time '06:00',:d + CAST(:et AS time),"
+        "VALUES (%d,:e,:d,:ti,:h,:d + CAST(:st AS time),:d + CAST(:et AS time),"
         "'confirmed',:src,:ss,:si,false,:n,:sch,:u,now(),now())" % _TEN), par)
     return len(dny)
 
@@ -551,6 +689,13 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         hpd = float((b or {}).get("hodin_den") or 8)
     except (TypeError, ValueError):
         hpd = 8.0
+    # Skutečný čas absence (zatím jen Lékař, Peťa 12.8.2026) — viz `_zapis_dny`.
+    c_od, c_do = _cas_hhmm((b or {}).get("cas_od")), _cas_hhmm((b or {}).get("cas_do"))
+    if c_od and c_do:
+        _m = (int(c_do[:2]) * 60 + int(c_do[3:])) - (int(c_od[:2]) * 60 + int(c_od[3:]))
+        if _m <= 0:
+            return _chyba("Čas „do“ musí být pozdější než „od“.")
+        hpd = round(_m / 60.0, 2)
     if not (d_od and d_do):
         return _chyba("Vyplň období od–do.")
     if d_do < d_od:
@@ -624,7 +769,8 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         _znic_dny(s, [int(r[0]) for r in rows], emp, uid, actor, duvod)
         dnu = _zapis_dny(s, emp, typ, d_od, d_do, hpd,
                          (pozn or "") + (" · " if pozn else "") + "úprava: " + duvod, uid,
-                         schvaleno=bool((b or {}).get("schvaleno", True)))
+                         schvaleno=bool((b or {}).get("schvaleno", True)),
+                         cas_od=c_od, cas_do=c_do)
         roky = {d.year for d in stare} | {d_od.year, d_do.year}
         zust = _abs_recalc_balances(s, emp, roky)
         s.commit()
@@ -674,6 +820,14 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
     except (TypeError, ValueError):
         hpd = 8.0
     schvaleno = bool((b or {}).get("schvaleno", True))
+    # Skutečný čas absence (zatím jen Lékař, Peťa 12.8.2026). Když přijdou oba,
+    # hodiny se z nich přepočítají — ať nemůže vzniknout rozpor mezi časem a hodinami.
+    c_od, c_do = _cas_hhmm((b or {}).get("cas_od")), _cas_hhmm((b or {}).get("cas_do"))
+    if c_od and c_do:
+        _m = (int(c_do[:2]) * 60 + int(c_do[3:])) - (int(c_od[:2]) * 60 + int(c_od[3:]))
+        if _m <= 0:
+            return _chyba("Čas „do“ musí být pozdější než „od“.")
+        hpd = round(_m / 60.0, 2)
     if not cislo:
         return _chyba("Vyber pracovníka.")
     if not (d_od and d_do):
@@ -716,7 +870,8 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
              "st": ("Zadáno ve Správě docházky (" + actor + ")"
                     + ("" if schvaleno else " — čeká na schválení"))[:500]}).scalar()
         dnu = _zapis_dny(s, emp, typ, d_od, d_do, hpd, pozn or "zadáno ve Správě docházky",
-                         uid, zdroj="absence", zad_id=zid, schvaleno=schvaleno)
+                         uid, zdroj="absence", zad_id=zid, schvaleno=schvaleno,
+                         cas_od=c_od, cas_do=c_do)
         _att_fix_audit(s, "absence_add", None, emp, uid, actor,
                        new_note="%s %s–%s (%d dnů)" % (typ, d_od, d_do, dnu),
                        detail="Správa docházky — nová absence #%s" % zid, old_date=d_od)

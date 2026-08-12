@@ -8,6 +8,7 @@
   var EP = "/api/v1/erp/app/hr/dashboard";
 
   var TILES = [
+    { ic: "✅", t: "Úkoly", d: "Moje HR úkoly a připomínky.", st: "live", act: "ukoly" },
     { ic: "🏖️", t: "Mimo kancelář", d: "Kdo dnes není ve firmě (absence + home office).", st: "live", act: "mimo" },
     { ic: "🎂", t: "Narozeniny a výročí", d: "Blížící se narozeniny a výročí nástupu.", st: "live" },
     { ic: "🆕", t: "Noví + budoucí nástupy", d: "Kdo nastoupil za poslední rok a kdo teprve nastoupí.", st: "live" },
@@ -40,13 +41,9 @@
       '<div class="hrp-wrap">' +
       // 1) KPI statistiky (sloupce dle nadpisu s čísly)
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
-      // 2) detailní sloupce pod dlaždicemi — 4 sloupce dle KPI (Šárka 23.7.2026)
-      // Šárka 12.8.2026: kompaktní 2 řádky po 3 + „Kdo je dnes ve firmě"; Úkoly dolů jako sekce.
+      // Šárka 12.8.2026: „Ve firmě" je v KPI; 5 vyrovnaných panelů v jedné mřížce (3+2);
+      // Novinky hned pod nimi (viditelné); Úkoly jsou samostatný uzel (dlaždice „Úkoly").
       '  <div class="hrp-blocks hrp-cols3">' +
-      '    <div class="hrp-panel">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Kdo je dnes ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
-      '      <div id="hrpVeFirmeList" style="max-height:210px;overflow:auto"><div class="hrp-empty">Načítám…</div></div>' +
-      '    </div>' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
       '      <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
@@ -55,8 +52,6 @@
       '      <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span></div>' +
       '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
-      '  </div>' +
-      '  <div class="hrp-blocks hrp-cols3">' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🆕</span> Noví + budoucí <span class="hrp-cnt" id="hrpNoviCnt"></span></div>' +
       '      <div id="hrpNoviList"><div class="hrp-empty">Načítám…</div></div>' +
@@ -70,20 +65,14 @@
       '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
-      // 3b) Novinky (Šárka 12.8.2026 — píše HR, propíše se zaměstnancům do mobilu)
       '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Novinky <a href="#" id="hrpNovNew" style="margin-left:12px;font-size:12px;color:#7fb2e8;text-decoration:none;font-weight:600">➕ Přidat</a></div>' +
       '    <div id="hrpNovForm"></div>' +
       '    <div id="hrpNovList"><div class="hrp-empty">Načítám…</div></div>' +
       '  </div>' +
-      // 4) Přehled dlaždic (až dole)
       '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
       '    <div class="hrp-grid" id="hrpGrid"></div>' +
-      '  </div>' +
-      '  <div class="hrp-panel hrp-feed">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">✅</span> Moje úkoly <span class="hrp-cnt" id="hrpUkolyCnt"></span></div>' +
-      '    <div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>' +
       '  </div>' +
       '</div>';
 
@@ -91,9 +80,7 @@
     loadMimoPanel(el);
     loadJubilea(el);
     loadNovi(el);
-    loadUkoly(el);
     loadNovinky(el);
-    loadVeFirme(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -105,12 +92,16 @@
         }
         var b = d.badges || {};
         bEl.innerHTML =
+          badge(0, "Ve firmě dnes", "vefirme", "hrpBadgeVeFirme") +
           badge(b.mimo, "Mimo kancelář dnes", "mimo") +
           badge(b.naroz, "Narozeniny / výročí (7 dní)") +
           badge(b.novi, "Noví + budoucí nástupy", null, "hrpBadgeNovi") +
           badge(b.vyberka, "Běžící výběrová řízení");
         var _mb = bEl.querySelector('[data-act="mimo"]');
         if (_mb) { _mb.onclick = openMimo; }
+        var _vf = bEl.querySelector('[data-act="vefirme"]');
+        if (_vf) { _vf.onclick = openVeFirme; }
+        loadVeFirme(el);
         renderVyberka(el, d.vyberka || {});
         var akt = d.aktuality || [];
         if (!akt.length) { aEl.innerHTML = '<div class="hrp-empty">Žádné aktuality.</div>'; return; }
@@ -125,24 +116,36 @@
       });
   }
 
-  function loadVeFirme(root) {
-    var list = root.querySelector('#hrpVeFirmeList'), cnt = root.querySelector('#hrpVeFirmeCnt');
-    if (!list) return;
+  var VEFIRME = { lide: [], ho: 0 };
+  function loadVeFirme() {
     fetch('/api/v1/erp/app/hr/dnes-ve-firme', { credentials: 'include' })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (d) {
-        if (!d || !d.ok) { list.innerHTML = '<div class="hrp-empty">' + esc((d && d.error) || 'chyba') + '</div>'; return; }
-        var l = d.lide || [];
-        if (cnt) cnt.textContent = l.length ? ('· ' + l.length) : '';
-        var hoNote = (d.ho ? '<div style="padding:7px 4px 2px;color:#8fb4d8;font-size:11px">🏠 + ' + d.ho + ' na home office</div>' : '');
-        if (!l.length) { list.innerHTML = (hoNote || '<div class="hrp-empty">Dnes není nikdo v práci.</div>'); return; }
-        list.innerHTML = l.map(function (p) {
-          return '<div class="hrp-mrow"><span class="hrp-mic" style="background:#12301f;color:#5ee0b7">●</span>' +
-            '<div style="min-width:0"><div class="hrp-mnm">' + esc(p.jmeno) + '</div>' +
-            (p.pozice ? '<div class="hrp-mdv">' + esc(p.pozice) + '</div>' : '') + '</div></div>';
-        }).join('') + hoNote;
+        if (!d || !d.ok) return;
+        VEFIRME.lide = d.lide || []; VEFIRME.ho = d.ho || 0;
+        var b = document.getElementById('hrpBadgeVeFirme');
+        if (b) b.textContent = VEFIRME.lide.length;
       })
-      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+      .catch(function () {});
+  }
+  function openVeFirme() {
+    var m = ensureModal(); m.classList.add('on');
+    m.querySelector('.hrp-modal-card').classList.remove('hrp-modal-wide');
+    m.querySelector('#hrpModalTitle').textContent = '🏢 Kdo je dnes ve firmě (' + VEFIRME.lide.length + ')';
+    var h = VEFIRME.lide.map(function (p) {
+      return '<div class="hrp-mrow"><span class="hrp-mic" style="background:#12301f;color:#5ee0b7">●</span>' +
+        '<div><div class="hrp-mnm">' + esc(p.jmeno) + '</div>' +
+        (p.pozice ? '<div class="hrp-mdv">' + esc(p.pozice) + '</div>' : '') + '</div></div>';
+    }).join('');
+    if (VEFIRME.ho) h += '<div style="padding:9px 12px;color:#8fb4d8;font-size:12px">🏠 + ' + VEFIRME.ho + ' na home office</div>';
+    m.querySelector('#hrpModalBody').innerHTML = h || '<div class="hrp-empty">Dnes není nikdo v práci.</div>';
+  }
+  function openUkoly() {
+    var m = ensureModal(); m.classList.add('on');
+    m.querySelector('.hrp-modal-card').classList.remove('hrp-modal-wide');
+    m.querySelector('#hrpModalTitle').textContent = '✅ Úkoly';
+    m.querySelector('#hrpModalBody').innerHTML = '<div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>';
+    loadUkoly(m.querySelector('.hrp-modal-card'));
   }
   function novBadge(pro) {
     return pro === 'hr'
@@ -250,6 +253,7 @@
         '<div class="hrp-dd">' + esc(x.d) + '</div></div>';
       if (x.go) { d.onclick = function () { window.open(x.go, "_blank"); }; }
       else if (x.act === "mimo") { d.onclick = openMimo; }
+      else if (x.act === "ukoly") { d.onclick = openUkoly; }
       g.appendChild(d);
     });
   }
@@ -510,7 +514,8 @@
       '.hrp-cols3{grid-template-columns:repeat(3,minmax(0,1fr));}' +
       '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;}' +
       '@media(max-width:900px){.hrp-blocks{grid-template-columns:repeat(2,minmax(0,1fr));}}' +
-      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList,#hrpUkoly{max-height:300px;overflow:auto;}' +
+      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:184px;overflow:auto;}' +
+      '#hrpUkoly{max-height:60vh;overflow:auto;}' +
       '.hrp-duo{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}' +
       '@media(max-width:800px){.hrp-duo{grid-template-columns:1fr;}}' +
       '.hrp-utrm{font-size:11px;color:#7f8ea0;}' +
@@ -537,7 +542,7 @@
       '.hrp-blocks .hrp-jhint{display:none;}' +
       '.hrp-ntyp{display:inline-block;font-size:10.5px;font-weight:700;padding:0 7px;border-radius:20px;background:#1f2a37;color:#aac8ec;margin-right:5px;}' +
       '.hrp-chip.nastup{background:#241d0c;color:#e0a400;}' +
-      '.hrp-badges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}' +
+      '.hrp-badges{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px;}' +
       '.hrp-badge{background:#161c24;border:1px solid #233040;border-radius:12px;padding:9px 13px;}' +
       '.hrp-n{font-size:22px;font-weight:800;color:#e8eef5;line-height:1;}' +
       '.hrp-l{font-size:11.5px;color:#7f8ea0;margin-top:2px;}' +

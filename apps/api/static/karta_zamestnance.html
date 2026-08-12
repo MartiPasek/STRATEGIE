@@ -499,13 +499,24 @@ async function loadUkoly(){
   box.innerHTML=u.map(function(t){
     const pri=(t.priorita>=2)?'🔴':(t.priorita===1?'🟠':'•');
     const term=t.termin?('<span style="color:'+(t.pozde?'#ff8a7a':'var(--muted)')+';font-size:12px;white-space:nowrap">⏰ '+esc(t.termin)+'</span>'):'';
-    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(255,255,255,.06)">'+
+    return '<div class="ukrow" data-id="'+t.id+'" style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(255,255,255,.06)">'+
+      '<input type="checkbox" title="Označit jako hotové" onclick="ukolHotovo('+t.id+',this)" style="margin-top:3px;width:17px;height:17px;cursor:pointer;flex:none">'+
       '<span style="font-size:15px;line-height:1.3">'+pri+'</span>'+
       '<span style="min-width:0;flex:1">'+
         '<div style="font-weight:600">'+esc(t.predmet)+'</div>'+
         '<div style="color:var(--muted);font-size:12.5px;margin-top:2px">'+(t.zak?esc(t.zak)+' · ':'')+esc(t.stav_txt||'')+' '+term+'</div>'+
       '</span></div>';
   }).join('');
+}
+async function ukolHotovo(id, cb){
+  cb.disabled=true;
+  const row=cb.closest('.ukrow');
+  try{
+    const r=await fetch(API+'/app/task/'+id+'/stav',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({stav:3})});
+    const d=await r.json();
+    if(!d.ok){ cb.disabled=false; cb.checked=false; alert('Nepovedlo se: '+(d.error||'chyba')); return; }
+    if(row){ row.style.transition='opacity .3s'; row.style.opacity='.35'; row.querySelector('span:nth-of-type(2) div').style.textDecoration='line-through'; setTimeout(function(){ row.remove(); const c=document.getElementById('ukcnt'); const n=document.querySelectorAll('#uklist .ukrow').length; if(c) c.textContent='('+n+')'; if(!n){ document.getElementById('uklist').innerHTML='<div class="empty">Žádné otevřené úkoly. 🎉</div>'; } }, 320); }
+  }catch(e){ cb.disabled=false; cb.checked=false; alert('✗ síť'); }
 }
 function naplnPozice(){
   // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů

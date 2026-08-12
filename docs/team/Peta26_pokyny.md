@@ -176,6 +176,15 @@ commit se jmenuje „Peťa+Michaela vidí a opravují všechny lidi" — místo 
   2. `scripts/claude_sql/CLAUDE_DEPLOY_GO.txt` = zapsat JAKO POSLEDNÍ (to je spouštěč).
   3. Výsledek `scripts/claude_sql/CLAUDE_DEPLOY_OUT.txt` (~5–30 s). Deploy sám udělá pull (rebase) +
      commit + push + nahrání na cloud + restart aplikace. Blue‑green = vždy vratné.
+- **⚠️ DVOJTEČKA V KÓDU = most ji bere jako parametr (Peťa 11.8.2026: „píšete mi to několikrát
+  denně").** Když přes most posílám do `g2007.python` / `g2007.soubor` zdrojový kód, který
+  obsahuje `:neco` (SQL parametry uvnitř Pythonu, `::numeric` a podobně), most spadne na
+  *„A value is required for bind parameter"*. **Není to chyba dat ani Peťy — je to vlastnost mostu
+  a nemám s tím Peťu vůbec obtěžovat, jen to rovnou napsat správně.**
+  Řešení: v kódu psát **`~`** místo dvojtečky (`~t`, `~~numeric`) a celý blok obalit
+  `replace($PY$ …kód… $PY$, '~', ':')`. Zkontrolovat, že se `~` nikde jinde v kódu nevyskytuje.
+  **Stejně tak `%`** (např. `strftime("%d.%m.")` nebo `logger.info("… %s", x)`) — psycopg2 si ho
+  vyloží jako formátování. Místo toho skládat řetězce ručně (`str(d.day).zfill(2)`).
 - **⚠️ NIKDY nesahej na git přes připojenou složku** (device bash / mount) — vznikne `.git/index.lock`,
   který **zasekne most** (přesně to se stalo 13.7.2026). Číst soubory přes složku ano, ale žádné
   `git` příkazy (status/log/blame/…) přes ni.
@@ -383,6 +392,15 @@ Peťa: *„nemají docházku, a i když se tam občas objeví záznam, nemají d
   7,20 h, Šik jen absence 36 h) — nehlásit „chybí fond", „žádná docházka", ani je nedávat
   do souhrnů odchylek FPD.
 
+**⛔ A VŮBEC JE NEVYPISOVAT — ANI JAKO „TĚCH SE TO TÝKÁ" (Peťa 11.8.2026, závazné).**
+Peťa: *„ty čtyři lidi ani nevypisuj, nemáš je řešit, tak je neřeš a ani mi je nevypisuj,
+že je to u nich tak nebo že by se jich to dotýkalo."*
+- Platí i pro **dopadové mapy, přehledy, tabulky a příklady** — ne jen pro hlášení chyb.
+  11.8.2026 jsem jí je vypsal v dopadové mapě prázdných dnů („Martimu by to dopsalo 28 dnů").
+  I to je vypisování. Prostě je z výstupu **vyfiltruj a nezmiňuj**.
+- **Lidem bez docházky se nikdy nic nedopisuje** — žádné doplnění do fondu, žádné dorovnání.
+  Když stavím automat nebo kontrolu, musí je vynechat sama od sebe.
+
 **⚠️ FPD = co se má za měsíc PROPLATIT — JINAK U KANCELÁŘE, JINAK U DÍLNY
 (Peťa 4.8.2026, potvrzeno na datech července).**
 
@@ -455,6 +473,18 @@ Závazně:
 - Teprve pak soubor nabídni přes `SendUserFile` / kartu souboru.
 - Když jde o jednorázový výstup, řekni Petře, že si ho může po použití smazat — ve složce projektu je git.
 
+## ✍️ PODPIS PEŤY NAVENEK — vůči lidem mimo náš tým (Peťa 11.8.2026, závazné)
+Když píšu **jménem Peťy někomu jinému** (zaměstnanci, notifikace do appky, e-mail, dopis),
+podepisuje se vždycky takhle:
+
+> **Petra Šafránková, logistika, nákup**
+> p.safrankova@eurosoft.com
+
+- **NIKDY „mzdová účetní"** ani jiná vymyšlená funkce — 11.8.2026 jsem to takhle špatně
+  podepsal v notifikaci pro člověka na demo účtu.
+- **E-mail vždy `p.safrankova@eurosoft.com`**, ne `petra@eurosoft.com`.
+- Uvnitř týmu (Marti, Jirka, Kristý, Marti-AI) platí dál podpis `Claude‑26 / Peťa` — viz níže.
+
 ## Jak Petře připravit e-mail (14.7.2026)
 - **Odesílatel (From):** do hlavičky `.eml` dávej `p.safrankova@eurosoft.com` (ne petra@eurosoft.com).
 Když Peta řekne „připrav mail" (do Outlooku, ať ho jen odešle):
@@ -473,6 +503,42 @@ Než nasadím upravený soubor, VŽDY ověř, že moje kopie NENÍ oříznutá s
   (u malých souborů čti přes `device_bash`, u velkých obnov přes `git show <commit>:cesta` jen ke čtení).
 - Stalo se: nasadil jsem `router.py` ze staré cache a vrátil tím cizí i vlastní změny (−4 KB).
   Chytit se to dá i podle divného počtu řádků v `CLAUDE_DEPLOY_OUT.txt` (moc insertions/deletions).
+
+## 📣 OHLÁŠENÍ („dnes nedorazím") = JEN NOTIFIKACE NADŘÍZENÉMU (Peťa 12.8.2026, závazné)
+Peťa: *„za mě to ohlášení má být jen info nadřízenému do notifikace, nikam jinam."*
+(Peťa dodává, že tohle už jsme jednou řešili — proto to sem píšu, ať se to neřeší potřetí.)
+
+- Když člověk ráno v mobilu klikne „je mi blbě, dnes nedorazím", **není to docházka**.
+  Nic neodpracoval, jen dal vědět. **Do docházky to nepatří vůbec.**
+- Dnešní stav (12.8.2026): zapisuje se to jako **řádek v docházce** — typ „Práce", nula hodin,
+  stav `announced`. Proto se filtr musí dopisovat do **každého nového přehledu**; kde se
+  zapomene, vyskočí to jako práce s nulou hodin. Přesně to jsme 12.8. museli dopsat do tří
+  přehledů (viz pojistka `prehledy-bez-zrusenych-zaznamu`).
+- **Cíl:** ohlášení pryč z docházky, jen notifikace nadřízenému. Do té doby platí, že
+  **každý přehled docházky musí `announced` odfiltrovat.**
+- Objem k 12.8.2026: **8 řádků celkem**, z toho 1 od července — malá věc, otravná na hodně místech.
+- Než se to bude přesouvat: **nejdřív mapa** (kdo zapisuje, kdo čte) dle pravidla výše.
+  Dnes to čtou „kdo kde je dnes", nástěnka přítomnosti a mobil — tam smysl dává.
+
+## 🎨 BAREVNÝ SYSTÉM HLÁŠEK A ZVÝRAZNĚNÍ (Peťa 11.8.2026, závazné všude)
+Barva má vždycky znamenat totéž — v docházce, v opravách, v mobilu i v každém novém přehledu.
+Peťa se pak nemusí u každé obrazovky ptát, co ta barva znamená.
+
+| barva | znamená | typický příklad |
+|---|---|---|
+| 🔴 **červená** | **něco je špatně** — chyba, kterou je potřeba spravit | „Co systému nesedělo", odmítnutý sick day, překryv záznamů |
+| 🟠 **oranžová** | **někdo něco podal, čeká se na rozhodnutí** | žádost o dovolenou ke schválení, požadavek na opravu |
+| 🔵 **modrá** | **automatická kontrola / informace** — nic se po tobě nechce | hlášky automatu, dopočty, poznámky systému |
+| 🟢 **zelená** | **bylo tam něco, ale je to opravené** | nález, který Peťa srovnala; úspěšně uložená oprava |
+
+**Vzhled červeného upozornění** (ověřený, drž se ho): světlý podklad `#fee2e2`, tmavý rámeček
+`#991b1b`, silný pruh vlevo `#dc2626`, tmavé písmo `#7f1d1d`. **Vlastní rámeček**, ne splynutí
+s okolím. Zůstává na obrazovce a **zavírá se křížkem** — nemizí samo.
+Zavedeno u `oprVarovani()` (`dochazka-opravy.html`) a `mobVarovani()`
+(`mobile_parts/60_dochazka.js`), 11.8.2026.
+
+**Pravidlo:** upozornění po opravě (překryv u „Opravit" / „Přidat záznam") je **červené s vlastním
+rámečkem** — je to varování, ne potvrzení. Zelená patří až tomu, co je skutečně srovnané.
 
 ## Jak mají vypadat PŘEHLEDY (tabulky) — jednotný vzhled (17.7.2026)
 Všechny velké přehledy (Faktury přijaté, Pokladní doklady a další) mají vypadat **stejně**.

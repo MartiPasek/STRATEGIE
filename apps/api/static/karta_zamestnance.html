@@ -1064,15 +1064,15 @@ function renderPU(edit){
       '</div></div>';
   }
   if(!(d.pomery||[]).length) h+='<div class="empty">Žádný aktuální pracovní poměr.</div>';
-  // Historie změn (SCD2) — jen když je co ukázat kromě aktuální verze
+  // Historie změn (SCD2) — sbalená pod rozklikávátkem, ať karta drží na 1 obrazovce
   if((d.historie||[]).length>1){
-    h+=grp('Historie změn (pozice, úvazek, typ)')+tbl(
-      '<tr><td style="color:#7f8ea0;padding:5px 16px">Od</td><td style="color:#7f8ea0;padding:5px 16px">Pozice</td><td style="color:#7f8ea0;padding:5px 16px">Typ</td><td style="color:#7f8ea0;padding:5px 16px">Úvazek</td></tr>'+
+    h+='<details style="margin:6px 16px 4px"><summary style="cursor:pointer;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:4px 0">Historie změn ('+d.historie.length+') — pozice, úvazek, typ</summary>'+tbl(
+      '<tr><td style="color:#7f8ea0;padding:4px 8px">Od</td><td style="color:#7f8ea0;padding:4px 8px">Pozice</td><td style="color:#7f8ea0;padding:4px 8px">Typ</td><td style="color:#7f8ea0;padding:4px 8px">Úvazek</td></tr>'+
       d.historie.map(hh=>'<tr style="border-top:1px solid #1e2730">'+
-        '<td style="padding:5px 16px;color:#cdd6e2;white-space:nowrap">'+esc(hh.od||'—')+(hh.aktualni?' <span style="color:#7fe0a0">• nyní</span>':(hh.do?(' – '+esc(hh.do)):''))+'</td>'+
-        '<td style="padding:5px 16px;color:#e8eef5">'+esc(hh.pozice)+'</td>'+
-        '<td style="padding:5px 16px;color:#cdd6e2">'+esc(hh.typ)+'</td>'+
-        '<td style="padding:5px 16px;color:#cdd6e2">'+(hh.uvazek?esc(hh.uvazek)+' h':'—')+'</td></tr>').join(''));
+        '<td style="padding:4px 8px;color:#cdd6e2;white-space:nowrap">'+esc(hh.od||'—')+(hh.aktualni?' <span style="color:#7fe0a0">• nyní</span>':(hh.do?(' – '+esc(hh.do)):''))+'</td>'+
+        '<td style="padding:4px 8px;color:#e8eef5">'+esc(hh.pozice)+'</td>'+
+        '<td style="padding:4px 8px;color:#cdd6e2">'+esc(hh.typ)+'</td>'+
+        '<td style="padding:4px 8px;color:#cdd6e2">'+(hh.uvazek?esc(hh.uvazek)+' h':'—')+'</td></tr>').join(''))+'</details>';
   }
   if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:8px 16px 12px">Editovat lze pozici a poznámku. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul. Nadřízený se bere z organizační struktury.</div>';
   det.innerHTML=h;
@@ -1091,9 +1091,9 @@ async function orgLoadPodriz(uid){
     h+='<div style="color:#cdd6e2;font-size:13px;padding:2px 0">👥 <span style="color:#7f8ea0">Podřízení ('+pod.length+'):</span> '+
       pod.slice(0,12).map(x=>'<b>'+esc(x.jmeno)+'</b>').join(', ')+(pod.length>12?(' <span style="color:#5d6b7c">+'+(pod.length-12)+' dalších</span>'):'')+'</div>';
   }
-  h+='<div style="padding:4px 0">'+
-    '<a href="#" onclick="togglePosty();return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏷️ Zobraz posty zaměstnance ('+aktivnich+' aktivních'+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length+' celkem'):'')+') ›</a></div>'+
-    '<div id="puPostyTbl" style="display:none;margin-top:4px"></div>';
+  h+='<div style="padding:6px 0 2px">'+
+    '<a href="#" onclick="togglePosty();return false;" style="display:inline-flex;align-items:center;gap:8px;background:#1b3a5c;border:1px solid #2f6ea8;color:#dff0ff;border-radius:8px;padding:7px 14px;font-weight:700;font-size:12.5px;text-decoration:none">🏷️ Posty zaměstnance <span style="background:#2f6ea8;border-radius:20px;padding:1px 9px;font-size:11px">'+aktivnich+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length):'')+'</span> ›</a></div>'+
+    '<div id="puPostyTbl" style="display:none;margin-top:6px"></div>';
   box.innerHTML=h;
 }
 function togglePosty(){

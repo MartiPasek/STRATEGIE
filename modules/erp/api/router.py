@@ -12043,7 +12043,8 @@ def _hr_generuj_ukoly(s):
             continue
         occ = _occ(prvni)
         yrs = occ.year - prvni.year
-        if not (0 <= (occ - today).days <= 30 and yrs >= 5 and yrs % 5 == 0):
+        # Šárka 12.8.2026: certifikát JEN za desetiletá výročí (10, 20, 30…), ne za 5/15.
+        if not (0 <= (occ - today).days <= 30 and yrs >= 10 and yrs % 10 == 0):
             continue
         jm = jm.strip()
         if yrs == 10:
@@ -13291,8 +13292,8 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
         def _cz(d):
             return "%d. %s" % (d.day, _MES[d.month]) if d else ""
 
-        # Certifikát po 5, 10, 15, 20 letech (Šárka 23.7.2026) → major = certifikát.
-        WORK_MAJOR = {5, 10, 15, 20}; WORK_MINOR = {25, 30, 35, 40}
+        # Certifikát JEN za desetiletá výročí (Šárka 12.8.2026) → major = certifikát.
+        WORK_MAJOR = {10, 20, 30, 40}; WORK_MINOR = set()
         BDAY_MAJOR = {50, 60}; BDAY_MINOR = {30, 40, 70, 80}
         items = []
         for user_id, jmeno, birth, smlouva_od in rows:
@@ -13310,9 +13311,9 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
             # neukazovat jako osobní pracovní výročí (20 let firmy jde zvlášť jako výročí firmy).
             if occ2 is not None and user_id != 1 and 0 <= (occ2 - today).days <= days:
                 yrs = occ2.year - smlouva_od.year
-                # Šárka 23.7.2026: jen kulatá výročí (násobek 5) — ostatní nezajímavá.
-                # Certifikát po 5 letech donekonečna → každý násobek 5 = major.
-                if yrs >= 5 and yrs % 5 == 0:
+                # Šárka 12.8.2026: certifikát jen za desetiletá výročí (10, 20, 30…) —
+                # 5 a 15 let se už nepřipomínají jako výročí s certifikátem.
+                if yrs >= 10 and yrs % 10 == 0:
                     popis = "%d let ve firmě" % yrs
                     if yrs == 10:
                         popis += " · odměna: +1 den dovolené 🏖️"

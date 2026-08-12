@@ -45,6 +45,10 @@
       // Novinky hned pod nimi (viditelné); Úkoly jsou samostatný uzel (dlaždice „Úkoly").
       '  <div class="hrp-blocks hrp-cols3">' +
       '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Kdo je dnes ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
+      '      <div id="hrpVeFirmeList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
+      '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
       '      <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
@@ -125,6 +129,20 @@
         VEFIRME.lide = d.lide || []; VEFIRME.ho = d.ho || 0;
         var b = document.getElementById('hrpBadgeVeFirme');
         if (b) b.textContent = VEFIRME.lide.length;
+        var cnt = document.getElementById('hrpVeFirmeCnt');
+        if (cnt) cnt.textContent = VEFIRME.lide.length ? ('· ' + VEFIRME.lide.length) : '';
+        var list = document.getElementById('hrpVeFirmeList');
+        if (list) {
+          var hoNote = (VEFIRME.ho ? '<div style="padding:7px 4px 2px;color:#8fb4d8;font-size:11px">🏠 + ' + VEFIRME.ho + ' na home office</div>' : '');
+          if (!VEFIRME.lide.length) { list.innerHTML = (hoNote || '<div class="hrp-empty">Dnes není nikdo v práci.</div>'); }
+          else {
+            list.innerHTML = VEFIRME.lide.map(function (p) {
+              return '<div class="hrp-mrow"><span class="hrp-mic" style="background:#12301f;color:#5ee0b7">●</span>' +
+                '<div style="min-width:0"><div class="hrp-mnm">' + esc(p.jmeno) + '</div>' +
+                (p.pozice ? '<div class="hrp-mdv">' + esc(p.pozice) + '</div>' : '') + '</div></div>';
+            }).join('') + hoNote;
+          }
+        }
       })
       .catch(function () {});
   }
@@ -514,7 +532,7 @@
       '.hrp-cols3{grid-template-columns:repeat(3,minmax(0,1fr));}' +
       '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;}' +
       '@media(max-width:900px){.hrp-blocks{grid-template-columns:repeat(2,minmax(0,1fr));}}' +
-      '#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:184px;overflow:auto;}' +
+      '#hrpVeFirmeList,#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:184px;overflow:auto;}' +
       '#hrpUkoly{max-height:60vh;overflow:auto;}' +
       '.hrp-duo{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}' +
       '@media(max-width:800px){.hrp-duo{grid-template-columns:1fr;}}' +

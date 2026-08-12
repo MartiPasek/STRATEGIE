@@ -71,6 +71,7 @@
       '  </div>' +
       '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Novinky <a href="#" id="hrpNovNew" style="margin-left:12px;font-size:12px;color:#7fb2e8;text-decoration:none;font-weight:600">➕ Přidat</a></div>' +
+      '    <div style="font-size:11.5px;color:#8fa6c4;margin:-4px 0 9px;line-height:1.5;">ℹ️ Informace pro zaměstnance — zobrazí se jim v mobilní aplikaci. Položky označené „🔒 Jen HR" zůstávají interní a do mobilu se neposílají.</div>' +
       '    <div id="hrpNovForm"></div>' +
       '    <div id="hrpNovList"><div class="hrp-empty">Načítám…</div></div>' +
       '  </div>' +

@@ -1028,9 +1028,8 @@ async function orgLoadPodriz(uid){
     h+='<div style="color:#cdd6e2;font-size:13px;padding:2px 0">👥 <span style="color:#7f8ea0">Podřízení ('+pod.length+'):</span> '+
       pod.slice(0,12).map(x=>'<b>'+esc(x.jmeno)+'</b>').join(', ')+(pod.length>12?(' <span style="color:#5d6b7c">+'+(pod.length-12)+' dalších</span>'):'')+'</div>';
   }
-  h+='<div style="padding:4px 0;display:flex;gap:16px;align-items:center;flex-wrap:wrap">'+
-    '<a href="#" onclick="togglePosty();return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏷️ Zobraz posty zaměstnance ('+aktivnich+' aktivních'+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length+' celkem'):'')+') ›</a>'+
-    '<a href="#" onclick="setView(\'organigram\');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏢 Zobrazit celý organigram ›</a></div>'+
+  h+='<div style="padding:4px 0">'+
+    '<a href="#" onclick="togglePosty();return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏷️ Zobraz posty zaměstnance ('+aktivnich+' aktivních'+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length+' celkem'):'')+') ›</a></div>'+
     '<div id="puPostyTbl" style="display:none;margin-top:4px"></div>';
   box.innerHTML=h;
 }

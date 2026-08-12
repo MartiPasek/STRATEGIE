@@ -414,10 +414,11 @@
     }
     var za = (j.za_dni === 0) ? "dnes" : (j.za_dni === 1 ? "zítra" : ("za " + j.za_dni + " dní"));
     var st = j.stav || "pending";
+    var chip = _stavChip(st);
+    if (!chip && j.kind === "narozeniny" && st === "pending") chip = '<span class="hrp-chip" style="background:#12233a;color:#7fb2e8">📤 pošle se automaticky</span>';
     var act = "";
     if (j.kind === "narozeniny") {
       act += '<button class="hrp-abtn" data-a="preview" data-i="' + idx + '">Náhled</button>';
-      if (st !== "sent") act += '<button class="hrp-abtn prim" data-a="send" data-i="' + idx + '">✉ Odeslat</button>';
       if (st === "pending") act += '<button class="hrp-abtn" data-a="skip" data-i="' + idx + '">Přeskočit</button>';
       else act += '<button class="hrp-abtn ghost" data-a="reset" data-i="' + idx + '" title="Vrátit">↺</button>';
     } else {
@@ -427,7 +428,7 @@
     }
     return '<div class="hrp-jrow hrp-j-' + esc(j.tier || "normal") + '">' +
       '<span class="hrp-jic">' + esc(j.ikona || "•") + '</span>' +
-      '<div class="hrp-jbd"><div class="hrp-jnm">' + esc(j.jmeno) + badge + ' ' + _stavChip(st) + '</div>' +
+      '<div class="hrp-jbd"><div class="hrp-jnm">' + esc(j.jmeno) + badge + ' ' + chip + '</div>' +
       '<div class="hrp-jsub">' + esc(j.popis) + ' · ' + esc(j.datum_cz) + ' · ' + za + '</div></div>' +
       '<div class="hrp-jact">' + act + '</div></div>';
   }

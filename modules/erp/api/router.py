@@ -12183,6 +12183,16 @@ def _hr_mesicni_resume(s):
         "                TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''))), d.nazev, COALESCE(d.kategorie,'') "
         "FROM tenant.employee_document d LEFT JOIN public.users u ON u.id=d.user_id "
         "WHERE d.tenant_id=2 AND d.uploaded_at::date BETWEEN :first AND :today ORDER BY d.uploaded_at"), p).fetchall()
+    # Změny osobních údajů z aplikace/karty (Šárka 12.8.2026) — kdo, které pole, odkud (bez hodnot kvůli citlivosti)
+    _FLBL = {f[0]: f[1] for f in _SELF_FIELDS}
+    udaje = s.execute(_t(
+        "SELECT DISTINCT ON (l.user_id, l.field_name) "
+        "  COALESCE((SELECT ae.full_name FROM tenant.att_employee ae WHERE ae.user_id=l.user_id AND ae.tenant_id=2 AND ae.full_name IS NOT NULL LIMIT 1), "
+        "           TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''))) jm, "
+        "  l.field_name, l.change_source, to_char(l.changed_at,'DD.MM.') dat "
+        "FROM tenant.user_self_data_log l LEFT JOIN public.users u ON u.id=l.user_id "
+        "WHERE l.tenant_id=2 AND l.changed_at::date BETWEEN :first AND :today "
+        "ORDER BY l.user_id, l.field_name, l.changed_at DESC"), p).fetchall()
 
     def _last(note):
         ls = [x for x in (note or "").splitlines() if x.strip()]
@@ -12199,6 +12209,9 @@ def _hr_mesicni_resume(s):
         sekce("Výstupy", [esc(r[0]) + " — " + esc(r[1]) + ", konec " + esc(r[2]) for r in vystupy]),
         sekce("Změny poměru a podmínek", [esc(r[0]) + " (" + esc(r[1]) + ") — " + esc(_last(r[2])) for r in zmeny]),
         sekce("Nové dokumenty v kartě", [esc(r[0]) + " — " + esc(r[1]) + (" [" + esc(r[2]) + "]" if r[2] else "") for r in dokumenty]),
+        sekce("Změny osobních údajů (z aplikace)", [
+            esc(r[0]) + " — " + esc(_FLBL.get(r[1], r[1])) + " (" +
+            ("zaměstnanec" if r[2] == "self" else "HR") + ", " + esc(r[3]) + ")" for r in udaje]),
     ]
     telo = "".join(x for x in parts if x) or "<p>Žádné personální změny za tento měsíc k dnešnímu dni.</p>"
     nadpis = "Personální změny za %s %d — přehled k %d. %s %d" % (

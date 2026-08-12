@@ -609,10 +609,18 @@ async function loadPostyLide(){
   const body=document.getElementById('postybody'); if(!body) return;
   if(POSTY_LIDE){ postyFilter(); return; }
   body.innerHTML='<tr><td colspan="8" class="empty">Načítám…</td></tr>';
-  let d; try{ d=await j(API+'/app/hr/posty-lide'); }catch(e){ body.innerHTML='<tr><td colspan="8" class="empty">✗ síť</td></tr>'; return; }
-  if(!d.ok){ body.innerHTML='<tr><td colspan="8" class="empty">🔒 '+esc(d.error||'chyba')+'</td></tr>'; return; }
+  const err=(m)=>{ body.innerHTML='<tr><td colspan="8" class="empty" style="color:#ff8a7a">'+esc(m)+'</td></tr>'; };
+  let r;
+  try{
+    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),15000);
+    r=await fetch(API+'/app/hr/posty-lide',{credentials:'same-origin',signal:ctrl.signal});
+    clearTimeout(to);
+  }catch(e){ err('✗ Spojení se nepodařilo ('+(e&&e.name||'chyba')+'). Zkus Ctrl+Shift+R.'); return; }
+  if(!r.ok){ err('✗ Server vrátil '+r.status+' '+r.statusText); return; }
+  let d; try{ d=await r.json(); }catch(e){ err('✗ Odpověď není JSON (možná stará verze). Ctrl+Shift+R.'); return; }
+  if(!d.ok){ err('🔒 '+(d.error||'chyba')); return; }
   POSTY_LIDE=d.radky||[];
-  postyFilter();
+  try{ postyFilter(); }catch(e){ err('✗ Chyba vykreslení: '+(e&&e.message||e)); }
 }
 function postyFilter(){
   const body=document.getElementById('postybody'), cnt=document.getElementById('postycnt');

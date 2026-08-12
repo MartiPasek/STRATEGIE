@@ -21044,10 +21044,19 @@ async def app_payslip(req: Request) -> JSONResponse:
         if err:
             s.commit()
             return JSONResponse(err)
+        # Peťa 12.8.2026: mobil ukazuje jen měsíce OSTŘE STARŠÍ než aktuální.
+        # Mzda za měsíc M se zpracovává a vyplácí až v M+1, takže páska za právě
+        # běžící měsíc lidem patřit nemá. Pojistka po incidentu 11.8.2026, kdy
+        # omylem vygenerované srpnové mzdy v Heliosu doputovaly syncem do zrcadla
+        # a osm lidí uvidělo v mobilu neexistující výplatu.
+        from datetime import date as _d_ps
+        _dn_ps = _d_ps.today()
+        _cur_ps = _dn_ps.year * 100 + _dn_ps.month
         periods = s.execute(_t(
             "SELECT DISTINCT rok, mesic FROM tenant.payslip_item "
             "WHERE tenant_id = 2 AND employee_id = ANY(:e) "
-            "ORDER BY rok DESC, mesic DESC LIMIT 24"), {"e": emps}).fetchall()
+            "  AND (rok * 100 + mesic) < :cur "
+            "ORDER BY rok DESC, mesic DESC LIMIT 24"), {"e": emps, "cur": _cur_ps}).fetchall()
         if not periods:
             s.commit()
             return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Zatím žádné pásky."})
@@ -21057,6 +21066,10 @@ async def app_payslip(req: Request) -> JSONResponse:
         except Exception:
             y = m = 0
         if not (y and m):
+            y, m = int(periods[0][0]), int(periods[0][1])
+        # Stejná hranice i pro ručně zadané období (y/m z adresy), ať se běžící
+        # měsíc nedá vytáhnout obejitím seznamu období.
+        if (int(y) * 100 + int(m)) >= _cur_ps:
             y, m = int(periods[0][0]), int(periods[0][1])
         rows = s.execute(_t(
             "SELECT c.code, COALESCE(c.nazev, c.code), p.cislo_ms, "
@@ -24736,8 +24749,12 @@ async def app_marti_message(req: Request) -> JSONResponse:
 
 
 # ── Dotaz nadřízenému (Marti 7.6. večer — „jednoduše, padá na můj mobil") ──
-# v1: všechny dotazy jdou Martimu (user 1). Později: org v2 resolve_role.
-_ASK_BOSS_UID = 1
+# v1 (7.6.–12.8.2026): všechny dotazy chodily Martimu (_ASK_BOSS_UID = 1).
+# v2 (Peťa 12.8.2026): příjemce se určuje podle působnosti stejně jako u žádostí
+# o opravu docházky (att_fix_editors_for_emp) — výroba × kancelář. Důvod: lidé
+# tlačítkem psali o opravy docházky a padalo to Martimu, který to neřeší.
+# Logika žije v g2007.python kod=att_ask_boss; tady zůstal jen tenký delegát.
+# _ASK_BOSS_UID se už nepoužívá (fallback je uvnitř skriptu = Jirka, user 20).
 
 
 def _user_jmeno(s, uid: int) -> str:
@@ -24749,36 +24766,21 @@ def _user_jmeno(s, uid: int) -> str:
 
 @api_router.post("/app/ask-boss")
 async def app_ask_boss(req: Request) -> JSONResponse:
+    """Dotaz nadřízenému z appky — logika v g2007.python kod=att_ask_boss.
+
+    Migrováno 12.8.2026 (Peťa): dotazy už nechodí natvrdo Martimu (_ASK_BOSS_UID=1),
+    ale editorům docházky dle působnosti (výroba × kancelář), stejným klíčem jako
+    žádosti o opravu. Důvod: lidé tímhle tlačítkem psali o opravy docházky.
+    """
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
         body = {}
-    q = str((body or {}).get("question") or "").strip()[:1000]
-    if not q:
-        return JSONResponse({"ok": False, "error": "Napiš prosím dotaz."})
-    cm, s = _att_session()
-    try:
-        rid = s.execute(_t(
-            "INSERT INTO tenant.staff_question (tenant_id, from_user_id, to_user_id, question) "
-            "VALUES (:t, :f, :b, :q) RETURNING id"),
-            {"t": _ATT_TENANT, "f": uid, "b": _ASK_BOSS_UID, "q": q}).scalar()
-        jm = _user_jmeno(s, uid)
-        s.execute(_t(
-            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-            "VALUES ('mobile', :b, 'claude_msg', :ti, :msg, NULL)"),
-            {"b": _ASK_BOSS_UID, "ti": "🙋 Dotaz od " + jm,
-             "msg": (q[:500] + " — odpověz v Docházce.")})
-        s.commit()
-        return JSONResponse({"ok": True, "id": rid})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_ask_boss", uid, (body or {}).get("question"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/ask-boss/pending")

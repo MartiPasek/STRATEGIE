@@ -51,6 +51,7 @@ POJISTKY
 from __future__ import annotations
 
 import datetime as _dt
+import math as _math
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -324,7 +325,10 @@ async def dochazka_abs_najdi_mezeru(req: Request) -> JSONResponse:
         return _chyba("Vyber pracovníka a datum.")
     if hod <= 0:
         return _chyba("Nejdřív vyplň počet hodin.")
-    potreba = int(round(hod * 60))
+    # ZAOKROUHLUJEME NAHORU (Peťa 12.8.2026: „raději než na míň udělej na 1,05,
+    # protože se to doplňuje do fondu — a tak jsme to dělali i v Centrále").
+    # 1,04 h = 62,4 min → 63 min → zpátky 1,05 h. Nikdy ne míň, než co Peťa zadala.
+    potreba = int(_math.ceil(hod * 60 - 0.0001))
     cm = _pg.get_session()
     s = cm.__enter__()
     try:

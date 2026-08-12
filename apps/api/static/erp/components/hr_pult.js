@@ -293,9 +293,10 @@
         cur = p.skupina;
         out += '<div style="font-size:10.5px;font-weight:700;color:#8fa6c4;text-transform:uppercase;letter-spacing:.03em;padding:8px 4px 2px">' + esc(cur) + '</div>';
       }
+      var obd = p.obdobi ? ' <span style="color:#8fa6c4">· ' + esc(p.obdobi) + '</span>' : '';
       out += '<div class="hrp-mrow"><span class="hrp-mic">' + esc(p.ikona || "•") +
         '</span><div><div class="hrp-mnm">' + esc(p.jmeno) + '</div><div class="hrp-mdv">' +
-        esc(p.duvod) + '</div></div></div>';
+        esc(p.duvod) + obd + '</div></div></div>';
     });
     return out;
   }

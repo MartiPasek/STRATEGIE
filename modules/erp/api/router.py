@@ -12882,6 +12882,46 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
             if ho:
                 return (5, "Home office")
             return (7, "Ostatní")
+        # Šárka 12.8.2026: u absencí dopočítat OBDOBÍ (od–do) — souvislý blok
+        # plánovaných absencí obsahující dnešek (víkend přemostěn: mezera ≤ 3 dny).
+        import datetime as _dtm
+        from collections import defaultdict as _dd
+        uids_abs = [r[0] for r in rows if r[1]]
+        obdobi = {}
+        if uids_abs:
+            prows = s.execute(_t(
+                "SELECT user_id, datum, COALESCE(druh_nazev,'') FROM tenant.att_planned_absence "
+                "WHERE tenant_id=2 AND user_id = ANY(:us) "
+                "  AND datum BETWEEN current_date - 60 AND current_date + 180 "
+                "ORDER BY user_id, datum"), {"us": uids_abs}).fetchall()
+            byu = _dd(list)
+            for u, dd, dr in prows:
+                byu[u].append((dd, dr))
+            today = _dtm.date.today()
+            for u, items in byu.items():
+                dnes = [dr for dd, dr in items if dd == today]
+                druh = dnes[0] if dnes else (items[0][1] if items else "")
+                dates = sorted(dd for dd, dr in items if dr == druh)
+                if today not in dates:
+                    continue
+                si = dates.index(today)
+                i = si
+                while i > 0 and (dates[i] - dates[i - 1]).days <= 3:
+                    i -= 1
+                j = si
+                while j < len(dates) - 1 and (dates[j + 1] - dates[j]).days <= 3:
+                    j += 1
+                obdobi[u] = (dates[i], dates[j])
+
+        def _fmt_obd(rng):
+            a, b = rng
+            if a == b:
+                return "%d. %d. %d" % (a.day, a.month, a.year)
+            if a.year == b.year and a.month == b.month:
+                return "%d.–%d. %d. %d" % (a.day, b.day, b.month, b.year)
+            if a.year == b.year:
+                return "%d. %d. – %d. %d. %d" % (a.day, a.month, b.day, b.month, b.year)
+            return "%d. %d. %d – %d. %d. %d" % (a.day, a.month, a.year, b.day, b.month, b.year)
         lide = []
         for user_id, abs_code, abs_label, ho, jmeno in rows:
             duv = []
@@ -12895,6 +12935,7 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
                 "user_id": user_id,
                 "jmeno": nm,
                 "duvod": " + ".join(duv) if duv else "—",
+                "obdobi": _fmt_obd(obdobi[user_id]) if user_id in obdobi else "",
                 "ikona": _ic(abs_code, ho),
                 "poradi": g[0],
                 "skupina": g[1],

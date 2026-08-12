@@ -1015,18 +1015,44 @@ function renderPU(edit){
   det.innerHTML=h;
   orgLoadPodriz(uid);
 }
+let PU_POSTY=[];
 async function orgLoadPodriz(uid){
   const box=document.getElementById('puPodriz'); if(!box) return;
   let d; try{ d=await j(API+'/app/hr/organigram/osoba?uid='+uid); }catch(e){ return; }
   if(!d||!d.ok) return;
+  PU_POSTY=d.posty||[];
   const pod=d.podrizeni||[];
+  const aktivnich=PU_POSTY.filter(p=>p.aktivni).length;
   let h='';
   if(pod.length){
     h+='<div style="color:#cdd6e2;font-size:13px;padding:2px 0">👥 <span style="color:#7f8ea0">Podřízení ('+pod.length+'):</span> '+
       pod.slice(0,12).map(x=>'<b>'+esc(x.jmeno)+'</b>').join(', ')+(pod.length>12?(' <span style="color:#5d6b7c">+'+(pod.length-12)+' dalších</span>'):'')+'</div>';
   }
-  h+='<div style="padding:2px 0"><a href="#" onclick="setView(\'organigram\');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏢 Zobrazit celý organigram ›</a></div>';
+  h+='<div style="padding:4px 0;display:flex;gap:16px;align-items:center;flex-wrap:wrap">'+
+    '<a href="#" onclick="togglePosty();return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏷️ Zobraz posty zaměstnance ('+aktivnich+' aktivních'+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length+' celkem'):'')+') ›</a>'+
+    '<a href="#" onclick="setView(\'organigram\');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏢 Zobrazit celý organigram ›</a></div>'+
+    '<div id="puPostyTbl" style="display:none;margin-top:4px"></div>';
   box.innerHTML=h;
+}
+function togglePosty(){
+  const el=document.getElementById('puPostyTbl'); if(!el) return;
+  if(el.style.display!=='none'){ el.style.display='none'; return; }
+  el.style.display='';
+  if(el.dataset.done){ return; }
+  el.dataset.done='1';
+  const rows=PU_POSTY.map(p=>{
+    const akt=p.aktivni?'<span style="color:#7fe0a0">✔</span>':'<span style="color:#5d6b7c">✗</span>';
+    const nm=esc(p.nazev)+(p.zastupce?' <span style="color:#E0A94A;font-size:10px">(zástupce)</span>':'')+(p.kvalifikace?' <span style="color:#7fb2e8;font-size:10px">(kvalifikace)</span>':'');
+    return '<tr style="border-top:1px solid #1e2730;'+(p.aktivni?'':'opacity:.55')+'">'+
+      '<td style="padding:4px 8px;text-align:center">'+akt+'</td>'+
+      '<td style="padding:4px 8px;color:#e8eef5;white-space:nowrap">'+nm+'</td>'+
+      '<td style="padding:4px 8px;color:#cdd6e2">'+esc(p.produkt||'')+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+esc(''+(p.divize||''))+'</td>'+
+      '<td style="padding:4px 8px;color:#cdd6e2;white-space:nowrap">'+(p.platnost_do?esc(p.platnost_do):'')+'</td></tr>';
+  }).join('');
+  el.innerHTML='<div style="border:1px solid #1e2730;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<thead><tr style="background:#161c24;color:#7f8ea0"><th style="padding:5px 8px;text-align:center">Akt.</th><th style="padding:5px 8px;text-align:left">Název postu</th><th style="padding:5px 8px;text-align:left">Produkt (kompetence)</th><th style="padding:5px 8px;text-align:center">Divize</th><th style="padding:5px 8px;text-align:left">Platnost do</th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="5" style="padding:8px;color:#5d6b7c">Žádné posty.</td></tr>')+'</tbody></table></div>';
 }
 async function pracUdajeSave(){
   const byE={};

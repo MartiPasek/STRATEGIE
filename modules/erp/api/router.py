@@ -11502,14 +11502,23 @@ async def app_hr_organigram_osoba(req: Request):
     try:
         if not (_hr_can_manage(s, uid) or uid == tuid or _je_vedouci_daneho(s, uid, tuid)):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        # posty člověka (aktivní přiřazení)
+        # posty člověka — jako v Centrále „Zobraz posty zaměstnance": název, produkt
+        # (kompetence), divize, platnost do, příznak aktivní/zástupce/kvalifikace.
         mine = s.execute(_t(
-            "SELECT DISTINCT p.id, p.nazev, p.parent_post_id FROM tenant.org_post_assign a "
+            "SELECT DISTINCT p.id, p.nazev, p.parent_post_id, p.produkt, p.divize, "
+            "  a.platnost_do, COALESCE(a.aktivni,true), COALESCE(a.zastupce_role,0), "
+            "  COALESCE(p.je_kvalifikace,false) "
+            "FROM tenant.org_post_assign a "
             "JOIN tenant.att_employee ae ON ae.id=a.employee_id AND ae.tenant_id=2 "
             "JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
-            "WHERE a.tenant_id=2 AND COALESCE(a.aktivni,true)=true AND ae.user_id=:u"),
+            "WHERE a.tenant_id=2 AND ae.user_id=:u "
+            "ORDER BY COALESCE(a.aktivni,true) DESC, p.divize NULLS LAST, p.nazev"),
             {"u": tuid}).fetchall()
-        posty = [{"id": int(r[0]), "nazev": (r[1] or ""), "parent": (int(r[2]) if r[2] else None)} for r in mine]
+        posty = [{"id": int(r[0]), "nazev": (r[1] or ""), "parent": (int(r[2]) if r[2] else None),
+                  "produkt": (r[3] or ""), "divize": (r[4] if r[4] is not None else ""),
+                  "platnost_do": (r[5].isoformat() if r[5] else ""),
+                  "aktivni": bool(r[6]), "zastupce": bool(r[7]), "kvalifikace": bool(r[8])}
+                 for r in mine]
 
         def _holders(post_ids):
             if not post_ids:

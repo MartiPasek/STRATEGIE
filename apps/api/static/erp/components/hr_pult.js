@@ -430,6 +430,8 @@
       act += '<button class="hrp-abtn" data-a="preview" data-i="' + idx + '">Náhled</button>';
       if (st === "pending") act += '<button class="hrp-abtn" data-a="skip" data-i="' + idx + '">Přeskočit</button>';
       else act += '<button class="hrp-abtn ghost" data-a="reset" data-i="' + idx + '" title="Vrátit">↺</button>';
+    } else if (j.certifikat === false) {
+      act += '<span class="hrp-soon" style="opacity:.65">jen informace</span>';
     } else {
       act += '<span class="hrp-soon">certifikát brzy</span>';
       if (st === "pending") act += '<button class="hrp-abtn" data-a="skip" data-i="' + idx + '">Přeskočit</button>';
@@ -597,6 +599,9 @@
       '.hrp-j-major10 .hrp-jic{background:#1f5b33;}' +
       '.hrp-j-major10 .hrp-jnm{font-size:15px;}' +
       '.hrp-j-major10 .hrp-jbadge{background:#2e9e57;color:#eafff0;}' +
+      '.hrp-j-info{background:#16202b;border:1px solid #24303d;padding:11px 12px;}' +
+      '.hrp-j-info .hrp-jic{background:#1f2a37;}' +
+      '.hrp-j-info .hrp-jbadge{background:#24303d;color:#9fb3cc;}' +
       '.hrp-j-minor{background:#16202b;border:1px solid #24303d;padding:11px 12px;}' +
       '.hrp-j-minor .hrp-jic{background:#1f2a37;}' +
       '.hrp-j-minor .hrp-jbadge{background:#1f2a37;color:#aac8ec;}' +

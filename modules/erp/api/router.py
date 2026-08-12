@@ -13311,16 +13311,21 @@ async def app_hr_gratulace(req: Request) -> JSONResponse:
             # neukazovat jako osobní pracovní výročí (20 let firmy jde zvlášť jako výročí firmy).
             if occ2 is not None and user_id != 1 and 0 <= (occ2 - today).days <= days:
                 yrs = occ2.year - smlouva_od.year
-                # Šárka 12.8.2026: certifikát jen za desetiletá výročí (10, 20, 30…) —
-                # 5 a 15 let se už nepřipomínají jako výročí s certifikátem.
-                if yrs >= 10 and yrs % 10 == 0:
+                # Šárka 12.8.2026: kulatá výročí (násobek 5) ukázat jako INFORMACI, ale
+                # CERTIFIKÁT jen za desetiletá (10, 20, 30…). 5 a 15 = jen připomínka.
+                if yrs >= 5 and yrs % 5 == 0:
+                    cert = (yrs % 10 == 0)
                     popis = "%d let ve firmě" % yrs
                     if yrs == 10:
                         popis += " · odměna: +1 den dovolené 🏖️"
+                    elif not cert:
+                        popis += " · bez certifikátu"
                     items.append({"user_id": user_id, "jmeno": jm, "kind": "vyroci",
-                                  "ikona": "🏆", "datum": occ2.isoformat(), "datum_cz": _cz(occ2),
-                                  "za_dni": (occ2 - today).days, "roky": yrs,
-                                  "tier": ("major10" if yrs == 10 else "major"), "popis": popis})
+                                  "ikona": ("🏆" if cert else "🎗️"),
+                                  "datum": occ2.isoformat(), "datum_cz": _cz(occ2),
+                                  "za_dni": (occ2 - today).days, "roky": yrs, "certifikat": cert,
+                                  "tier": ("major10" if yrs == 10 else ("major" if cert else "info")),
+                                  "popis": popis})
         st = {}
         try:
             for r in s.execute(_t("SELECT typ, user_id, event_date, stav, rozhodnuto_at, poznamka"

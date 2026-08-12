@@ -84,7 +84,6 @@
     renderTiles(el.querySelector("#hrpGrid"));
     loadMimoPanel(el);
     loadJubilea(el);
-    loadNovi(el);
     loadNovinky(el);
 
     fetch(EP, { credentials: "include" })
@@ -108,6 +107,7 @@
         var _vf = bEl.querySelector('[data-act="vefirme"]');
         if (_vf) { _vf.onclick = openVeFirme; }
         loadVeFirme(el);
+        loadNovi(el);   // až po vykreslení odznaků — jinak KPI Onboarding/Nové nástupy přepíše badge render (race)
         renderVyberka(el, d.vyberka || {});
         if (aEl) {
           var akt = d.aktuality || [];

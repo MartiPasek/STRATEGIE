@@ -8352,6 +8352,13 @@ _SELF_FIELDS = [
     ("memory_note",    "Moje poznámky",     "pamet",   "textarea", False, True),
 ]
 
+# Číselník zdravotních pojišťoven ČR (Šárka 12.8.2026) — výběr ze seznamu místo volného
+# textu, ať se formát „Název (kód)" nerozjede. Ověřeno 8/2026: 7 aktivních VZP.
+_POJISTOVNY = [
+    "VZP (111)", "VoZP (201)", "ČPZP (205)", "OZP (207)",
+    "ZPŠ (209)", "ZPMV ČR (211)", "RBP (213)",
+]
+
 
 def _self_person_name(s, uid: int) -> str:
     from sqlalchemy import text as _t
@@ -8432,7 +8439,8 @@ async def app_self_data_get(req: Request) -> JSONResponse:
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
             items = [{"key": f[0], "label": f[1], "type": f[3],
-                      "sensitive": f[4], "value": vals.get(f[0], "")}
+                      "sensitive": f[4], "value": vals.get(f[0], ""),
+                      "options": (_POJISTOVNY if f[0] == "health_insurance" else None)}
                      for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
@@ -9037,7 +9045,8 @@ async def app_ambassador_marti_card(req: Request) -> JSONResponse:
         secs = []
         for skey, slabel, swhy in _SELF_SECTIONS:
             items = [{"key": f[0], "label": f[1], "type": f[3],
-                      "sensitive": f[4], "value": vals.get(f[0], "")}
+                      "sensitive": f[4], "value": vals.get(f[0], ""),
+                      "options": (_POJISTOVNY if f[0] == "health_insurance" else None)}
                      for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
@@ -19818,7 +19827,8 @@ async def app_hr_person(req: Request) -> JSONResponse:
             if skey == "pamet":
                 continue
             items = [{"key": f[0], "label": f[1], "type": f[3], "sensitive": f[4],
-                      "value": vals.get(f[0], ""), "prov": prov.get(f[0])} for f in _SELF_FIELDS
+                      "value": vals.get(f[0], ""), "prov": prov.get(f[0]),
+                      "options": (_POJISTOVNY if f[0] == "health_insurance" else None)} for f in _SELF_FIELDS
                      if f[2] == skey and f[0] not in skryte]
             if items:
                 secs.append({"key": skey, "label": slabel, "items": items})

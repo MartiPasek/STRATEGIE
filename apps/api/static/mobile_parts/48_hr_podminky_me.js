@@ -181,6 +181,14 @@
           fld.innerHTML='<label style="display:block;font-size:13px;color:#9fb2d4;margin-bottom:3px;">'+esc(it.label)+(it.sensitive?' 🔒':'')+'</label>';
           var _sty='width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;';
           var inp, isDate=(it.type==="date");
+          if(it.options && it.options.length){
+            inp=el('<select style="'+_sty+'"></select>');
+            var _cur=(it.value||""), _h='<option value="">— vyberte —</option>';
+            if(_cur && it.options.indexOf(_cur)<0) _h+='<option value="'+esc(_cur)+'">'+esc(_cur)+' (stávající)</option>';
+            it.options.forEach(function(x){ _h+='<option value="'+esc(x)+'">'+esc(x)+'</option>'; });
+            inp.innerHTML=_h; inp.value=_cur;
+            inputs[it.key]=inp; fld.appendChild(inp); card.appendChild(fld); return;
+          }
           if(it.type==="textarea"){ inp=el('<textarea rows="5" style="'+_sty+'resize:vertical;"></textarea>'); }
           else { inp=el('<input type="'+(it.type==="email"?"email":(it.type==="tel"?"tel":"text"))+'" style="'+_sty+'">'); if(isDate){ inp.placeholder="DD.MM.RRRR"; inp.inputMode="numeric"; } }
           inp.value = isDate ? _czDate(it.value) : (it.value||"");

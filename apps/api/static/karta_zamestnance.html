@@ -751,6 +751,14 @@ function _zuProv(pr){
   const full=(pr.src==='self'?'Opraveno zaměstnancem':('Opraveno HR'+(pr.by?(' – '+pr.by):'')))+(pr.at?(' · '+pr.at):'');
   return '<span title="'+esc(full)+'" style="color:'+col+';font-size:10px;white-space:nowrap">· '+esc(who)+(pr.at?(' '+pr.at):'')+'</span>';
 }
+function zuOptSelect(key, opts, val){
+  // Číselníkový výběr (např. zdravotní pojišťovna) — stávající nestandardní hodnotu nabídne taky.
+  const cur=(val||''); const inList=opts.indexOf(cur)>=0;
+  let o='<option value=""'+(cur===''?' selected':'')+'>— vyberte —</option>';
+  if(cur && !inList) o+='<option value="'+esc(cur)+'" selected>'+esc(cur)+' (stávající)</option>';
+  o+=opts.map(x=>'<option'+(x===cur?' selected':'')+'>'+esc(x)+'</option>').join('');
+  return '<select data-k="'+esc(key)+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'+o+'</select>';
+}
 function renderZU(edit){
   const d=ZU_DATA, uid=ZU_UID, det=document.getElementById('det');
   const p=LIDE.find(x=>x.user_id===uid)||{};
@@ -776,6 +784,7 @@ function renderZU(edit){
         if(it.key==='marital_status') val=maritalSelect(it.value, d.zena);
         else if(it.key==='gender') val=genderSelect(it.value);
         else if(it.key==='education') val=eduSelect(it.value);
+        else if(it.options && it.options.length) val=zuOptSelect(it.key, it.options, it.value);
         else if(it.type==='textarea') val='<textarea data-k="'+esc(it.key)+'" rows="2" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit;resize:vertical">'+esc(it.value||'')+'</textarea>';
         else { const t=it.type==='date'?'date':'text'; val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'; }
       } else {

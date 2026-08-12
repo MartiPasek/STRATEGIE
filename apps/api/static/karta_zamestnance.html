@@ -322,6 +322,16 @@
     </div>
   </div>
 </div>
+<div class="wrapfull" id="tabulecard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">📋 Organizační tabule</b>
+      <span style="color:var(--muted);font-size:11.5px;margin-left:10px">ISO 9001 · dokument systému řízení kvality</span>
+      <input id="tabsrch" oninput="tabuleFilter()" placeholder="🔎 Zvýraznit jméno / post…" style="margin-left:auto;min-width:220px">
+    </div>
+    <div id="tabuleboard" style="padding:10px 12px 16px;overflow:auto"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -371,9 +381,11 @@ function setView(v){
   const ukc=document.getElementById('ukolycard'); if(ukc) ukc.style.display=(v==='ukoly')?'':'none';
   const ogc=document.getElementById('organigramcard'); if(ogc) ogc.style.display=(v==='organigram')?'':'none';
   const psc=document.getElementById('postycard'); if(psc) psc.style.display=(v==='posty')?'':'none';
+  const tbc=document.getElementById('tabulecard'); if(tbc) tbc.style.display=(v==='tabule')?'':'none';
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
   if(v==='posty'){ loadPostyLide(); return; }
+  if(v==='tabule'){ loadTabule(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -521,7 +533,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty' || v==='tabule'){ setView(v); }
 }catch(e){} })();
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
@@ -603,6 +615,66 @@ function orgFilter(){
     const lide=(p.lide||[]).map(x=>esc(x.jmeno)).join(', ')||'neobsazeno';
     return '<div style="padding:6px 2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px"><b>'+esc(p.nazev)+'</b> <span style="color:#9fb3cc">— '+lide+'</span></div>';
   }).join('');
+}
+let TABULE=null;
+const DIV_COLOR={0:'#5b6b7d',8:'#2a6fb0',1:'#c9b400',2:'#d85fa0',3:'#c94ec4',4:'#3aa84a',5:'#79bd3f',6:'#9fca57',7:'#e08a2a'};
+const DIV_ORDER=[8,1,2,3,4,5,6,7];
+async function loadTabule(){
+  const box=document.getElementById('tabuleboard'); if(!box) return;
+  if(TABULE){ tabuleRender(); return; }
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let r; try{ r=await fetch(API+'/app/hr/tabule',{credentials:'same-origin'}); }catch(e){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ Spojení se nepodařilo. Ctrl+Shift+R.</div>'; return; }
+  if(!r.ok){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ Server '+r.status+'</div>'; return; }
+  let d; try{ d=await r.json(); }catch(e){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ Odpověď není JSON. Ctrl+Shift+R.</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
+  TABULE=d;
+  tabuleRender();
+}
+function _isDivHdr(n){ return /^DIVIZE\s/i.test(n||''); }
+function tabuleRender(){
+  const box=document.getElementById('tabuleboard');
+  const posty=(TABULE&&TABULE.posty)||[];
+  const byDiv={};
+  posty.forEach(p=>{ (byDiv[p.divize]=byDiv[p.divize]||[]).push(p); });
+  const find=(re)=>posty.find(p=>re.test(p.nazev||''));
+  const majitel=find(/^MAJITEL/i), reditel=find(/^VÝKONNÝ ŘEDITEL/i);
+  const postBox=(p)=>{
+    const lide=(p.lide||[]).length?('<div style="color:#0f141a;font-weight:700;font-size:11px;margin-top:1px">'+p.lide.map(esc).join(', ')+'</div>'):'<div style="color:#33404d;font-size:10.5px;margin-top:1px;font-style:italic">neobsazeno</div>';
+    const prod=p.produkt?('<div style="color:#22303c;font-size:9.5px;line-height:1.25;margin-top:2px">'+esc(p.produkt)+'</div>'):'';
+    return '<div class="tabpost" data-txt="'+esc(((p.nazev||'')+' '+(p.lide||[]).join(' ')).toLowerCase())+'" style="background:rgba(255,255,255,.82);border-radius:4px;padding:4px 6px;margin:4px 0">'+
+      '<div style="color:#0b1119;font-weight:800;font-size:11px">'+esc(p.nazev)+'</div>'+lide+prod+'</div>';
+  };
+  const topBand=(p,label)=>{
+    if(!p) return '';
+    return '<div style="background:'+(label==='MAJITELÉ'?'#3a4657':'#c0392b')+';color:#fff;border-radius:6px;padding:6px 12px;min-width:220px;text-align:center">'+
+      '<div style="font-weight:800;font-size:12px;letter-spacing:.02em">'+label+'</div>'+
+      '<div style="font-size:12px;margin-top:2px">'+esc((p.lide||[]).join(', ')||p.nazev)+'</div></div>';
+  };
+  let cols='';
+  DIV_ORDER.forEach(dn=>{
+    const arr=(byDiv[dn]||[]);
+    if(!arr.length) return;
+    const hdr=arr.find(p=>_isDivHdr(p.nazev));
+    const body=arr.filter(p=>!_isDivHdr(p.nazev) && !/^MAJITEL|^VÝKONNÝ ŘEDITEL|^VALNÁ HROMADA/i.test(p.nazev||''));
+    const col=DIV_COLOR[dn]||'#5b6b7d';
+    cols+='<div style="flex:0 0 210px;border:2px solid '+col+';border-radius:8px;overflow:hidden;background:'+col+'22">'+
+      '<div style="background:'+col+';color:#0b1119;font-weight:800;font-size:11.5px;padding:6px 8px;text-align:center;line-height:1.2">'+esc(hdr?hdr.nazev:('DIVIZE '+dn))+'</div>'+
+      '<div style="padding:6px 6px 8px">'+body.map(postBox).join('')+'</div></div>';
+  });
+  box.innerHTML=
+    '<div style="display:flex;gap:16px;justify-content:center;margin-bottom:12px;flex-wrap:wrap">'+topBand(majitel,'MAJITELÉ')+topBand(reditel,'VÝKONNÝ ŘEDITEL')+'</div>'+
+    '<div style="display:flex;gap:10px;align-items:flex-start;min-width:max-content">'+cols+'</div>'+
+    '<div style="margin-top:12px;background:#b03a2e;color:#fff;border-radius:6px;padding:8px 14px;font-weight:700;font-size:12px;text-align:center">PRODUKT FIRMY: '+esc((TABULE&&TABULE.firma_produkt)||'')+'</div>';
+  tabuleFilter();
+}
+function tabuleFilter(){
+  const q=((document.getElementById('tabsrch')||{}).value||'').trim().toLowerCase();
+  document.querySelectorAll('#tabuleboard .tabpost').forEach(el=>{
+    if(!q){ el.style.outline='none'; el.style.opacity='1'; return; }
+    const hit=(el.getAttribute('data-txt')||'').includes(q);
+    el.style.outline=hit?'2px solid #ffd34e':'none';
+    el.style.opacity=hit?'1':'.35';
+  });
 }
 let POSTY_LIDE=null;
 async function loadPostyLide(){

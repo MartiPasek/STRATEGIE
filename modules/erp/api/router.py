@@ -11605,6 +11605,60 @@ async def app_hr_posty_lide(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/tabule")
+async def app_hr_tabule(req: Request):
+    """Organizační tabule (Šárka 12.8.2026): vizuál jako tištěná verze v hale — posty
+    seskupené po divizích + jejich držitelé a „produkt" (kompetence). ISO 9001 dokument.
+    Jen ke ČTENÍ (data z org_post). HR-gated."""
+    from sqlalchemy import text as _t
+    from collections import defaultdict as _dd
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        posts = s.execute(_t(
+            "SELECT id, nazev, parent_post_id, COALESCE(divize,0), COALESCE(poradi,''), "
+            "  COALESCE(produkt,'') FROM tenant.org_post "
+            "WHERE tenant_id=2 AND COALESCE(aktivni,true)=true ORDER BY COALESCE(divize,0), poradi")).fetchall()
+        holders = s.execute(_t(
+            "SELECT a.post_id, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "    NULLIF(TRIM(COALESCE(ae.full_name,'')),'')) jmeno "
+            "FROM tenant.org_post_assign a "
+            "JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 AND COALESCE(p.aktivni,true)=true "
+            "LEFT JOIN tenant.att_employee ae ON ae.id=a.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN public.users u ON u.id=ae.user_id "
+            "WHERE a.tenant_id=2 AND COALESCE(a.aktivni,true)=true AND COALESCE(a.zastupce_role,0)=0 "
+            "ORDER BY jmeno")).fetchall()
+        hmap = _dd(list); seen = _dd(set)
+        for pid, jm in holders:
+            pid = int(pid)
+            if not jm:
+                continue
+            if jm in seen[pid]:
+                continue
+            seen[pid].add(jm)
+            hmap[pid].append(jm)
+        out = [{"id": int(r[0]), "nazev": (r[1] or ""), "parent": (int(r[2]) if r[2] else None),
+                "divize": int(r[3]), "poradi": (r[4] or ""), "produkt": (r[5] or ""),
+                "lide": hmap.get(int(r[0]), [])} for r in posts]
+        return JSONResponse({"ok": True, "posty": out,
+                             "firma_produkt": ("VČAS A PŘESNĚ PODLE POŽADAVKŮ ZÁKAZNÍKA REALIZOVANÉ "
+                                               "KOMPLEXNÍ A BĚŽNÉ ZAKÁZKY, U KTERÝCH BYL DOSAŽEN "
+                                               "PLÁNOVANÝ PROFIT.")})
+    except Exception as exc:
+        logger.exception("[hr_tabule] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
     """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""

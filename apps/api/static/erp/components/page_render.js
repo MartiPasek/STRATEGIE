@@ -140,6 +140,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Organizační tabule (Šárka 12.8.2026): jádro hr.tabule = vizuál org. struktury
+      // po divizích jako tištěná verze v hale. ISO 9001. Jen ke čtení.
+      if (String(coreCode) === 'hr.tabule') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=tabule" title="Organizační tabule" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
       // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
       if (String(coreCode) === 'hr.sablony') {

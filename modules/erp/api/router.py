@@ -12865,6 +12865,21 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
             if abs_code:
                 return "📋"
             return "🏠"
+        def _grp(abs_code, ho):
+            c = (abs_code or "").lower()
+            if "dovol" in c or "vacation" in c:
+                return (1, "Dovolená")
+            if "nemoc" in c or "sick" in c:
+                return (2, "Nemoc")
+            if "lekar" in c or "lékař" in c or "doctor" in c:
+                return (3, "Lékař")
+            if "ocr" in c or "osetr" in c or "ošetr" in c:
+                return (4, "OČR")
+            if abs_code:
+                return (6, "Ostatní absence")
+            if ho:
+                return (5, "Home office")
+            return (7, "Ostatní")
         lide = []
         for user_id, abs_code, abs_label, ho, jmeno in rows:
             duv = []
@@ -12873,12 +12888,16 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
             if ho:
                 duv.append("Home office")
             nm = (jmeno or "").strip() or ("ID " + str(user_id))
+            g = _grp(abs_code, ho)
             lide.append({
                 "user_id": user_id,
                 "jmeno": nm,
                 "duvod": " + ".join(duv) if duv else "—",
                 "ikona": _ic(abs_code, ho),
+                "poradi": g[0],
+                "skupina": g[1],
             })
+        lide.sort(key=lambda x: (x["poradi"], x["jmeno"]))
         return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

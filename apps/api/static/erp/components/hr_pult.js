@@ -284,11 +284,17 @@
 
   // Řádky seznamu Mimo kancelář (sdílené panel + modal).
   function mimoRowsHtml(lide) {
-    return lide.map(function (p) {
-      return '<div class="hrp-mrow"><span class="hrp-mic">' + esc(p.ikona || "•") +
+    var out = "", cur = null;
+    (lide || []).forEach(function (p) {
+      if (p.skupina && p.skupina !== cur) {
+        cur = p.skupina;
+        out += '<div style="font-size:10.5px;font-weight:700;color:#8fa6c4;text-transform:uppercase;letter-spacing:.03em;padding:8px 4px 2px">' + esc(cur) + '</div>';
+      }
+      out += '<div class="hrp-mrow"><span class="hrp-mic">' + esc(p.ikona || "•") +
         '</span><div><div class="hrp-mnm">' + esc(p.jmeno) + '</div><div class="hrp-mdv">' +
         esc(p.duvod) + '</div></div></div>';
-    }).join("");
+    });
+    return out;
   }
 
   // Viditelný panel „Mimo kancelář dnes" přímo v přehledu (Šárka 3.7.2026 — přehled
@@ -498,11 +504,7 @@
         if (!d.lide || !d.lide.length) {
           body.innerHTML = '<div class="hrp-empty">Dnes jsou všichni v kanceláři. 🎉</div>'; return;
         }
-        body.innerHTML = d.lide.map(function (p) {
-          return '<div class="hrp-mrow"><span class="hrp-mic">' + esc(p.ikona || "•") +
-            '</span><div><div class="hrp-mnm">' + esc(p.jmeno) + '</div><div class="hrp-mdv">' +
-            esc(p.duvod) + '</div></div></div>';
-        }).join("");
+        body.innerHTML = mimoRowsHtml(d.lide);
       })
       .catch(function () { body.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }

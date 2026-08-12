@@ -205,13 +205,40 @@
           if(!nj||!nj.ok||!nj.polozky||!nj.polozky.length){ nb.style.display="none"; return; }
           var h='<div style="display:flex;align-items:center;gap:6px;margin:2px 0 8px;"><span style="font-size:18px;">📣</span><span style="font-size:16px;font-weight:700;">Novinky</span></div>';
           nj.polozky.forEach(function(a){
-            h+='<div style="display:flex;gap:10px;background:#0f1830;border:1px solid '+(a.dulezite?"#3a5a2a":"#22304f")+';border-radius:12px;padding:10px 12px;margin-bottom:8px;">'+
-              '<span style="font-size:18px;">'+(a.dulezite?"⭐":"📌")+'</span>'+
-              '<div style="min-width:0;"><div style="font-size:14px;font-weight:600;color:#e8eefc;">'+esc(a.nadpis)+'</div>'+
+            var ev=a.datum_akce?('<div style="font-size:11.5px;color:#8fb4d8;margin-top:3px;">📅 '+esc(a.datum_akce)+(a.cas?(' '+esc(a.cas)):'')+(a.misto?(' · '+esc(a.misto)):'')+'</div>'):'';
+            var rsvp='';
+            if(a.rsvp){
+              var ya=(a.moje==='ano'), na=(a.moje==='ne');
+              rsvp='<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">'+
+                '<button data-rsvp="'+a.id+'" data-odp="ano" style="padding:7px 12px;border-radius:8px;border:1px solid '+(ya?"#2a7a4a":"#2b3a5c")+';background:'+(ya?"#1c5236":"#122238")+';color:'+(ya?"#8ff0c0":"#cfe")+';font-size:13px;">✅ Přijdu</button>'+
+                '<button data-rsvp="'+a.id+'" data-odp="ne" style="padding:7px 12px;border-radius:8px;border:1px solid '+(na?"#7a3a2a":"#2b3a5c")+';background:'+(na?"#52241c":"#122238")+';color:'+(na?"#f0b0a0":"#cfe")+';font-size:13px;">❌ Nepřijdu</button>'+
+                '<span class="rsvpSt" style="font-size:11.5px;color:#9fb2d4;"></span>'+
+                (a.datum_akce?('<a href="/api/v1/erp/app/novinka-ics?id='+a.id+'" style="margin-left:auto;font-size:12px;color:#8fb4d8;text-decoration:none;">📆 Do kalendáře</a>'):'')+
+                '</div>';
+            } else if(a.datum_akce){
+              rsvp='<div style="margin-top:6px;"><a href="/api/v1/erp/app/novinka-ics?id='+a.id+'" style="font-size:12px;color:#8fb4d8;text-decoration:none;">📆 Přidat do kalendáře</a></div>';
+            }
+            h+='<div style="background:#0f1830;border:1px solid '+(a.dulezite?"#3a5a2a":"#22304f")+';border-radius:12px;padding:10px 12px;margin-bottom:8px;">'+
+              '<div style="display:flex;gap:10px;"><span style="font-size:18px;">'+(a.dulezite?"⭐":"📌")+'</span>'+
+              '<div style="min-width:0;flex:1;"><div style="font-size:14px;font-weight:600;color:#e8eefc;">'+esc(a.nadpis)+'</div>'+
               (a.text?'<div style="font-size:12.5px;color:#9fb2d4;line-height:1.5;margin-top:2px;">'+esc(a.text)+'</div>':'')+
-              '<div style="font-size:11px;color:#5b7196;margin-top:2px;">'+esc(a.od)+'</div></div></div>';
+              ev+
+              '<div style="font-size:11px;color:#5b7196;margin-top:2px;">'+esc(a.od)+'</div></div></div>'+
+              rsvp+'</div>';
           });
           nb.innerHTML=h;
+          nb.querySelectorAll('[data-rsvp]').forEach(function(btn){
+            btn.addEventListener('click',function(){
+              var id=+btn.getAttribute('data-rsvp'), odp=btn.getAttribute('data-odp');
+              var st=btn.parentNode.querySelector('.rsvpSt'); if(st){ st.style.color='#9fb2d4'; st.textContent='Ukládám…'; }
+              fetch('/api/v1/erp/app/novinka-rsvp',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,odpoved:odp})})
+                .then(function(r){return r.json();}).then(function(r){
+                  if(r&&r.ok){ if(st){ st.style.color='#5ee0b7'; st.textContent=(odp==='ano'?'Přijdeš ✓':'Nepřijdeš'); }
+                    btn.parentNode.querySelectorAll('[data-rsvp]').forEach(function(b){ var sel=(b.getAttribute('data-odp')===odp); var yes=(b.getAttribute('data-odp')==='ano'); b.style.background=sel?(yes?"#1c5236":"#52241c"):"#122238"; b.style.borderColor=sel?(yes?"#2a7a4a":"#7a3a2a"):"#2b3a5c"; b.style.color=sel?(yes?"#8ff0c0":"#f0b0a0"):"#cfe"; });
+                  } else if(st){ st.style.color='#f88'; st.textContent='Chyba'; }
+                }).catch(function(){ if(st){ st.style.color='#f88'; st.textContent='Chyba sítě'; } });
+            });
+          });
         }).catch(function(){ nb.style.display="none"; });
       })();
       (j.sections||[]).forEach(function(sec,i){

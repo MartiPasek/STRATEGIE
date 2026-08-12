@@ -143,6 +143,12 @@
         '<label style="font-size:12px;color:#8fa6c4">do <input id="nvDo" type="date" value="' + esc(it.do || '') + '" style="' + inp + '"></label>' +
         '<label style="font-size:12px;color:#8fa6c4"><input id="nvDul" type="checkbox"' + (it.dulezite ? ' checked' : '') + '> důležité</label>' +
       '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">' +
+        '<label style="font-size:12px;color:#8fa6c4">Datum akce <input id="nvDatum" type="date" value="' + esc(it.datum_akce || '') + '" style="' + inp + '"></label>' +
+        '<label style="font-size:12px;color:#8fa6c4">Čas <input id="nvCas" placeholder="18:00" value="' + esc(it.cas || '') + '" size="6" style="' + inp + '"></label>' +
+        '<label style="font-size:12px;color:#8fa6c4">Místo <input id="nvMisto" placeholder="Hotel Panorama" value="' + esc(it.misto || '') + '" style="' + inp + '"></label>' +
+        '<label style="font-size:12px;color:#8fa6c4"><input id="nvRsvp" type="checkbox"' + (it.rsvp ? ' checked' : '') + '> potvrzovat účast</label>' +
+      '</div>' +
       '<div style="display:flex;gap:10px;align-items:center">' +
         '<button id="nvSave" style="border:1px solid #2a5a3a;background:#26603a;color:#e8ffe8;border-radius:7px;padding:7px 13px;font:inherit;font-weight:700;cursor:pointer">Uložit</button>' +
         '<a href="#" id="nvCancel" style="color:#8a97a8;text-decoration:none">Zrušit</a>' +
@@ -164,7 +170,11 @@
           pro: formBox.querySelector('#nvPro').value,
           od: formBox.querySelector('#nvOd').value,
           do: formBox.querySelector('#nvDo').value,
-          dulezite: formBox.querySelector('#nvDul').checked };
+          dulezite: formBox.querySelector('#nvDul').checked,
+          datum_akce: formBox.querySelector('#nvDatum').value,
+          cas: formBox.querySelector('#nvCas').value.trim(),
+          misto: formBox.querySelector('#nvMisto').value.trim(),
+          rsvp: formBox.querySelector('#nvRsvp').checked };
         if (!body.nadpis) { msg.style.color = '#e0a94a'; msg.textContent = 'Zadej nadpis.'; return; }
         msg.style.color = '#8fa6c4'; msg.textContent = 'Ukládám…';
         fetch('/api/v1/erp/app/hr/novinka-save', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -187,6 +197,7 @@
                 '<div style="color:#e8eef5;font-weight:600">' + (a.dulezite ? '⭐ ' : '') + esc(a.nadpis) + ' ' + novBadge(a.pro) + '</div>' +
                 (a.text ? '<div style="color:#aab6c4;font-size:12.5px;margin-top:2px">' + esc(a.text) + '</div>' : '') +
                 '<div style="color:#6b7c8d;font-size:11px;margin-top:2px">' + esc(a.od) + (a.do ? (' – ' + esc(a.do)) : '') + ' · ' + novStav(a) + '</div>' +
+                (a.rsvp ? '<div style="font-size:11px;color:#8fa6c4;margin-top:3px">📅 ' + esc(a.datum_akce || '') + (a.cas ? (' ' + esc(a.cas)) : '') + (a.misto ? (' · ' + esc(a.misto)) : '') + ' &nbsp; ✅ Přijde ' + a.prijde + ' · ❌ ' + a.neprijde + ' <a href="#" data-rsvp="' + a.id + '" style="color:#7fb2e8;text-decoration:none">kdo</a></div>' : '') +
               '</div>' +
               '<div style="display:flex;gap:8px;white-space:nowrap">' +
                 '<a href="#" data-ed="' + a.id + '" style="color:#7fb2e8;text-decoration:none;font-size:12px">Upravit</a>' +
@@ -195,6 +206,7 @@
           }).join('');
           list.querySelectorAll('[data-ed]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); var id = +a.getAttribute('data-ed'); var f = it.filter(function (x) { return x.id === id; })[0]; openForm(f); }; });
           list.querySelectorAll('[data-del]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); if (!confirm('Smazat novinku?')) return; fetch('/api/v1/erp/app/hr/novinka-delete', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: +a.getAttribute('data-del') }) }).then(function (r) { return r.json(); }).then(function () { render(); }); }; });
+          list.querySelectorAll('[data-rsvp]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); var wrap = a.parentNode.parentNode; var ex = wrap.querySelector('.rsvpKdo'); if (ex) { ex.remove(); return; } fetch('/api/v1/erp/app/hr/novinka-rsvp?id=' + (+a.getAttribute('data-rsvp')), { credentials: 'include' }).then(function (r) { return r.json(); }).then(function (d) { var box = document.createElement('div'); box.className = 'rsvpKdo'; box.style.cssText = 'font-size:11px;color:#aab6c4;margin-top:3px;line-height:1.6'; if (d && d.ok && d.lide && d.lide.length) { box.innerHTML = d.lide.map(function (p) { return (p.odpoved === 'ano' ? '✅ ' : '❌ ') + esc(p.jmeno) + (p.pocet > 1 ? (' (' + p.pocet + ')') : ''); }).join('<br>'); } else { box.textContent = 'Zatím nikdo neodpověděl.'; } wrap.appendChild(box); }); }; });
         }).catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
     }
     render();

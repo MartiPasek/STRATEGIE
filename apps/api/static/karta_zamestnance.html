@@ -704,6 +704,18 @@ async function loadLeave(uid){
     '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+'</div>'+
     '<div style="display:flex;gap:8px">'+tile('h zbývá',(sk.zbytek_h==null?'—':sk.zbytek_h),(sk.zbytek_h==null?'#eaf2ff':(sk.zbytek_h<=0?'#ff8a7a':'#7fe0a0')))+tile('h využito',sk.cerpano_h)+'</div>'+
     '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(sk.narok_h)+' h</div></div>');
+  // Docházka tento měsíc k dnešku (odpracováno vs. fond) — Šárka 12.8.2026
+  let dm=null; try{ dm=await j(API+'/app/dochazka/moje-mesic?uid='+uid); }catch(e){}
+  if(dm&&dm.ok&&dm.has){
+    const chyb=dm.chybi;
+    const acc=(chyb==null?'#eaf2ff':(chyb>0?'#ff8a7a':'#7fe0a0'));
+    const lbl=(chyb!=null&&chyb<0)?'h přesčas':'h zbývá';
+    const val=(chyb==null?'—':Math.abs(chyb));
+    cols.push('<div style="flex:1 1 280px;min-width:250px">'+
+      '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">📊 Docházka '+esc(dm.mesic||'')+' <span style="color:#5d6b7c;font-weight:400">(k dnešku)</span></div>'+
+      '<div style="display:flex;gap:8px">'+tile('h odpracováno',dm.odpracovano)+tile('h má být',dm.ma_byt_k_dnesku)+tile(lbl,val,acc)+'</div>'+
+      '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Fond '+num(dm.fond_den)+' h/den · '+num(dm.prac_dni_k_dnesku)+' prac. dní k dnešku</div></div>');
+  }
   if(!cols.length){ box.style.display='none'; return; }
   box.style.display='';
   const upoz='<div style="margin-top:9px;font-size:10.5px;color:#5d6b7c">Zdroj: docházka – živý přehled (Peťa), stejná data jako u vedoucích výroby. Dovolená ve dnech, sick days v hodinách.</div>';

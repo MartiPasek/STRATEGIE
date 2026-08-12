@@ -65,7 +65,7 @@
       '      <div class="hrp-phd"><span class="hrp-pi">🧲</span> Výběrová řízení <span class="hrp-cnt" id="hrpVrCnt"></span></div>' +
       '      <div id="hrpVrList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
-      '    <div class="hrp-panel">' +
+      '    <div class="hrp-panel hrp-feed">' +
       '      <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
       '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
@@ -81,7 +81,7 @@
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
       '    <div class="hrp-grid" id="hrpGrid"></div>' +
       '  </div>' +
-      '  <div class="hrp-panel">' +
+      '  <div class="hrp-panel hrp-feed">' +
       '    <div class="hrp-phd"><span class="hrp-pi">✅</span> Moje úkoly <span class="hrp-cnt" id="hrpUkolyCnt"></span></div>' +
       '    <div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>' +
       '  </div>' +
@@ -134,12 +134,13 @@
         if (!d || !d.ok) { list.innerHTML = '<div class="hrp-empty">' + esc((d && d.error) || 'chyba') + '</div>'; return; }
         var l = d.lide || [];
         if (cnt) cnt.textContent = l.length ? ('· ' + l.length) : '';
-        if (!l.length) { list.innerHTML = '<div class="hrp-empty">Dnes není nikdo v práci.</div>'; return; }
+        var hoNote = (d.ho ? '<div style="padding:7px 4px 2px;color:#8fb4d8;font-size:11px">🏠 + ' + d.ho + ' na home office</div>' : '');
+        if (!l.length) { list.innerHTML = (hoNote || '<div class="hrp-empty">Dnes není nikdo v práci.</div>'); return; }
         list.innerHTML = l.map(function (p) {
           return '<div class="hrp-mrow"><span class="hrp-mic" style="background:#12301f;color:#5ee0b7">●</span>' +
             '<div style="min-width:0"><div class="hrp-mnm">' + esc(p.jmeno) + '</div>' +
             (p.pozice ? '<div class="hrp-mdv">' + esc(p.pozice) + '</div>' : '') + '</div></div>';
-        }).join('');
+        }).join('') + hoNote;
       })
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
@@ -585,7 +586,8 @@
       '.hrp-tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:10.5px;font-weight:700;}' +
       '.hrp-tag.soon{background:#23262b;color:#7f8ea0;}' +
       '.hrp-tag.live{background:#16301f;color:#7fe0a0;}' +
-      '.hrp-feed .hrp-row{display:flex;gap:11px;padding:10px 6px;border-top:1px solid #1e2730;font-size:13.5px;align-items:center;}' +
+      '.hrp-feed .hrp-row{display:flex;gap:9px;padding:8px 4px;border-top:1px solid #1e2730;font-size:12.5px;align-items:center;}' +
+      '.hrp-feed .hrp-ic{flex:0 0 26px;height:26px;font-size:13px;}' +
       '.hrp-feed .hrp-row:first-of-type{border-top:0;}' +
       '.hrp-feed .hrp-row-mil{background:#241d0c;border:1px solid #4a3a16;border-radius:9px;padding:10px 10px;font-weight:600;color:#f0d68a;}' +
       '.hrp-feed .hrp-row-mil .hrp-ic{background:#4a3a16;}' +

@@ -378,19 +378,55 @@ async def dochazka_abs_najdi_mezeru(req: Request) -> JSONResponse:
                                      "popis": "mezera mezi píchnutími %02d:%02d–%02d:%02d"
                                               % (slouc[i][1] // 60, slouc[i][1] % 60,
                                                  slouc[i + 1][0] // 60, slouc[i + 1][0] % 60)})
-        # žádná díra uvnitř — nabídneme čas těsně PŘED prvním píchnutím
-        # (typické „byl jsem ráno u doktora a pak přišel do práce")
-        za = slouc[0][0] - potreba
+        # ── ŽÁDNÁ MEZERA: patří to na ráno, nebo na odpoledne? ───────────────
+        # Peťa 12.8.2026: „rozhodujeme se podle toho, jestli přišel dýl, nebo
+        # dřív odešel." Peřina 6. 8. odešel ve 13:24 — na jeho poměry brzy, takže
+        # lékař patří na odpoledne, ne na pátou ranní (to původní chování dávalo).
+        # „Zvyk" bereme z JEHO VLASTNÍ docházky (medián příchodu a odchodu za
+        # posledních 60 dnů), ať to nestojí na pevné směně, kterou tu nemáme.
+        prichod, odchod = slouc[0][0], slouc[-1][1]
+        hist = s.execute(_t(
+            "SELECT MIN(EXTRACT(EPOCH FROM (e.started_at - e.entry_date))/60), "
+            "       MAX(EXTRACT(EPOCH FROM (e.ended_at   - e.entry_date))/60) "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "WHERE e.tenant_id=:t AND e.employee_id=:e "
+            "  AND e.entry_date < :d AND e.entry_date >= :d - 60 "
+            "  AND et.category='presence' AND COALESCE(e.source,'')<>'automat' "
+            "  AND e.status IS DISTINCT FROM 'superseded' "
+            "  AND e.status IS DISTINCT FROM 'announced' "
+            "  AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
+            "GROUP BY e.entry_date"), {"t": _TEN, "e": int(emp), "d": den}).fetchall()
+        zac = sorted([int(r[0]) for r in hist if r[0] is not None])
+        kon = sorted([int(r[1]) for r in hist if r[1] is not None])
+        obv_zac = zac[len(zac) // 2] if zac else None
+        obv_kon = kon[len(kon) // 2] if kon else None
+        # o kolik se ten den liší od jeho zvyku (kladné = odchylka tím směrem)
+        pozde_rano = (prichod - obv_zac) if obv_zac is not None else 0
+        brzo_odpo = (obv_kon - odchod) if obv_kon is not None else 0
+        na_odpoledne = brzo_odpo > pozde_rano
+        if na_odpoledne:
+            do = odchod + potreba
+            if do <= 1439:
+                return JSONResponse({"ok": True,
+                                     "cas_od": "%02d:%02d" % (odchod // 60, odchod % 60),
+                                     "cas_do": "%02d:%02d" % (do // 60, do % 60),
+                                     "popis": ("odešel dřív než obvykle (jindy kolem %02d:%02d)"
+                                               " — dáno po odchodu"
+                                               % (obv_kon // 60, obv_kon % 60))
+                                              if obv_kon is not None else "po odchodu z práce"})
+        za = prichod - potreba
         if za >= 0:
             return JSONResponse({"ok": True,
                                  "cas_od": "%02d:%02d" % (za // 60, za % 60),
-                                 "cas_do": "%02d:%02d" % (slouc[0][0] // 60, slouc[0][0] % 60),
-                                 "popis": "před příchodem do práce"})
-        # ani před příchodem se to nevejde → za posledním odchodem
-        do = slouc[-1][1] + potreba
+                                 "cas_do": "%02d:%02d" % (prichod // 60, prichod % 60),
+                                 "popis": ("přišel později než obvykle (jindy kolem %02d:%02d)"
+                                           " — dáno před příchodem"
+                                           % (obv_zac // 60, obv_zac % 60))
+                                          if obv_zac is not None else "před příchodem do práce"})
+        do = odchod + potreba
         if do <= 1439:
             return JSONResponse({"ok": True,
-                                 "cas_od": "%02d:%02d" % (slouc[-1][1] // 60, slouc[-1][1] % 60),
+                                 "cas_od": "%02d:%02d" % (odchod // 60, odchod % 60),
                                  "cas_do": "%02d:%02d" % (do // 60, do % 60),
                                  "popis": "po odchodu z práce"})
         return _chyba("Do toho dne se %s h nevejde — člověk má napícháno skoro celý den. "

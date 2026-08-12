@@ -12332,7 +12332,7 @@ async def app_hr_novinky(req: Request) -> JSONResponse:
             " (SELECT COALESCE(SUM(o.pocet),0) FROM tenant.hr_novinka_odpoved o WHERE o.novinka_id=n.id AND o.odpoved='ano'), "
             " (SELECT count(*) FROM tenant.hr_novinka_odpoved o WHERE o.novinka_id=n.id AND o.odpoved='ne') "
             "FROM tenant.hr_novinka n WHERE n.tenant_id=2 "
-            "ORDER BY n.dulezite DESC, n.platnost_od DESC, n.id DESC")).fetchall()
+            "ORDER BY COALESCE(n.datum_akce, n.platnost_od), n.dulezite DESC, n.id")).fetchall()
         polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "pro": r[3], "dulezite": r[4],
                     "od": r[5], "do": (r[6] or ""), "aktivni": r[7], "bezi": r[8],
                     "datum_akce": (r[9] or ""), "cas": r[10], "misto": r[11], "rsvp": r[12],
@@ -12455,7 +12455,7 @@ async def app_novinky_me(req: Request) -> JSONResponse:
             " (SELECT o.odpoved FROM tenant.hr_novinka_odpoved o WHERE o.novinka_id=n.id AND o.user_id=:u) "
             "FROM tenant.hr_novinka n WHERE n.tenant_id=2 AND n.pro='zam' AND n.aktivni "
             " AND n.platnost_od<=current_date AND (n.platnost_do IS NULL OR n.platnost_do>=current_date) "
-            "ORDER BY n.dulezite DESC, n.platnost_od DESC, n.id DESC LIMIT 20"), {"u": uid}).fetchall()
+            "ORDER BY COALESCE(n.datum_akce, n.platnost_od), n.dulezite DESC, n.id LIMIT 20"), {"u": uid}).fetchall()
         polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "dulezite": r[3], "od": r[4],
                     "datum_akce": (r[5] or ""), "cas": r[6], "misto": r[7], "rsvp": r[8],
                     "moje": (r[9] or "")} for r in rows]

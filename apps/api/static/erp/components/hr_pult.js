@@ -41,7 +41,12 @@
       // 1) KPI statistiky (sloupce dle nadpisu s čísly)
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
       // 2) detailní sloupce pod dlaždicemi — 4 sloupce dle KPI (Šárka 23.7.2026)
-      '  <div class="hrp-blocks">' +
+      // Šárka 12.8.2026: kompaktní 2 řádky po 3 + „Kdo je dnes ve firmě"; Úkoly dolů jako sekce.
+      '  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px">' +
+      '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Kdo je dnes ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
+      '      <div id="hrpVeFirmeList" style="max-height:210px;overflow:auto"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
       '      <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
@@ -50,6 +55,8 @@
       '      <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span></div>' +
       '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
+      '  </div>' +
+      '  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px">' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🆕</span> Noví + budoucí <span class="hrp-cnt" id="hrpNoviCnt"></span></div>' +
       '      <div id="hrpNoviList"><div class="hrp-empty">Načítám…</div></div>' +
@@ -58,16 +65,9 @@
       '      <div class="hrp-phd"><span class="hrp-pi">🧲</span> Výběrová řízení <span class="hrp-cnt" id="hrpVrCnt"></span></div>' +
       '      <div id="hrpVrList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
-      '  </div>' +
-      // 3) Aktuality + Moje úkoly vedle sebe (Šárka 23.7.2026 — využít volné místo)
-      '  <div class="hrp-duo">' +
-      '    <div class="hrp-panel hrp-feed">' +
+      '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
       '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
-      '    </div>' +
-      '    <div class="hrp-panel hrp-feed">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">✅</span> Moje úkoly <span class="hrp-cnt" id="hrpUkolyCnt"></span></div>' +
-      '      <div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
       // 3b) Novinky (Šárka 12.8.2026 — píše HR, propíše se zaměstnancům do mobilu)
@@ -81,6 +81,10 @@
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
       '    <div class="hrp-grid" id="hrpGrid"></div>' +
       '  </div>' +
+      '  <div class="hrp-panel">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">✅</span> Moje úkoly <span class="hrp-cnt" id="hrpUkolyCnt"></span></div>' +
+      '    <div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>' +
+      '  </div>' +
       '</div>';
 
     renderTiles(el.querySelector("#hrpGrid"));
@@ -89,6 +93,7 @@
     loadNovi(el);
     loadUkoly(el);
     loadNovinky(el);
+    loadVeFirme(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -120,6 +125,26 @@
       });
   }
 
+  function loadVeFirme(root) {
+    var list = root.querySelector('#hrpVeFirmeList'), cnt = root.querySelector('#hrpVeFirmeCnt');
+    if (!list) return;
+    fetch('/api/v1/erp/app/hr/dnes-ve-firme', { credentials: 'include' })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) { list.innerHTML = '<div class="hrp-empty">' + esc((d && d.error) || 'chyba') + '</div>'; return; }
+        var l = d.lide || [];
+        if (cnt) cnt.textContent = l.length ? ('· ' + l.length) : '';
+        if (!l.length) { list.innerHTML = '<div class="hrp-empty">Dnes není nikdo v práci.</div>'; return; }
+        list.innerHTML = l.map(function (p) {
+          return '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-top:1px solid #1c2530">' +
+            '<span style="color:#5ee0b7;font-size:12px">●</span>' +
+            '<span style="color:#e8eef5;font-size:13px">' + esc(p.jmeno) + '</span>' +
+            (p.pozice ? '<span style="color:#6b7c8d;font-size:11px;margin-left:auto;white-space:nowrap">' + esc(p.pozice) + '</span>' : '') +
+            '</div>';
+        }).join('');
+      })
+      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+  }
   function novBadge(pro) {
     return pro === 'hr'
       ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#3a2a12;color:#e0a94a">🔒 Jen HR</span>'

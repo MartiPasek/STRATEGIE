@@ -12886,6 +12886,48 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/dnes-ve-firme")
+async def app_hr_dnes_ve_firme(req: Request) -> JSONResponse:
+    """Kdo je dnes v práci (Šárka 12.8.2026): aktivní HPP/DPČ zaměstnanci, kteří dnes
+    NEMAJÍ absenci ani home office. Opak panelu 'Mimo kancelář'. HR-gated."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "WITH mimo AS ("
+            "  SELECT DISTINCT e.user_id FROM tenant.att_entry en "
+            "   JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2 "
+            "   JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+            "   WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced') "
+            "     AND (t.category='absence' OR t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) "
+            "  UNION SELECT pa.user_id FROM tenant.att_planned_absence pa "
+            "   WHERE pa.tenant_id=2 AND pa.datum=current_date AND pa.druh_nazev ILIKE :hopat AND pa.user_id IS NOT NULL"
+            "), lidi AS ("
+            "  SELECT DISTINCT ae.user_id, "
+            "    COALESCE((SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')) FROM public.users u WHERE u.id=ae.user_id), ae.full_name) jmeno, "
+            "    (SELECT e.pozice_text FROM tenant.engagement e WHERE e.employee_id=ae.id AND e.tenant_id=2 AND e.is_current LIMIT 1) pozice "
+            "  FROM tenant.att_employee ae "
+            "  JOIN tenant.engagement e ON e.employee_id=ae.id AND e.tenant_id=2 AND e.is_current AND e.engagement_type IN ('hpp','dpc') "
+            "  WHERE ae.tenant_id=2 AND ae.is_active=true AND COALESCE(TRIM(ae.full_name),'')<>'' "
+            ") SELECT jmeno, COALESCE(pozice,'') FROM lidi WHERE user_id NOT IN (SELECT user_id FROM mimo) ORDER BY jmeno"),
+            {"hopat": "%home office%"}).fetchall()
+        lide = [{"jmeno": r[0], "pozice": r[1]} for r in rows]
+        return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
+    except Exception as exc:
+        logger.exception("[dnes_ve_firme] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/jubilea")
 async def app_hr_jubilea(req: Request) -> JSONResponse:
     """Krok 2 HR modul (Šárka 3.7.2026): nadcházející narozeniny + pracovní výročí

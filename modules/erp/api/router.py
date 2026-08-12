@@ -12140,28 +12140,30 @@ def _hr_auto_narozeniny(s):
         "    AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date)),"
         " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
         "   max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
-        " SELECT n.user_id, n.jmeno FROM nm n JOIN eng ON eng.user_id=n.user_id"
+        " SELECT n.user_id, n.jmeno, n.birth FROM nm n JOIN eng ON eng.user_id=n.user_id"
         " WHERE n.birth IS NOT NULL"
         "   AND extract(month from n.birth)=extract(month from current_date)"
         "   AND extract(day from n.birth)=extract(day from current_date)"
         "   AND NOT EXISTS (SELECT 1 FROM tenant.hr_gratulace g WHERE g.tenant_id=2 AND g.typ='narozeniny'"
         "     AND g.user_id=n.user_id AND g.event_date=:d AND g.stav IN ('sent','skipped'))"),
         {"d": ev}).fetchall()
-    for user_id, jmeno in rows:
+    for user_id, jmeno, birth in rows:
         jm = (jmeno or "").strip()
+        vek = (ev.year - birth.year) if (birth and getattr(ev, "year", None)) else 0
         try:
             em = _self_owner_email(s, user_id)
             if not em:
                 continue
             from modules.notifications.application.email_service import send_email_or_raise
             send_email_or_raise(to=em, subject="🎂 Všechno nejlepší k narozeninám!",
-                                body=_bday_html(jm), persona_id=1, from_identity="persona",
+                                body=_bday_html(jm, vek), persona_id=1, from_identity="persona",
                                 html_body=True, inline_images=[(_bday_banner_path(), "narozeniny_banner")])
             s.execute(_t(
                 "INSERT INTO tenant.hr_gratulace (tenant_id,typ,user_id,jmeno,event_date,roky,stav,kanal,rozhodl_uid,rozhodnuto_at,poznamka)"
                 " VALUES (2,'narozeniny',:u,:jm,:d,0,'sent','email',2,now(),'automaticky')"
                 " ON CONFLICT (tenant_id,typ,user_id,event_date) DO UPDATE SET stav='sent',kanal='email',rozhodnuto_at=now(),poznamka='automaticky'"),
                 {"u": user_id, "jm": jm[:200], "d": ev})
+            _archiv_prani_doc(s, user_id, jm, vek=vek)
             s.commit()
         except Exception:
             try:
@@ -13082,6 +13084,18 @@ _BDAY_TEXTS = [
      + _BDP % "Díky, že patříš do týmu EUROSOFT &mdash; jsme rádi, že Tě tu máme."
      + _BDG % "Krásné narozeniny! 🎉"),
 ]
+# Slavnostnější varianty pro KULATÉ narozeniny / životní jubileum (Šárka 12.8.2026).
+_BDAY_TEXTS_JUB = [
+    (_BDP % "srdečně blahopřejeme k Tvému životnímu jubileu! Je to krásný milník a přejeme Ti k němu jen to nejlepší."
+     + _BDP % "Do dalších let hlavně pevné zdraví, spokojenost a spoustu důvodů k úsměvu. Děkujeme, že jsi součástí EUROSOFTu &mdash; moc si Tě vážíme."
+     + _BDG % "Ať to jubileum pořádně oslavíš! 🥂🎉"),
+    (_BDP % "k Tvým kulatým narozeninám Ti přejeme všechno nejlepší &mdash; zdraví, štěstí a klid v duši."
+     + _BDP % "Do dalších let jen to dobré. Jsme rádi, že Tě máme v týmu EUROSOFT, a děkujeme za všechno, co děláš."
+     + _BDG % "Na Tvé zdraví a do dalších let! 🥂"),
+    (_BDP % "gratulujeme k významnému životnímu jubileu! Přejeme Ti hodně sil, radosti a splněných přání do dalších let."
+     + _BDP % "V týmu EUROSOFT jsi velká opora a vážíme si Tě. Ať Ti další roky přinesou jen samé hezké chvíle."
+     + _BDG % "Užij si svůj velký den naplno! 🎉🥂"),
+]
 
 
 def _is_fem(jmeno):
@@ -13128,7 +13142,7 @@ def _bday_banner_path():
     return str(_P(__file__).resolve().parents[3] / "apps" / "api" / "static" / "brand" / "narozeniny_banner.png")
 
 
-def _bday_html(jmeno):
+def _bday_html(jmeno, vek=None):
     # Do oslovení jen křestní jméno (Šárka 8.7.2026 — příjmení v oslovení nechce);
     # pohlaví Milá/Milý určujeme z CELÉHO jména (příjmení -ová).
     full = (jmeno or "").strip()
@@ -13139,8 +13153,42 @@ def _bday_html(jmeno):
     je = vok.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     import datetime as _dt
     rok = _dt.date.today().year
-    idx = (rok + sum(ord(c) for c in (krestni or "x"))) % len(_BDAY_TEXTS)
-    return _BDAY_HTML % {"osloveni": ("Milá" if fem else "Milý"), "jmeno": je, "telo": _BDAY_TEXTS[idx]}
+    try:
+        _v = int(vek or 0)
+    except Exception:
+        _v = 0
+    kulate = (_v >= 30 and _v % 10 == 0)   # kulaté narozeniny = slavnostnější přání
+    texty = _BDAY_TEXTS_JUB if kulate else _BDAY_TEXTS
+    idx = (rok + sum(ord(c) for c in (krestni or "x"))) % len(texty)
+    return _BDAY_HTML % {"osloveni": ("Milá" if fem else "Milý"), "jmeno": je, "telo": texty[idx]}
+
+
+def _archiv_prani_doc(s, user_id, jmeno, rok=None, vek=None):
+    """Uloží odeslané narozeninové přání jako samostatný dokument do karty
+    (kategorie 'gratulace', banner vložený jako data-URI). Neduplikuje pro daný rok.
+    Šárka 12.8.2026 — ať HR vidí, co se komu odeslalo, odděleně od smluv."""
+    from sqlalchemy import text as _t
+    import datetime as _dt, base64 as _b64
+    try:
+        rok = rok or _dt.date.today().year
+        nz = "Narozeniny " + str(rok) + " — přání"
+        if s.execute(_t("SELECT 1 FROM tenant.employee_document WHERE tenant_id=2 AND user_id=:u "
+                        "AND kategorie='gratulace' AND nazev=:nz AND COALESCE(is_active,true)=true"),
+                     {"u": user_id, "nz": nz}).first():
+            return
+        html = _bday_html(jmeno, vek)
+        try:
+            with open(_bday_banner_path(), "rb") as _f:
+                html = html.replace("cid:narozeniny_banner", "data:image/png;base64," + _b64.b64encode(_f.read()).decode("ascii"))
+        except Exception:
+            pass
+        data = html.encode("utf-8")
+        s.execute(_t(
+            "INSERT INTO tenant.employee_document (tenant_id, user_id, kategorie, nazev, mime, obsah, velikost, uploaded_by, is_active, stav) "
+            "VALUES (2, :u, 'gratulace', :nz, 'text/html', :ob, :vel, 2, true, 'active')"),
+            {"u": user_id, "nz": nz, "ob": data, "vel": len(data)})
+    except Exception as _e:
+        logger.warning("[archiv_prani] %s", _e)
 
 
 @api_router.get("/app/hr/gratulace")
@@ -13280,7 +13328,7 @@ async def app_hr_gratulace_rozhodni(req: Request) -> JSONResponse:
         if akce == "preview":
             if typ != "narozeniny":
                 return JSONResponse({"ok": True, "html": "<div style='padding:24px;font-family:sans-serif;color:#33404d'>Certifikát k pracovnímu výročí se připraví po dodání prázdných předloh od grafičky.</div>"})
-            return JSONResponse({"ok": True, "html": _bday_html(jmeno)})
+            return JSONResponse({"ok": True, "html": _bday_html(jmeno, vek=roky)})
         if akce == "skip":
             s.execute(_t(
                 "INSERT INTO tenant.hr_gratulace (tenant_id,typ,user_id,jmeno,event_date,roky,stav,rozhodl_uid,rozhodnuto_at,poznamka)"
@@ -13302,13 +13350,14 @@ async def app_hr_gratulace_rozhodni(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "no_email"}, status_code=400)
             from modules.notifications.application.email_service import send_email_or_raise
             send_email_or_raise(to=em, subject="🎂 Všechno nejlepší k narozeninám!",
-                                body=_bday_html(jmeno), persona_id=1, from_identity="persona",
+                                body=_bday_html(jmeno, vek=roky), persona_id=1, from_identity="persona",
                                 html_body=True, inline_images=[(_bday_banner_path(), "narozeniny_banner")])
             s.execute(_t(
                 "INSERT INTO tenant.hr_gratulace (tenant_id,typ,user_id,jmeno,event_date,roky,stav,kanal,rozhodl_uid,rozhodnuto_at,poznamka)"
                 " VALUES (2,:typ,:u,:jm,:d,:r,'sent','email',:by,now(),:pozn)"
                 " ON CONFLICT (tenant_id,typ,user_id,event_date) DO UPDATE SET stav='sent',kanal='email',rozhodl_uid=:by,rozhodnuto_at=now(),poznamka=:pozn"),
                 {"typ": typ, "u": target, "jm": jmeno[:200], "d": event_date, "r": roky, "by": uid, "pozn": poznamka})
+            _archiv_prani_doc(s, target, jmeno, vek=roky)
             s.commit()
             return JSONResponse({"ok": True, "stav": "sent", "to": em})
         return JSONResponse({"ok": False, "error": "bad_action"}, status_code=400)

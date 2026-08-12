@@ -1256,7 +1256,7 @@ function finUdaje(){
 }
 
 // Šárka 21.7.2026: Dokumenty = digitální šanon (nahrát/stáhnout/smazat, uloženo v DB mimo git).
-const DOK_KAT={smlouva:'Pracovní smlouvy',dodatek:'Dodatky',generovana:'Generovaná dokumentace',zapoctovy:'Zápočtové listy',posudek:'Lékařské posudky',diplom:'Diplomy / certifikáty',mzda:'Mzdové dokumenty',ostatni:'Ostatní'};
+const DOK_KAT={smlouva:'Pracovní smlouvy',dodatek:'Dodatky',generovana:'Generovaná dokumentace',zapoctovy:'Zápočtové listy',posudek:'Lékařské posudky',diplom:'Diplomy / certifikáty',mzda:'Mzdové dokumenty',gratulace:'Přání a gratulace',ostatni:'Ostatní'};
 function dokKatOpts(sel){return Object.keys(DOK_KAT).map(k=>'<option value="'+k+'"'+(k===sel?' selected':'')+'>'+esc(DOK_KAT[k])+'</option>').join('');}
 // Šárka 24.7.2026: stavy dokumentů (koncept / k podpisu / podepsaný / platný)
 const DOC_STAV={koncept:['Koncept','#2a2410','#E0A94A'],k_podpisu:['K podpisu','#12233b','#7fb2e8'],podepsany:['Podepsaný','#12261a','#7fe0a0'],platny:['Platný','#16301f','#7fe0a0']};

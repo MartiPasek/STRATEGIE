@@ -11437,6 +11437,123 @@ async def app_hr_odpovednost_list(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/organigram")
+async def app_hr_organigram(req: Request):
+    """Organizační schéma (Šárka 12.8.2026): stromová struktura postů (tenant.org_post,
+    hierarchie přes parent_post_id) + kdo který post zastává (org_post_assign).
+    Jen ke ČTENÍ — nic se do org struktury nezapisuje. HR-gated."""
+    from sqlalchemy import text as _t
+    from collections import defaultdict as _dd
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        posts = s.execute(_t(
+            "SELECT p.id, p.nazev, p.parent_post_id FROM tenant.org_post p "
+            "WHERE p.tenant_id=2 ORDER BY p.id")).fetchall()
+        holders = s.execute(_t(
+            "SELECT a.post_id, ae.user_id, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), ae.full_name) jmeno "
+            "FROM tenant.org_post_assign a "
+            "JOIN tenant.att_employee ae ON ae.id=a.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN public.users u ON u.id=ae.user_id "
+            "WHERE a.tenant_id=2 AND COALESCE(a.aktivni,true)=true "
+            "ORDER BY jmeno")).fetchall()
+        hmap = _dd(list); seen = _dd(set)
+        for pid, huid, jm in holders:
+            pid = int(pid); key = huid or jm
+            if key in seen[pid]:
+                continue
+            seen[pid].add(key)
+            hmap[pid].append({"user_id": (int(huid) if huid else None), "jmeno": jm})
+        out = [{"id": int(r[0]), "nazev": (r[1] or ""),
+                "parent": (int(r[2]) if r[2] else None),
+                "lide": hmap.get(int(r[0]), [])} for r in posts]
+        return JSONResponse({"ok": True, "posty": out, "pocet": len(out)})
+    except Exception as exc:
+        logger.exception("[hr_organigram] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/organigram/osoba")
+async def app_hr_organigram_osoba(req: Request):
+    """Zařazení konkrétního člověka v organizaci (Šárka 12.8.2026): jeho posty +
+    odvození nadřízený (držitelé nadřazených postů) / podřízení (držitelé podřízených
+    postů). Sám sebe z výčtu vypouští. Jen ke ČTENÍ. HR gate NEBO vedoucí daného."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    if not tuid:
+        return JSONResponse({"ok": False, "error": "chybí uid"})
+    cm, s = _att_session()
+    try:
+        if not (_hr_can_manage(s, uid) or uid == tuid or _je_vedouci_daneho(s, uid, tuid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # posty člověka (aktivní přiřazení)
+        mine = s.execute(_t(
+            "SELECT DISTINCT p.id, p.nazev, p.parent_post_id FROM tenant.org_post_assign a "
+            "JOIN tenant.att_employee ae ON ae.id=a.employee_id AND ae.tenant_id=2 "
+            "JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
+            "WHERE a.tenant_id=2 AND COALESCE(a.aktivni,true)=true AND ae.user_id=:u"),
+            {"u": tuid}).fetchall()
+        posty = [{"id": int(r[0]), "nazev": (r[1] or ""), "parent": (int(r[2]) if r[2] else None)} for r in mine]
+
+        def _holders(post_ids):
+            if not post_ids:
+                return []
+            rows = s.execute(_t(
+                "SELECT DISTINCT ae.user_id, "
+                " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), ae.full_name) jmeno "
+                "FROM tenant.org_post_assign a "
+                "JOIN tenant.att_employee ae ON ae.id=a.employee_id AND ae.tenant_id=2 "
+                "LEFT JOIN public.users u ON u.id=ae.user_id "
+                "WHERE a.tenant_id=2 AND COALESCE(a.aktivni,true)=true AND a.post_id = ANY(:p)"),
+                {"p": post_ids}).fetchall()
+            res = []
+            seen = set()
+            for huid, jm in rows:
+                if huid and int(huid) == tuid:
+                    continue
+                key = huid or jm
+                if key in seen:
+                    continue
+                seen.add(key)
+                res.append({"user_id": (int(huid) if huid else None), "jmeno": jm})
+            return sorted(res, key=lambda x: x["jmeno"])
+
+        parent_ids = [p["parent"] for p in posty if p["parent"]]
+        my_ids = [p["id"] for p in posty]
+        child_ids = [int(r[0]) for r in s.execute(_t(
+            "SELECT id FROM tenant.org_post WHERE tenant_id=2 AND parent_post_id = ANY(:p)"),
+            {"p": my_ids}).fetchall()] if my_ids else []
+        # nadřazené posty (názvy) pro kontext
+        nad_posty = [(r[1] or "") for r in s.execute(_t(
+            "SELECT id, nazev FROM tenant.org_post WHERE tenant_id=2 AND id = ANY(:p)"),
+            {"p": parent_ids}).fetchall()] if parent_ids else []
+        return JSONResponse({"ok": True, "posty": posty,
+                             "nadrazene_posty": nad_posty,
+                             "nadrizeni": _holders(parent_ids),
+                             "podrizeni": _holders(child_ids)})
+    except Exception as exc:
+        logger.exception("[hr_organigram_osoba] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
     """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""

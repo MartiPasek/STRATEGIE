@@ -290,6 +290,19 @@
     <div id="uklist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="organigramcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">🏢 Organigram</b>
+      <span id="orgcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <input id="orgsrch" oninput="orgFilter()" placeholder="🔎 Hledat jméno nebo post…" style="margin-left:12px;min-width:240px">
+      <button onclick="orgExpand(true)" style="margin-left:12px;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer">Rozbalit vše</button>
+      <button onclick="orgExpand(false)" style="margin-left:6px;border:1px solid #3a5a8a;background:#1b2a3d;color:#e8eef5;border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer">Sbalit</button>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Organizační schéma z kompetenční struktury firmy (posty a jejich držitelé). Jen ke čtení. Jeden člověk může mít víc postů a jeden post víc lidí.</div>
+    <div id="orgtree" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -337,7 +350,9 @@ function setView(v){
   const vo=document.getElementById('vbtnOdp'); if(vo) vo.classList.toggle('on',v==='odpovednost');
   const oc=document.getElementById('odpcard'); if(oc) oc.style.display=(v==='odpovednost')?'':'none';
   const ukc=document.getElementById('ukolycard'); if(ukc) ukc.style.display=(v==='ukoly')?'':'none';
+  const ogc=document.getElementById('organigramcard'); if(ogc) ogc.style.display=(v==='organigram')?'':'none';
   if(v==='ukoly'){ loadUkoly(); return; }
+  if(v==='organigram'){ loadOrganigram(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -485,7 +500,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram'){ setView(v); }
 }catch(e){} })();
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
@@ -517,6 +532,56 @@ async function ukolHotovo(id, cb){
     if(!d.ok){ cb.disabled=false; cb.checked=false; alert('Nepovedlo se: '+(d.error||'chyba')); return; }
     if(row){ row.style.transition='opacity .3s'; row.style.opacity='.35'; row.querySelector('span:nth-of-type(2) div').style.textDecoration='line-through'; setTimeout(function(){ row.remove(); const c=document.getElementById('ukcnt'); const n=document.querySelectorAll('#uklist .ukrow').length; if(c) c.textContent='('+n+')'; if(!n){ document.getElementById('uklist').innerHTML='<div class="empty">Žádné otevřené úkoly. 🎉</div>'; } }, 320); }
   }catch(e){ cb.disabled=false; cb.checked=false; alert('✗ síť'); }
+}
+let ORG_POSTY=null;
+async function loadOrganigram(){
+  const box=document.getElementById('orgtree'); const cnt=document.getElementById('orgcnt');
+  if(!box) return;
+  if(ORG_POSTY){ orgRender(); return; }
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let d; try{ d=await j(API+'/app/hr/organigram'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
+  ORG_POSTY=d.posty||[];
+  const lidi=new Set(); ORG_POSTY.forEach(p=>(p.lide||[]).forEach(x=>lidi.add(x.user_id||x.jmeno)));
+  if(cnt) cnt.textContent='('+ORG_POSTY.length+' postů · '+lidi.size+' lidí)';
+  orgRender();
+}
+function orgRender(){
+  const box=document.getElementById('orgtree');
+  const byId={}, kids={};
+  ORG_POSTY.forEach(p=>{ byId[p.id]=p; (kids[p.parent||0]=kids[p.parent||0]||[]).push(p); });
+  function node(p, depth){
+    const ch=(kids[p.id]||[]);
+    const lide=(p.lide||[]);
+    const lideHtml=lide.length?('<span style="color:#9fb3cc;font-weight:400"> — '+lide.map(x=>esc(x.jmeno)).join(', ')+'</span>'):'<span style="color:#5c6b7d;font-weight:400"> — neobsazeno</span>';
+    const caret=ch.length?('<span class="orgcar" style="display:inline-block;width:14px;cursor:pointer;color:#7fa8d8">▸</span>'):'<span style="display:inline-block;width:14px"></span>';
+    let h='<div class="orgnode" data-id="'+p.id+'" style="margin-left:'+(depth*16)+'px">'+
+      '<div class="orghd" style="padding:4px 2px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04)">'+
+      caret+'<b>'+esc(p.nazev)+'</b>'+lideHtml+'</div>';
+    if(ch.length){ h+='<div class="orgch" style="display:none">'+ch.map(c=>node(c,depth+1)).join('')+'</div>'; }
+    h+='</div>';
+    return h;
+  }
+  const roots=(kids[0]||[]);
+  box.innerHTML=roots.length?roots.map(r=>node(r,0)).join(''):'<div class="empty">Struktura je prázdná.</div>';
+  box.querySelectorAll('.orgcar').forEach(c=>{
+    c.onclick=function(){ const nd=c.closest('.orgnode'); const ch=nd&&nd.querySelector(':scope > .orgch'); if(!ch) return; const open=ch.style.display!=='none'; ch.style.display=open?'none':''; c.textContent=open?'▸':'▾'; };
+  });
+}
+function orgExpand(open){
+  document.querySelectorAll('#orgtree .orgch').forEach(ch=>ch.style.display=open?'':'none');
+  document.querySelectorAll('#orgtree .orgcar').forEach(c=>{ if(c.textContent.trim()) c.textContent=open?'▾':'▸'; });
+}
+function orgFilter(){
+  const q=(document.getElementById('orgsrch').value||'').trim().toLowerCase();
+  if(!q){ orgRender(); return; }
+  const box=document.getElementById('orgtree');
+  const hits=(ORG_POSTY||[]).filter(p=>(p.nazev||'').toLowerCase().includes(q) || (p.lide||[]).some(x=>(x.jmeno||'').toLowerCase().includes(q)));
+  if(!hits.length){ box.innerHTML='<div class="empty">Nic nenalezeno.</div>'; return; }
+  box.innerHTML=hits.map(p=>{
+    const lide=(p.lide||[]).map(x=>esc(x.jmeno)).join(', ')||'neobsazeno';
+    return '<div style="padding:6px 2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px"><b>'+esc(p.nazev)+'</b> <span style="color:#9fb3cc">— '+lide+'</span></div>';
+  }).join('');
 }
 function naplnPozice(){
   // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů

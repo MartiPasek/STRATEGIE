@@ -126,6 +126,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Organigram (Šárka 12.8.2026): jádro hr.organigram = iframe karty se stromem
+      // organizační struktury (posty + držitelé). Jen ke čtení.
+      if (String(coreCode) === 'hr.organigram') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=organigram" title="Organigram" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
       // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
       if (String(coreCode) === 'hr.sablony') {

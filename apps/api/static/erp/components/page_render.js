@@ -119,6 +119,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Úkoly pro HR (Šárka 12.8.2026): jádro hr.ukoly = iframe karty v pohledu
+      // mých otevřených úkolů (stejné jako aplikace Úkoly + HR upozornění).
+      if (String(coreCode) === 'hr.ukoly') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=ukoly" title="Úkoly pro HR" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
       // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
       if (String(coreCode) === 'hr.sablony') {

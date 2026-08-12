@@ -279,6 +279,17 @@
     </div>
   </div>
 </div>
+<div class="wrapfull" id="ukolycard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">✅ Úkoly pro HR</b>
+      <span id="ukcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <button onclick="loadUkoly()" style="margin-left:auto;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">↻ Obnovit</button>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Otevřené úkoly, které máš na starosti (stejné jako v aplikaci Úkoly). Automaticky sem padají i upozornění z HR — konec zkušební doby (měsíc dopředu) a konec smlouvy (2 měsíce dopředu).</div>
+    <div id="uklist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -325,6 +336,8 @@ function setView(v){
   const tm=document.getElementById('termcard'); if(tm) tm.style.display=(v==='terminated')?'':'none';
   const vo=document.getElementById('vbtnOdp'); if(vo) vo.classList.toggle('on',v==='odpovednost');
   const oc=document.getElementById('odpcard'); if(oc) oc.style.display=(v==='odpovednost')?'':'none';
+  const ukc=document.getElementById('ukolycard'); if(ukc) ukc.style.display=(v==='ukoly')?'':'none';
+  if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -472,8 +485,28 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly'){ setView(v); }
 }catch(e){} })();
+async function loadUkoly(){
+  const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
+  if(!box) return;
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let d; try{ d=await j(API+'/app/task?view=moje'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d||!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d&&d.error||'chyba')+'</div>'; return; }
+  const u=d.ukoly||[];
+  if(cnt) cnt.textContent='('+u.length+')';
+  if(!u.length){ box.innerHTML='<div class="empty">Žádné otevřené úkoly. 🎉</div>'; return; }
+  box.innerHTML=u.map(function(t){
+    const pri=(t.priorita>=2)?'🔴':(t.priorita===1?'🟠':'•');
+    const term=t.termin?('<span style="color:'+(t.pozde?'#ff8a7a':'var(--muted)')+';font-size:12px;white-space:nowrap">⏰ '+esc(t.termin)+'</span>'):'';
+    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 4px;border-bottom:1px solid rgba(255,255,255,.06)">'+
+      '<span style="font-size:15px;line-height:1.3">'+pri+'</span>'+
+      '<span style="min-width:0;flex:1">'+
+        '<div style="font-weight:600">'+esc(t.predmet)+'</div>'+
+        '<div style="color:var(--muted);font-size:12.5px;margin-top:2px">'+(t.zak?esc(t.zak)+' · ':'')+esc(t.stav_txt||'')+' '+term+'</div>'+
+      '</span></div>';
+  }).join('');
+}
 function naplnPozice(){
   // dropdown pozic z načtených lidí (Šárka 21.7.2026) — do obou pohledů
   const poz=[...new Set(LIDE.map(p=>p.pozice).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'cs'));

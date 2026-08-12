@@ -12904,7 +12904,7 @@ async def app_hr_dnes_ve_firme(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
             "WITH latest AS ("
-            "  SELECT DISTINCT ON (e.user_id) e.user_id, t.category AS cat, en.ended_at AS konec, "
+            "  SELECT DISTINCT ON (e.user_id) e.user_id, t.category AS cat, t.code AS code, en.ended_at AS konec, COALESCE(en.note,'') AS note, "
             "    COALESCE((SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')) FROM public.users u WHERE u.id=e.user_id), e.full_name) AS jmeno, "
             "    (SELECT eg.pozice_text FROM tenant.engagement eg WHERE eg.employee_id=e.id AND eg.tenant_id=2 AND eg.is_current LIMIT 1) AS pozice "
             "  FROM tenant.att_entry en "
@@ -12913,15 +12913,11 @@ async def app_hr_dnes_ve_firme(req: Request) -> JSONResponse:
             "  WHERE en.entry_date=current_date AND en.started_at IS NOT NULL "
             "    AND COALESCE(en.status,'') NOT IN ('superseded','announced') "
             "  ORDER BY e.user_id, en.started_at DESC) "
-            "SELECT jmeno, COALESCE(pozice,'') FROM latest "
-            "WHERE konec IS NULL AND cat='presence' ORDER BY jmeno")).fetchall()
-        lide = [{"jmeno": r[0], "pozice": r[1]} for r in rows]
-        ho = int(s.execute(_t(
-            "SELECT count(DISTINCT e.user_id) FROM tenant.att_entry en "
-            "JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2 "
-            "JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
-            "WHERE en.entry_date=current_date AND (t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat))"),
-            {"hopat": "%home office%"}).scalar() or 0)
+            "SELECT jmeno, COALESCE(pozice,''), (code='homeoffice' OR note ILIKE :hopat) AS je_ho FROM latest "
+            "WHERE konec IS NULL AND (cat='presence' OR code='homeoffice' OR note ILIKE :hopat) ORDER BY jmeno"),
+            {"hopat": "%home office%"}).fetchall()
+        lide = [{"jmeno": r[0], "pozice": r[1]} for r in rows if not r[2]]
+        ho = sum(1 for r in rows if r[2])
         return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide), "ho": ho})
     except Exception as exc:
         logger.exception("[dnes_ve_firme] %s", exc)

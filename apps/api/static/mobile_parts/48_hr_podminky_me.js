@@ -199,6 +199,21 @@
         pc.appendChild(img); pc.appendChild(ph); pc.appendChild(right);
         cont.appendChild(pc);
       })();
+      (function(){
+        var nb=el('<div style="margin-bottom:12px;"></div>'); cont.appendChild(nb);
+        api("GET","/api/v1/erp/app/novinky-me","").then(function(nj){
+          if(!nj||!nj.ok||!nj.polozky||!nj.polozky.length){ nb.style.display="none"; return; }
+          var h='<div style="display:flex;align-items:center;gap:6px;margin:2px 0 8px;"><span style="font-size:18px;">📣</span><span style="font-size:16px;font-weight:700;">Novinky</span></div>';
+          nj.polozky.forEach(function(a){
+            h+='<div style="display:flex;gap:10px;background:#0f1830;border:1px solid '+(a.dulezite?"#3a5a2a":"#22304f")+';border-radius:12px;padding:10px 12px;margin-bottom:8px;">'+
+              '<span style="font-size:18px;">'+(a.dulezite?"⭐":"📌")+'</span>'+
+              '<div style="min-width:0;"><div style="font-size:14px;font-weight:600;color:#e8eefc;">'+esc(a.nadpis)+'</div>'+
+              (a.text?'<div style="font-size:12.5px;color:#9fb2d4;line-height:1.5;margin-top:2px;">'+esc(a.text)+'</div>':'')+
+              '<div style="font-size:11px;color:#5b7196;margin-top:2px;">'+esc(a.od)+'</div></div></div>';
+          });
+          nb.innerHTML=h;
+        }).catch(function(){ nb.style.display="none"; });
+      })();
       (j.sections||[]).forEach(function(sec,i){
         var sid="mesec_"+i; anchors.push({label:(sec.label||("Sekce "+(i+1))),id:sid});
         var card=el('<div id="'+sid+'" style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>');

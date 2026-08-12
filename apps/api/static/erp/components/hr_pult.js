@@ -70,6 +70,12 @@
       '      <div id="hrpUkoly"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
+      // 3b) Novinky (Šárka 12.8.2026 — píše HR, propíše se zaměstnancům do mobilu)
+      '  <div class="hrp-panel">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Novinky <a href="#" id="hrpNovNew" style="margin-left:12px;font-size:12px;color:#7fb2e8;text-decoration:none;font-weight:600">➕ Přidat</a></div>' +
+      '    <div id="hrpNovForm"></div>' +
+      '    <div id="hrpNovList"><div class="hrp-empty">Načítám…</div></div>' +
+      '  </div>' +
       // 4) Přehled dlaždic (až dole)
       '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
@@ -82,6 +88,7 @@
     loadJubilea(el);
     loadNovi(el);
     loadUkoly(el);
+    loadNovinky(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -113,6 +120,85 @@
       });
   }
 
+  function novBadge(pro) {
+    return pro === 'hr'
+      ? '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#3a2a12;color:#e0a94a">🔒 Jen HR</span>'
+      : '<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#12304a;color:#7fb2e8">👁 Zaměstnanci</span>';
+  }
+  function novStav(it) {
+    if (!it.aktivni) return '<span style="color:#8a97a8">neaktivní</span>';
+    if (it.bezi) return '<span style="color:#5ee0b7">běží</span>';
+    return '<span style="color:#e0a94a">naplánováno / prošlé</span>';
+  }
+  function novFormHtml(it) {
+    it = it || {};
+    var od = it.od || new Date().toISOString().slice(0, 10);
+    var inp = 'background:#0f141a;border:1px solid #283645;border-radius:6px;color:#e8eef5;padding:5px 7px;font:inherit';
+    return '<div style="background:#12181f;border:1px solid #24303c;border-radius:8px;padding:10px;margin-bottom:10px">' +
+      '<input id="nvNadpis" placeholder="Nadpis (např. Vánoční večírek)" value="' + esc(it.nadpis || '') + '" style="width:100%;box-sizing:border-box;margin-bottom:6px;' + inp + '">' +
+      '<textarea id="nvText" rows="2" placeholder="Text novinky…" style="width:100%;box-sizing:border-box;margin-bottom:6px;resize:vertical;' + inp + '">' + esc(it.text || '') + '</textarea>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">' +
+        '<label style="font-size:12px;color:#8fa6c4">Pro koho <select id="nvPro" style="' + inp + '"><option value="zam"' + (it.pro === 'hr' ? '' : ' selected') + '>Zaměstnanci (do mobilu)</option><option value="hr"' + (it.pro === 'hr' ? ' selected' : '') + '>Jen HR (interní)</option></select></label>' +
+        '<label style="font-size:12px;color:#8fa6c4">Platí od <input id="nvOd" type="date" value="' + esc(od) + '" style="' + inp + '"></label>' +
+        '<label style="font-size:12px;color:#8fa6c4">do <input id="nvDo" type="date" value="' + esc(it.do || '') + '" style="' + inp + '"></label>' +
+        '<label style="font-size:12px;color:#8fa6c4"><input id="nvDul" type="checkbox"' + (it.dulezite ? ' checked' : '') + '> důležité</label>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;align-items:center">' +
+        '<button id="nvSave" style="border:1px solid #2a5a3a;background:#26603a;color:#e8ffe8;border-radius:7px;padding:7px 13px;font:inherit;font-weight:700;cursor:pointer">Uložit</button>' +
+        '<a href="#" id="nvCancel" style="color:#8a97a8;text-decoration:none">Zrušit</a>' +
+        '<span id="nvMsg" style="font-size:12px;margin-left:auto"></span>' +
+        '<input type="hidden" id="nvId" value="' + (it.id || '') + '">' +
+      '</div></div>';
+  }
+  function loadNovinky(root) {
+    var formBox = root.querySelector('#hrpNovForm'), list = root.querySelector('#hrpNovList'), newBtn = root.querySelector('#hrpNovNew');
+    if (!formBox || !list) return;
+    function openForm(it) {
+      formBox.innerHTML = novFormHtml(it);
+      formBox.querySelector('#nvCancel').onclick = function (e) { e.preventDefault(); formBox.innerHTML = ''; };
+      formBox.querySelector('#nvSave').onclick = function () {
+        var msg = formBox.querySelector('#nvMsg');
+        var body = { id: formBox.querySelector('#nvId').value || 0,
+          nadpis: formBox.querySelector('#nvNadpis').value.trim(),
+          text: formBox.querySelector('#nvText').value.trim(),
+          pro: formBox.querySelector('#nvPro').value,
+          od: formBox.querySelector('#nvOd').value,
+          do: formBox.querySelector('#nvDo').value,
+          dulezite: formBox.querySelector('#nvDul').checked };
+        if (!body.nadpis) { msg.style.color = '#e0a94a'; msg.textContent = 'Zadej nadpis.'; return; }
+        msg.style.color = '#8fa6c4'; msg.textContent = 'Ukládám…';
+        fetch('/api/v1/erp/app/hr/novinka-save', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          .then(function (r) { return r.json(); }).then(function (r) {
+            if (r && r.ok) { formBox.innerHTML = ''; render(); } else { msg.style.color = '#f88'; msg.textContent = 'Chyba: ' + ((r && r.error) || ''); }
+          }).catch(function () { msg.style.color = '#f88'; msg.textContent = 'Chyba sítě.'; });
+      };
+    }
+    if (newBtn) newBtn.onclick = function (e) { e.preventDefault(); openForm(null); };
+    function render() {
+      fetch('/api/v1/erp/app/hr/novinky', { credentials: 'include' })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (d) {
+          if (!d || !d.ok) { list.innerHTML = '<div class="hrp-empty">' + esc((d && d.error) || 'chyba') + '</div>'; return; }
+          var it = d.polozky || [];
+          if (!it.length) { list.innerHTML = '<div class="hrp-empty">Zatím žádné novinky. Klikni „➕ Přidat".</div>'; return; }
+          list.innerHTML = it.map(function (a) {
+            return '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #1c2530">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="color:#e8eef5;font-weight:600">' + (a.dulezite ? '⭐ ' : '') + esc(a.nadpis) + ' ' + novBadge(a.pro) + '</div>' +
+                (a.text ? '<div style="color:#aab6c4;font-size:12.5px;margin-top:2px">' + esc(a.text) + '</div>' : '') +
+                '<div style="color:#6b7c8d;font-size:11px;margin-top:2px">' + esc(a.od) + (a.do ? (' – ' + esc(a.do)) : '') + ' · ' + novStav(a) + '</div>' +
+              '</div>' +
+              '<div style="display:flex;gap:8px;white-space:nowrap">' +
+                '<a href="#" data-ed="' + a.id + '" style="color:#7fb2e8;text-decoration:none;font-size:12px">Upravit</a>' +
+                '<a href="#" data-del="' + a.id + '" style="color:#e08a7a;text-decoration:none;font-size:12px">Smazat</a>' +
+              '</div></div>';
+          }).join('');
+          list.querySelectorAll('[data-ed]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); var id = +a.getAttribute('data-ed'); var f = it.filter(function (x) { return x.id === id; })[0]; openForm(f); }; });
+          list.querySelectorAll('[data-del]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); if (!confirm('Smazat novinku?')) return; fetch('/api/v1/erp/app/hr/novinka-delete', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: +a.getAttribute('data-del') }) }).then(function (r) { return r.json(); }).then(function () { render(); }); }; });
+        }).catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+    }
+    render();
+  }
   function renderTiles(g) {
     if (!g) return;
     g.innerHTML = "";

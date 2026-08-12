@@ -12311,6 +12311,146 @@ def _hr_daily_pass():
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/novinky")
+async def app_hr_novinky(req: Request) -> JSONResponse:
+    """Seznam Novinek pro HR nástěnku (obě audience). Šárka 12.8.2026."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, nadpis, COALESCE(text,''), pro, dulezite, "
+            " to_char(platnost_od,'YYYY-MM-DD'), to_char(platnost_do,'YYYY-MM-DD'), aktivni, "
+            " (platnost_od<=current_date AND (platnost_do IS NULL OR platnost_do>=current_date) AND aktivni) "
+            "FROM tenant.hr_novinka WHERE tenant_id=2 "
+            "ORDER BY dulezite DESC, platnost_od DESC, id DESC")).fetchall()
+        polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "pro": r[3], "dulezite": r[4],
+                    "od": r[5], "do": (r[6] or ""), "aktivni": r[7], "bezi": r[8]} for r in rows]
+        return JSONResponse({"ok": True, "polozky": polozky})
+    except Exception as exc:
+        logger.exception("[hr_novinky] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/novinka-save")
+async def app_hr_novinka_save(req: Request) -> JSONResponse:
+    """Uložení/úprava Novinky (HR)."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    nadpis = str((b or {}).get("nadpis") or "").strip()
+    text_ = (str((b or {}).get("text") or "").strip() or None)
+    pro = str((b or {}).get("pro") or "zam").strip().lower()
+    if pro not in ("zam", "hr"):
+        pro = "zam"
+    dulezite = bool((b or {}).get("dulezite"))
+
+    def _d(v):
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+    od = _d((b or {}).get("od")) or _dt.date.today()
+    do = _d((b or {}).get("do"))
+    aktivni = bool((b or {}).get("aktivni", True))
+    try:
+        rid = int((b or {}).get("id") or 0)
+    except Exception:
+        rid = 0
+    if not nadpis:
+        return JSONResponse({"ok": False, "error": "Chybí nadpis."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if rid:
+            s.execute(_t("UPDATE tenant.hr_novinka SET nadpis=:n, text=:t, pro=:p, dulezite=:d, "
+                         "platnost_od=:od, platnost_do=:do, aktivni=:ak, updated_at=now() "
+                         "WHERE id=:id AND tenant_id=2"),
+                      {"n": nadpis, "t": text_, "p": pro, "d": dulezite, "od": od, "do": do,
+                       "ak": aktivni, "id": rid})
+        else:
+            rid = int(s.execute(_t(
+                "INSERT INTO tenant.hr_novinka (tenant_id, nadpis, text, pro, dulezite, platnost_od, platnost_do, aktivni, created_by) "
+                "VALUES (2, :n, :t, :p, :d, :od, :do, :ak, :by) RETURNING id"),
+                {"n": nadpis, "t": text_, "p": pro, "d": dulezite, "od": od, "do": do, "ak": aktivni, "by": uid}).scalar())
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_novinka_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/novinka-delete")
+async def app_hr_novinka_delete(req: Request) -> JSONResponse:
+    """Smazání Novinky (HR)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        rid = int((b or {}).get("id") or 0)
+    except Exception:
+        rid = 0
+    if not rid:
+        return JSONResponse({"ok": False, "error": "Chybí id."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.hr_novinka WHERE id=:id AND tenant_id=2"), {"id": rid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_novinka_delete] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/novinky-me")
+async def app_novinky_me(req: Request) -> JSONResponse:
+    """Feed Novinek pro zaměstnance (mobil): jen pro=zam, aktivní, v platnosti."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, nadpis, COALESCE(text,''), dulezite, to_char(platnost_od,'DD.MM.YYYY') "
+            "FROM tenant.hr_novinka WHERE tenant_id=2 AND pro='zam' AND aktivni "
+            " AND platnost_od<=current_date AND (platnost_do IS NULL OR platnost_do>=current_date) "
+            "ORDER BY dulezite DESC, platnost_od DESC, id DESC LIMIT 20")).fetchall()
+        polozky = [{"id": r[0], "nadpis": r[1], "text": r[2], "dulezite": r[3], "od": r[4]} for r in rows]
+        return JSONResponse({"ok": True, "polozky": polozky})
+    except Exception as exc:
+        logger.exception("[novinky_me] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dashboard")
 async def app_hr_dashboard(req: Request) -> JSONResponse:
     """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.

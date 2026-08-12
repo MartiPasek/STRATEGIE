@@ -12888,8 +12888,9 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
 
 @api_router.get("/app/hr/dnes-ve-firme")
 async def app_hr_dnes_ve_firme(req: Request) -> JSONResponse:
-    """Kdo je dnes v práci (Šárka 12.8.2026): aktivní HPP/DPČ zaměstnanci, kteří dnes
-    NEMAJÍ absenci ani home office. Opak panelu 'Mimo kancelář'. HR-gated."""
+    """Dnes aktuálně ve firmě (Šárka 12.8.2026): kdo je PRÁVĚ TEĎ na pracovišti —
+    poslední docházkový segment dne je otevřený (bez odchodu) a je to práce/režie
+    (kategorie 'presence'). Kdo píchl konec dne (day_end) vypadne. HR-gated."""
     from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
     if not uid:
@@ -12902,27 +12903,19 @@ async def app_hr_dnes_ve_firme(req: Request) -> JSONResponse:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
-            "WITH ho AS ("
-            "  SELECT DISTINCT e.user_id FROM tenant.att_entry en "
-            "   JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2 "
-            "   JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
-            "   WHERE en.entry_date=current_date AND (t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) "
-            "  UNION SELECT pa.user_id FROM tenant.att_planned_absence pa "
-            "   WHERE pa.tenant_id=2 AND pa.datum=current_date AND pa.druh_nazev ILIKE :hopat AND pa.user_id IS NOT NULL) "
-            "SELECT DISTINCT ae.user_id, "
-            "  COALESCE((SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')) FROM public.users u WHERE u.id=ae.user_id), ae.full_name) jmeno, "
-            "  COALESCE((SELECT e2.pozice_text FROM tenant.engagement e2 WHERE e2.employee_id=ae.id AND e2.tenant_id=2 AND e2.is_current LIMIT 1),'') pozice "
-            "FROM tenant.att_employee ae "
-            "JOIN tenant.engagement e ON e.employee_id=ae.id AND e.tenant_id=2 AND e.is_current AND e.engagement_type IN ('hpp','dpc') "
-            "WHERE ae.tenant_id=2 AND ae.is_active=true AND COALESCE(TRIM(ae.full_name),'')<>'' "
-            "  AND ae.user_id NOT IN (SELECT user_id FROM ho) "
-            "  AND EXISTS (SELECT 1 FROM tenant.att_entry en JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
-            "              WHERE en.employee_id=ae.id AND en.entry_date=current_date "
-            "                AND COALESCE(en.status,'') NOT IN ('superseded','announced') "
-            "                AND (t.code='work' OR t.category='prace') AND COALESCE(en.note,'') NOT ILIKE :hopat) "
-            "ORDER BY jmeno"),
-            {"hopat": "%home office%"}).fetchall()
-        lide = [{"jmeno": r[1], "pozice": r[2]} for r in rows]
+            "WITH latest AS ("
+            "  SELECT DISTINCT ON (e.user_id) e.user_id, t.category AS cat, en.ended_at AS konec, "
+            "    COALESCE((SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')) FROM public.users u WHERE u.id=e.user_id), e.full_name) AS jmeno, "
+            "    (SELECT eg.pozice_text FROM tenant.engagement eg WHERE eg.employee_id=e.id AND eg.tenant_id=2 AND eg.is_current LIMIT 1) AS pozice "
+            "  FROM tenant.att_entry en "
+            "  JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2 "
+            "  JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+            "  WHERE en.entry_date=current_date AND en.started_at IS NOT NULL "
+            "    AND COALESCE(en.status,'') NOT IN ('superseded','announced') "
+            "  ORDER BY e.user_id, en.started_at DESC) "
+            "SELECT jmeno, COALESCE(pozice,'') FROM latest "
+            "WHERE konec IS NULL AND cat='presence' ORDER BY jmeno")).fetchall()
+        lide = [{"jmeno": r[0], "pozice": r[1]} for r in rows]
         ho = int(s.execute(_t(
             "SELECT count(DISTINCT e.user_id) FROM tenant.att_entry en "
             "JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2 "

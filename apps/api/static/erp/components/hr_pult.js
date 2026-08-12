@@ -45,7 +45,7 @@
       // Novinky hned pod nimi (viditelné); Úkoly jsou samostatný uzel (dlaždice „Úkoly").
       '  <div class="hrp-blocks hrp-cols3">' +
       '    <div class="hrp-panel">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Kdo je dnes ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Dnes aktuálně ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
       '      <div id="hrpVeFirmeList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '    <div class="hrp-panel">' +
@@ -96,7 +96,7 @@
         }
         var b = d.badges || {};
         bEl.innerHTML =
-          badge(0, "Ve firmě dnes", "vefirme", "hrpBadgeVeFirme") +
+          badge(0, "Aktuálně ve firmě", "vefirme", "hrpBadgeVeFirme") +
           badge(b.mimo, "Mimo kancelář dnes", "mimo") +
           badge(b.naroz, "Narozeniny / výročí (7 dní)") +
           badge(b.novi, "Noví + budoucí nástupy", null, "hrpBadgeNovi") +
@@ -149,7 +149,7 @@
   function openVeFirme() {
     var m = ensureModal(); m.classList.add('on');
     m.querySelector('.hrp-modal-card').classList.remove('hrp-modal-wide');
-    m.querySelector('#hrpModalTitle').textContent = '🏢 Kdo je dnes ve firmě (' + VEFIRME.lide.length + ')';
+    m.querySelector('#hrpModalTitle').textContent = '🏢 Dnes aktuálně ve firmě (' + VEFIRME.lide.length + ')';
     var h = VEFIRME.lide.map(function (p) {
       return '<div class="hrp-mrow"><span class="hrp-mic" style="background:#12301f;color:#5ee0b7">●</span>' +
         '<div><div class="hrp-mnm">' + esc(p.jmeno) + '</div>' +

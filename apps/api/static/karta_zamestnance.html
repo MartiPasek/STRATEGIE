@@ -984,6 +984,7 @@ function renderPU(edit){
     h+='<div style="'+bt+'padding:6px 16px 9px;color:#cdd6e2;font-size:13px">🏷️ <span style="color:#7f8ea0">Posty v organizaci:</span> '+
       d.posty.map(pp=>esc(pp.nazev)+(pp.zastupce?' <span style="color:#E0A94A">(zástupce)</span>':'')).join(', ')+'</div>';
   }
+  h+='<div id="puPodriz" style="padding:0 16px 6px"></div>';
   for(const po of (d.pomery||[])){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
     const zar = rRO('Osobní číslo', po.osobni_cislo) + (edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment);
@@ -1012,6 +1013,20 @@ function renderPU(edit){
   }
   if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:8px 16px 12px">Editovat lze pozici a poznámku. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul. Nadřízený se bere z organizační struktury.</div>';
   det.innerHTML=h;
+  orgLoadPodriz(uid);
+}
+async function orgLoadPodriz(uid){
+  const box=document.getElementById('puPodriz'); if(!box) return;
+  let d; try{ d=await j(API+'/app/hr/organigram/osoba?uid='+uid); }catch(e){ return; }
+  if(!d||!d.ok) return;
+  const pod=d.podrizeni||[];
+  let h='';
+  if(pod.length){
+    h+='<div style="color:#cdd6e2;font-size:13px;padding:2px 0">👥 <span style="color:#7f8ea0">Podřízení ('+pod.length+'):</span> '+
+      pod.slice(0,12).map(x=>'<b>'+esc(x.jmeno)+'</b>').join(', ')+(pod.length>12?(' <span style="color:#5d6b7c">+'+(pod.length-12)+' dalších</span>'):'')+'</div>';
+  }
+  h+='<div style="padding:2px 0"><a href="#" onclick="setView(\'organigram\');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">🏢 Zobrazit celý organigram ›</a></div>';
+  box.innerHTML=h;
 }
 async function pracUdajeSave(){
   const byE={};

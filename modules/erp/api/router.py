@@ -9670,6 +9670,18 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
     post_id = int(post_id) if str(post_id or "").isdigit() else None
     create_login = bool((b or {}).get("create_login"))
     email = str((b or {}).get("email") or "").strip() or None
+    # Nárok na dovolenou — POVINNÁ vědomá volba HR (Jirka 13. 8. 2026, schválila Marti-AI).
+    # Do 13. 8. tu pole nebylo a nový člověk tiše spadl na systémovou hodnotu 25 dnů,
+    # i když nárok nemá (OSVČ, dohody). Formulář nabízí 0 / 25 / vlastní a bez výběru
+    # neodešle. Když hodnota přesto nedorazí (starší klient, jiný volající), zůstane
+    # nula, kterou zakládá trigger trg_staff_cond_default_dovolena — nikdy ne 25.
+    try:
+        dovolena_dni = (b or {}).get("dovolena_dni")
+        dovolena_dni = None if dovolena_dni in (None, "") else round(float(dovolena_dni), 2)
+        if dovolena_dni is not None and not (0 <= dovolena_dni <= 60):
+            dovolena_dni = None
+    except Exception:
+        dovolena_dni = None
 
     def _d(v):
         try:
@@ -9755,6 +9767,24 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
             s.execute(_t(
                 "INSERT INTO tenant.staff_group_member (tenant_id, group_id, user_id, score) "
                 "VALUES (2, :g, :u, 0)"), {"g": g, "u": new_uid})
+        # Nárok na dovolenou do Podmínek (Jirka 13. 8. 2026). Řádek už existuje —
+        # založil ho trigger trg_staff_cond_default_dovolena s nulou při INSERTu výš.
+        # Tady se jen přepíše na to, co HR vybralo. UPDATE, ne INSERT, aby nevznikly
+        # dva řádky; kdyby trigger náhodou nezabral, doplní se INSERTem.
+        if dovolena_dni is not None:
+            _dv = ("%g" % dovolena_dni)
+            _n = s.execute(_t(
+                "UPDATE tenant.staff_cond SET value=:v, note=:n, changed_by=:by, changed_at=now() "
+                "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u AND cond_code='dovolena_dni'"),
+                {"v": _dv, "u": new_uid, "by": uid,
+                 "n": "zadano pri zalozeni zamestnance v HR (13.8.2026+)"}).rowcount or 0
+            if _n == 0:
+                s.execute(_t(
+                    "INSERT INTO tenant.staff_cond (tenant_id, scope_kind, user_id, cond_code, "
+                    " value, note, changed_by, changed_at) "
+                    "VALUES (2, 'user', :u, 'dovolena_dni', :v, :n, :by, now())"),
+                    {"u": new_uid, "v": _dv, "by": uid,
+                     "n": "zadano pri zalozeni zamestnance v HR (13.8.2026+)"})
         s.commit()
 
         # notifikace: Petra (mzdy) + HR skupina/rodiče. Best-effort (nesmí shodit založení).

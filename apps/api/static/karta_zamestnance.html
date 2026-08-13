@@ -220,6 +220,30 @@
         <div class="fld"><label>Úvazek (h / týden)</label><input id="cr_uvazek" type="number" step="0.5" value="40"></div>
       </div>
     </div>
+    <!-- Nárok na dovolenou — Jirka 13. 8. 2026, schválila Marti-AI.
+         Volba je POVINNÁ a bez předvyplnění. Do 13. 8. tady pole nebylo vůbec a nový
+         člověk tiše spadl na systémovou hodnotu 25 dnů — i OSVČ a dohodáři, kteří nárok
+         nemají. Proto se teď HR musí rozhodnout vědomě. -->
+    <div class="fsec">
+      <div class="fh">🌴 Nárok na dovolenou</div>
+      <div class="fgrid">
+        <div class="fld"><label>Dovolená (dní / rok) <span class="req">*</span></label>
+          <select id="cr_dov" onchange="crDovToggle()">
+            <option value="">— vyber, kolik má mít —</option>
+            <option value="0">0 dnů — bez nároku (OSVČ, dohoda)</option>
+            <option value="25">25 dnů — standardní (20 základní + 5 dodatková)</option>
+            <option value="__vlastni">jiná hodnota…</option>
+          </select>
+        </div>
+        <div class="fld" id="cr_dovbox" style="display:none">
+          <label>Kolik dnů <span class="req">*</span></label>
+          <input id="cr_dovval" type="number" step="0.5" min="0" max="60" placeholder="např. 26">
+        </div>
+      </div>
+      <div style="font-size:11.5px;color:#7f8ea0;margin-top:6px">
+        Zapíše se do Podmínek zaměstnance. Později lze změnit v HR → Podmínky.
+      </div>
+    </div>
     <div class="fsec">
       <div class="fh">🧭 Pracovní zařazení</div>
       <div class="fgrid">
@@ -368,7 +392,7 @@ const SEKCE=[
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true,key:'absence'},
-  {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, dle Centrály).",on:true,key:'podminky'},
+  {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, ze STRATEGIE).",on:true,key:'podminky'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
@@ -440,12 +464,40 @@ function crReset(){
   document.getElementById('cr_org').checked=true;
   document.getElementById('cr_login').checked=false; crToggleLogin();
   Array.from(document.getElementById('cr_groups').options).forEach(o=>o.selected=false);
+  document.getElementById('cr_dov').selectedIndex=0;
+  document.getElementById('cr_dovval').value='';
+  document.getElementById('cr_dovbox').style.display='none';
   document.getElementById('cr_msg').textContent='';
 }
+// Nárok na dovolenou — přepnutí na vlastní hodnotu (Jirka 13. 8. 2026)
+function crDovToggle(){
+  const s=document.getElementById('cr_dov'), box=document.getElementById('cr_dovbox');
+  box.style.display = (s.value==='__vlastni') ? '' : 'none';
+  if(s.value!=='__vlastni'){ document.getElementById('cr_dovval').value=''; }
+}
+// Vrátí počet dnů dovolené, nebo null když HR ještě nerozhodlo (pak se nezakládá).
+function crDovHodnota(){
+  const s=document.getElementById('cr_dov').value;
+  if(s==='') return null;
+  if(s!=='__vlastni') return parseFloat(s);
+  const v=parseFloat(document.getElementById('cr_dovval').value);
+  return (isFinite(v) && v>=0 && v<=60) ? v : null;
+}
+
 async function crSubmit(){
   const g=id=>document.getElementById(id);
   const msg=g('cr_msg');
   const groups=Array.from(g('cr_groups').selectedOptions).map(o=>parseInt(o.value));
+  // Dovolená je povinná volba — nikdo nesmí vzniknout s tichým defaultem (Jirka 13. 8. 2026)
+  const dov=crDovHodnota();
+  if(dov===null){
+    msg.style.color='#ff8a7a';
+    msg.textContent = (g('cr_dov').value==='__vlastni')
+      ? 'Vyplň počet dnů dovolené (0–60).'
+      : 'Vyber nárok na dovolenou — 0 dnů, 25 dnů, nebo jinou hodnotu.';
+    g('cr_dov').focus();
+    return;
+  }
   const body={
     first_name:g('cr_first').value.trim(), last_name:g('cr_last').value.trim(),
     company_id:parseInt(g('cr_company').value||0), role:g('cr_role').value,
@@ -453,7 +505,8 @@ async function crSubmit(){
     nastup:g('cr_nastup').value||null, zkusebni_do:g('cr_zkusebni').value||null,
     smlouva_typ:g('cr_typ').value, uvazek:parseFloat(g('cr_uvazek').value||40),
     position_id:g('cr_position').value||null, post_id:g('cr_post').value||null,
-    create_login:g('cr_login').checked, email:g('cr_email').value.trim()||null
+    create_login:g('cr_login').checked, email:g('cr_email').value.trim()||null,
+    dovolena_dni:dov
   };
   msg.style.color='#7f8ea0'; msg.textContent='Zakládám…';
   const r=await fetch(API+'/app/hr/employee-create',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -1553,7 +1606,11 @@ async function absUdaje(){
 }
 
 // Šárka 23.7.2026: Podmínky = to samé, co zaměstnanec vidí v mobilu „Moje podmínky".
-// Zdroj: resolved z /app/hr/conditions (systém → skupina → osobní; osobní hodnoty sync z Centrály).
+// Zdroj: resolved z /app/hr/conditions (systém → skupina → osobní).
+// OPRAVA 13. 8. 2026 (Jirka, schválila Marti-AI): tady i v hlášce pod tabulkou stálo
+// „osobní hodnoty jsou sync z Centrály". Nebyla to pravda — do tenant.staff_cond žádný
+// sync nevede, hodnoty tam 23. 7. 2026 někdo přenesl jednorázově a od té doby se
+// neaktualizovaly. Od 13. 8. je zadává personální oddělení přímo ve STRATEGII.
 async function podmUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
@@ -1573,7 +1630,7 @@ async function podmUdaje(){
         '<td style="padding:7px 16px;color:#cdd6e2">'+esc(dd.label)+(dd.unit?(' <span style="color:#5d6b7c">('+esc(dd.unit)+')</span>'):'')+'</td>'+
         '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
         '<td style="padding:7px 16px;text-align:right">'+srcBadge(r.src)+'</td></tr>'; }).join('')+'</table>';
-  h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">Zdroj: systémový default → skupina → osobní výjimka. Osobní hodnoty jsou sync z Centrály.</div>';
+  h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.</div>';
   det.innerHTML=h;
 }
 

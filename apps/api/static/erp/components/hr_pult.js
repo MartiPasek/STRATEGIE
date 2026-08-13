@@ -536,7 +536,7 @@
 
   function style() {
     return '<style>' +
-      '.hrp-wrap{max-width:1180px;margin:0 auto;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
+      '.hrp-wrap{max-width:none;margin:0;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
       '.hrp-blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start;margin-bottom:12px;}' +
       '.hrp-cols3{grid-template-columns:repeat(3,minmax(0,1fr));}' +
       '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;}' +

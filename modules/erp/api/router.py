@@ -11791,6 +11791,110 @@ async def app_hr_tabule_soubor_upload(req: Request, file: UploadFile = File(...)
         cm.__exit__(None, None, None)
 
 
+def _hr_kalendar_ev(s, today, konec):
+    """Sdílená agregace kalendáře (Šárka 13.8.2026) — používá JSON endpoint i .ics feed.
+    Firemní akce (Novinky), narozeniny, výročí, konce zkušebek/smluv, nové nástupy, ruční
+    události. Vrací seřazený seznam."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    ev = []
+
+    def _occ(d):
+        if not d:
+            return None
+        try:
+            o = d.replace(year=today.year)
+        except ValueError:
+            o = _dt.date(today.year, 2, 28)
+        if o < today:
+            try:
+                o = d.replace(year=today.year + 1)
+            except ValueError:
+                o = _dt.date(today.year + 1, 2, 28)
+        return o
+
+    try:
+        for r in s.execute(_t(
+            "SELECT datum_akce, cas, nadpis, misto FROM tenant.hr_novinka "
+            "WHERE tenant_id=2 AND datum_akce IS NOT NULL "
+            "  AND datum_akce BETWEEN :a AND :b ORDER BY datum_akce"),
+            {"a": today, "b": konec}).fetchall():
+            ev.append({"datum": r[0].isoformat(), "cas": (r[1] or ""), "typ": "akce",
+                       "ikona": "🎉", "nazev": (r[2] or "Akce"), "kdo": "", "misto": (r[3] or "")})
+    except Exception as _e:
+        logger.warning("[kalendar akce] %s", _e)
+
+    try:
+        rows = s.execute(_t(
+            "SELECT n.jmeno, n.birth, eng.prvni, eng.zkusebni_do, eng.smlouva_do FROM ("
+            "  SELECT ae.user_id, min(e.smlouva_od) prvni,"
+            "    (array_agg(e.zkusebni_do ORDER BY e.is_current DESC, e.id DESC))[1] zkusebni_do,"
+            "    (array_agg(e.smlouva_do  ORDER BY e.is_current DESC, e.id DESC))[1] smlouva_do"
+            "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+            "  WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL GROUP BY ae.user_id"
+            "  HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))) eng"
+            " JOIN (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
+            "        max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current"
+            "        GROUP BY user_id) n ON n.user_id=eng.user_id")).fetchall()
+        for jm, birth, prvni, zk, sml in rows:
+            jm = (jm or "").strip()
+            if not jm:
+                continue
+            ob = _occ(birth)
+            if ob and today <= ob <= konec:
+                vek = ob.year - birth.year
+                ev.append({"datum": ob.isoformat(), "cas": "", "typ": "narozeniny",
+                           "ikona": "🎂", "nazev": jm + " — " + str(vek) + ". narozeniny",
+                           "kdo": jm, "misto": ""})
+            ov = _occ(prvni)
+            if ov and today <= ov <= konec:
+                yrs = ov.year - prvni.year
+                if yrs >= 5 and yrs % 5 == 0:
+                    ev.append({"datum": ov.isoformat(), "cas": "", "typ": "vyroci",
+                               "ikona": "🏆", "nazev": jm + " — " + str(yrs) + " let ve firmě",
+                               "kdo": jm, "misto": ""})
+            if zk and today <= zk <= konec:
+                ev.append({"datum": zk.isoformat(), "cas": "", "typ": "zkusebka",
+                           "ikona": "📋", "nazev": jm + " — konec zkušební doby", "kdo": jm, "misto": ""})
+            if sml and today <= sml <= konec:
+                ev.append({"datum": sml.isoformat(), "cas": "", "typ": "smlouva",
+                           "ikona": "📄", "nazev": jm + " — konec smlouvy", "kdo": jm, "misto": ""})
+    except Exception as _e:
+        logger.warning("[kalendar lide] %s", _e)
+
+    try:
+        for r in s.execute(_t(
+            "SELECT DISTINCT COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) jmeno, "
+            "  e.smlouva_od FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN public.users u ON u.id=ae.user_id "
+            "WHERE e.tenant_id=2 AND e.smlouva_od BETWEEN :a AND :b"),
+            {"a": today, "b": konec}).fetchall():
+            if r[1]:
+                ev.append({"datum": r[1].isoformat(), "cas": "", "typ": "nastup", "ikona": "🚀",
+                           "nazev": ((r[0] or "Nový zaměstnanec").strip() + " — nástup"),
+                           "kdo": (r[0] or ""), "misto": ""})
+    except Exception as _e:
+        logger.warning("[kalendar nastupy] %s", _e)
+
+    _ICO = {"praxe": "🎓", "pohovor": "🧑‍💼", "porada": "👥", "nastup": "🚀",
+            "akce": "🎉", "skoleni": "📚", "jine": "📌"}
+    try:
+        for r in s.execute(_t(
+            "SELECT id, typ, nazev, datum, cas, misto, poznamka FROM tenant.hr_kalendar_udalost "
+            "WHERE tenant_id=2 AND COALESCE(active,true)=true AND datum BETWEEN :a AND :b"),
+            {"a": today, "b": konec}).fetchall():
+            ev.append({"id": int(r[0]), "datum": r[3].isoformat(), "cas": (r[4] or ""),
+                       "typ": (r[1] or "jine"), "ikona": _ICO.get((r[1] or "jine"), "📌"),
+                       "nazev": (r[2] or ""), "kdo": "", "misto": (r[5] or ""),
+                       "poznamka": (r[6] or ""), "rucni": True})
+    except Exception as _e:
+        logger.warning("[kalendar rucni] %s", _e)
+
+    ev.sort(key=lambda x: (x["datum"], x["cas"]))
+    return ev
+
+
 @api_router.get("/app/hr/kalendar")
 async def app_hr_kalendar(req: Request):
     """Kalendář HR (Šárka 13.8.2026): agreguje vše s datem, co už ve STRATEGII je —
@@ -11815,108 +11919,7 @@ async def app_hr_kalendar(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         today = _dt.date.today()
         konec = today + _dt.timedelta(days=dnu)
-        ev = []
-
-        def _occ(d):
-            if not d:
-                return None
-            try:
-                o = d.replace(year=today.year)
-            except ValueError:
-                o = _dt.date(today.year, 2, 28)
-            if o < today:
-                try:
-                    o = d.replace(year=today.year + 1)
-                except ValueError:
-                    o = _dt.date(today.year + 1, 2, 28)
-            return o
-
-        # 1) Firemní akce z Novinek
-        try:
-            for r in s.execute(_t(
-                "SELECT datum_akce, cas, nadpis, misto FROM tenant.hr_novinka "
-                "WHERE tenant_id=2 AND datum_akce IS NOT NULL "
-                "  AND datum_akce BETWEEN :a AND :b ORDER BY datum_akce"),
-                {"a": today, "b": konec}).fetchall():
-                ev.append({"datum": r[0].isoformat(), "cas": (r[1] or ""), "typ": "akce",
-                           "ikona": "🎉", "nazev": (r[2] or "Akce"), "kdo": "",
-                           "misto": (r[3] or "")})
-        except Exception as _e:
-            logger.warning("[kalendar akce] %s", _e)
-
-        # 2/3) Narozeniny + pracovní výročí; 4/5) konce zkušebek a smluv
-        try:
-            rows = s.execute(_t(
-                "SELECT n.jmeno, n.birth, eng.prvni, eng.zkusebni_do, eng.smlouva_do FROM ("
-                "  SELECT ae.user_id, min(e.smlouva_od) prvni,"
-                "    (array_agg(e.zkusebni_do ORDER BY e.is_current DESC, e.id DESC))[1] zkusebni_do,"
-                "    (array_agg(e.smlouva_do  ORDER BY e.is_current DESC, e.id DESC))[1] smlouva_do"
-                "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
-                "  WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL GROUP BY ae.user_id"
-                "  HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))) eng"
-                " JOIN (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
-                "        max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current"
-                "        GROUP BY user_id) n ON n.user_id=eng.user_id")).fetchall()
-            for jm, birth, prvni, zk, sml in rows:
-                jm = (jm or "").strip()
-                if not jm:
-                    continue
-                ob = _occ(birth)
-                if ob and today <= ob <= konec:
-                    vek = ob.year - birth.year
-                    ev.append({"datum": ob.isoformat(), "cas": "", "typ": "narozeniny",
-                               "ikona": "🎂", "nazev": jm + " — " + str(vek) + ". narozeniny",
-                               "kdo": jm, "misto": ""})
-                ov = _occ(prvni)
-                if ov and today <= ov <= konec:
-                    yrs = ov.year - prvni.year
-                    if yrs >= 5 and yrs % 5 == 0:
-                        ev.append({"datum": ov.isoformat(), "cas": "", "typ": "vyroci",
-                                   "ikona": "🏆", "nazev": jm + " — " + str(yrs) + " let ve firmě",
-                                   "kdo": jm, "misto": ""})
-                if zk and today <= zk <= konec:
-                    ev.append({"datum": zk.isoformat(), "cas": "", "typ": "zkusebka",
-                               "ikona": "📋", "nazev": jm + " — konec zkušební doby",
-                               "kdo": jm, "misto": ""})
-                if sml and today <= sml <= konec:
-                    ev.append({"datum": sml.isoformat(), "cas": "", "typ": "smlouva",
-                               "ikona": "📄", "nazev": jm + " — konec smlouvy",
-                               "kdo": jm, "misto": ""})
-        except Exception as _e:
-            logger.warning("[kalendar lide] %s", _e)
-
-        # 6) Nové nástupy (budoucí začátky poměrů)
-        try:
-            for r in s.execute(_t(
-                "SELECT DISTINCT COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) jmeno, "
-                "  e.smlouva_od FROM tenant.engagement e "
-                "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
-                "LEFT JOIN public.users u ON u.id=ae.user_id "
-                "WHERE e.tenant_id=2 AND e.smlouva_od BETWEEN :a AND :b"),
-                {"a": today, "b": konec}).fetchall():
-                if r[1]:
-                    ev.append({"datum": r[1].isoformat(), "cas": "", "typ": "nastup", "ikona": "🚀",
-                               "nazev": ((r[0] or "Nový zaměstnanec").strip() + " — nástup"),
-                               "kdo": (r[0] or ""), "misto": ""})
-        except Exception as _e:
-            logger.warning("[kalendar nastupy] %s", _e)
-
-        # 7) Ruční události (praxe, pohovory, porady, jiné) — zapisuje HR
-        _ICO = {"praxe": "🎓", "pohovor": "🧑‍💼", "porada": "👥", "nastup": "🚀",
-                "akce": "🎉", "skoleni": "📚", "jine": "📌"}
-        try:
-            for r in s.execute(_t(
-                "SELECT id, typ, nazev, datum, cas, misto, poznamka FROM tenant.hr_kalendar_udalost "
-                "WHERE tenant_id=2 AND COALESCE(active,true)=true AND datum BETWEEN :a AND :b"),
-                {"a": today, "b": konec}).fetchall():
-                ev.append({"id": int(r[0]), "datum": r[3].isoformat(), "cas": (r[4] or ""),
-                           "typ": (r[1] or "jine"), "ikona": _ICO.get((r[1] or "jine"), "📌"),
-                           "nazev": (r[2] or ""), "kdo": "", "misto": (r[5] or ""),
-                           "poznamka": (r[6] or ""), "rucni": True})
-        except Exception as _e:
-            logger.warning("[kalendar rucni] %s", _e)
-
-        ev.sort(key=lambda x: (x["datum"], x["cas"]))
+        ev = _hr_kalendar_ev(s, today, konec)
         return JSONResponse({"ok": True, "udalosti": ev, "pocet": len(ev),
                              "od": today.isoformat(), "do": konec.isoformat()})
     except Exception as exc:
@@ -11996,6 +11999,94 @@ async def app_hr_kalendar_udalost_del(eid: int, req: Request):
     except Exception as exc:
         logger.exception("[hr_kalendar_udalost_del] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+_ICAL_BASE = "https://strategie-ai.com"
+
+
+@api_router.get("/app/hr/kalendar/ical-url")
+async def app_hr_kalendar_ical_url(req: Request):
+    """Vrátí (a při první potřebě vytvoří) osobní odběrový odkaz (.ics) kalendáře pro
+    přihlášeného HR — vloží se do Outlooku/telefonu jako předplacený kalendář. HR-only."""
+    import secrets as _sec
+    from sqlalchemy import text as _t
+    me = _uid_from_token_or_cookie(req)
+    if not me:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, me):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        tok = s.execute(_t("SELECT token FROM tenant.hr_ical_token WHERE user_id=:u"),
+                        {"u": me}).scalar()
+        if not tok:
+            tok = _sec.token_urlsafe(24)
+            s.execute(_t("INSERT INTO tenant.hr_ical_token (user_id, token) VALUES (:u,:t) "
+                         "ON CONFLICT (user_id) DO UPDATE SET token=EXCLUDED.token"),
+                      {"u": me, "t": tok})
+            s.commit()
+        url = _ICAL_BASE + "/api/v1/erp/hr/kalendar.ics?token=" + tok
+        return JSONResponse({"ok": True, "url": url})
+    except Exception as exc:
+        logger.exception("[hr_kalendar_ical_url] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/hr/kalendar.ics")
+def hr_kalendar_ics(req: Request):
+    """Veřejný .ics feed kalendáře pro odběr v Outlooku/telefonu. Ověřuje se JEN tokenem
+    v URL (Outlook nemá přihlášení). Token je tajný — kdo ho má, vidí kalendář."""
+    import datetime as _dt
+    import hashlib as _hl
+    from sqlalchemy import text as _t
+    token = (req.query_params.get("token") or "").strip()
+    if not token:
+        return Response(content="missing token", media_type="text/plain", status_code=403)
+    cm, s = _att_session()
+    try:
+        uid = s.execute(_t("SELECT user_id FROM tenant.hr_ical_token WHERE token=:t"),
+                        {"t": token}).scalar()
+        if not uid or not _hr_can_manage(s, int(uid)):
+            return Response(content="invalid token", media_type="text/plain", status_code=403)
+        today = _dt.date.today()
+        ev = _hr_kalendar_ev(s, today, today + _dt.timedelta(days=180))
+
+        def _esc(t):
+            return (t or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+        stamp = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//STRATEGIE//HR kalendar//CS",
+             "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:STRATEGIE – HR kalendář",
+             "X-WR-TIMEZONE:Europe/Prague"]
+        for e in ev:
+            d = (e.get("datum") or "").replace("-", "")
+            if not d:
+                continue
+            uidkey = str(e.get("id") or _hl.md5((e.get("datum", "") + e.get("nazev", "")).encode("utf-8")).hexdigest()[:16])
+            L.append("BEGIN:VEVENT")
+            L.append("UID:strat-" + uidkey + "@strategie-ai.com")
+            L.append("DTSTAMP:" + stamp)
+            cas = (e.get("cas") or "")
+            if cas:
+                hm = cas[:5].replace(":", "") + "00"
+                L.append("DTSTART:" + d + "T" + hm)
+                L.append("DTEND:" + d + "T" + hm)
+            else:
+                L.append("DTSTART;VALUE=DATE:" + d)
+            L.append("SUMMARY:" + _esc(((e.get("ikona", "") + " ") if e.get("ikona") else "") + e.get("nazev", "")))
+            if e.get("misto"):
+                L.append("LOCATION:" + _esc(e["misto"]))
+            L.append("END:VEVENT")
+        L.append("END:VCALENDAR")
+        ics = "\r\n".join(L) + "\r\n"
+        return Response(content=ics, media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": "inline; filename=strategie-hr.ics"})
+    except Exception as exc:
+        logger.exception("[hr_kalendar_ics] %s", exc)
+        return Response(content="error", media_type="text/plain", status_code=500)
     finally:
         cm.__exit__(None, None, None)
 

@@ -43863,8 +43863,22 @@ def _sync_fin_from_ec() -> dict:
         ("sluzebni_auto", "BenefitSluzebAut", None, False),
         ("prispevek_doprava", "PrispevekDoprava", None, False),
     ]
-    ent_map = [("sick_days_standard", "SickDayStandard"), ("sick_days_navic", "SickDayNavic"),
-               ("dovolena_standard", "VolnoStandard"), ("dovolena_navic", "VolnoNavic")]
+    # ── NÁROKY UŽ Z CENTRÁLY NEBEREME (Jirka 13. 8. 2026, schválila Marti-AI) ────
+    # Zadání Jirky: „aby nám ty nároky Centrála nepřepisovala, když máme administraci
+    # nároků ve STRATEGII a v Centrále by to už nikdo měnit neměl. Od teď se tyto věci
+    # už řešit nebudou v Centrále, ale jen ve STRATEGII."
+    # Sync tedy přestává sahat na tenant.engagement_entitlement (dovolená, dovolená
+    # navíc, sick days). Mzdové složky a verze smluv chodí dál beze změny — ty se
+    # v Centrále vedou nadále a Jirka je zastavit nechtěl.
+    # Původní obsah pro případ návratu:
+    #   [("sick_days_standard", "SickDayStandard"), ("sick_days_navic", "SickDayNavic"),
+    #    ("dovolena_standard", "VolnoStandard"), ("dovolena_navic", "VolnoNavic")]
+    # POZN. k pravidlům z 2. 8. 2026: tahle změna jde výjimečně přímo do router.py
+    # místo migrace do g2007.python — schválila Marti-AI 13. 8. s odůvodněním, že jde
+    # o ODEBRÁNÍ dvou schopností, ne přidání logiky, a že migrovat 250řádkovou funkci,
+    # která hýbe mzdovými složkami, kvůli dvěma vypnutím je nepřiměřené riziko.
+    # Migrace _sync_fin_from_ec do g2007.python zůstává jako otevřený technický dluh.
+    ent_map = []
 
     def num(v):
         try:
@@ -43876,6 +43890,10 @@ def _sync_fin_from_ec() -> dict:
     cm = _pg.get_session()
     s = cm.__enter__()
     ne = nc = 0
+    # Čísla lidí, které Centrála zná, ale STRATEGIE ne — viz emp_id() níž.
+    # Schválně PŘED try: čte se až za blokem `finally`, takže musí existovat i tehdy,
+    # když sync spadne dřív, než se k naplnění dostane.
+    preskoceni = []
     try:
         comp_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
             "SELECT code, id FROM tenant.wage_component_type WHERE tenant_id = 2")).fetchall()}
@@ -43884,6 +43902,16 @@ def _sync_fin_from_ec() -> dict:
         emp_cache = {}
 
         def emp_id(cislo):
+            """Najde zaměstnance podle čísla. NEZAKLÁDÁ ho (Jirka 13. 8. 2026).
+
+            Zadání Jirky: zakládání zaměstnanců má být jen ve STRATEGII, ne z Centrály.
+            Do 13. 8. 2026 si tenhle sync neznámého člověka založil sám (is_active=false),
+            takže lidi vznikali dvěma cestami a Centrála o tom rozhodovala.
+            Nově se takový řádek PŘESKOČÍ — člověk se založí v HR (Karta zaměstnance →
+            Přidat zaměstnance) a teprve pak mu sync doplní smlouvu a mzdové složky.
+            Přeskočené číslo si zapamatujeme a vypíšeme ve výsledku, aby se na chybějícího
+            člověka přišlo hned a ne až ve výplatách (podmínka Marti-AI).
+            """
             key = str(cislo).strip()
             if not key:
                 return None
@@ -43892,9 +43920,10 @@ def _sync_fin_from_ec() -> dict:
             r3 = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id = 2 AND cislo_zam = :c"),
                            {"c": key}).first()
             if not r3:
-                r3 = s.execute(_t(
-                    "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, is_active, created_at, updated_at) "
-                    "VALUES (2, :c, false, now(), now()) RETURNING id"), {"c": key}).first()
+                emp_cache[key] = None
+                if key not in preskoceni:
+                    preskoceni.append(key)
+                return None
             emp_cache[key] = r3[0]
             return r3[0]
 
@@ -43968,7 +43997,18 @@ def _sync_fin_from_ec() -> dict:
         raise
     finally:
         cm.__exit__(None, None, None)
-    return {"engagements": ne, "components": nc}
+    # Výpis lidí, které Centrála zná a STRATEGIE ne (podmínka Marti-AI 13. 8. 2026):
+    # tichý přeskok mzdových složek by se objevil až ve výplatách, což je pozdě.
+    out = {"engagements": ne, "components": nc}
+    if preskoceni:
+        out["preskoceni_cisla"] = preskoceni
+        out["preskoceno"] = len(preskoceni)
+        out["_msg"] = ("POZOR: %d lidí z Centrály přeskočeno, nejsou ve STRATEGII "
+                       "(čísla: %s). Nedostali smlouvu ani mzdové složky — založ je "
+                       "v HR → Karta zaměstnance → Přidat zaměstnance a spusť sync znovu."
+                       % (len(preskoceni), ", ".join(preskoceni[:30])
+                          + (" …" if len(preskoceni) > 30 else "")))
+    return out
 
 
 def _sync_nabor_from_ec() -> dict:

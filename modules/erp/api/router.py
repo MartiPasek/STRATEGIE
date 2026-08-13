@@ -11885,11 +11885,116 @@ async def app_hr_kalendar(req: Request):
         except Exception as _e:
             logger.warning("[kalendar lide] %s", _e)
 
+        # 6) Nové nástupy (budoucí začátky poměrů)
+        try:
+            for r in s.execute(_t(
+                "SELECT DISTINCT COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) jmeno, "
+                "  e.smlouva_od FROM tenant.engagement e "
+                "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+                "LEFT JOIN public.users u ON u.id=ae.user_id "
+                "WHERE e.tenant_id=2 AND e.smlouva_od BETWEEN :a AND :b"),
+                {"a": today, "b": konec}).fetchall():
+                if r[1]:
+                    ev.append({"datum": r[1].isoformat(), "cas": "", "typ": "nastup", "ikona": "🚀",
+                               "nazev": ((r[0] or "Nový zaměstnanec").strip() + " — nástup"),
+                               "kdo": (r[0] or ""), "misto": ""})
+        except Exception as _e:
+            logger.warning("[kalendar nastupy] %s", _e)
+
+        # 7) Ruční události (praxe, pohovory, porady, jiné) — zapisuje HR
+        _ICO = {"praxe": "🎓", "pohovor": "🧑‍💼", "porada": "👥", "nastup": "🚀",
+                "akce": "🎉", "skoleni": "📚", "jine": "📌"}
+        try:
+            for r in s.execute(_t(
+                "SELECT id, typ, nazev, datum, cas, misto, poznamka FROM tenant.hr_kalendar_udalost "
+                "WHERE tenant_id=2 AND COALESCE(active,true)=true AND datum BETWEEN :a AND :b"),
+                {"a": today, "b": konec}).fetchall():
+                ev.append({"id": int(r[0]), "datum": r[3].isoformat(), "cas": (r[4] or ""),
+                           "typ": (r[1] or "jine"), "ikona": _ICO.get((r[1] or "jine"), "📌"),
+                           "nazev": (r[2] or ""), "kdo": "", "misto": (r[5] or ""),
+                           "poznamka": (r[6] or ""), "rucni": True})
+        except Exception as _e:
+            logger.warning("[kalendar rucni] %s", _e)
+
         ev.sort(key=lambda x: (x["datum"], x["cas"]))
         return JSONResponse({"ok": True, "udalosti": ev, "pocet": len(ev),
                              "od": today.isoformat(), "do": konec.isoformat()})
     except Exception as exc:
         logger.exception("[hr_kalendar] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+_KAL_TYPY = {"praxe": "Praxe", "pohovor": "Pohovor", "porada": "Porada",
+             "nastup": "Nástup", "akce": "Firemní akce", "skoleni": "Školení", "jine": "Jiné"}
+
+
+@api_router.post("/app/hr/kalendar/udalost")
+async def app_hr_kalendar_udalost_save(req: Request):
+    """Přidání/úprava ruční události do kalendáře (praxe, pohovor, porada, jiné). HR-only."""
+    from sqlalchemy import text as _t
+    me = _uid_from_token_or_cookie(req)
+    if not me:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    nazev = str((b or {}).get("nazev") or "").strip()
+    datum = str((b or {}).get("datum") or "").strip()
+    if not nazev or not datum:
+        return JSONResponse({"ok": False, "error": "Vyplň název a datum."})
+    typ = str((b or {}).get("typ") or "jine").strip().lower()
+    if typ not in _KAL_TYPY:
+        typ = "jine"
+    cas = (str(b.get("cas") or "").strip() or None)
+    misto = (str(b.get("misto") or "").strip() or None)
+    pozn = (str(b.get("poznamka") or "").strip() or None)
+    dado = (str(b.get("datum_do") or "").strip() or None)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, me):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        jm = _user_jmeno(s, me)
+        eid = (b or {}).get("id")
+        if eid:
+            s.execute(_t("UPDATE tenant.hr_kalendar_udalost SET typ=:t, nazev=:n, datum=CAST(:d AS date), "
+                         "cas=:c, datum_do=CAST(:dd AS date), misto=:m, poznamka=:p "
+                         "WHERE tenant_id=2 AND id=:i"),
+                      {"t": typ, "n": nazev, "d": datum, "c": cas, "dd": dado, "m": misto, "p": pozn, "i": int(eid)})
+        else:
+            s.execute(_t("INSERT INTO tenant.hr_kalendar_udalost "
+                         "(tenant_id,typ,nazev,datum,cas,datum_do,misto,poznamka,created_by_id,created_by_text) "
+                         "VALUES (2,:t,:n,CAST(:d AS date),:c,CAST(:dd AS date),:m,:p,:by,:byt)"),
+                      {"t": typ, "n": nazev, "d": datum, "c": cas, "dd": dado, "m": misto, "p": pozn,
+                       "by": me, "byt": jm})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_kalendar_udalost_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/kalendar/udalost/{eid}/smazat")
+async def app_hr_kalendar_udalost_del(eid: int, req: Request):
+    """Smazání ruční události z kalendáře (měkké — active=false). HR-only."""
+    from sqlalchemy import text as _t
+    me = _uid_from_token_or_cookie(req)
+    if not me:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, me):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("UPDATE tenant.hr_kalendar_udalost SET active=false WHERE tenant_id=2 AND id=:i"),
+                  {"i": eid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_kalendar_udalost_del] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

@@ -383,10 +383,12 @@
     <div class="tbar">
       <b style="font-size:14px">📅 Kalendář</b>
       <span id="kalcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
-      <input id="kalsrch" oninput="kalendarFilter()" placeholder="🔎 Hledat…" style="margin-left:auto;min-width:200px">
-      <select id="kaltyp" onchange="kalendarFilter()" style="margin-left:8px"><option value="">Vše</option><option value="akce">Firemní akce</option><option value="narozeniny">Narozeniny</option><option value="vyroci">Výročí</option><option value="zkusebka">Konec zkušebky</option><option value="smlouva">Konec smlouvy</option></select>
+      <button onclick="kalNew()" style="margin-left:auto;border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:8px;padding:5px 13px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer">➕ Přidat událost</button>
+      <input id="kalsrch" oninput="kalendarFilter()" placeholder="🔎 Hledat…" style="margin-left:8px;min-width:170px">
+      <select id="kaltyp" onchange="kalendarFilter()" style="margin-left:8px"><option value="">Vše</option><option value="akce">Firemní akce</option><option value="pohovor">Pohovory</option><option value="porada">Porady</option><option value="praxe">Praxe</option><option value="nastup">Nástupy</option><option value="narozeniny">Narozeniny</option><option value="vyroci">Výročí</option><option value="zkusebka">Konec zkušebky</option><option value="smlouva">Konec smlouvy</option></select>
     </div>
-    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Vše s datem ze STRATEGIE na jednom místě — firemní akce, narozeniny, výročí, konce zkušebek a smluv (nejbližší 4 měsíce). Jen ke čtení.<br>📌 Zdroj: Novinky + evidence zaměstnanců (narozeniny, poměry). 🔗 Napojení tvého Outlooku připravujeme jako další krok.</div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Vše s datem na jednom místě — <b>tvoje události</b> (praxe, pohovory, porady…) i automaticky firemní akce, narozeniny, výročí, nové nástupy a konce zkušebek/smluv (nejbližší 4 měsíce).<br>📌 Zdroj: ruční události + Novinky + evidence zaměstnanců. 🔗 Napojení tvého Outlooku připravujeme.</div>
+    <div id="kalForm" style="display:none;margin:0 14px 8px"></div>
     <div id="kallist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
@@ -891,9 +893,50 @@ function kalendarFilter(){
     }
     const cas=x.cas?('<b style="color:#7fb2e8">'+esc((''+x.cas).slice(0,5))+'</b> '):'';
     const misto=x.misto?(' <span style="color:#5d6b7c">· '+esc(x.misto)+'</span>'):'';
-    h+='<div style="display:flex;gap:10px;align-items:baseline;padding:5px 2px"><span style="font-size:15px;flex:none">'+esc(x.ikona||'•')+'</span><span style="color:#e8eef5;font-size:13px">'+cas+esc(x.nazev)+misto+'</span></div>';
+    const tag=x.rucni?' <span style="font-size:10px;color:#7fb2e8;background:#12233a;border-radius:8px;padding:0 6px">moje</span>':'';
+    const akce=(x.rucni&&x.id)?('<a href="#" onclick="kalEdit('+x.id+');return false;" title="Upravit" style="color:#aac8ec;text-decoration:none;margin-left:6px">✏️</a> <a href="#" onclick="kalDel('+x.id+');return false;" title="Smazat" style="color:#ff8a7a;text-decoration:none">✕</a>'):'';
+    h+='<div style="display:flex;gap:10px;align-items:baseline;padding:5px 2px"><span style="font-size:15px;flex:none">'+esc(x.ikona||'•')+'</span><span style="color:#e8eef5;font-size:13px;flex:1;min-width:0">'+cas+esc(x.nazev)+tag+misto+'</span><span style="flex:none">'+akce+'</span></div>';
   });
   box.innerHTML=h;
+}
+function kalNew(ev){
+  const box=document.getElementById('kalForm'); if(!box) return;
+  const e=ev||{};
+  box.style.display='';
+  box.innerHTML='<div style="border:1px solid #2e7d46;border-radius:10px;background:#0f1b12;padding:10px 12px">'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px">'+
+    '<select id="kfTyp" style="font:inherit"><option value="pohovor">🧑‍💼 Pohovor</option><option value="porada">👥 Porada</option><option value="praxe">🎓 Praxe</option><option value="nastup">🚀 Nástup</option><option value="akce">🎉 Firemní akce</option><option value="skoleni">📚 Školení</option><option value="jine">📌 Jiné</option></select>'+
+    '<input id="kfNazev" placeholder="Název (co se koná, kdo)" value="'+esc(e.nazev||'')+'" style="min-width:230px;flex:1">'+
+    '<input id="kfDatum" type="date" value="'+esc(e.datum||'')+'" style="width:150px">'+
+    '<input id="kfCas" type="time" value="'+esc((''+(e.cas||'')).slice(0,5))+'" style="width:110px" title="Čas (nepovinné)">'+
+    '<input id="kfMisto" placeholder="Místo (nepovinné)" value="'+esc(e.misto||'')+'" style="min-width:150px">'+
+    '<button onclick="kalSave('+(e.id||0)+')" style="border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:7px;padding:5px 13px;font:inherit;font-size:12px;font-weight:700;cursor:pointer">Uložit</button>'+
+    '<button onclick="document.getElementById(\'kalForm\').style.display=\'none\'" style="border:1px solid #3a4657;background:#1b2430;color:#cdd6e2;border-radius:7px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer">Zrušit</button>'+
+    '</div><div id="kfMsg" style="margin-top:5px;font-size:12px"></div></div>';
+  if(e.typ) document.getElementById('kfTyp').value=e.typ;
+}
+async function kalSave(id){
+  const msg=document.getElementById('kfMsg');
+  const body={typ:document.getElementById('kfTyp').value, nazev:document.getElementById('kfNazev').value, datum:document.getElementById('kfDatum').value, cas:document.getElementById('kfCas').value, misto:document.getElementById('kfMisto').value};
+  if(id) body.id=id;
+  if(!(body.nazev||'').trim()||!body.datum){ msg.innerHTML='<span style="color:#ff8a7a">Vyplň název a datum.</span>'; return; }
+  msg.innerHTML='Ukládám…';
+  try{
+    const r=await fetch(API+'/app/hr/kalendar/udalost',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(!d.ok){ msg.innerHTML='<span style="color:#ff8a7a">✗ '+esc(d.error||'chyba')+'</span>'; return; }
+    document.getElementById('kalForm').style.display='none';
+    KALENDAR=null; loadKalendar();
+  }catch(e){ msg.innerHTML='<span style="color:#ff8a7a">✗ síť</span>'; }
+}
+function kalEdit(id){ const e=(KALENDAR||[]).find(x=>x.id===id); if(e) kalNew(e); }
+async function kalDel(id){
+  if(!confirm('Smazat tuto událost?')) return;
+  try{
+    const r=await fetch(API+'/app/hr/kalendar/udalost/'+id+'/smazat',{method:'POST',credentials:'same-origin'});
+    const d=await r.json();
+    if(d.ok){ KALENDAR=null; loadKalendar(); }
+  }catch(e){}
 }
 let POSTY_LIDE=null;
 async function loadPostyLide(){

@@ -11791,6 +11791,110 @@ async def app_hr_tabule_soubor_upload(req: Request, file: UploadFile = File(...)
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/kalendar")
+async def app_hr_kalendar(req: Request):
+    """Kalendář HR (Šárka 13.8.2026): agreguje vše s datem, co už ve STRATEGII je —
+    firemní akce (Novinky), narozeniny, pracovní výročí (násobek 5), konec zkušební doby
+    a konec smlouvy. Read-only. HR-gated. (Outlook napojíme v dalším kroku.)"""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    try:
+        dnu = int(req.query_params.get("dnu") or 120)
+    except Exception:
+        dnu = 120
+    dnu = max(14, min(dnu, 366))
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        today = _dt.date.today()
+        konec = today + _dt.timedelta(days=dnu)
+        ev = []
+
+        def _occ(d):
+            if not d:
+                return None
+            try:
+                o = d.replace(year=today.year)
+            except ValueError:
+                o = _dt.date(today.year, 2, 28)
+            if o < today:
+                try:
+                    o = d.replace(year=today.year + 1)
+                except ValueError:
+                    o = _dt.date(today.year + 1, 2, 28)
+            return o
+
+        # 1) Firemní akce z Novinek
+        try:
+            for r in s.execute(_t(
+                "SELECT datum_akce, cas, nadpis, misto FROM tenant.hr_novinka "
+                "WHERE tenant_id=2 AND datum_akce IS NOT NULL "
+                "  AND datum_akce BETWEEN :a AND :b ORDER BY datum_akce"),
+                {"a": today, "b": konec}).fetchall():
+                ev.append({"datum": r[0].isoformat(), "cas": (r[1] or ""), "typ": "akce",
+                           "ikona": "🎉", "nazev": (r[2] or "Akce"), "kdo": "",
+                           "misto": (r[3] or "")})
+        except Exception as _e:
+            logger.warning("[kalendar akce] %s", _e)
+
+        # 2/3) Narozeniny + pracovní výročí; 4/5) konce zkušebek a smluv
+        try:
+            rows = s.execute(_t(
+                "SELECT n.jmeno, n.birth, eng.prvni, eng.zkusebni_do, eng.smlouva_do FROM ("
+                "  SELECT ae.user_id, min(e.smlouva_od) prvni,"
+                "    (array_agg(e.zkusebni_do ORDER BY e.is_current DESC, e.id DESC))[1] zkusebni_do,"
+                "    (array_agg(e.smlouva_do  ORDER BY e.is_current DESC, e.id DESC))[1] smlouva_do"
+                "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2"
+                "  WHERE e.tenant_id=2 AND ae.user_id IS NOT NULL GROUP BY ae.user_id"
+                "  HAVING bool_or(e.is_current AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date))) eng"
+                " JOIN (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
+                "        max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current"
+                "        GROUP BY user_id) n ON n.user_id=eng.user_id")).fetchall()
+            for jm, birth, prvni, zk, sml in rows:
+                jm = (jm or "").strip()
+                if not jm:
+                    continue
+                ob = _occ(birth)
+                if ob and today <= ob <= konec:
+                    vek = ob.year - birth.year
+                    ev.append({"datum": ob.isoformat(), "cas": "", "typ": "narozeniny",
+                               "ikona": "🎂", "nazev": jm + " — " + str(vek) + ". narozeniny",
+                               "kdo": jm, "misto": ""})
+                ov = _occ(prvni)
+                if ov and today <= ov <= konec:
+                    yrs = ov.year - prvni.year
+                    if yrs >= 5 and yrs % 5 == 0:
+                        ev.append({"datum": ov.isoformat(), "cas": "", "typ": "vyroci",
+                                   "ikona": "🏆", "nazev": jm + " — " + str(yrs) + " let ve firmě",
+                                   "kdo": jm, "misto": ""})
+                if zk and today <= zk <= konec:
+                    ev.append({"datum": zk.isoformat(), "cas": "", "typ": "zkusebka",
+                               "ikona": "📋", "nazev": jm + " — konec zkušební doby",
+                               "kdo": jm, "misto": ""})
+                if sml and today <= sml <= konec:
+                    ev.append({"datum": sml.isoformat(), "cas": "", "typ": "smlouva",
+                               "ikona": "📄", "nazev": jm + " — konec smlouvy",
+                               "kdo": jm, "misto": ""})
+        except Exception as _e:
+            logger.warning("[kalendar lide] %s", _e)
+
+        ev.sort(key=lambda x: (x["datum"], x["cas"]))
+        return JSONResponse({"ok": True, "udalosti": ev, "pocet": len(ev),
+                             "od": today.isoformat(), "do": konec.isoformat()})
+    except Exception as exc:
+        logger.exception("[hr_kalendar] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/podminky-prehled")
 async def app_hr_podminky_prehled(req: Request):
     """Přehled podmínek zaměstnanců v tabulce (Šárka 13.8.2026): aktuální poměry +

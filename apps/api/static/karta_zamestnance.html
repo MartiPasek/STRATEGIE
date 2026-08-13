@@ -378,6 +378,18 @@
     </div>
   </div>
 </div>
+<div class="wrapfull" id="kalendarcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">📅 Kalendář</b>
+      <span id="kalcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <input id="kalsrch" oninput="kalendarFilter()" placeholder="🔎 Hledat…" style="margin-left:auto;min-width:200px">
+      <select id="kaltyp" onchange="kalendarFilter()" style="margin-left:8px"><option value="">Vše</option><option value="akce">Firemní akce</option><option value="narozeniny">Narozeniny</option><option value="vyroci">Výročí</option><option value="zkusebka">Konec zkušebky</option><option value="smlouva">Konec smlouvy</option></select>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Vše s datem ze STRATEGIE na jednom místě — firemní akce, narozeniny, výročí, konce zkušebek a smluv (nejbližší 4 měsíce). Jen ke čtení.<br>📌 Zdroj: Novinky + evidence zaměstnanců (narozeniny, poměry). 🔗 Napojení tvého Outlooku připravujeme jako další krok.</div>
+    <div id="kallist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -429,11 +441,13 @@ function setView(v){
   const psc=document.getElementById('postycard'); if(psc) psc.style.display=(v==='posty')?'':'none';
   const tbc=document.getElementById('tabulecard'); if(tbc) tbc.style.display=(v==='tabule')?'':'none';
   const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
+  const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
   if(v==='posty'){ loadPostyLide(); return; }
   if(v==='tabule'){ loadTabule(); return; }
   if(v==='podminky'){ loadPodminky(); return; }
+  if(v==='kalendar'){ loadKalendar(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -610,7 +624,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty' || v==='tabule' || v==='podminky'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar'){ setView(v); }
 }catch(e){} })();
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
@@ -846,6 +860,40 @@ function podminkyFilter(){
       '<td style="padding:4px 8px;text-align:center;color:#e8eef5">'+dov+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sd+'</td></tr>';
   }).join('');
+}
+let KALENDAR=null;
+function _kalDen(iso){ if(!iso) return ''; const p=iso.split('-'); if(p.length!==3) return iso; const dny=['ne','po','út','st','čt','pá','so']; const dt=new Date(iso+'T00:00:00'); return dny[dt.getDay()]+' '+parseInt(p[2])+'. '+parseInt(p[1])+'. '+p[0]; }
+async function loadKalendar(){
+  const box=document.getElementById('kallist'); if(!box) return;
+  if(KALENDAR){ kalendarFilter(); return; }
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let r; try{ r=await fetch(API+'/app/hr/kalendar',{credentials:'same-origin'}); }catch(e){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ síť. Ctrl+Shift+R.</div>'; return; }
+  if(!r.ok){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ Server '+r.status+'</div>'; return; }
+  let d; try{ d=await r.json(); }catch(e){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ Odpověď není JSON. Ctrl+Shift+R.</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
+  KALENDAR=d.udalosti||[];
+  kalendarFilter();
+}
+function kalendarFilter(){
+  const box=document.getElementById('kallist'), cnt=document.getElementById('kalcnt');
+  if(!box||!KALENDAR) return;
+  const q=(document.getElementById('kalsrch').value||'').trim().toLowerCase();
+  const tf=document.getElementById('kaltyp').value;
+  let ev=KALENDAR;
+  if(tf) ev=ev.filter(x=>x.typ===tf);
+  if(q) ev=ev.filter(x=>(x.nazev||'').toLowerCase().includes(q));
+  if(cnt) cnt.textContent='('+ev.length+' událostí)';
+  if(!ev.length){ box.innerHTML='<div class="empty">Nic v tomto období.</div>'; return; }
+  let h='', lastDay='';
+  ev.forEach(function(x){
+    if(x.datum!==lastDay){ lastDay=x.datum;
+      h+='<div style="margin:13px 0 3px;color:#aac8ec;font-weight:700;font-size:12px;border-bottom:1px solid #1e2730;padding-bottom:3px">'+esc(_kalDen(x.datum))+'</div>';
+    }
+    const cas=x.cas?('<b style="color:#7fb2e8">'+esc((''+x.cas).slice(0,5))+'</b> '):'';
+    const misto=x.misto?(' <span style="color:#5d6b7c">· '+esc(x.misto)+'</span>'):'';
+    h+='<div style="display:flex;gap:10px;align-items:baseline;padding:5px 2px"><span style="font-size:15px;flex:none">'+esc(x.ikona||'•')+'</span><span style="color:#e8eef5;font-size:13px">'+cas+esc(x.nazev)+misto+'</span></div>';
+  });
+  box.innerHTML=h;
 }
 let POSTY_LIDE=null;
 async function loadPostyLide(){

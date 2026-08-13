@@ -1622,14 +1622,19 @@ async function absUdaje(){
         '⚠️ Dny s <b>dovolenou / nemocí</b> se zatím počítají jako neodpracované, takže u lidí s absencí je „chybí" nadsazené — omluvená absence se do bilance teprve dopočítává (řeší se).'+
       '</div></div>';
   }
-  h+='<div style="padding:8px 16px 2px;font-weight:800;color:#e8eef5;border-top:1px solid #1e2730">📅 Události a absence</div>';
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; }
-  else if(!(d.zaznamy||[]).length){ h+='<div class="empty">Žádné záznamy o absenci.</div>'; }
   else {
+    const zz=d.zaznamy||[];
     const col=(st)=> (/schvál|approv|ukonc/i.test(st))?'#7fe0a0':(/pend|nov|žád/i.test(st)?'#E0A94A':'#cdd6e2');
-    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    const tbl=(list)=> !list.length ? '<div class="empty" style="padding:12px 16px;text-align:left">—</div>' :
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
       '<tr><td style="color:#7f8ea0;padding:6px 16px">Typ</td><td style="color:#7f8ea0;padding:6px 16px">Od – do</td><td style="color:#7f8ea0;padding:6px 16px">Stav</td></tr>'+
-      d.zaznamy.map(z=>'<tr style="border-top:1px solid #1e2730"><td style="padding:6px 16px;color:#e8eef5">'+esc(z.typ)+'</td><td style="padding:6px 16px;color:#e8eef5">'+esc(z.od)+(z.do?(' – '+esc(z.do)):'')+'</td><td style="padding:6px 16px;color:'+col(z.stav)+'">'+esc(z.stav)+'</td></tr>').join('')+'</table>';
+      list.map(z=>'<tr style="border-top:1px solid #1e2730"><td style="padding:6px 16px;color:#e8eef5">'+esc(z.typ)+'</td><td style="padding:6px 16px;color:#e8eef5;white-space:nowrap">'+esc(z.od)+(z.do?(' – '+esc(z.do)):'')+'</td><td style="padding:6px 16px;color:'+col(z.stav)+'">'+esc(z.stav)+'</td></tr>').join('')+'</table>';
+    const bud=zz.filter(z=>z.budouci).reverse();
+    const mnu=zz.filter(z=>!z.budouci);
+    h+='<div style="padding:8px 16px 2px;font-weight:800;color:#e8eef5;border-top:1px solid #1e2730">🔜 Naplánované a probíhající ('+bud.length+')</div>'+tbl(bud)+
+       '<div style="padding:10px 16px 2px;font-weight:800;color:#e8eef5;border-top:1px solid #1e2730">✓ Minulé / vyčerpané ('+mnu.length+')</div>'+tbl(mnu);
+    if(!zz.length){ h+='<div class="empty">Žádné záznamy o absenci.</div>'; }
   }
   det.innerHTML=h;
 }

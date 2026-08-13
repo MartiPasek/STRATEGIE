@@ -11885,13 +11885,16 @@ async def app_hr_person_absence(req: Request):
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
-            "SELECT typ, datum_od, datum_do, stav FROM tenant.att_absence_request "
-            "WHERE tenant_id=2 AND user_id=:u ORDER BY datum_od DESC NULLS LAST LIMIT 50"),
+            "SELECT typ, datum_od, datum_do, stav, "
+            "  (COALESCE(datum_do,datum_od) >= current_date) AS budouci "
+            "FROM tenant.att_absence_request "
+            "WHERE tenant_id=2 AND user_id=:u ORDER BY datum_od DESC NULLS LAST LIMIT 80"),
             {"u": tuid}).fetchall()
 
         def _d(x):
             return x.strftime("%d.%m.%Y") if x else ""
-        zaznamy = [{"typ": (r[0] or ""), "od": _d(r[1]), "do": _d(r[2]), "stav": (r[3] or "")} for r in rows]
+        zaznamy = [{"typ": (r[0] or ""), "od": _d(r[1]), "do": _d(r[2]), "stav": (r[3] or ""),
+                    "budouci": bool(r[4])} for r in rows]
         return JSONResponse({"ok": True, "zaznamy": zaznamy})
     except Exception as exc:
         logger.exception("[hr_person_absence] %s", exc)

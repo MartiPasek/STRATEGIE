@@ -11571,7 +11571,7 @@ async def app_hr_organigram_osoba(req: Request):
                     continue
                 seen.add(key)
                 res.append({"user_id": (int(huid) if huid else None), "jmeno": jm})
-            return sorted(res, key=lambda x: x["jmeno"])
+            return sorted(res, key=lambda x: (x["jmeno"] or ""))
 
         parent_ids = [p["parent"] for p in posty if p["parent"]]
         my_ids = [p["id"] for p in posty]

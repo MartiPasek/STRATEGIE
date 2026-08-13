@@ -1128,7 +1128,13 @@ async function loadLeave(uid){
     cols.push('<div style="flex:1 1 280px;min-width:250px">'+
       '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">📊 Docházka '+esc(dm.mesic||'')+' <span style="color:#5d6b7c;font-weight:400">(k dnešku)</span></div>'+
       '<div style="display:flex;gap:8px">'+tile('h odpracováno',dm.odpracovano)+tile('h má být',dm.ma_byt_k_dnesku)+tile(lbl,val,acc)+'</div>'+
-      '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Fond '+num(dm.fond_den)+' h/den · '+num(dm.prac_dni_k_dnesku)+' prac. dní k dnešku</div></div>');
+      '<div style="font-size:10.5px;color:#8090a0;margin-top:5px;line-height:1.55">'+
+        'Fond '+num(dm.fond_den)+' h/den · '+num(dm.prac_dni_k_dnesku)+' prac. dní k dnešku (dnešek se do „má být" nepočítá).<br>'+
+        '<b style="color:#9fb4d0">Odpracováno</b> = skutečně napíchané hodiny včetně dneška i přesčasů · '+
+        '<b style="color:#9fb4d0">Má být</b> = fond za pracovní dny k dnešku · '+
+        '<b style="color:#9fb4d0">'+(lbl==='h přesčas'?'Přesčas':'Zbývá')+'</b> = rozdíl (přesčas = nadpracováno navíc).<br>'+
+        '⚠️ Dny s <b>dovolenou / nemocí</b> se zatím počítají jako neodpracované, takže u lidí s absencí je „zbývá" nadsazené — omluvená absence se do bilance teprve dopočítává.'+
+      '</div></div>');
   }
   if(!cols.length){ box.style.display='none'; return; }
   box.style.display='';

@@ -297,6 +297,7 @@ const TCOLS=[
   {k:'uvazek',t:'Úvazek',num:1},{k:'zaklad',t:'Základ',num:1,kc:1},
   {k:'os_ohod',t:'Os. ohod.',num:1,kc:1},{k:'premie',t:'Prémie',num:1,kc:1},
   {k:'individ',t:'Individ.',num:1,kc:1},{k:'hruba',t:'Hrubá',num:1,kc:1},
+  {k:'dov_dny',t:'Dovolená',num:1},{k:'sd_h',t:'Sick days',num:1},
   {k:'stav',t:'Stav'}
 ];
 function setView(v){
@@ -354,6 +355,11 @@ async function loadTabulka(){
   const t=document.getElementById('dtbl');
   if(!d.ok){t.innerHTML='<tbody><tr><td style="padding:16px">🔒 '+esc(d.error||'chyba')+'</td></tr></tbody>';return;}
   TAB=d.radky||[]; TABLOADED=true;
+  // Sosáme podmínky (dovolená/sick days/věrnost) z hotového endpointu /app/hr/podminky-prehled a spojíme dle uid. Nikomu neměníme kód.
+  try{ const pd=await j(API+"/app/hr/podminky-prehled");
+    if(pd && pd.ok){ const m={}; (pd.radky||[]).forEach(function(r){ m[r.uid]=r; });
+      TAB.forEach(function(p){ const r=m[p.user_id]; if(r){ p.dov_dny=r.dov_dny; p.sd_h=r.sd_h; p.vernost=r.vernost; } }); }
+  }catch(e){}
   const tp=document.getElementById('tpoz');
   if(tp && POZ.length) tp.innerHTML='<option value="">Všechny pozice</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join('');
   renderTab();
@@ -401,6 +407,8 @@ function renderTab(){
       '<td class="num">'+(p.premie!=null?kc(p.premie):'—')+'</td>'+
       '<td class="num">'+(p.individ!=null?kc(p.individ):'—')+'</td>'+
       '<td class="num">'+(p.hruba!=null?kc(p.hruba):'—')+'</td>'+
+      '<td class="num">'+(p.dov_dny!=null?(p.dov_dny+' dní'+(p.vernost?' <span class="chip" title="věrnostní +1">+1</span>':'')):'—')+'</td>'+
+      '<td class="num">'+(p.sd_h!=null?(p.sd_h+' h'):'—')+'</td>'+
       '<td>'+stav+'</td></tr>';
   });
   document.getElementById('dtbl').innerHTML=h+'</tbody>';

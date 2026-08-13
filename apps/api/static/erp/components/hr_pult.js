@@ -75,13 +75,8 @@
       '    <div id="hrpNovForm"></div>' +
       '    <div id="hrpNovList"><div class="hrp-empty">Načítám…</div></div>' +
       '  </div>' +
-      '  <div class="hrp-panel">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
-      '    <div class="hrp-grid" id="hrpGrid"></div>' +
-      '  </div>' +
       '</div>';
 
-    renderTiles(el.querySelector("#hrpGrid"));
     loadMimoPanel(el);
     loadJubilea(el);
     loadNovinky(el);

@@ -1107,39 +1107,30 @@ async function loadLeave(uid){
   const tile=(label,val,accent)=>'<div style="flex:1;min-width:74px;background:#122238;border:1px solid #1c3350;border-radius:10px;padding:8px 10px;text-align:center">'+
     '<div style="font-size:19px;font-weight:800;color:'+(accent||'#eaf2ff')+';line-height:1.1">'+num(val)+'</div>'+
     '<div style="font-size:10px;color:#8fa6c4;margin-top:2px;text-transform:uppercase;letter-spacing:.02em">'+label+'</div></div>';
+  const bigcard=(ic,val,label,accent,sub)=>'<div style="flex:1 1 210px;min-width:190px;background:#122238;border:1px solid #1c3350;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px">'+
+    '<div style="font-size:24px;line-height:1">'+ic+'</div>'+
+    '<div style="min-width:0"><div style="font-size:23px;font-weight:800;color:'+(accent||'#eaf2ff')+';line-height:1.05">'+val+'</div>'+
+    '<div style="font-size:11.5px;color:#9fb4d0">'+label+'</div>'+
+    (sub?'<div style="font-size:10px;color:#5d6b7c;margin-top:1px">'+sub+'</div>':'')+'</div></div>';
   const cols=[];
   const dv=d.dovolena;
-  if(dv) cols.push('<div style="flex:1 1 280px;min-width:250px">'+
-    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🏖️ Dovolená '+d.rok+'</div>'+
-    '<div style="display:flex;gap:8px">'+tile('dní zbývá',(dv.zbytek==null?'—':dv.zbytek),(dv.zbytek==null?'#eaf2ff':(dv.zbytek<=0?'#ff8a7a':'#7fe0a0')))+tile('dní využito',dv.cerpano)+tile('dní v plánu',dv.plan)+'</div>'+
-    (dv.narok!=null?('<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(dv.narok)+' dní'+(dv.narok_dn?(' (D '+num(dv.narok_d)+' + navíc '+num(dv.narok_dn)+')'):'')+'</div>'):'')+'</div>');
+  if(dv) cols.push(bigcard('🌴',(dv.zbytek==null?'—':num(dv.zbytek)),'dní dovolené zbývá',
+    (dv.zbytek==null?'#eaf2ff':(dv.zbytek<=0?'#ff8a7a':'#7fe0a0')),
+    (dv.narok!=null?('z nároku '+num(dv.narok)+' dní · '+num(dv.cerpano)+' využito'+(dv.plan?(' · '+num(dv.plan)+' v plánu'):'')):'')));
   const sk=d.sick;
-  if(sk) cols.push('<div style="flex:1 1 180px;min-width:165px">'+
-    '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">🤒 Sick days '+d.rok+'</div>'+
-    '<div style="display:flex;gap:8px">'+tile('h zbývá',(sk.zbytek_h==null?'—':sk.zbytek_h),(sk.zbytek_h==null?'#eaf2ff':(sk.zbytek_h<=0?'#ff8a7a':'#7fe0a0')))+tile('h využito',sk.cerpano_h)+'</div>'+
-    '<div style="font-size:10.5px;color:#5d6b7c;margin-top:4px">Nárok '+num(sk.narok_h)+' h</div></div>');
-  // Docházka tento měsíc k dnešku (odpracováno vs. fond) — Šárka 12.8.2026
+  if(sk) cols.push(bigcard('🤒',(sk.zbytek_h==null?'—':num(sk.zbytek_h)),'h sick days zbývá',
+    (sk.zbytek_h==null?'#eaf2ff':(sk.zbytek_h<=0?'#ff8a7a':'#7fe0a0')),
+    (sk.narok_h!=null?('z nároku '+num(sk.narok_h)+' h'):'')));
   let dm=null; try{ dm=await j(API+'/app/dochazka/moje-mesic?uid='+uid); }catch(e){}
-  if(dm&&dm.ok&&dm.has){
-    const chyb=dm.chybi;
-    const acc=(chyb==null?'#eaf2ff':(chyb>0?'#ff8a7a':'#7fe0a0'));
-    const lbl=(chyb!=null&&chyb<0)?'h přesčas':'h zbývá';
-    const val=(chyb==null?'—':Math.abs(chyb));
-    cols.push('<div style="flex:1 1 280px;min-width:250px">'+
-      '<div style="font-size:11px;color:#9fb4d0;font-weight:700;margin-bottom:5px">📊 Docházka '+esc(dm.mesic||'')+' <span style="color:#5d6b7c;font-weight:400">(k dnešku)</span></div>'+
-      '<div style="display:flex;gap:8px">'+tile('h odpracováno',dm.odpracovano)+tile('h má být',dm.ma_byt_k_dnesku)+tile(lbl,val,acc)+'</div>'+
-      '<div style="font-size:10.5px;color:#8090a0;margin-top:5px;line-height:1.55">'+
-        'Fond '+num(dm.fond_den)+' h/den · '+num(dm.prac_dni_k_dnesku)+' prac. dní k dnešku (dnešek se do „má být" nepočítá).<br>'+
-        '<b style="color:#9fb4d0">Odpracováno</b> = skutečně napíchané hodiny včetně dneška i přesčasů · '+
-        '<b style="color:#9fb4d0">Má být</b> = fond za pracovní dny k dnešku · '+
-        '<b style="color:#9fb4d0">'+(lbl==='h přesčas'?'Přesčas':'Zbývá')+'</b> = rozdíl (přesčas = nadpracováno navíc).<br>'+
-        '⚠️ Dny s <b>dovolenou / nemocí</b> se zatím počítají jako neodpracované, takže u lidí s absencí je „zbývá" nadsazené — omluvená absence se do bilance teprve dopočítává.'+
-      '</div></div>');
+  if(dm&&dm.ok&&dm.has){ const chyb=dm.chybi; const pres=(chyb!=null&&chyb<0);
+    cols.push(bigcard('🕐',(chyb==null?'—':num(Math.abs(chyb))),(pres?'h přesčas':'h do fondu zbývá'),
+      (chyb==null?'#eaf2ff':(chyb>0?'#ff8a7a':'#7fe0a0')),
+      esc(dm.mesic||'')+' k dnešku · detail v dlaždici Docházka'));
   }
   if(!cols.length){ box.style.display='none'; return; }
   box.style.display='';
-  const upoz='<div style="margin-top:9px;font-size:10.5px;color:#5d6b7c">Zdroj: docházka – živý přehled (Peťa), stejná data jako u vedoucích výroby. Dovolená ve dnech, sick days v hodinách.</div>';
-  box.innerHTML='<div style="display:flex;gap:16px 22px;flex-wrap:wrap">'+cols.join('')+'</div>'+upoz;
+  const upoz='<div style="margin-top:9px;font-size:10.5px;color:#5d6b7c">📌 Zdroj: docházkový systém STRATEGIE – živý přehled (píchačky + schválené absence, Peťa). Dovolená ve dnech, sick days v hodinách. Podrobný rozpad v dlaždici 🕐 Docházka.</div>';
+  box.innerHTML='<div style="display:flex;gap:12px;flex-wrap:wrap">'+cols.join('')+'</div>'+upoz;
 }
 function openP(uid,row){
   CUR_UID=uid;
@@ -1636,6 +1627,7 @@ async function absUdaje(){
        '<div style="padding:10px 16px 2px;font-weight:800;color:#e8eef5;border-top:1px solid #1e2730">✓ Minulé / vyčerpané ('+mnu.length+')</div>'+tbl(mnu);
     if(!zz.length){ h+='<div class="empty">Žádné záznamy o absenci.</div>'; }
   }
+  h+='<div style="padding:10px 16px 14px;color:#5d6b7c;font-size:11px;border-top:1px solid #1e2730">📌 Zdroj: docházkový systém STRATEGIE — píchačky (odpracované hodiny) a schválené žádosti o absenci; živý přehled (Peťa).</div>';
   det.innerHTML=h;
 }
 

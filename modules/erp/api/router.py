@@ -11891,6 +11891,39 @@ def _hr_kalendar_ev(s, today, konec):
     except Exception as _e:
         logger.warning("[kalendar rucni] %s", _e)
 
+    # 8) Dovolená / absence (schválené) — přehled zastupitelnosti
+    try:
+        for r in s.execute(_t(
+            "SELECT ar.typ, ar.datum_od, ar.datum_do, "
+            "  COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), "
+            "    (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=ar.user_id "
+            "       AND em.tenant_id=2 LIMIT 1)) jmeno "
+            "FROM tenant.att_absence_request ar LEFT JOIN public.users u ON u.id=ar.user_id "
+            "WHERE ar.tenant_id=2 AND ar.datum_od IS NOT NULL "
+            "  AND (lower(COALESCE(ar.stav,'')) LIKE '%schvál%' OR lower(COALESCE(ar.stav,'')) LIKE '%confirm%' "
+            "       OR lower(COALESCE(ar.stav,'')) LIKE '%approv%' OR lower(COALESCE(ar.stav,'')) LIKE '%ukonc%') "
+            "  AND ar.datum_od <= :b AND COALESCE(ar.datum_do, ar.datum_od) >= :a"),
+            {"a": today, "b": konec}).fetchall():
+            jm = (r[3] or "").strip()
+            tp = (r[0] or "Absence")
+            ico = "🤒" if ("nemoc" in tp.lower() or "sick" in tp.lower()) else "🏖️"
+            ev.append({"datum": r[1].isoformat(), "cas": "", "typ": "dovolena", "ikona": ico,
+                       "nazev": ((jm + " — " + tp) if jm else tp), "kdo": jm, "misto": "",
+                       "do": (r[2].isoformat() if r[2] else "")})
+    except Exception as _e:
+        logger.warning("[kalendar absence] %s", _e)
+
+    # 9) Státní svátky (jen do ERP; do Outlooku ne — má vlastní)
+    try:
+        for r in s.execute(_t(
+            "SELECT day, holiday_name FROM tenant.att_calendar_day "
+            "WHERE tenant_id=2 AND COALESCE(is_holiday,false)=true AND day BETWEEN :a AND :b"),
+            {"a": today, "b": konec}).fetchall():
+            ev.append({"datum": r[0].isoformat(), "cas": "", "typ": "svatek", "ikona": "🎌",
+                       "nazev": (r[1] or "Státní svátek"), "kdo": "", "misto": ""})
+    except Exception as _e:
+        logger.warning("[kalendar svatky] %s", _e)
+
     ev.sort(key=lambda x: (x["datum"], x["cas"]))
     return ev
 
@@ -12062,6 +12095,8 @@ def hr_kalendar_ics(req: Request):
              "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:STRATEGIE – HR kalendář",
              "X-WR-TIMEZONE:Europe/Prague"]
         for e in ev:
+            if e.get("typ") == "svatek":
+                continue
             d = (e.get("datum") or "").replace("-", "")
             if not d:
                 continue

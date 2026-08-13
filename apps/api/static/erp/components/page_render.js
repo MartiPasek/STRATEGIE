@@ -147,6 +147,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Podmínky zaměstnanců (Šárka 13.8.2026): jádro hr.podminky = tabulka podmínek
+      // poměrů (úvazek, doba, nástup, dovolená, sick days). Jen ke čtení.
+      if (String(coreCode) === 'hr.podminky') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=podminky" title="Podmínky zaměstnanců" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Šablony dokumentů (Šárka 24.7.2026): jádro hr.sablony = iframe stránky
       // /hr-sablony (správa pracovněprávních šablon: firma × typ, verzování).
       if (String(coreCode) === 'hr.sablony') {

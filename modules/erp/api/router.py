@@ -11659,6 +11659,56 @@ async def app_hr_tabule(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/podminky-prehled")
+async def app_hr_podminky_prehled(req: Request):
+    """Přehled podmínek zaměstnanců v tabulce (Šárka 13.8.2026): aktuální poměry +
+    úvazek, doba, nástup, nárok dovolené (dní), věrnostní +1, sick days (h). Jen ke
+    ČTENÍ. HR-gated. Zdroj pravdy podmínek je Centrála; tady je zrcadlo ve Strategii."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT u.id uid, COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) jmeno, "
+            "  CASE e.company_id WHEN 1 THEN 'Control' WHEN 2 THEN 'System' ELSE '' END firma, "
+            "  e.engagement_type typ, e.uvazek_tyden_h uvazek, e.smlouva_od, e.smlouva_do, e.zkusebni_do, "
+            "  hb.narok_h dov_h, sb.narok_h sd_h, "
+            "  EXISTS(SELECT 1 FROM tenant.engagement_entitlement ee "
+            "         WHERE ee.engagement_id=e.id AND ee.code='dovolena_vernost_10let') vernost "
+            "FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "JOIN public.users u ON u.id=ae.user_id "
+            "LEFT JOIN tenant.holiday_balance hb ON hb.engagement_id=e.id AND hb.tenant_id=2 "
+            "  AND hb.rok=EXTRACT(YEAR FROM current_date) "
+            "LEFT JOIN tenant.sick_day_balance sb ON sb.engagement_id=e.id AND sb.tenant_id=2 "
+            "  AND sb.rok=EXTRACT(YEAR FROM current_date) "
+            "WHERE e.tenant_id=2 AND e.is_current "
+            "  AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date) AND ae.user_id IS NOT NULL "
+            "ORDER BY jmeno")).fetchall()
+        out = [{"uid": int(r[0]), "jmeno": (r[1] or ""), "firma": (r[2] or ""),
+                "typ": (r[3] or "").upper(),
+                "uvazek": (float(r[4]) if r[4] is not None else None),
+                "nastup": (r[5].isoformat() if r[5] else ""),
+                "smlouva_do": (r[6].isoformat() if r[6] else ""),
+                "zkusebni_do": (r[7].isoformat() if r[7] else ""),
+                "dov_dny": (round(float(r[8]) / 8, 1) if r[8] is not None else None),
+                "sd_h": (float(r[9]) if r[9] is not None else None),
+                "vernost": bool(r[10])} for r in rows]
+        return JSONResponse({"ok": True, "radky": out, "pocet": len(out)})
+    except Exception as exc:
+        logger.exception("[hr_podminky_prehled] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
     """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""

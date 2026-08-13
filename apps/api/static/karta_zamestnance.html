@@ -332,6 +332,26 @@
     <div id="tabuleboard" style="padding:10px 12px 16px;overflow:auto"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="podminkycard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">📑 Podmínky zaměstnanců</b>
+      <span id="podmcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <input id="podmsrch" oninput="podminkyFilter()" placeholder="🔎 Hledat jméno…" style="margin-left:12px;min-width:220px">
+      <select id="podmfirma" onchange="podminkyFilter()" style="margin-left:8px"><option value="">Firma: vše</option><option>Control</option><option>System</option></select>
+      <select id="podmtyp" onchange="podminkyFilter()" style="margin-left:8px"><option value="">Typ: vše</option><option>HPP</option><option>OSVC</option><option>DPP</option></select>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Aktuální podmínky poměrů (úvazek, doba, nástup, nárok dovolené, sick days). Zdroj pravdy je Centrála; tady je zrcadlo. Jen ke čtení. ⭐ = věrnostní den navíc.</div>
+    <div class="tblscroll">
+      <table class="ptbl" id="podmtbl">
+        <thead><tr>
+          <th>Jméno</th><th>Firma</th><th>Typ</th><th style="text-align:center">Úvazek</th><th>Doba</th><th>Nástup</th><th style="text-align:center">Dovolená</th><th style="text-align:center">Sick days</th>
+        </tr></thead>
+        <tbody id="podmbody"><tr><td colspan="8" class="empty">Načítám…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -382,10 +402,12 @@ function setView(v){
   const ogc=document.getElementById('organigramcard'); if(ogc) ogc.style.display=(v==='organigram')?'':'none';
   const psc=document.getElementById('postycard'); if(psc) psc.style.display=(v==='posty')?'':'none';
   const tbc=document.getElementById('tabulecard'); if(tbc) tbc.style.display=(v==='tabule')?'':'none';
+  const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
   if(v==='posty'){ loadPostyLide(); return; }
   if(v==='tabule'){ loadTabule(); return; }
+  if(v==='podminky'){ loadPodminky(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -533,7 +555,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty' || v==='tabule'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty' || v==='tabule' || v==='podminky'){ setView(v); }
 }catch(e){} })();
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
@@ -675,6 +697,46 @@ function tabuleFilter(){
     el.style.outline=hit?'2px solid #ffd34e':'none';
     el.style.opacity=hit?'1':'.35';
   });
+}
+let PODMINKY=null;
+function _dcz(iso){ if(!iso) return ''; const p=iso.split('-'); return p.length===3?(parseInt(p[2])+'. '+parseInt(p[1])+'. '+p[0]):iso; }
+async function loadPodminky(){
+  const body=document.getElementById('podmbody'); if(!body) return;
+  if(PODMINKY){ podminkyFilter(); return; }
+  body.innerHTML='<tr><td colspan="8" class="empty">Načítám…</td></tr>';
+  let r; try{ r=await fetch(API+'/app/hr/podminky-prehled',{credentials:'same-origin'}); }catch(e){ body.innerHTML='<tr><td colspan="8" class="empty" style="color:#ff8a7a">✗ síť. Ctrl+Shift+R.</td></tr>'; return; }
+  if(!r.ok){ body.innerHTML='<tr><td colspan="8" class="empty" style="color:#ff8a7a">✗ Server '+r.status+'</td></tr>'; return; }
+  let d; try{ d=await r.json(); }catch(e){ body.innerHTML='<tr><td colspan="8" class="empty" style="color:#ff8a7a">✗ Odpověď není JSON. Ctrl+Shift+R.</td></tr>'; return; }
+  if(!d.ok){ body.innerHTML='<tr><td colspan="8" class="empty">🔒 '+esc(d.error||'chyba')+'</td></tr>'; return; }
+  PODMINKY=d.radky||[];
+  podminkyFilter();
+}
+function podminkyFilter(){
+  const body=document.getElementById('podmbody'), cnt=document.getElementById('podmcnt');
+  if(!body||!PODMINKY) return;
+  const q=(document.getElementById('podmsrch').value||'').trim().toLowerCase();
+  const ff=document.getElementById('podmfirma').value, tf=document.getElementById('podmtyp').value;
+  let r=PODMINKY;
+  if(q) r=r.filter(x=>(x.jmeno||'').toLowerCase().includes(q));
+  if(ff) r=r.filter(x=>x.firma===ff);
+  if(tf) r=r.filter(x=>x.typ===tf);
+  if(cnt) cnt.textContent='('+r.length+' poměrů)';
+  if(!r.length){ body.innerHTML='<tr><td colspan="8" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  body.innerHTML=r.map(function(x){
+    const doba=x.smlouva_do?('<span style="color:#e0b04a">určitá do '+_dcz(x.smlouva_do)+'</span>'):'neurčitá';
+    const dov=(x.dov_dny!=null)?(x.dov_dny+' dní'+(x.vernost?' <span title="věrnostní den navíc za 10 let" style="color:#7fe0a0">⭐</span>':'')):'<span style="color:#5d6b7c">—</span>';
+    const sd=(x.sd_h!=null)?(x.sd_h+' h'):'<span style="color:#5d6b7c">—</span>';
+    const typBg=x.typ==='HPP'?'#1b3a5c':(x.typ==='OSVC'?'#3a2f5c':'#4a3a1b');
+    return '<tr style="border-top:1px solid #1e2730">'+
+      '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+esc(x.jmeno)+'</td>'+
+      '<td style="padding:4px 8px;color:#cdd6e2">'+esc(x.firma||'')+'</td>'+
+      '<td style="padding:4px 8px"><span style="background:'+typBg+';color:#dfeaf7;border-radius:5px;padding:1px 7px;font-size:11px">'+esc(x.typ||'')+'</span></td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+(x.uvazek!=null?esc(''+x.uvazek)+' h':'—')+'</td>'+
+      '<td style="padding:4px 8px;color:#cdd6e2">'+doba+'</td>'+
+      '<td style="padding:4px 8px;white-space:nowrap;color:#cdd6e2">'+_dcz(x.nastup)+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#e8eef5">'+dov+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sd+'</td></tr>';
+  }).join('');
 }
 let POSTY_LIDE=null;
 async function loadPostyLide(){

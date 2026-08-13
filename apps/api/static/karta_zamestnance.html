@@ -391,7 +391,7 @@ const SEKCE=[
   {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true,key:'pracovni'},
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
-  {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true,key:'absence'},
+  {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, docházka po dnech, absence.",on:true,key:'absence'},
   {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, ze STRATEGIE).",on:true,key:'podminky'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
@@ -1597,9 +1597,32 @@ async function absUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
   const d=await j(API+'/app/hr/person-absence?uid='+uid);
+  let dm=null; try{ dm=await j(API+'/app/dochazka/moje-mesic?uid='+uid); }catch(e){}
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
-  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">🏖️ Přítomnost / absence</span>'+back+'</div>';
+  const nm=(x)=>(x==null?'0':(''+x).replace('.',','));
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">🕐 Docházka</span>'+back+'</div>';
+  if(dm&&dm.ok&&dm.has){
+    const chyb=dm.chybi, prescas=(chyb!=null&&chyb<0);
+    const rlbl=prescas?'Přesčas k dnešku':'Chybí odpracovat k dnešku';
+    const rval=(chyb==null?'—':nm(Math.abs(chyb))+' h'), rcol=(chyb==null?'#e8eef5':(chyb>0?'#ff8a7a':'#7fe0a0'));
+    const row=(l,v,c)=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid #1e2730"><span style="color:#8fa6c4">'+l+'</span><span style="color:'+(c||'#e8eef5')+';font-weight:700;white-space:nowrap">'+v+'</span></div>';
+    h+='<div style="padding:6px 16px 10px"><div style="font-weight:800;color:#e8eef5;margin-bottom:2px">📊 Souhrn '+esc(dm.mesic||'')+' <span style="color:#5d6b7c;font-weight:400">(k dnešku)</span></div>'+
+      '<div style="max-width:460px">'+
+      row('Počet pracovních dní k dnešku', nm(dm.prac_dni_k_dnesku))+
+      row('Fond (má být odpracováno za den)', nm(dm.fond_den)+' h')+
+      row('Má být odpracováno k dnešku', nm(dm.ma_byt_k_dnesku)+' h')+
+      row('Odpracováno k dnešku', nm(dm.odpracovano)+' h','#e8eef5')+
+      row(rlbl, rval, rcol)+
+      '</div>'+
+      '<div style="font-size:11px;color:#8090a0;margin-top:7px;line-height:1.55;max-width:660px">'+
+        '<b style="color:#9fb4d0">Odpracováno</b> = skutečně napíchané hodiny včetně dneška i přesčasů · '+
+        '<b style="color:#9fb4d0">Má být</b> = fond za pracovní dny k dnešku (dnešek se nepočítá) · '+
+        '<b style="color:#9fb4d0">Přesčas / Chybí</b> = rozdíl.<br>'+
+        '⚠️ Dny s <b>dovolenou / nemocí</b> se zatím počítají jako neodpracované, takže u lidí s absencí je „chybí" nadsazené — omluvená absence se do bilance teprve dopočítává (řeší se).'+
+      '</div></div>';
+  }
+  h+='<div style="padding:8px 16px 2px;font-weight:800;color:#e8eef5;border-top:1px solid #1e2730">📅 Události a absence</div>';
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; }
   else if(!(d.zaznamy||[]).length){ h+='<div class="empty">Žádné záznamy o absenci.</div>'; }
   else {

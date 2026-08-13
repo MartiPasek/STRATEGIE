@@ -11908,10 +11908,16 @@ def _hr_kalendar_ev(s, today, konec):
             raw = (r[0] or "").strip().lower()
             _ABS_CZ = {"vacation": "Dovolená", "dovolena": "Dovolená", "dovolená": "Dovolená",
                        "holiday": "Dovolená", "sickday": "Sick day", "sick_day": "Sick day",
-                       "sick": "Nemoc", "nemoc": "Nemoc", "doctor": "Lékař", "lekar": "Lékař",
-                       "lékař": "Lékař", "ocr": "OČR", "paragraf": "Paragraf"}
-            tp = _ABS_CZ.get(raw, ((r[0] or "Absence").strip() or "Absence"))
-            ico = "🤒" if ("nemoc" in raw or "sick" in raw) else "🏖️"
+                       "sick": "Nemoc", "nemoc": "Nemoc", "medical": "Lékař", "doctor": "Lékař",
+                       "lekar": "Lékař", "lékař": "Lékař", "homeoffice": "Home office",
+                       "home_office": "Home office", "family_care": "OČR", "ocr": "OČR",
+                       "maternity": "Mateřská", "ostatni_nahrada": "Náhradní volno",
+                       "paragraf": "Paragraf"}
+            tp = _ABS_CZ.get(raw) or ((r[0] or "Absence").strip().replace("_", " ").capitalize() or "Absence")
+            _ABS_IC = {"nemoc": "🤒", "sick": "🤒", "sickday": "🤒", "medical": "🩺",
+                       "doctor": "🩺", "lekar": "🩺", "homeoffice": "🏠", "home_office": "🏠",
+                       "family_care": "🧑‍⚕️", "ocr": "🧑‍⚕️", "maternity": "👶"}
+            ico = _ABS_IC.get(raw, "🏖️")
             ev.append({"datum": r[1].isoformat(), "cas": "", "typ": "dovolena", "ikona": ico,
                        "nazev": ((jm + " — " + tp) if jm else tp), "kdo": jm, "misto": "",
                        "do": (r[2].isoformat() if r[2] else "")})

@@ -329,6 +329,7 @@
       <span style="color:var(--muted);font-size:11.5px;margin-left:10px">ISO 9001 · dokument systému řízení kvality</span>
       <input id="tabsrch" oninput="tabuleFilter()" placeholder="🔎 Zvýraznit jméno / post…" style="margin-left:auto;min-width:220px">
     </div>
+    <div id="tabuleDocs" style="margin:2px 14px 10px"></div>
     <div id="tabuleboard" style="padding:10px 12px 16px;overflow:auto"><div class="empty">Načítám…</div></div>
   </div>
 </div>
@@ -643,6 +644,7 @@ const DIV_COLOR={0:'#5b6b7d',8:'#2a6fb0',1:'#c9b400',2:'#d85fa0',3:'#c94ec4',4:'
 const DIV_ORDER=[8,1,2,3,4,5,6,7];
 async function loadTabule(){
   const box=document.getElementById('tabuleboard'); if(!box) return;
+  loadTabuleDocs();
   if(TABULE){ tabuleRender(); return; }
   box.innerHTML='<div class="empty">Načítám…</div>';
   let r; try{ r=await fetch(API+'/app/hr/tabule',{credentials:'same-origin'}); }catch(e){ box.innerHTML='<div class="empty" style="color:#ff8a7a">✗ Spojení se nepodařilo. Ctrl+Shift+R.</div>'; return; }
@@ -697,6 +699,59 @@ function tabuleFilter(){
     el.style.outline=hit?'2px solid #ffd34e':'none';
     el.style.opacity=hit?'1':'.35';
   });
+}
+function _kb(n){ return n>=1048576?(Math.round(n/104857.6)/10+' MB'):(Math.round(n/1024)+' kB'); }
+async function loadTabuleDocs(){
+  const box=document.getElementById('tabuleDocs'); if(!box) return;
+  let d; try{ d=await j(API+'/app/hr/tabule/soubory'); }catch(e){ return; }
+  if(!d||!d.ok){ return; }
+  const s=d.soubory||[];
+  const rows=s.map(function(x){
+    const tag=x.typ==='k_tisku'?'<span style="background:#3a2f5c;color:#dcd2f7;border-radius:5px;padding:1px 7px;font-size:10px">k tisku</span>':'<span style="background:#1b3a5c;color:#dfeaf7;border-radius:5px;padding:1px 7px;font-size:10px">podklad</span>';
+    const akt=x.aktivni?' <span style="color:#7fe0a0;font-size:10px">● aktuální</span>':'';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-top:1px solid #1e2730;font-size:12.5px">'+
+      '<span style="min-width:52px;color:#e0b04a;font-weight:700">v'+esc(''+(x.verze||'?'))+'</span>'+
+      tag+
+      '<span style="flex:1;min-width:0;color:#e8eef5">'+esc(x.nazev)+akt+
+        '<div style="color:#8fa6c4;font-size:11px">'+(x.datum?esc(x.datum)+' · ':'')+esc(x.schvalil||'')+(x.poznamka?(' · '+esc(x.poznamka)):'')+' · '+_kb(x.velikost)+'</div>'+
+      '</span>'+
+      '<a href="'+API+'/app/hr/tabule/soubor/'+x.id+'" style="color:#aac8ec;text-decoration:none;font-size:12px;white-space:nowrap">⬇ Stáhnout</a>'+
+    '</div>';
+  }).join('');
+  box.innerHTML='<div style="border:1px solid #233040;border-radius:8px;background:#12181f;overflow:hidden">'+
+    '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#161c24;border-bottom:1px solid #233040">'+
+      '<b style="font-size:12.5px;color:#e8eef5">📎 Dokumenty tabule (ISO 9001 — verzované)</b>'+
+      '<button onclick="tabuleUploadToggle()" style="margin-left:auto;border:1px solid #2f6ea8;background:#1b3a5c;color:#dff0ff;border-radius:7px;padding:4px 11px;font:inherit;font-size:12px;cursor:pointer">⬆ Nahrát novou verzi</button>'+
+    '</div>'+
+    (rows||'<div class="empty" style="padding:10px">Zatím žádné soubory.</div>')+
+    '<div id="tabuleUpForm" style="display:none;border-top:1px solid #233040;padding:10px;background:#0f141a">'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px">'+
+        '<input type="file" id="tabUpFile" style="font:inherit;font-size:12px;color:#cdd6e2">'+
+        '<select id="tabUpTyp" style="font:inherit"><option value="podklad">podklad</option><option value="k_tisku">k tisku</option></select>'+
+        '<input id="tabUpVerze" type="number" placeholder="verze (66)" style="width:110px">'+
+        '<input id="tabUpPozn" placeholder="poznámka k verzi (co se změnilo)" style="min-width:240px;flex:1">'+
+        '<button onclick="tabuleUpload()" style="border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:7px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">Uložit verzi</button>'+
+      '</div>'+
+      '<div id="tabUpMsg" style="margin-top:6px;font-size:12px"></div>'+
+    '</div></div>';
+}
+function tabuleUploadToggle(){ const f=document.getElementById('tabuleUpForm'); if(f) f.style.display=f.style.display==='none'?'':'none'; }
+async function tabuleUpload(){
+  const fi=document.getElementById('tabUpFile'), msg=document.getElementById('tabUpMsg');
+  if(!fi||!fi.files||!fi.files[0]){ msg.innerHTML='<span style="color:#ff8a7a">Vyber soubor.</span>'; return; }
+  const fd=new FormData();
+  fd.append('file', fi.files[0]);
+  fd.append('typ', document.getElementById('tabUpTyp').value);
+  fd.append('verze', document.getElementById('tabUpVerze').value||'0');
+  fd.append('poznamka', document.getElementById('tabUpPozn').value||'');
+  msg.innerHTML='Nahrávám…';
+  try{
+    const r=await fetch(API+'/app/hr/tabule/soubor',{method:'POST',credentials:'same-origin',body:fd});
+    const d=await r.json();
+    if(!d.ok){ msg.innerHTML='<span style="color:#ff8a7a">✗ '+esc(d.error||'chyba')+'</span>'; return; }
+    msg.innerHTML='<span style="color:#7fe0a0">✔ Uloženo jako nová verze.</span>';
+    loadTabuleDocs();
+  }catch(e){ msg.innerHTML='<span style="color:#ff8a7a">✗ síť</span>'; }
 }
 let PODMINKY=null;
 function _dcz(iso){ if(!iso) return ''; const p=iso.split('-'); return p.length===3?(parseInt(p[2])+'. '+parseInt(p[1])+'. '+p[0]):iso; }

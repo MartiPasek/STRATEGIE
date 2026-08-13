@@ -11659,6 +11659,108 @@ async def app_hr_tabule(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/tabule/soubory")
+async def app_hr_tabule_soubory(req: Request):
+    """Přílohy organizační tabule — verze souborů (Šárka 13.8.2026). Jen metadata
+    (bez obsahu). HR-gated. Řadí od nejnovější verze."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, verze, typ, nazev_souboru, datum, schvalil, poznamka, "
+            "  octet_length(obsah), created_at, COALESCE(created_by_text,''), COALESCE(aktivni,true) "
+            "FROM tenant.org_tabule_soubor WHERE tenant_id=2 "
+            "ORDER BY verze DESC NULLS LAST, typ, id DESC")).fetchall()
+        out = [{"id": int(r[0]), "verze": r[1], "typ": (r[2] or ""), "nazev": (r[3] or ""),
+                "datum": (r[4].isoformat() if r[4] else ""), "schvalil": (r[5] or ""),
+                "poznamka": (r[6] or ""), "velikost": (int(r[7]) if r[7] else 0),
+                "vlozeno": (r[8].isoformat() if r[8] else ""), "kdo": r[9], "aktivni": bool(r[10])}
+               for r in rows]
+        return JSONResponse({"ok": True, "soubory": out, "pocet": len(out)})
+    except Exception as exc:
+        logger.exception("[hr_tabule_soubory] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/tabule/soubor/{sid}")
+async def app_hr_tabule_soubor_download(sid: int, req: Request):
+    """Stažení konkrétní verze souboru org. tabule. HR-gated."""
+    from sqlalchemy import text as _t
+    from urllib.parse import quote as _q
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT obsah, mime, nazev_souboru FROM tenant.org_tabule_soubor "
+            "WHERE tenant_id=2 AND id=:i"), {"i": sid}).first()
+        if not row or row[0] is None:
+            return JSONResponse({"ok": False, "error": "soubor nenalezen"}, status_code=404)
+        nazev = (row[2] or "tabule.xlsx")
+        return Response(content=bytes(row[0]),
+                        media_type=(row[1] or "application/octet-stream"),
+                        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + _q(nazev)})
+    except Exception as exc:
+        logger.exception("[hr_tabule_soubor_download] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/tabule/soubor")
+async def app_hr_tabule_soubor_upload(req: Request, file: UploadFile = File(...),
+                                      verze: int = Form(0), typ: str = Form("podklad"),
+                                      schvalil: str = Form(""), poznamka: str = Form("")):
+    """Nahrání NOVÉ verze souboru org. tabule (ISO 9001 verzování). Starší verze
+    stejného typu se označí jako neaktivní, ale zůstanou (historie). HR-only."""
+    import datetime as _dt
+    from sqlalchemy import text as _t
+    me = _uid_from_token_or_cookie(req)
+    if not me:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, me):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        raw = await file.read()
+        if not raw:
+            return JSONResponse({"ok": False, "error": "Prázdný soubor."}, status_code=400)
+        if len(raw) > 25 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "Příliš velký soubor (max 25 MB)."}, status_code=400)
+        t = (typ or "podklad").strip().lower()
+        if t not in ("podklad", "k_tisku"):
+            t = "podklad"
+        nazev = (getattr(file, "filename", None) or "tabule.xlsx").strip()[:255]
+        mime = (getattr(file, "content_type", None) or "application/octet-stream")[:120]
+        jmeno = _user_jmeno(s, me)
+        s.execute(_t("UPDATE tenant.org_tabule_soubor SET aktivni=false "
+                     "WHERE tenant_id=2 AND typ=:t AND COALESCE(aktivni,true)=true"), {"t": t})
+        s.execute(_t(
+            "INSERT INTO tenant.org_tabule_soubor "
+            " (tenant_id,verze,typ,nazev_souboru,mime,obsah,datum,schvalil,poznamka,aktivni,created_by_id,created_by_text) "
+            "VALUES (2,:v,:t,:n,:m,:o,:d,:sch,:p,true,:by,:byt)"),
+            {"v": (int(verze) if verze else None), "t": t, "n": nazev, "m": mime, "o": raw,
+             "d": _dt.date.today(), "sch": (schvalil or jmeno)[:120], "p": (poznamka or "")[:2000],
+             "by": me, "byt": jmeno})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.exception("[hr_tabule_soubor_upload] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/podminky-prehled")
 async def app_hr_podminky_prehled(req: Request):
     """Přehled podmínek zaměstnanců v tabulce (Šárka 13.8.2026): aktuální poměry +

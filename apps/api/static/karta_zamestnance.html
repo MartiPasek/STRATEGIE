@@ -711,7 +711,7 @@ async function loadOrgman(){
   const box=document.getElementById('omtree');
   if(OM_DATA){ omRender(); return; }
   box.innerHTML='<div class="empty">Načítám…</div>';
-  let d; try{ d=await j(API+'/app/hr/orgman'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  let d; try{ const r=await fetch(API+'/app/hr/orgman?_='+Date.now(),{credentials:'same-origin',cache:'no-store'}); d=await r.json(); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
   if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
   OM_DATA=d.lide||[]; OM_JEDN=d.jednatele||{}; omRender();
 }

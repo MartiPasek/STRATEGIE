@@ -10617,7 +10617,8 @@ async def app_hr_orgman(req: Request):
             "1": [{"user_id": 96, "jmeno": "Branislav Mózer"}, {"user_id": 1, "jmeno": "Marti Pašek"}],
             "2": [{"user_id": 1, "jmeno": "Marti Pašek"}],
         }
-        return JSONResponse({"ok": True, "lide": lide, "jednatele": jednatele, "reditel_user": 1})
+        return JSONResponse({"ok": True, "lide": lide, "jednatele": jednatele, "reditel_user": 1},
+                            headers={"Cache-Control": "no-store, max-age=0"})
     except Exception as exc:
         logger.exception("[hr_orgman] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

@@ -1412,7 +1412,7 @@ function renderPU(edit){
     const stavRO = po.narovnat ? ('<span style="color:#E0A94A">⚠ Nutno narovnat</span>'+(po.pozice_poznamka?'<div style="color:#9aa7b4;font-size:11px">'+esc(po.pozice_poznamka)+'</div>':'')) : (po.isco?'<span style="color:#7fe0a0">✅ V souladu</span>':'<span style="color:#5d6b7c">—</span>');
     const zar = rRO('Osobní číslo', po.osobni_cislo)
       + (edit?rIN('Pozice (dle smlouvy)','pozice',po.pozice,po.id):rRO('Pozice (smlouva)',po.pozice))
-      + (edit?rIN('ČSSZ (ISCO)','isco',po.isco,po.id):rRO('ČSSZ (ISCO)',po.isco))
+      + (edit?rIN('ČSSZ (ISCO)','isco',po.isco,po.id):rRO('ČSSZ (ISCO)', po.isco?(po.isco+(po.isco_nazev?(' · '+po.isco_nazev):'')):''))
       + (edit?rSEL('Přímý nadřízený','nadrizeny_id',po.id,nadrOpts):rRAW('Přímý nadřízený', po.nadrizeny_jmeno?esc(po.nadrizeny_jmeno):''))
       + (edit
           ? ('<div style="padding:3px 10px"><label style="color:#7f8ea0;font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-eid="'+po.id+'" data-k="narovnat"'+(po.narovnat?' checked':'')+'> ⚠ Nutno narovnat (smlouva × ČSSZ)</label></div>'+rIN('Poznámka k narovnání','pozice_poznamka',po.pozice_poznamka,po.id))

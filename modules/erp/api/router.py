@@ -10409,7 +10409,8 @@ async def app_hr_person_work(req: Request):
             " e.nadrizeny_employee_id, "
             " (SELECT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), nae.full_name) "
             "    FROM tenant.att_employee nae LEFT JOIN public.users su ON su.id=nae.user_id "
-            "    WHERE nae.id=e.nadrizeny_employee_id AND nae.tenant_id=2) "
+            "    WHERE nae.id=e.nadrizeny_employee_id AND nae.tenant_id=2), "
+            " (SELECT ic.nazev FROM tenant.isco_ciselnik ic WHERE ic.kod=e.isco_kod) "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
@@ -10452,6 +10453,7 @@ async def app_hr_person_work(req: Request):
                 "pozice_poznamka": (r[20] or ""),
                 "nadrizeny_id": (int(r[21]) if r[21] is not None else None),
                 "nadrizeny_jmeno": (r[22] or ""),
+                "isco_nazev": (r[23] or ""),
             })
         # historie změn (SCD2 – všechny verze poměru, i staré)
         hrows = s.execute(_t(

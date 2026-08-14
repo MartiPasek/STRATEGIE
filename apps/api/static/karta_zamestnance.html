@@ -854,7 +854,7 @@ function podminkyFilter(){
     // 14. 8. 2026: nárok se bere z Podmínek (osobní → skupina → systém), ne z výplňové
     // tabulky, kde měli všichni stejné číslo. Sick days proto nově ve dnech, ne v hodinách.
     const vd=Number(x.vernost)||0;
-    const dov=(x.dov_dny!=null)?(String(x.dov_dny).replace('.',',')+' dní'+(vd?' <span title="z toho '+vd+' za odsloužená léta (věrnostní)" style="color:#7fe0a0">⭐</span>':'')):'<span style="color:#5d6b7c">—</span>';
+    const dov=(x.dov_dny!=null)?(String(x.dov_dny).replace('.',',')+' dní'+(vd?' <span title="má nárok na '+vd+' věrnostní den(dny) za odsloužená léta — ověř, že jsou v čísle zahrnuty" style="color:#7fe0a0">🎖️</span>':'')):'<span style="color:#5d6b7c">—</span>';
     const sd=(x.sd_dny!=null)?(String(x.sd_dny).replace('.',',')+' dní'):'<span style="color:#5d6b7c">—</span>';
     const typBg=x.typ==='HPP'?'#1b3a5c':(x.typ==='OSVC'?'#3a2f5c':'#4a3a1b');
     return '<tr style="border-top:1px solid #1e2730">'+

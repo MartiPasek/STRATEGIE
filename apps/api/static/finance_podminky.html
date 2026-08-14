@@ -407,7 +407,7 @@ function renderTab(){
       '<td class="num">'+(p.premie!=null?kc(p.premie):'—')+'</td>'+
       '<td class="num">'+(p.individ!=null?kc(p.individ):'—')+'</td>'+
       '<td class="num">'+(p.hruba!=null?kc(p.hruba):'—')+'</td>'+
-      '<td class="num">'+(p.dov_dny!=null?(String(p.dov_dny).replace('.',',')+' dní'+(Number(p.vernost)?' <span class="chip" title="z toho '+Number(p.vernost)+' za odsloužená léta (věrnostní)">+'+Number(p.vernost)+'</span>':'')):'—')+'</td>'+
+      '<td class="num">'+(p.dov_dny!=null?(String(p.dov_dny).replace('.',',')+' dní'+(Number(p.vernost)?' <span class="chip" title="má nárok na '+Number(p.vernost)+' věrnostní den(dny) za odsloužená léta — ověř, že jsou v čísle zahrnuty">🎖️</span>':'')):'—')+'</td>'+
       '<td class="num">'+(p.sd_dny!=null?(String(p.sd_dny).replace('.',',')+' dní'):'—')+'</td>'+
       '<td>'+stav+'</td></tr>';
   });

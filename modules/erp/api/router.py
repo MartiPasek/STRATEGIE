@@ -10611,8 +10611,13 @@ async def app_hr_orgman(req: Request):
             if n["nadr_user"] is None and r[5] is not None:
                 n["nadr_user"] = int(r[5])
         lide = list(by.values())
-        # jednatelé (vrcholy pro výpovědní linii): Control=1 → Pašek+Mózer, System=2 → Pašek
-        return JSONResponse({"ok": True, "lide": lide})
+        # jednatelé (statutární, pro výpovědní linii) — Control=1 → Mózer+Pašek, System=2 → Pašek.
+        # Výkonný ředitel (provozní vrchol) = Marti Pašek (user 1).
+        jednatele = {
+            "1": [{"user_id": 96, "jmeno": "Branislav Mózer"}, {"user_id": 1, "jmeno": "Marti Pašek"}],
+            "2": [{"user_id": 1, "jmeno": "Marti Pašek"}],
+        }
+        return JSONResponse({"ok": True, "lide": lide, "jednatele": jednatele, "reditel_user": 1})
     except Exception as exc:
         logger.exception("[hr_orgman] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

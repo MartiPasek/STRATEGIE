@@ -706,14 +706,14 @@ async function loadOrganigram(){
   orgRender();
 }
 // Manažerský organigram (Šárka 14.8.2026) — reálná linie vedení z person→person
-let OM_DATA=null, OM_FILTER='all';
+let OM_DATA=null, OM_FILTER='all', OM_JEDN={};
 async function loadOrgman(){
   const box=document.getElementById('omtree');
   if(OM_DATA){ omRender(); return; }
   box.innerHTML='<div class="empty">Načítám…</div>';
   let d; try{ d=await j(API+'/app/hr/orgman'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
   if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
-  OM_DATA=d.lide||[]; omRender();
+  OM_DATA=d.lide||[]; OM_JEDN=d.jednatele||{}; omRender();
 }
 function omFilter(f){
   OM_FILTER=f;
@@ -722,8 +722,9 @@ function omFilter(f){
   document.getElementById('omfS').classList.toggle('omfon',f==='2');
   omRender();
 }
-function omBox(p){
+function omBox(p,title){
   return '<div class="ombox" onclick="openCardFromOrg('+p.user_id+')">'+
+    (title?'<div style="color:#E0A94A;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-bottom:1px">'+esc(title)+'</div>':'')+
     '<div class="omnm">'+esc(p.jmeno)+'</div>'+
     (p.pozice?'<div class="ompz">'+esc(p.pozice)+'</div>':'')+
     (p.oddeleni?'<div class="omod">'+esc(p.oddeleni)+'</div>':'')+'</div>';
@@ -737,9 +738,14 @@ function omRender(){
   const kids={}; lidi.forEach(p=>{ if(p.nadr_user!=null && byU[p.nadr_user]){ (kids[p.nadr_user]=kids[p.nadr_user]||[]).push(p); } });
   const reditele=lidi.filter(p=>(kids[p.user_id]||[]).length && (p.nadr_user==null || !byU[p.nadr_user]));
   if(cnt) cnt.textContent='('+lidi.length+' lidí)';
-  let h='';
+  const jn=(a)=>(a||[]).map(x=>'<b style="color:#e8eef5;cursor:pointer" onclick="openCardFromOrg('+x.user_id+')">'+esc(x.jmeno)+'</b>').join(' · ');
+  let jed;
+  if(OM_FILTER==='1') jed='⚖️ Jednatelé (Control): '+jn(OM_JEDN['1']);
+  else if(OM_FILTER==='2') jed='⚖️ Jednatel (System): '+jn(OM_JEDN['2']);
+  else jed='⚖️ Jednatelé — Control: '+jn(OM_JEDN['1'])+' &nbsp;·&nbsp; System: '+jn(OM_JEDN['2']);
+  let h='<div style="text-align:center;margin-bottom:14px"><span style="display:inline-block;color:#9fb3cc;font-size:12px;padding:6px 14px;background:#12181f;border:1px dashed #2a3a4d;border-radius:8px">'+jed+'</span></div>';
   reditele.forEach(dir=>{
-    h+='<div class="omcol" style="align-items:center">'+omBox(dir)+'</div>';
+    h+='<div class="omcol" style="align-items:center">'+omBox(dir,'Výkonný ředitel')+'</div>';
     const reps=(kids[dir.user_id]||[]).slice().sort((a,b)=>((b.oddeleni?1:0)-(a.oddeleni?1:0))||a.jmeno.localeCompare(b.jmeno,'cs'));
     if(reps.length){
       h+='<div class="omstem"></div><div class="omrow">';

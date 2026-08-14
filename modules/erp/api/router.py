@@ -10404,7 +10404,12 @@ async def app_hr_person_work(req: Request):
             " COALESCE(jp.label, e.pozice_text), COALESCE(e.note,''), "
             " COALESCE(e.changed_by_text,''), e.changed_at, "
             " COALESCE(jp.segment,''), e.fond_mesic_h, e.uvazek_real_tyden_h, COALESCE(e.hodinovka,false), "
-            " COALESCE(e.stredisko,''), COALESCE(ae.cislo_zam,'') "
+            " COALESCE(e.stredisko,''), COALESCE(ae.cislo_zam,''), "
+            " COALESCE(e.isco_kod,''), COALESCE(e.pozice_narovnat,false), COALESCE(e.pozice_poznamka,''), "
+            " e.nadrizeny_employee_id, "
+            " (SELECT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), nae.full_name) "
+            "    FROM tenant.att_employee nae LEFT JOIN public.users su ON su.id=nae.user_id "
+            "    WHERE nae.id=e.nadrizeny_employee_id AND nae.tenant_id=2) "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
@@ -10442,6 +10447,11 @@ async def app_hr_person_work(req: Request):
                 "velikost": ("" if velikost is None else str(velikost).replace(".", ",")),
                 "stredisko": (_STR.get(r[16], r[16]) if r[16] else ""),
                 "osobni_cislo": (r[17] or ""),
+                "isco": (r[18] or ""),
+                "narovnat": bool(r[19]),
+                "pozice_poznamka": (r[20] or ""),
+                "nadrizeny_id": (int(r[21]) if r[21] is not None else None),
+                "nadrizeny_jmeno": (r[22] or ""),
             })
         # historie změn (SCD2 – všechny verze poměru, i staré)
         hrows = s.execute(_t(
@@ -10487,8 +10497,20 @@ async def app_hr_person_work(req: Request):
             posty = [{"nazev": x[0], "zastupce": bool(x[1])} for x in prows if x[0]]
         except Exception as exc:
             logger.warning("[person_work posty] %s", exc)
+        # seznam zaměstnanců pro výběr přímého nadřízeného (Šárka 14.8.2026)
+        zamest = []
+        try:
+            zr = s.execute(_t(
+                "SELECT DISTINCT ae.id, COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), ae.full_name) AS jm "
+                "FROM tenant.att_employee ae "
+                "JOIN tenant.engagement e ON e.employee_id=ae.id AND e.tenant_id=2 AND e.is_current=true "
+                "LEFT JOIN public.users su ON su.id=ae.user_id "
+                "WHERE ae.tenant_id=2 ORDER BY jm")).fetchall()
+            zamest = [{"id": int(z[0]), "jmeno": (z[1] or "").strip()} for z in zr if (z[1] or "").strip()]
+        except Exception as exc:
+            logger.warning("[person_work zamest] %s", exc)
         return JSONResponse({"ok": True, "pomery": pomery, "historie": historie,
-                             "nadrizeny": nadrizeny, "posty": posty})
+                             "nadrizeny": nadrizeny, "posty": posty, "zamestnanci": zamest})
     except Exception as exc:
         logger.exception("[hr_person_work] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -10511,6 +10533,14 @@ async def app_hr_person_work_save(req: Request):
     eid = int((b or {}).get("id") or 0)
     pozice = (str((b or {}).get("pozice") or "")).strip()
     note = (str((b or {}).get("note") or "")).strip()
+    isco = (str((b or {}).get("isco") or "")).strip()
+    pozn_poz = (str((b or {}).get("pozice_poznamka") or "")).strip()
+    narovnat = bool((b or {}).get("narovnat"))
+    _nadr = (b or {}).get("nadrizeny_id")
+    try:
+        nadr = int(_nadr) if _nadr not in (None, "", 0, "0") else None
+    except Exception:
+        nadr = None
     if not eid:
         return JSONResponse({"ok": False, "error": "Chybí id poměru"}, status_code=400)
     cm, s = _att_session()
@@ -10519,9 +10549,13 @@ async def app_hr_person_work_save(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         who = _self_person_name(s, uid) or ("HR #" + str(uid))
         s.execute(_t("UPDATE tenant.engagement SET pozice_text=:p, note=:n, "
+                     "isco_kod=:isco, pozice_narovnat=:nar, pozice_poznamka=:pz, "
+                     "nadrizeny_employee_id=:nadr, "
                      "changed_by_text=:by, changed_at=now() "
                      "WHERE id=:id AND tenant_id=2 AND is_current=true"),
-                  {"p": (pozice or None), "n": (note or None), "by": who, "id": eid})
+                  {"p": (pozice or None), "n": (note or None),
+                   "isco": (isco or None), "nar": narovnat, "pz": (pozn_poz or None),
+                   "nadr": nadr, "by": who, "id": eid})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

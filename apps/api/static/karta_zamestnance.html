@@ -1395,7 +1395,7 @@ function renderPU(edit){
     ? '<span title="Naposledy upravil: '+esc((po.zmenil||'—')+(po.zmeneno?(' · '+po.zmeneno):''))+'" style="color:#E0A94A;font-size:10px;white-space:nowrap">· HR '+esc((po.zmenil||'').split(' ')[0])+(po.zmeneno?(' '+esc(po.zmeneno)):'')+'</span>'
     : '<span title="Původní údaj z importu, needitováno" style="color:#5d6b7c;font-size:10px;white-space:nowrap">· Import</span>';
   if((d.nadrizeny||[]).length){
-    h+='<div style="padding:9px 16px 4px;color:#cdd6e2;font-size:13px;border-top:1px solid #1e2730">👤 <span style="color:#7f8ea0">Přímý nadřízený:</span> '+
+    h+='<div style="padding:9px 16px 4px;color:#cdd6e2;font-size:13px;border-top:1px solid #1e2730">👤 <span style="color:#7f8ea0">Nadřízený (dle postů ISO):</span> '+
       d.nadrizeny.map(n=>'<b>'+esc(n.jmeno)+'</b>'+(n.post?(' <span style="color:#5d6b7c">('+esc(n.post)+')</span>'):'')).join(', ')+'</div>';
   }
   if((d.posty||[]).length){
@@ -1406,7 +1406,18 @@ function renderPU(edit){
   h+='<div id="puPodriz" style="padding:0 16px 6px"></div>';
   for(const po of (d.pomery||[])){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
-    const zar = rRO('Osobní číslo', po.osobni_cislo) + (edit?rIN('Pozice','pozice',po.pozice,po.id):rRO('Pozice',po.pozice)) + rRO('Útvar', po.segment);
+    const nadrOpts='<option value="">—</option>'+(d.zamestnanci||[]).map(z=>'<option value="'+z.id+'"'+(z.id===po.nadrizeny_id?' selected':'')+'>'+esc(z.jmeno)+'</option>').join('');
+    const rSEL=(lab,k,eid,opts)=>'<div style="padding:3px 10px"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lab+'</div><select data-eid="'+eid+'" data-k="'+k+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'+opts+'</select></div>';
+    const rRAW=(lab,html)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 10px"><span style="color:#7f8ea0;white-space:nowrap">'+lab+'</span><span style="text-align:right">'+(html||'<span style="color:#5d6b7c">—</span>')+'</span></div>';
+    const stavRO = po.narovnat ? ('<span style="color:#E0A94A">⚠ Nutno narovnat</span>'+(po.pozice_poznamka?'<div style="color:#9aa7b4;font-size:11px">'+esc(po.pozice_poznamka)+'</div>':'')) : (po.isco?'<span style="color:#7fe0a0">✅ V souladu</span>':'<span style="color:#5d6b7c">—</span>');
+    const zar = rRO('Osobní číslo', po.osobni_cislo)
+      + (edit?rIN('Pozice (dle smlouvy)','pozice',po.pozice,po.id):rRO('Pozice (smlouva)',po.pozice))
+      + (edit?rIN('ČSSZ (ISCO)','isco',po.isco,po.id):rRO('ČSSZ (ISCO)',po.isco))
+      + (edit?rSEL('Přímý nadřízený','nadrizeny_id',po.id,nadrOpts):rRAW('Přímý nadřízený', po.nadrizeny_jmeno?esc(po.nadrizeny_jmeno):''))
+      + (edit
+          ? ('<div style="padding:3px 10px"><label style="color:#7f8ea0;font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-eid="'+po.id+'" data-k="narovnat"'+(po.narovnat?' checked':'')+'> ⚠ Nutno narovnat (smlouva × ČSSZ)</label></div>'+rIN('Poznámka k narovnání','pozice_poznamka',po.pozice_poznamka,po.id))
+          : rRAW('Stav zařazení', stavRO))
+      + rRO('Útvar', po.segment);
     const sml = rRO('Číslo poměru', po.id?('č. '+po.id):'') + rRO('Druh smlouvy', po.druh||po.typ) + rRO('Datum nástupu', po.smlouva_od) + rRO('Doba', dobaTxt) + rRO('Zkušební do', po.zkusebni_do) + rRO('Konec / odchod', po.smlouva_do);
     const uva = rRO('Velikost úvazku', po.velikost) + rRO('Týdenní fond', po.uvazek?(po.uvazek+' h/týden'):'') + rRO('Odměňování', po.hodinovka?'hodinová mzda':'měsíční mzda');
     const pozn = edit?rIN('Poznámka','note',po.note,po.id):rRO('Poznámka', po.note);
@@ -1430,7 +1441,7 @@ function renderPU(edit){
         '<td style="padding:4px 8px;color:#cdd6e2">'+esc(hh.typ)+'</td>'+
         '<td style="padding:4px 8px;color:#cdd6e2">'+(hh.uvazek?esc(hh.uvazek)+' h':'—')+'</td></tr>').join(''))+'</details>';
   }
-  if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:8px 16px 12px">Editovat lze pozici a poznámku. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul. Nadřízený se bere z organizační struktury.</div>';
+  if(edit) h+='<div style="font-size:11px;color:#7f8ea0;padding:8px 16px 12px">Editovat lze pozici, ČSSZ (ISCO), přímého nadřízeného, příznak „nutno narovnat“ a poznámky. Smluvní údaje a úvazek jsou napojené na mzdy — mění se přes mzdový modul.</div>';
   det.innerHTML=h;
   orgLoadPodriz(uid);
 }
@@ -1474,9 +1485,9 @@ function togglePosty(){
 }
 async function pracUdajeSave(){
   const byE={};
-  document.querySelectorAll('#det input[data-eid]').forEach(i=>{
+  document.querySelectorAll('#det [data-eid]').forEach(i=>{
     const eid=i.getAttribute('data-eid'); byE[eid]=byE[eid]||{id:parseInt(eid)};
-    byE[eid][i.getAttribute('data-k')]=i.value;
+    byE[eid][i.getAttribute('data-k')] = (i.type==='checkbox') ? i.checked : i.value;
   });
   for(const eid in byE){
     const r=await fetch(API+'/app/hr/person-work/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(byE[eid])});

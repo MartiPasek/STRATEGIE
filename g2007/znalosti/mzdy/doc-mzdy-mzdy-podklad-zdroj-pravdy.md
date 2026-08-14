@@ -1,5 +1,14 @@
 # Mzdový podklad docházky — kdo je dnes zdroj pravdy (att_day_summary = zrcadlo Centrály)
 
+> ⚠️ **ZASTARALÉ — tento soubor je osiřelý, znalost žije v DB jako `doc-dochazka-att-day-summary-z-att-entry`
+> a `doc-mzdy-zrcadlo-dochazky-ze-strategie`.**
+>
+> Text níže je z 22. 7. 2026 a tvrdí, že `tenant.att_day_summary` je živé 1:1 zrcadlo staré Centrály.
+> **To od 6. 8. 2026 neplatí** — job `sync_ec_dochazka_sumaden` byl přepojen na `_ec_dochsum_ze_strategie`,
+> tedy na výpočet z naší docházky (rozhodli Peťa a Kristý). V `g2007.znalost` tento kód **neexistuje**,
+> soubor je jen zbytek po projekci. Ponechán schválně, ať je vidět, že existoval a byl nahrazen.
+> (Označil Claude-28 za Jirku 14. 8. 2026, na pokyn Marti-AI, msg 12704.)
+
 > oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 # Mzdový podklad docházky — kdo je dnes zdroj pravdy (a proč to není, jak to vypadá)

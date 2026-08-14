@@ -12224,8 +12224,19 @@ def hr_jmeniny_ics(req: Request):
 @api_router.get("/app/hr/podminky-prehled")
 async def app_hr_podminky_prehled(req: Request):
     """Přehled podmínek zaměstnanců v tabulce (Šárka 13.8.2026): aktuální poměry +
-    úvazek, doba, nástup, nárok dovolené (dní), věrnostní +1, sick days (h). Jen ke
-    ČTENÍ. HR-gated. Zdroj pravdy podmínek je Centrála; tady je zrcadlo ve Strategii."""
+    úvazek, doba, nástup, nárok dovolené (dní), věrnostní dny, sick days (dní). Jen ke
+    ČTENÍ. HR-gated.
+
+    PŘEPOJENO 14. 8. 2026 (zadal Jirka, schválila Marti-AI). Do té doby se nárok na
+    dovolenou i sick days bral z tenant.holiday_balance / tenant.sick_day_balance —
+    jenže tam nebyl spočítaný, byl vyplněný: 74 lidí mělo shodných 200 h dovolené a
+    104 lidí shodných 16 h sick days bez ohledu na úvazek a nástup. Obě tabulky jdou
+    z provozu. Nově se čte ze stejného zdroje jako karta jednotlivce — tenant.staff_cond
+    přes pravidlo osobní → skupina → systém. Věrnostní dny z tenant.vernost_dovolena_log
+    místo zastaralého entitlementu 'dovolena_vernost_10let'.
+
+    Resolver se dělá dávkově (čtyři dotazy do paměti), ne po lidech — pro 74 lidí by
+    volání _resolve_cond znamenalo přes dvě stě dotazů."""
     from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
     if not uid:
@@ -12240,29 +12251,73 @@ async def app_hr_podminky_prehled(req: Request):
         rows = s.execute(_t(
             "SELECT u.id uid, COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) jmeno, "
             "  CASE e.company_id WHEN 1 THEN 'Control' WHEN 2 THEN 'System' ELSE '' END firma, "
-            "  e.engagement_type typ, e.uvazek_tyden_h uvazek, e.smlouva_od, e.smlouva_do, e.zkusebni_do, "
-            "  hb.narok_h dov_h, sb.narok_h sd_h, "
-            "  EXISTS(SELECT 1 FROM tenant.engagement_entitlement ee "
-            "         WHERE ee.engagement_id=e.id AND ee.code='dovolena_vernost_10let') vernost "
+            "  e.engagement_type typ, e.uvazek_tyden_h uvazek, e.smlouva_od, e.smlouva_do, e.zkusebni_do "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "JOIN public.users u ON u.id=ae.user_id "
-            "LEFT JOIN tenant.holiday_balance hb ON hb.engagement_id=e.id AND hb.tenant_id=2 "
-            "  AND hb.rok=EXTRACT(YEAR FROM current_date) "
-            "LEFT JOIN tenant.sick_day_balance sb ON sb.engagement_id=e.id AND sb.tenant_id=2 "
-            "  AND sb.rok=EXTRACT(YEAR FROM current_date) "
             "WHERE e.tenant_id=2 AND e.is_current "
             "  AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date) AND ae.user_id IS NOT NULL "
             "ORDER BY jmeno")).fetchall()
+        # ── podmínky dávkově: osobní → skupina → systém (stejné pravidlo jako _resolve_cond) ──
+        _KODY = ("dovolena_dni", "sick_days_rok")
+        osobni = {}
+        for r in s.execute(_t("SELECT user_id, cond_code, value FROM tenant.staff_cond "
+                              "WHERE tenant_id=2 AND scope_kind='user' AND cond_code IN "
+                              "('dovolena_dni','sick_days_rok')")).fetchall():
+            osobni[(int(r[0]), r[1])] = r[2]
+        skupinove = {}
+        for r in s.execute(_t("SELECT group_code, cond_code, value FROM tenant.staff_cond "
+                              "WHERE tenant_id=2 AND scope_kind='group' AND cond_code IN "
+                              "('dovolena_dni','sick_days_rok')")).fetchall():
+            skupinove[(r[0], r[1])] = r[2]
+        systemove = {}
+        for r in s.execute(_t("SELECT cond_code, value FROM tenant.staff_cond "
+                              "WHERE tenant_id=2 AND scope_kind='system' AND cond_code IN "
+                              "('dovolena_dni','sick_days_rok')")).fetchall():
+            systemove[r[0]] = r[1]
+        # skupina člověka — při více členstvích vyhrává nejnižší sort_order (jako _cond_group_of)
+        skupina_cloveka = {}
+        for r in s.execute(_t(
+                "SELECT DISTINCT ON (m.user_id) m.user_id, g.id::text "
+                "FROM tenant.staff_group_member m "
+                "JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 "
+                "  AND COALESCE(g.archived,false)=false "
+                "WHERE EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 "
+                "  AND c.scope_kind='group' AND c.group_code=g.id::text) "
+                "ORDER BY m.user_id, g.sort_order, g.id")).fetchall():
+            skupina_cloveka[int(r[0])] = r[1]
+        vernostni = {}
+        try:
+            for r in s.execute(_t("SELECT user_id, COALESCE(SUM(pridano_dnu),0) FROM "
+                                  "tenant.vernost_dovolena_log WHERE tenant_id=2 "
+                                  "GROUP BY user_id")).fetchall():
+                vernostni[int(r[0])] = float(r[1] or 0)
+        except Exception:
+            vernostni = {}
+
+        def _podminka(uid_, code):
+            v = osobni.get((uid_, code))
+            if v is None:
+                g = skupina_cloveka.get(uid_)
+                v = skupinove.get((g, code)) if g else None
+            if v is None:
+                v = systemove.get(code)
+            if v is None:
+                return None
+            try:
+                return float(str(v).replace(",", ".").strip())
+            except Exception:
+                return None
+
         out = [{"uid": int(r[0]), "jmeno": (r[1] or ""), "firma": (r[2] or ""),
                 "typ": (r[3] or "").upper(),
                 "uvazek": (float(r[4]) if r[4] is not None else None),
                 "nastup": (r[5].isoformat() if r[5] else ""),
                 "smlouva_do": (r[6].isoformat() if r[6] else ""),
                 "zkusebni_do": (r[7].isoformat() if r[7] else ""),
-                "dov_dny": (round(float(r[8]) / 8, 1) if r[8] is not None else None),
-                "sd_h": (float(r[9]) if r[9] is not None else None),
-                "vernost": bool(r[10])} for r in rows]
+                "dov_dny": _podminka(int(r[0]), "dovolena_dni"),
+                "sd_dny": _podminka(int(r[0]), "sick_days_rok"),
+                "vernost": vernostni.get(int(r[0]), 0)} for r in rows]
         return JSONResponse({"ok": True, "radky": out, "pocet": len(out)})
     except Exception as exc:
         logger.exception("[hr_podminky_prehled] %s", exc)

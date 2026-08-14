@@ -851,8 +851,11 @@ function podminkyFilter(){
   if(!r.length){ body.innerHTML='<tr><td colspan="8" class="empty">Nic nenalezeno.</td></tr>'; return; }
   body.innerHTML=r.map(function(x){
     const doba=x.smlouva_do?('<span style="color:#e0b04a">určitá do '+_dcz(x.smlouva_do)+'</span>'):'neurčitá';
-    const dov=(x.dov_dny!=null)?(x.dov_dny+' dní'+(x.vernost?' <span title="věrnostní den navíc za 10 let" style="color:#7fe0a0">⭐</span>':'')):'<span style="color:#5d6b7c">—</span>';
-    const sd=(x.sd_h!=null)?(x.sd_h+' h'):'<span style="color:#5d6b7c">—</span>';
+    // 14. 8. 2026: nárok se bere z Podmínek (osobní → skupina → systém), ne z výplňové
+    // tabulky, kde měli všichni stejné číslo. Sick days proto nově ve dnech, ne v hodinách.
+    const vd=Number(x.vernost)||0;
+    const dov=(x.dov_dny!=null)?(String(x.dov_dny).replace('.',',')+' dní'+(vd?' <span title="z toho '+vd+' za odsloužená léta (věrnostní)" style="color:#7fe0a0">⭐</span>':'')):'<span style="color:#5d6b7c">—</span>';
+    const sd=(x.sd_dny!=null)?(String(x.sd_dny).replace('.',',')+' dní'):'<span style="color:#5d6b7c">—</span>';
     const typBg=x.typ==='HPP'?'#1b3a5c':(x.typ==='OSVC'?'#3a2f5c':'#4a3a1b');
     return '<tr style="border-top:1px solid #1e2730">'+
       '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+esc(x.jmeno)+'</td>'+

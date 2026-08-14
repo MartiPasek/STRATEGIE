@@ -126,10 +126,11 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
-      // Organigram (Šárka 12.8.2026): jádro hr.organigram = iframe karty se stromem
-      // organizační struktury (posty + držitelé). Jen ke čtení.
+      // Manažerský organigram (Šárka 14.8.2026): jádro hr.organigram = reálná linie vedení
+      // (ředitel → vedoucí oddělení → podřízení), 3 pohledy EUROSOFT/Control/System. Read-only.
+      // (ISO kompetenční struktura je v „Organizační tabule" a „Posty – lidé".)
       if (String(coreCode) === 'hr.organigram') {
-        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=organigram" title="Organigram" '
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=orgman" title="Manažerský organigram" '
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }

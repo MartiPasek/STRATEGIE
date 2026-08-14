@@ -327,6 +327,35 @@
     <div id="orgtree" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<style>
+.omf{border:1px solid #3a5a8a;background:#1b2a3d;color:#cdd6e2;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
+.omf.omfon{background:#26527a;color:#fff;font-weight:700}
+.ombox{display:inline-block;background:#12181f;border:1px solid #233040;border-radius:10px;padding:8px 12px;min-width:150px;text-align:center;cursor:pointer;transition:border-color .15s}
+.ombox:hover{border-color:#3a7ac0}
+.ombox .omnm{font-weight:800;color:#e8eef5;font-size:13px}
+.ombox .ompz{color:#9fb3cc;font-size:11px;margin-top:1px}
+.ombox .omod{display:inline-block;margin-top:4px;background:#123;border:1px solid #2a6;color:#7fe0a0;border-radius:20px;padding:1px 8px;font-size:10.5px}
+.omchip{display:block;background:#12181f;border:1px solid #1e2730;border-radius:8px;padding:4px 8px;margin:5px 0;font-size:12px;color:#cdd6e2;cursor:pointer}
+.omchip:hover{border-color:#3a7ac0}
+.omcol{display:flex;flex-direction:column;align-items:center;padding:0 8px}
+.omrow{display:flex;justify-content:center;align-items:flex-start;gap:16px;flex-wrap:nowrap;min-width:max-content}
+.omstem{width:2px;height:16px;background:#2a3a4d;margin:0 auto}
+</style>
+<div class="wrapfull" id="orgmancard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">🧭 Manažerský organigram</b>
+      <span id="omcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <span style="margin-left:14px;display:inline-flex;gap:5px">
+        <button id="omfAll" class="omf omfon" onclick="omFilter('all')">EUROSOFT</button>
+        <button id="omfC" class="omf" onclick="omFilter('1')">Control</button>
+        <button id="omfS" class="omf" onclick="omFilter('2')">System</button>
+      </span>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Skutečná linie vedení: ředitel → vedoucí oddělení → podřízení. Jen ke čtení, klik na osobu otevře kartu.<br>📌 Zdroj: přímý nadřízený u pracovního poměru (naše realita, ne ISO organizační tabule).</div>
+    <div id="omtree" style="padding:12px 14px 22px;overflow-x:auto"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <div class="wrapfull" id="postycard" style="display:none">
   <div class="card">
     <div class="tbar">
@@ -442,12 +471,14 @@ function setView(v){
   const oc=document.getElementById('odpcard'); if(oc) oc.style.display=(v==='odpovednost')?'':'none';
   const ukc=document.getElementById('ukolycard'); if(ukc) ukc.style.display=(v==='ukoly')?'':'none';
   const ogc=document.getElementById('organigramcard'); if(ogc) ogc.style.display=(v==='organigram')?'':'none';
+  const omc=document.getElementById('orgmancard'); if(omc) omc.style.display=(v==='orgman')?'':'none';
   const psc=document.getElementById('postycard'); if(psc) psc.style.display=(v==='posty')?'':'none';
   const tbc=document.getElementById('tabulecard'); if(tbc) tbc.style.display=(v==='tabule')?'':'none';
   const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
+  if(v==='orgman'){ loadOrgman(); return; }
   if(v==='posty'){ loadPostyLide(); return; }
   if(v==='tabule'){ loadTabule(); return; }
   if(v==='podminky'){ loadPodminky(); return; }
@@ -628,7 +659,7 @@ function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contrac
 // Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar'){ setView(v); }
 }catch(e){} })();
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
@@ -673,6 +704,61 @@ async function loadOrganigram(){
   const lidi=new Set(); ORG_POSTY.forEach(p=>(p.lide||[]).forEach(x=>lidi.add(x.user_id||x.jmeno)));
   if(cnt) cnt.textContent='('+ORG_POSTY.length+' postů · '+lidi.size+' lidí)';
   orgRender();
+}
+// Manažerský organigram (Šárka 14.8.2026) — reálná linie vedení z person→person
+let OM_DATA=null, OM_FILTER='all';
+async function loadOrgman(){
+  const box=document.getElementById('omtree');
+  if(OM_DATA){ omRender(); return; }
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let d; try{ d=await j(API+'/app/hr/orgman'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
+  OM_DATA=d.lide||[]; omRender();
+}
+function omFilter(f){
+  OM_FILTER=f;
+  document.getElementById('omfAll').classList.toggle('omfon',f==='all');
+  document.getElementById('omfC').classList.toggle('omfon',f==='1');
+  document.getElementById('omfS').classList.toggle('omfon',f==='2');
+  omRender();
+}
+function omBox(p){
+  return '<div class="ombox" onclick="openCardFromOrg('+p.user_id+')">'+
+    '<div class="omnm">'+esc(p.jmeno)+'</div>'+
+    (p.pozice?'<div class="ompz">'+esc(p.pozice)+'</div>':'')+
+    (p.oddeleni?'<div class="omod">'+esc(p.oddeleni)+'</div>':'')+'</div>';
+}
+function openCardFromOrg(uid){ setView('list'); openP(uid); }
+function omRender(){
+  const box=document.getElementById('omtree'), cnt=document.getElementById('omcnt');
+  const inF=(p)=> OM_FILTER==='all' || (p.firmy||[]).indexOf(Number(OM_FILTER))>=0;
+  const lidi=(OM_DATA||[]).filter(inF);
+  const byU={}; lidi.forEach(p=>byU[p.user_id]=p);
+  const kids={}; lidi.forEach(p=>{ if(p.nadr_user!=null && byU[p.nadr_user]){ (kids[p.nadr_user]=kids[p.nadr_user]||[]).push(p); } });
+  const reditele=lidi.filter(p=>(kids[p.user_id]||[]).length && (p.nadr_user==null || !byU[p.nadr_user]));
+  if(cnt) cnt.textContent='('+lidi.length+' lidí)';
+  let h='';
+  reditele.forEach(dir=>{
+    h+='<div class="omcol" style="align-items:center">'+omBox(dir)+'</div>';
+    const reps=(kids[dir.user_id]||[]).slice().sort((a,b)=>((b.oddeleni?1:0)-(a.oddeleni?1:0))||a.jmeno.localeCompare(b.jmeno,'cs'));
+    if(reps.length){
+      h+='<div class="omstem"></div><div class="omrow">';
+      reps.forEach(r=>{
+        const team=(kids[r.user_id]||[]).slice().sort((a,b)=>a.jmeno.localeCompare(b.jmeno,'cs'));
+        h+='<div class="omcol">'+omBox(r);
+        if(team.length){ h+='<div class="omstem"></div><div style="min-width:150px">'+team.map(t=>'<div class="omchip" onclick="openCardFromOrg('+t.user_id+')">'+esc(t.jmeno)+(t.pozice?'<span style="color:#7f8ea0"> · '+esc(t.pozice)+'</span>':'')+'</div>').join('')+'</div>'; }
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+  });
+  const dirSet=new Set(reditele.map(d=>d.user_id));
+  const nez=lidi.filter(p=> !dirSet.has(p.user_id) && (p.nadr_user==null || !byU[p.nadr_user]) && !(kids[p.user_id]||[]).length);
+  if(nez.length){
+    h+='<div style="margin-top:22px;border-top:1px solid #1e2730;padding-top:10px"><div style="color:#7f8ea0;font-size:12px;margin-bottom:6px">🗂️ Zatím nezařazení do linie ('+nez.length+') — doplní se přiřazením nadřízeného v kartě (Pracovní údaje → Zařazení):</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">'+nez.slice().sort((a,b)=>a.jmeno.localeCompare(b.jmeno,'cs')).map(p=>'<span class="omchip" style="display:inline-block;margin:0" onclick="openCardFromOrg('+p.user_id+')">'+esc(p.jmeno)+'</span>').join('')+'</div></div>';
+  }
+  box.innerHTML=h||'<div class="empty">Zatím není nastavená žádná linie vedení.</div>';
 }
 function orgRender(){
   const box=document.getElementById('orgtree');

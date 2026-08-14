@@ -10567,6 +10567,59 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/orgman")
+async def app_hr_orgman(req: Request):
+    """Manažerský organigram (Šárka 14.8.2026) — reálná linie vedení (jednatel/ředitel
+    → vedoucí oddělení → podřízení) z engagement.nadrizeny_employee_id. Read-only.
+    NENÍ to ISO organizační tabule (ta zůstává v /app/hr/organigram)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT ae.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), ae.full_name) AS jmeno, "
+            " COALESCE(jp.label, e.pozice_text, '') AS pozice, "
+            " COALESCE(e.vedouci_oddeleni,'') AS oddeleni, "
+            " e.company_id, "
+            " (SELECT nae.user_id FROM tenant.att_employee nae WHERE nae.id=e.nadrizeny_employee_id AND nae.tenant_id=2) AS nadr_user "
+            "FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN public.users su ON su.id=ae.user_id "
+            "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "WHERE e.tenant_id=2 AND e.is_current=true"), {}).fetchall()
+        # sloučit na osobu (user_id) — Marti má 2 poměry (Control+System)
+        by = {}
+        for r in rows:
+            u = r[0]
+            if u is None:
+                continue
+            n = by.get(u)
+            if not n:
+                n = {"user_id": int(u), "jmeno": (r[1] or "").strip(),
+                     "pozice": (r[2] or ""), "oddeleni": (r[3] or ""),
+                     "firmy": [], "nadr_user": (int(r[5]) if r[5] is not None else None)}
+                by[u] = n
+            if r[4] and int(r[4]) not in n["firmy"]:
+                n["firmy"].append(int(r[4]))
+            if (not n["oddeleni"]) and r[3]:
+                n["oddeleni"] = r[3]
+            if n["nadr_user"] is None and r[5] is not None:
+                n["nadr_user"] = int(r[5])
+        lide = list(by.values())
+        # jednatelé (vrcholy pro výpovědní linii): Control=1 → Pašek+Mózer, System=2 → Pašek
+        return JSONResponse({"ok": True, "lide": lide})
+    except Exception as exc:
+        logger.exception("[hr_orgman] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/pomer-zmena")
 async def app_hr_pomer_zmena(req: Request):
     """HR změna / prodloužení poměru (Šárka 11.8.2026): doba trvání (určitá do data /

@@ -10567,7 +10567,7 @@ async def app_hr_person_work_save(req: Request):
         cm.__exit__(None, None, None)
 
 
-@api_router.get("/app/hr/orgman")
+@api_router.get("/app/hr/orgman-live")
 async def app_hr_orgman(req: Request):
     """Manažerský organigram (Šárka 14.8.2026) — reálná linie vedení (jednatel/ředitel
     → vedoucí oddělení → podřízení) z engagement.nadrizeny_employee_id. Read-only.

@@ -32,11 +32,13 @@ ROZHODNUTÍ PETRY (30.7.2026)
 
 CO SE DĚLÁ SE ZŮSTATKY
 ----------------------
-Do dneška se `holiday_balance` / `sick_day_balance` přepočítávaly JEN když člověk
-prošel mobilní cestou `POST /app/attendance/absence`. Po `absence/decide`,
-`absence/cancel` ani `fix/void` se nepřepočítalo nic. Tady se po KAŽDÉ změně volá
-`_abs_recalc_balances()` — idempotentní přepočet z docházky (ne inkrement), takže
-opakované spuštění nic nerozbije. Roky s `uzavreno=true` se přeskakují.
+ZMĚNA 14. 8. 2026 (Jirka, schválila Marti-AI): do zůstatkových tabulek
+`holiday_balance` / `sick_day_balance` se už NEZAPISUJE — jdou z provozu, protože
+nárok v nich nebyl spočítaný, ale plošně vyplněný, a nikdo z nich nepočítal. Nárok se
+bere z Podmínek (`tenant.staff_cond`), čerpání si přehled „Nárok a čerpání" počítá
+sám z docházky. `_abs_recalc_balances()` zůstal jen kvůli hlášce uživateli, co se po
+jeho zásahu změnilo. Uzavřený rok se přeskakuje podle zámku mzdového prosince
+(`_abs_rok_uzavren`), ne podle zrušeného sloupce `uzavreno`.
 
 POJISTKY
 --------
@@ -184,16 +186,37 @@ class _Kousek:
         return True  # výjimku spolkni, hlavní práce pokračuje
 
 
+def _abs_rok_uzavren(s, rok):
+    """Je rok uzavřený? = je uzamčený mzdový PROSINEC toho roku (zadal Jirka 14. 8. 2026,
+    schválila Marti-AI).
+
+    Do 14. 8. 2026 se uzavřenost držela sloupcem `uzavreno` přímo v tabulkách
+    holiday_balance / sick_day_balance. Ty jdou z provozu, takže by příznak zmizel s nimi.
+    Nově se odvozuje z jediného místa, kde se rok fakticky zavírá — ze zámku mzdového
+    období (tenant.att_period_lock). Uzamčený prosinec = rok je hotový a nesmí se hnout.
+    Připraveno i pro převod zbytku dovolené do dalšího roku (tenant.dovolena_prevod)."""
+    import datetime as _dt
+    from modules.erp.api.router import _att_period_locked
+    try:
+        return bool(_att_period_locked(s, _dt.date(int(rok), 12, 1)))
+    except Exception:
+        return False
+
+
 def _abs_recalc_balances(s, emp, roky):
-    """IDEMPOTENTNÍ přepočet zůstatků z docházky (ne inkrement — spočítá se znovu).
+    """Spočítá z docházky, kolik má člověk za rok vyčerpáno dovolené a sick days.
 
-    dovolená  → holiday_balance.cerpano_h  = SUM(hodin) záznamů typu 'vacation' v roce
-    sick days → sick_day_balance.cerpano_h = SUM(hodin) záznamů typu 'sickday' v roce
-      (pozn.: část „lékaře" se při čerpání ukládá rovnou JAKO 'sickday' — viz
-       `_sickday_lekar_apply` — takže tenhle součet sedí i pro lékaře.)
+    ZMĚNA 14. 8. 2026 (zadal Jirka, schválila Marti-AI): PŘESTALO SE ZAPISOVAT do
+    tenant.holiday_balance a tenant.sick_day_balance. Obě tabulky jdou z provozu —
+    nárok v nich nebyl spočítaný, ale vyplněný (74 lidí mělo shodných 200 h dovolené,
+    104 lidí shodných 16 h sick days bez ohledu na úvazek a nástup) a nikdo z nich
+    nepočítal. Nárok se od 14. 8. bere z Podmínek (tenant.staff_cond) a čerpání si
+    přehled „Nárok a čerpání" počítá sám živě z docházky.
 
-    Roky označené `uzavreno=true` se NEPŘEPOČÍTÁVAJÍ (uzavřený rok se nesmí hnout).
-    Vrací seznam popisů, co se přepočítalo (pro hlášku uživateli).
+    Funkce zůstala kvůli druhému účelu — vrací hlášku uživateli, co se po jeho zásahu
+    v docházce změnilo („dovolená 2026: čerpáno 40,0 h"). Ta se počítá pořád, jen se
+    nikam neukládá. Uzavřený rok se přeskakuje jako dřív, nově podle zámku mzdového
+    prosince místo zrušeného sloupce `uzavreno` (viz `_abs_rok_uzavren`).
     """
     from sqlalchemy import text as _t
     out = []
@@ -201,60 +224,18 @@ def _abs_recalc_balances(s, emp, roky):
     if not eng:
         return out
     for rok in sorted({int(r) for r in roky if r}):
-        # ── dovolená ────────────────────────────────────────────────────────
-        with _Kousek(s):
-            ex = s.execute(_t("SELECT narok_h, prevod_h, COALESCE(uzavreno,false) "
-                              "FROM tenant.holiday_balance "
-                              "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
-                           {"t": _TEN, "g": eng, "r": rok}).first()
-            if not (ex and ex[2]):
+        if _abs_rok_uzavren(s, rok):
+            continue  # uzavřený rok se nehodnotí (mzdy jsou hotové)
+        for kod, popis in (("vacation", "dovolená"), ("sickday", "sick days")):
+            with _Kousek(s):
                 cerp = s.execute(_t(
                     "SELECT COALESCE(SUM(en.hours),0) FROM tenant.att_entry en "
                     "JOIN tenant.att_entry_type ty ON ty.id=en.entry_type_id "
-                    "WHERE en.tenant_id=:t AND en.employee_id=:e AND ty.code='vacation' "
+                    "WHERE en.tenant_id=:t AND en.employee_id=:e AND ty.code=:k "
                     "AND COALESCE(en.status,'')<>'superseded' "
                     "AND EXTRACT(YEAR FROM en.entry_date)=:r"),
-                    {"t": _TEN, "e": emp, "r": rok}).scalar() or 0
-                # POZOR — „zbývá" (zbytek_h) SCHVÁLNĚ NEPŘEPISUJEME (Peťa 30.7.2026).
-                # Nárok na dovolenou zatím není spočítaný: v `holiday_balance` má všech
-                # 79 lidí jednotných 200 h (25 dnů) bez ohledu na úvazek a nástup —
-                # výplň, ne výpočet (upozornil Jirka). Dokud nárok neumí počítat, bylo by
-                # „zbývá" nepravdivé číslo, na které se lidi dívají. Čerpáno naopak
-                # počítáme, to je pravda z docházky. Až bude nárok hotový, stačí sem
-                # vrátit dopočet zbytek_h = narok + prevod − cerpano.
-                if ex:
-                    s.execute(_t("UPDATE tenant.holiday_balance SET cerpano_h=:c, changed_at=now() "
-                                 "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
-                              {"c": cerp, "t": _TEN, "g": eng, "r": rok})
-                else:
-                    s.execute(_t("INSERT INTO tenant.holiday_balance "
-                                 "(tenant_id,engagement_id,rok,narok_h,prevod_h,cerpano_h,zbytek_h) "
-                                 "VALUES (:t,:g,:r,0,0,:c,NULL)"),
-                              {"t": _TEN, "g": eng, "r": rok, "c": cerp})
-                out.append("dovolená %d: čerpáno %.1f h" % (rok, float(cerp)))
-        # ── sick days ───────────────────────────────────────────────────────
-        with _Kousek(s):
-            ex = s.execute(_t("SELECT narok_h, COALESCE(uzavreno,false) FROM tenant.sick_day_balance "
-                              "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
-                           {"t": _TEN, "g": eng, "r": rok}).first()
-            if not (ex and ex[1]):
-                cerp = s.execute(_t(
-                    "SELECT COALESCE(SUM(en.hours),0) FROM tenant.att_entry en "
-                    "JOIN tenant.att_entry_type ty ON ty.id=en.entry_type_id "
-                    "WHERE en.tenant_id=:t AND en.employee_id=:e AND ty.code='sickday' "
-                    "AND COALESCE(en.status,'')<>'superseded' "
-                    "AND EXTRACT(YEAR FROM en.entry_date)=:r"),
-                    {"t": _TEN, "e": emp, "r": rok}).scalar() or 0
-                if ex:
-                    s.execute(_t("UPDATE tenant.sick_day_balance SET cerpano_h=:c "
-                                 "WHERE tenant_id=:t AND engagement_id=:g AND rok=:r"),
-                              {"c": cerp, "t": _TEN, "g": eng, "r": rok})
-                else:
-                    s.execute(_t("INSERT INTO tenant.sick_day_balance "
-                                 "(tenant_id,engagement_id,rok,narok_h,cerpano_h) "
-                                 "VALUES (:t,:g,:r,16,:c)"),
-                              {"t": _TEN, "g": eng, "r": rok, "c": cerp})
-                out.append("sick days %d: čerpáno %.1f h" % (rok, float(cerp)))
+                    {"t": _TEN, "e": emp, "k": kod, "r": rok}).scalar() or 0
+                out.append("%s %d: čerpáno %.1f h" % (popis, rok, float(cerp)))
     return out
 
 

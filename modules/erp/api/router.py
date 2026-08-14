@@ -19745,8 +19745,24 @@ async def app_hr_conditions(req: Request) -> JSONResponse:
             for d in defs:
                 val, src = _resolve_cond(s, tu, d["code"], grp)
                 resolved[d["code"]] = {"value": val, "src": src}
+            # Věrnostní dny dovolené navíc (Jirka 14. 8. 2026, schválila Marti-AI) — evidence
+            # z tenant.vernost_dovolena_log, aby bylo v kartě vidět kdy a za kolik let kdo den
+            # dostal. Jen čtení. Tabulka je nová, proto v try — kdyby chyběla, podmínky se
+            # zobrazí i tak a jen zmizí tenhle blok.
+            vern = []
+            try:
+                vern = [{"roky": r[0], "vyroci": (r[1].isoformat() if r[1] else None),
+                         "dnu": float(r[2] or 0),
+                         "pridano": (r[3].isoformat() if r[3] else None),
+                         "zdroj": r[4] or "", "poznamka": r[5] or ""}
+                        for r in s.execute(_t(
+                            "SELECT roky_ve_firme, vyroci_datum, pridano_dnu, datum_pridani, zdroj, poznamka "
+                            "FROM tenant.vernost_dovolena_log WHERE tenant_id=2 AND user_id=:u "
+                            "ORDER BY roky_ve_firme"), {"u": tu}).fetchall()]
+            except Exception:
+                vern = []
             return JSONResponse({"ok": True, "scope_kind": "user", "user_id": tu, "group_code": grp,
-                                 "defs": defs, "own": own, "resolved": resolved})
+                                 "defs": defs, "own": own, "resolved": resolved, "vernost": vern})
         # system / group
         if sk == "group":
             rows = s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "

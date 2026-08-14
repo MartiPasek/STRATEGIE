@@ -1771,7 +1771,36 @@ async function podmUdaje(){
         '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
         '<td style="padding:7px 16px;text-align:right">'+srcBadge(r.src)+'</td></tr>'; }).join('')+'</table>';
   h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.</div>';
+  h+=vernostHTML(d.vernost||[]);
   det.innerHTML=h;
+}
+
+// Věrnostní dny dovolené navíc (Jirka 14. 8. 2026, schválila Marti-AI). Kdo výročí ještě
+// nedosáhl, nemá záznam a blok se vůbec nezobrazí — prázdná tabulka by jen mátla.
+// U řádků dohledaných zpětně chybí datum přidání (Centrála si ho nevedla) a zdroj je
+// vidět, aby si nikdo nemyslel, že to zapsal automat.
+function vernostHTML(zz){
+  if(!zz.length) return '';
+  const zdrojBadge=(s)=>{ s=(s||'').toLowerCase();
+    const m=(s==='automat')?['automat','#12243a','#7fb2e8']:((s==='historie')?['dohledáno zpětně','#23262b','#9aa7b4']:['ručně doplněno','#3a2f12','#E0A94A']);
+    return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; };
+  const celkem=zz.reduce((a,r)=>a+(Number(r.dnu)||0),0);
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px 6px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">🎖️ Věrnostní dny dovolené navíc</span>'+
+    '<span style="color:#7f8ea0;font-size:12px">celkem '+celkem.toFixed(0).replace('.',',')+' dní</span></div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    '<tr style="color:#7f8ea0;font-size:11px;text-transform:uppercase;letter-spacing:.04em">'+
+      '<td style="padding:4px 16px">Let ve firmě</td><td style="padding:4px 16px">Výročí</td>'+
+      '<td style="padding:4px 16px;text-align:right">Přidáno dní</td>'+
+      '<td style="padding:4px 16px">Kdy přidáno</td><td style="padding:4px 16px;text-align:right">Zdroj</td></tr>'+
+    zz.map(r=>'<tr style="border-top:1px solid #1e2730">'+
+      '<td style="padding:7px 16px;color:#e8eef5;font-weight:700">'+esc(String(r.roky))+'</td>'+
+      '<td style="padding:7px 16px;color:#cdd6e2">'+(r.vyroci?esc(czDate(r.vyroci)):'<span style="color:#5d6b7c">—</span>')+'</td>'+
+      '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right">'+esc(String(r.dnu).replace('.',','))+'</td>'+
+      '<td style="padding:7px 16px;color:#cdd6e2">'+(r.pridano?esc(czDate(r.pridano)):'<span style="color:#5d6b7c" title="Přesné datum se nedohledalo — den přidělovala ručně Centrála před vznikem automatu.">nezjištěno</span>')+'</td>'+
+      '<td style="padding:7px 16px;text-align:right">'+zdrojBadge(r.zdroj)+'</td></tr>').join('')+'</table>';
+  h+='<div style="padding:8px 16px 14px;color:#5d6b7c;font-size:11px">Za každých deset let ve firmě 1 den dovolené navíc. Den se připisuje do Podmínek výše, evidence hlídá, aby ho nikdo nedostal dvakrát.</div>';
+  return h;
 }
 
 // Šárka 24.7.2026: Odpovědnost — kdo kontroluje docházku (Fáze 1) + schvalování volna (Fáze 2).

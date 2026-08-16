@@ -17272,6 +17272,42 @@ async def att_absence_request(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.get("/app/attendance/absence/limit")
+async def att_absence_limit(req: Request) -> JSONResponse:
+    """Náhled na zbývající nárok PŘED odesláním žádosti (Jirka 16. 8. 2026, schválila
+    Marti-AI). Jen ČTE — nic nezapisuje, nic nezakládá.
+
+    Aplikace se sem zeptá, jakmile má člověk vybraný typ a rozsah dní, aby varování
+    („překračuješ nárok o X dní") viděl hned, ne až po odeslání. Tentýž výpočet pak
+    proběhne ještě jednou na serveru při samotném zápisu — tohle je jen náhled, ne
+    náhrada kontroly.
+
+    DB-driven delegate (g2007.python kod=att_limit_kontrola). Pravidlo i výpočet žijí
+    v databázi, tady je jen přihlášení, dohledání docházkového čísla a předání dál.
+    Ptát se jde POUZE sám na sebe."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    q = req.query_params
+    try:
+        hpd = float(q.get("hpd")) if (q.get("hpd") not in (None, "")) else None
+    except Exception:
+        hpd = None
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not emp:
+            return JSONResponse({"ok": True, "hlidano": False, "varovani": ""})
+        from modules.erp.api import erp_registry as _ereg
+        return JSONResponse(_ereg.call("att_limit_kontrola", s, emp,
+                                       q.get("typ"), q.get("od"), q.get("do"), hpd, uid))
+    except Exception as exc:
+        logger.warning("[absence limit] %s", exc)
+        return JSONResponse({"ok": True, "hlidano": False, "varovani": ""})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/absence/mine")
 async def att_absence_mine(req: Request) -> JSONResponse:
     """DB-driven delegate (g2007.python kod=att_absence_mine). Puvodni telo migrovano do DB dne 31.7.2026, Faze E."""

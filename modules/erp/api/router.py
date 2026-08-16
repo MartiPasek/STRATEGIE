@@ -9767,24 +9767,37 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
             s.execute(_t(
                 "INSERT INTO tenant.staff_group_member (tenant_id, group_id, user_id, score) "
                 "VALUES (2, :g, :u, 0)"), {"g": g, "u": new_uid})
-        # Nárok na dovolenou do Podmínek (Jirka 13. 8. 2026). Řádek už existuje —
-        # založil ho trigger trg_staff_cond_default_dovolena s nulou při INSERTu výš.
-        # Tady se jen přepíše na to, co HR vybralo. UPDATE, ne INSERT, aby nevznikly
+        # Nárok na dovolenou do Podmínek (Jirka 13. 8. 2026). Řádky už existují —
+        # založil je trigger trg_staff_cond_default_dovolena s nulou při INSERTu výš.
+        # Tady se jen přepíšou na to, co HR vybralo. UPDATE, ne INSERT, aby nevznikly
         # dva řádky; kdyby trigger náhodou nezabral, doplní se INSERTem.
+        #
+        # ROZPAD DOVOLENÉ (Jirka 16. 8. 2026, schválila Marti-AI). Formulář dál zadává
+        # JEDNO číslo (celkový nárok) — HR nemá při náboru řešit, kolik z toho je
+        # „navíc". Rozdělí se stejným pravidlem, jaké drží celý zbytek systému:
+        # OSVČ má vše v dovolené navíc, ostatní mají základní do 20 dnů a zbytek navíc.
+        # Personální oddělení to pak může v Podmínkách kdykoli přepsat.
+        # Zapisují se všechny tři hodnoty včetně celkové — trigger součtu ji sice
+        # dopočítá sám, ale kdyby zápis přišel dřív než trigger, člověk by měl nulu.
         if dovolena_dni is not None:
-            _dv = ("%g" % dovolena_dni)
-            _n = s.execute(_t(
-                "UPDATE tenant.staff_cond SET value=:v, note=:n, changed_by=:by, changed_at=now() "
-                "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u AND cond_code='dovolena_dni'"),
-                {"v": _dv, "u": new_uid, "by": uid,
-                 "n": "zadano pri zalozeni zamestnance v HR (13.8.2026+)"}).rowcount or 0
-            if _n == 0:
-                s.execute(_t(
-                    "INSERT INTO tenant.staff_cond (tenant_id, scope_kind, user_id, cond_code, "
-                    " value, note, changed_by, changed_at) "
-                    "VALUES (2, 'user', :u, 'dovolena_dni', :v, :n, :by, now())"),
-                    {"u": new_uid, "v": _dv, "by": uid,
-                     "n": "zadano pri zalozeni zamestnance v HR (13.8.2026+)"})
+            _osvc = (typ == "osvc")
+            _zakl = 0.0 if _osvc else min(float(dovolena_dni), 20.0)
+            _navic = float(dovolena_dni) - _zakl
+            _pozn = "zadano pri zalozeni zamestnance v HR (13.8.2026+), rozpad dle pravidla (16.8.2026)"
+            for _kod, _hod in (("dovolena_zakladni_dni", _zakl),
+                               ("dovolena_navic_dni", _navic),
+                               ("dovolena_dni", float(dovolena_dni))):
+                _dv = ("%g" % _hod)
+                _n = s.execute(_t(
+                    "UPDATE tenant.staff_cond SET value=:v, note=:n, changed_by=:by, changed_at=now() "
+                    "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u AND cond_code=:c"),
+                    {"v": _dv, "u": new_uid, "by": uid, "c": _kod, "n": _pozn}).rowcount or 0
+                if _n == 0:
+                    s.execute(_t(
+                        "INSERT INTO tenant.staff_cond (tenant_id, scope_kind, user_id, cond_code, "
+                        " value, note, changed_by, changed_at) "
+                        "VALUES (2, 'user', :u, :c, :v, :n, :by, now())"),
+                        {"u": new_uid, "v": _dv, "by": uid, "c": _kod, "n": _pozn})
         s.commit()
 
         # notifikace: Petra (mzdy) + HR skupina/rodiče. Best-effort (nesmí shodit založení).
@@ -12319,20 +12332,13 @@ def hr_jmeniny_ics(req: Request):
 @api_router.get("/app/hr/podminky-prehled")
 async def app_hr_podminky_prehled(req: Request):
     """Přehled podmínek zaměstnanců v tabulce (Šárka 13.8.2026): aktuální poměry +
-    úvazek, doba, nástup, nárok dovolené (dní), věrnostní dny, sick days (dní). Jen ke
-    ČTENÍ. HR-gated.
+    úvazek, doba, nástup, nárok dovolené (dní, nově i rozpad základní/navíc), věrnostní
+    dny, sick days (dní). Jen ke ČTENÍ. HR-gated.
 
-    PŘEPOJENO 14. 8. 2026 (zadal Jirka, schválila Marti-AI). Do té doby se nárok na
-    dovolenou i sick days bral z tenant.holiday_balance / tenant.sick_day_balance —
-    jenže tam nebyl spočítaný, byl vyplněný: 74 lidí mělo shodných 200 h dovolené a
-    104 lidí shodných 16 h sick days bez ohledu na úvazek a nástup. Obě tabulky jdou
-    z provozu. Nově se čte ze stejného zdroje jako karta jednotlivce — tenant.staff_cond
-    přes pravidlo osobní → skupina → systém. Věrnostní dny z tenant.vernost_dovolena_log
-    místo zastaralého entitlementu 'dovolena_vernost_10let'.
-
-    Resolver se dělá dávkově (čtyři dotazy do paměti), ne po lidech — pro 74 lidí by
-    volání _resolve_cond znamenalo přes dvě stě dotazů."""
-    from sqlalchemy import text as _t
+    DB-driven delegate (g2007.python kod=hr_podminky_prehled). Tělo migrováno do DB
+    16. 8. 2026 při rozpadu dovolené — zadal Jirka, schválila Marti-AI s tím, že čtecí
+    funkce se při zásahu migrovat mají. Tady zůstalo jen přihlášení, ambasadorský blok,
+    kontrola HR práva a session; výpočet i seznam sloupců žijí v databázi."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -12343,77 +12349,8 @@ async def app_hr_podminky_prehled(req: Request):
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT u.id uid, COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) jmeno, "
-            "  CASE e.company_id WHEN 1 THEN 'Control' WHEN 2 THEN 'System' ELSE '' END firma, "
-            "  e.engagement_type typ, e.uvazek_tyden_h uvazek, e.smlouva_od, e.smlouva_do, e.zkusebni_do "
-            "FROM tenant.engagement e "
-            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
-            "JOIN public.users u ON u.id=ae.user_id "
-            "WHERE e.tenant_id=2 AND e.is_current "
-            "  AND (e.smlouva_do IS NULL OR e.smlouva_do >= current_date) AND ae.user_id IS NOT NULL "
-            "ORDER BY jmeno")).fetchall()
-        # ── podmínky dávkově: osobní → skupina → systém (stejné pravidlo jako _resolve_cond) ──
-        _KODY = ("dovolena_dni", "sick_days_rok")
-        osobni = {}
-        for r in s.execute(_t("SELECT user_id, cond_code, value FROM tenant.staff_cond "
-                              "WHERE tenant_id=2 AND scope_kind='user' AND cond_code IN "
-                              "('dovolena_dni','sick_days_rok')")).fetchall():
-            osobni[(int(r[0]), r[1])] = r[2]
-        skupinove = {}
-        for r in s.execute(_t("SELECT group_code, cond_code, value FROM tenant.staff_cond "
-                              "WHERE tenant_id=2 AND scope_kind='group' AND cond_code IN "
-                              "('dovolena_dni','sick_days_rok')")).fetchall():
-            skupinove[(r[0], r[1])] = r[2]
-        systemove = {}
-        for r in s.execute(_t("SELECT cond_code, value FROM tenant.staff_cond "
-                              "WHERE tenant_id=2 AND scope_kind='system' AND cond_code IN "
-                              "('dovolena_dni','sick_days_rok')")).fetchall():
-            systemove[r[0]] = r[1]
-        # skupina člověka — při více členstvích vyhrává nejnižší sort_order (jako _cond_group_of)
-        skupina_cloveka = {}
-        for r in s.execute(_t(
-                "SELECT DISTINCT ON (m.user_id) m.user_id, g.id::text "
-                "FROM tenant.staff_group_member m "
-                "JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 "
-                "  AND COALESCE(g.archived,false)=false "
-                "WHERE EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 "
-                "  AND c.scope_kind='group' AND c.group_code=g.id::text) "
-                "ORDER BY m.user_id, g.sort_order, g.id")).fetchall():
-            skupina_cloveka[int(r[0])] = r[1]
-        vernostni = {}
-        try:
-            for r in s.execute(_t("SELECT user_id, COALESCE(SUM(pridano_dnu),0) FROM "
-                                  "tenant.vernost_dovolena_log WHERE tenant_id=2 "
-                                  "GROUP BY user_id")).fetchall():
-                vernostni[int(r[0])] = float(r[1] or 0)
-        except Exception:
-            vernostni = {}
-
-        def _podminka(uid_, code):
-            v = osobni.get((uid_, code))
-            if v is None:
-                g = skupina_cloveka.get(uid_)
-                v = skupinove.get((g, code)) if g else None
-            if v is None:
-                v = systemove.get(code)
-            if v is None:
-                return None
-            try:
-                return float(str(v).replace(",", ".").strip())
-            except Exception:
-                return None
-
-        out = [{"uid": int(r[0]), "jmeno": (r[1] or ""), "firma": (r[2] or ""),
-                "typ": (r[3] or "").upper(),
-                "uvazek": (float(r[4]) if r[4] is not None else None),
-                "nastup": (r[5].isoformat() if r[5] else ""),
-                "smlouva_do": (r[6].isoformat() if r[6] else ""),
-                "zkusebni_do": (r[7].isoformat() if r[7] else ""),
-                "dov_dny": _podminka(int(r[0]), "dovolena_dni"),
-                "sd_dny": _podminka(int(r[0]), "sick_days_rok"),
-                "vernost": vernostni.get(int(r[0]), 0)} for r in rows]
-        return JSONResponse({"ok": True, "radky": out, "pocet": len(out)})
+        from modules.erp.api import erp_registry as _ereg
+        return JSONResponse(_ereg.call("hr_podminky_prehled", s, uid))
     except Exception as exc:
         logger.exception("[hr_podminky_prehled] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -19949,6 +19886,14 @@ async def app_hr_conditions_save(req: Request) -> JSONResponse:
         tu = None
     if sk not in ("system", "group", "user") or not cc:
         return JSONResponse({"ok": False, "error": "scope_kind + cond_code"})
+    # Celková dovolená je od 16. 8. 2026 POČÍTADLO, ne zadávaná hodnota (Jirka, schválila
+    # Marti-AI): drží ji databázový trigger jako součet dovolena_zakladni_dni +
+    # dovolena_navic_dni. Ruční zápis se proto odmítá — jinak by vznikl třetí zdroj
+    # pravdy, který se při nejbližší změně jednoho ze sčítanců tiše rozejde.
+    if cc == "dovolena_dni":
+        return JSONResponse({"ok": False, "error": "Celková dovolená se nezadává — je to součet "
+                                                   "položek „Dovolená“ a „Dovolená navíc“. "
+                                                   "Uprav jednu z nich a součet se přepočítá sám."})
     cm, s = _att_session()
     try:
         if not _hr_can_manage(s, uid):
@@ -20053,8 +19998,14 @@ async def app_hr_conditions_people(req: Request) -> JSONResponse:
 
 
 # Marti 12.6.: zaměstnanec vidí SVÉ resolvované podmínky (nefinanční — hranice Marti-AI Q8).
+#   Rozpad dovolené (Jirka 16. 8. 2026, schválila Marti-AI): zaměstnanec má v mobilu
+#   vidět dovolenou ROZDĚLENOU na základní a navíc, ne jen jedno číslo. Tenhle seznam
+#   je natvrdo (na rozdíl od HR obrazovek, které se staví z katalogu staff_cond_def),
+#   takže nový kód se sem musí doplnit ručně — jinak se v „Moje podmínky" neobjeví.
+#   Obrazovka je jen ke čtení, zaměstnanec si hodnoty měnit nemůže (podmínka Jirky).
 _MY_COND_CODES = ["uvazek_h_tyden", "nastup_max", "absence_nahlasit_do", "neplaceny_prescas_h_den",
-                  "home_office_h", "sick_days_rok", "dovolena_dni", "stravenka_kc", "vikend_jen_schvaleni"]
+                  "home_office_h", "sick_days_rok", "dovolena_zakladni_dni", "dovolena_navic_dni",
+                  "dovolena_dni", "stravenka_kc", "vikend_jen_schvaleni"]
 
 
 @api_router.get("/app/my-conditions")
@@ -44603,7 +44554,14 @@ def _sync_fin_from_ec() -> dict:
     # o ODEBRÁNÍ dvou schopností, ne přidání logiky, a že migrovat 250řádkovou funkci,
     # která hýbe mzdovými složkami, kvůli dvěma vypnutím je nepřiměřené riziko.
     # Migrace _sync_fin_from_ec do g2007.python zůstává jako otevřený technický dluh.
-    ent_map = []
+    #
+    # 16. 8. 2026 (Jirka, schválila Marti-AI): tabulka tenant.engagement_entitlement se
+    # ruší — nároky žijí v tenant.staff_cond (Podmínky) a dovolená je tam nově rozdělená
+    # na základní a navíc. Zápisová smyčka níž se od 13. 8. nespouštěla (ent_map je
+    # prázdný), teď je odstraněna úplně, aby po DROPu tabulky nezůstal odkaz na
+    # neexistující objekt. Sloupce SickDayStandard/Navic a VolnoStandard/Navic se
+    # z Centrály pořád načítají v SELECTu výš, ale zahazují se — schválně, aby šlo
+    # kdykoli porovnat, co v Centrále je.
 
     def num(v):
         try:
@@ -44707,15 +44665,6 @@ def _sync_fin_from_ec() -> dict:
                     {"eng": eng, "tid": tid, "ap": ap, "ar": ar, "ph": ph,
                      "cb": (str(row.get("chby") or "")[:120] or None), "ca": row.get("chat") or None})
                 nc += 1
-            for code, col in ent_map:
-                v = num(row.get(col))
-                if v is None:
-                    continue
-                s.execute(_t(
-                    "INSERT INTO tenant.engagement_entitlement (tenant_id, engagement_id, code, value) "
-                    "VALUES (2, :eng, :c, :v) "
-                    "ON CONFLICT (tenant_id, engagement_id, code) DO UPDATE SET value = EXCLUDED.value"),
-                    {"eng": eng, "c": code, "v": v})
         s.commit()
     except Exception:
         s.rollback()

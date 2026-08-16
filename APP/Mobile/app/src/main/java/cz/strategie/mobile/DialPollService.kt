@@ -605,6 +605,19 @@ class DialPollService : Service() {
                 }
             } catch (e: Exception) {
             }
+            // payload.screen = rezervovaný klíč pro navigaci v appce (G2007
+            // doc-dochazka-mobile-command-payload-screen). Do 16. 8. 2026 se z payloadu
+            // četl JEN klíč 'url', a jen u typu open_url — 'screen' se zahazoval. Proto
+            // ťuknutí na notifikaci o žádosti o absenci nabídlo vedoucímu jen „Otevřít
+            // chat" (hlásil Dušan Havlát). Uvnitř appky tlačítko od 5. 8. funguje, tohle
+            // je jen cesta z notifikační lišty. Jirka 16. 8. 2026, schválila Marti-AI.
+            try {
+                if (payload.isNotBlank()) {
+                    val scr = JSONObject(payload).optString("screen", "")
+                    if (scr.isNotBlank()) putExtra("cmd_screen", scr)
+                }
+            } catch (e: Exception) {
+            }
         }
         val pi = PendingIntent.getActivity(
             this, (NOTIF_COMMAND_BASE + id).toInt(), i,

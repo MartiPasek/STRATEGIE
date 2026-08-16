@@ -44,6 +44,10 @@ class HybridActivity : ComponentActivity() {
     // po udělení runtime permission. deny() si WebView pamatuje → mic „nereaguje".
     private var pendingMicReq: android.webkit.PermissionRequest? = null
     private var filePathCb: android.webkit.ValueCallback<Array<Uri>>? = null
+    // Obrazovka, na kterou se má skočit po načtení stránky — přichází z notifikace
+    // („Otevřít schvalování"), když appka teprve startuje a WebView ještě nic neumí.
+    // Když už appka běží, řeší to onNewIntent rovnou. Jirka 16. 8. 2026.
+    private var pendingScreen: String? = null
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
@@ -708,6 +712,16 @@ class HybridActivity : ComponentActivity() {
             }
         }
         web.webViewClient = object : WebViewClient() {
+            // Skok z notifikace, když appka teprve startovala: stránka je hotová až
+            // tady. Malá prodleva nechá /mobile dojet inicializaci (window.__M2W).
+            // Jirka 16. 8. 2026.
+            override fun onPageFinished(v: WebView?, url: String?) {
+                super.onPageFinished(v, url)
+                val s = pendingScreen ?: return
+                pendingScreen = null
+                v?.postDelayed({ goScreen(s) }, 700)
+            }
+
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean {
                 val u = url ?: return false
@@ -743,6 +757,10 @@ class HybridActivity : ComponentActivity() {
         // teprve pak /mobile. Token = identita (čí telefon + jaká práva).
         val hasTok = !(getSharedPreferences(prefsName, MODE_PRIVATE)
             .getString(keyToken, "") ?: "").isBlank()
+        // Přišli jsme z notifikace? Skok si schováme a provedeme až po načtení
+        // stránky (onPageFinished). Nepřihlášený telefon jde na /app-pair a skok
+        // se zahodí — do schvalování se nikdo nedostane bez přihlášení.
+        pendingScreen = if (hasTok) intent?.getStringExtra("go_screen") else null
         web.loadUrl(base() + if (hasTok) "/mobile" else "/app-pair")
 
         // Zpět: o úroveň výš v /mobile; na hlavní obrazovce přívětivý dialog „ukončit?".
@@ -762,6 +780,22 @@ class HybridActivity : ComponentActivity() {
         setIntent(intent)
         if (intent?.action == Intent.ACTION_MAIN) {
             try { web.evaluateJavascript("(window.__stgHome&&window.__stgHome())", null) } catch (e: Exception) {}
+        }
+        // Příchod z notifikace („Otevřít schvalování") — appka už běžela, stránka je
+        // načtená, můžeme přepnout hned. Jirka 16. 8. 2026.
+        val go = intent?.getStringExtra("go_screen")
+        if (!go.isNullOrBlank()) goScreen(go)
+    }
+
+    /** Přepne WebView na obrazovku /mobile podle názvu z notifikace.
+     *  `go` je stejná funkce, jakou používá appka interně při klepnutí na dlaždici. */
+    private fun goScreen(screen: String) {
+        val s = screen.filter { it.isLetterOrDigit() || it == '_' }.take(40)
+        if (s.isBlank()) return
+        try {
+            web.evaluateJavascript(
+                "(window.__M2W&&window.__M2W.go?window.__M2W.go('" + s + "'):false)", null)
+        } catch (e: Exception) {
         }
     }
 

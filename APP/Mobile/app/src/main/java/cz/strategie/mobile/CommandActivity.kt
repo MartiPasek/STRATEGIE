@@ -50,19 +50,43 @@ class CommandActivity : Activity() {
                     .show()
             }
             "claude_msg" -> {
-                // Zpráva od Clauda (hotovo/výsledek) — jen informace + otevřít chat
-                AlertDialog.Builder(this)
+                // Zpráva od Clauda (hotovo/výsledek) — jen informace + otevřít chat.
+                // Když zpráva nese payload.screen (typicky žádost o absenci), nabídneme
+                // navíc tlačítko, které otevře rovnou tu obrazovku v appce. Jirka
+                // 16. 8. 2026, schválila Marti-AI; hlásil Dušan Havlát — ťuknutí na
+                // notifikaci o žádosti o dovolenou dosud nabídlo jen „Otevřít chat",
+                // takže vedoucí neměl z notifikace cestu ke schválení.
+                val screen = safeScreen(intent.getStringExtra("cmd_screen") ?: "")
+                val b = AlertDialog.Builder(this)
                     .setTitle(title)
                     .setMessage(msg)
                     .setCancelable(true)
-                    .setPositiveButton("Otevřít chat") { _, _ ->
+                if (screen.isNotBlank()) {
+                    // Popisky drží appka, ne backend (G2007 doc-dochazka-mobile-command-payload-screen).
+                    // ⚠ STEJNÁ MAPA JE I VE WEBU (mobile_parts/20_home_phone_notifs.js
+                    // a 25_tasks.js). Kdo přidá nový screen, MUSÍ upravit obě místa,
+                    // jinak se popisky rozejdou. Vědomý dluh, viz G2007.
+                    val label = when (screen) {
+                        "absence" -> "✅ Otevřít schvalování"
+                        "dochazka" -> "🖊 Otevřít docházku"
+                        else -> "Otevřít"
+                    }
+                    b.setPositiveButton(label) { _, _ ->
+                        openScreen(screen); report(id, "done"); cancelNotif(id); finish()
+                    }
+                    b.setNeutralButton("Otevřít chat") { _, _ ->
                         openChat(); report(id, "done"); cancelNotif(id); finish()
                     }
-                    .setNegativeButton("Zavřít") { _, _ ->
-                        report(id, "done"); cancelNotif(id); finish()
+                } else {
+                    b.setPositiveButton("Otevřít chat") { _, _ ->
+                        openChat(); report(id, "done"); cancelNotif(id); finish()
                     }
-                    .setOnCancelListener { report(id, "done"); cancelNotif(id); finish() }
-                    .show()
+                }
+                b.setNegativeButton("Zavřít") { _, _ ->
+                    report(id, "done"); cancelNotif(id); finish()
+                }
+                b.setOnCancelListener { report(id, "done"); cancelNotif(id); finish() }
+                b.show()
             }
             else -> {
                 AlertDialog.Builder(this)
@@ -82,6 +106,28 @@ class CommandActivity : Activity() {
                     }
                     .show()
             }
+        }
+    }
+
+    /** Název obrazovky jde z appky rovnou do JS `go(...)`, proto ho propouštíme
+     *  jen jako písmena/číslice/podtržítko — nesmí se z něj dát udělat kód.
+     *  Jirka 16. 8. 2026. */
+    private fun safeScreen(s: String): String =
+        s.trim().filter { it.isLetterOrDigit() || it == '_' }.take(40)
+
+    /** Otevře appku a přepne ji rovnou na danou obrazovku /mobile. HybridActivity
+     *  si extra `go_screen` přečte v onNewIntent (když už běží) nebo po načtení
+     *  stránky (když se teprve spouští). Když se to nepovede, spadneme na chat —
+     *  uživatel nesmí zůstat bez cesty dál. Jirka 16. 8. 2026. */
+    private fun openScreen(screen: String) {
+        try {
+            startActivity(
+                Intent(this, HybridActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra("go_screen", screen)
+            )
+        } catch (e: Exception) {
+            openChat()
         }
     }
 

@@ -656,11 +656,12 @@ async function load(){
   paint();
 }
 function toggleVse(){ VSE=!VSE; SMLOUVY_LOADED=false; load(); if(VIEW==='contracts') loadContracts(); }
-// Deep-link: ?view=table → Seznam zaměstnanců (hr.seznam), ?view=contracts → Pracovní smlouvy (hr.smlouvy)
-(function initView(){ try{
-  const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar'){ setView(v); }
-}catch(e){} })();
+// Deep-link (?view=…) se spouští AŽ NA KONCI skriptu — viz initView() dole.
+// Do 16. 8. 2026 stál tenhle blok tady nahoře a otevření přes odkaz padalo na
+// „Cannot access 'PODMINKY' before initialization": setView() sáhl na proměnné
+// deklarované přes let o 250 řádků níž, výjimku spolkl catch a obrazovka zůstala
+// viset na „Načítám…". Týkalo se to i ERP jádra Podmínky zaměstnanců, které kartu
+// otevírá právě přes ?view=podminky. Stejnou vadu měly ?view=tabule a ?view=kalendar.
 async function loadUkoly(){
   const box=document.getElementById('uklist'); const cnt=document.getElementById('ukcnt');
   if(!box) return;
@@ -2215,6 +2216,13 @@ async function dokAudit(uid){
   det.innerHTML=h;
 }
 load();
+// Deep-link: ?view=table → Seznam zaměstnanců, ?view=contracts → Pracovní smlouvy,
+// ?view=podminky → Podmínky zaměstnanců atd. Musí být až tady, po deklaraci všech
+// proměnných, které si jednotlivé obrazovky drží (PODMINKY, TABULE, KALENDAR…).
+(function initView(){ try{
+  const v=new URLSearchParams(location.search).get('view');
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar'){ setView(v); }
+}catch(e){} })();
 </script>
 </body>
 </html>

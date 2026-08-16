@@ -78,8 +78,12 @@ def upload_aab(confirmed):
         "releases": [{
             "versionCodes": [str(vc)],
             "status": "completed",
+            # POZOR: text se meni s KAZDYM vydanim - pred uploadem ho prepis na to,
+            # co je v teto verzi opravdu nove. Do 16.8.2026 tu zustaval text z v74
+            # ("nova ikona"), ktery uz davno neplatil. Jirka + Claude-28 16.8.2026.
             "releaseNotes": [{"language": LANG,
-                              "text": "- Nova ikona a sjednoceny vzhled.\n- Vylepsena stabilita a podpora tabletu."}],
+                              "text": "- Klepnuti na upozorneni o zadosti o dovolenou nove otevre rovnou schvalovani.\n"
+                                      "- Prehlednejsi obrazovka absenci pro vedouci: zadosti ke schvaleni jsou nahore."}],
         }]
     }).execute()
     # POZOR, Google tohle chovani PREPINA podle stavu appky (overeno 2x):

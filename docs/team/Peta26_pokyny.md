@@ -317,6 +317,20 @@ na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá)
   od Landmarku (květen 2026). A počítá se **celá pohyblivá část** (osobní + prémie +
   individuální), ne jen osobní ohodnocení. Detail na zdi, oddíl 7c. **Neodvozovat znovu.**
 
+## 🚫 DEMO ZAMĚSTNANEC U104 SE NEZNEAKTIVŇUJE (Peťa 17. 8. 2026)
+Peťa: *„pořád nesmí být zneaktivněn, zapiš si to, ať se neptáš."*
+- Zaměstnanec **U104 „Demo Uzivatel"** (`tenant.att_employee` id 243, user 104,
+  e-mail `apple-demo@strategie-ai.com`) **zůstává v docházce EUROSOFTu aktivní.**
+  Je to povinný ukázkový účet pro schvalování mobilní appky v obchodech.
+- **Nenabízet jeho zneaktivnění, nezakládat na to úkol, neptat se na to znovu.**
+- Jeho docházkové záznamy byly 11. 8. 2026 stornovány a od té doby je prázdný —
+  to je v pořádku a nemá se to hlásit jako nález.
+- Pojistka `dochazka-cizi-ucet-v-eurosoftu` má U104 **výslovně vyjmutý**
+  (`AND e.id <> 243`), takže kvůli němu nesvítí. Nepřidávat ho zpátky.
+- Že se pod demo účtem nikdo nepíchá, hlídá **denní úloha `demo-ucet-precteni-zpravy`**
+  (každý den v 6:00) — ozve se jen když u zaměstnance 243 přibude nový záznam.
+  Tohle je ten správný způsob hlídání, ne kontrola pouhé existence účtu.
+
 ## ⛔ NEŽ OHLÁSÍŠ CHYBU — OVĚŘ SI VLASTNÍ KONTROLU (Peťa 6. 8. 2026)
 
 Peťa 6. 8. ráno dostala hlášku *„je tam 6 chyb"*. **Žádná z nich chyba nebyla** — Claude‑26
@@ -736,3 +750,24 @@ doputovaly osmi lidem do mobilu jako výplatní páska.
 
 **Cena té chyby:** Peťa mě musela na omyl upozornit, sama mazala v Heliosu, a osm lidí mezitím
 vidělo v telefonu výplatu, která neexistuje. Nic z toho nebylo nutné.
+
+## ⏱️ BĚŽÍCÍ ZÁZNAM JDE OPRAVIT — JEN ČAS PŘÍCHODU (Peťa 17. 8. 2026, hotovo)
+Peťa: *„opravit to chci, abych na to nemusela mazat."* Do 17. 8. server běžící (neukončený)
+záznam odmítal (*„počkej na odchod"*), takže se špatný příchod — typicky potvrzený přes
+notifikaci — dal srovnat až večer.
+
+**Jak to je teď:** v Opravách docházky i v editoru v mobilu je u běžícího záznamu tlačítko
+**✏️ Opravit příchod** — jediné pole (čas) + povinný důvod. Konec se nevyplňuje, **záznam běží
+dál** a člověk se odpíchne sám. Ukončit den ani stornovat běžící záznam opravou **nejde** a
+nemá jít.
+
+**Proč se běžící záznam opravuje NA MÍSTĚ** (a ne přes „zneplatnit + nový řádek" jako uzavřené
+opravy): mobilní odpíchnutí (`att_checkout`) i otevřený úsek rozpadu
+(`vyroba_work.att_entry_id`) visí na **ID toho záznamu**. Nový řádek by je utrhl a člověk by
+se neměl kam odpíchnout. Kód: `g2007.python` → `att_fix_entry` → `_oprav_bezici_prichod`.
+Hlídá to pojistka `dochazka-oprava-bezici-prichod`.
+
+**Chyba, kterou jsem u toho udělal (a Peťa ji našla hned první den):** varování „úsek rozpadu
+zůstal na původním čase" jsem svázal s tím, že se **nic neposunulo** — jenže záznam bez zakázky
+žádný úsek rozpadu nemá, takže hláška strašila i tam, kde nebylo co posouvat. **Poučení:
+varování zakládej na tom, že něco skutečně zbylo špatně, ne na tom, že se nic nestalo.**

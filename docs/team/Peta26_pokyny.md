@@ -22,6 +22,45 @@ Závazně:
 - Platí dvojnásob u čísel, mezd, nároků a jmen. Peťa mi věří v oblastech, kde si to
   sama neověří — tím spíš tam nesmím hádat.
 
+## 🎯 JEDEN JASNÝ ZDROJ PRAVDY — A NOVÝ SI NEVYMÝŠLÍM (Peťa 17. 8. 2026, ZÁVAZNÉ)
+
+Peťa: *„používáme jasně daný zdroj, a pokud není, nevytváříme ho bez jasné jednoznačné
+konzultace."*
+
+**Pravidlo:** ke každému údaji existuje **právě jedno místo, které je zdroj pravdy**.
+Beru ho odtamtud — ne z toho, co je zrovna po ruce, ne z kopie, ne ze zrcadla.
+
+- **Když zdroj znám** → čtu jen z něj a v odpovědi řeknu, odkud to mám.
+- **Když si nejsem jistý, co je zdroj** → **zeptám se, nebo si to najdu v G2007.**
+  Nevybírám si sám, které z několika míst je „to správné".
+- **Když zdroj neexistuje** → **NEZAKLÁDÁM ho.** Žádná nová tabulka, sloupec, číselník,
+  příznak ani „dočasné" pomocné úložiště bez výslovné domluvy s Peťou (a podle povahy
+  věci i s Kristý / Jirkou / Martim). Vytvořit druhé místo pro tutéž hodnotu je horší
+  než nemít žádné — protože se okamžitě rozejdou.
+- **Nikdy nepíšu tutéž hodnotu na dvě místa**, aby to „sedělo v obou přehledech".
+  To je ta samá chyba jako dvě verze pravdy.
+
+**Proč to vzniklo:** za čtyři dny (13.–17. 8. 2026) se zdroje pravdy v docházce
+několikrát přesunuly — nároky z `engagement_entitlement` do Podmínek (`staff_cond`),
+`att_day_summary` ze zrcadla Centrály na výpočet z `att_entry`, sync ze staré Centrály
+skončil úplně. Kdo by pracoval podle starého zdroje, počítá ze zastaralých čísel a
+nepozná to. Proto se **na začátku každé práce ptám, co je dnes zdroj pravdy**, místo
+abych spoléhal, že platí, co jsem věděl minule.
+
+### Aktuální zdroje pravdy v docházce (stav k 17. 8. 2026 — ověřovat, ne brát jako věčné)
+
+| Údaj | Zdroj pravdy | Co už NENÍ zdroj |
+|---|---|---|
+| Odpracované hodiny | `tenant.att_entry` přes `tenant.att_den_hodiny` | hrubý součet `att_entry.hours` |
+| Mzdový podklad dne | `tenant.att_day_summary` **počítaný z `att_entry`** | zrcadlo Centrály (`@@DOCHSUM`) |
+| Nárok dovolená / dovolená navíc / sick days | **Podmínky (`staff_cond`)** | `engagement_entitlement` (zrušeno 16. 8.) |
+| Docházka ze staré Centrály | **nic — sync ukončen 14. 8. 2026** | `sync_ec_dochazka_recent` |
+| Rozpad na zakázky | `tenant.vyroba_work` s vazbou `att_entry_id` | položky bez vazby (sirotci) |
+| Zakázka „režie" | zakázka **`Rezie`** (bez háčku) | činnost „Režie" (archivovaná 3. 8.) |
+
+⚠️ **Červen 2026 je zmrazený** — přepočet mzdového podkladu ho odmítne. Zmrazené měsíce
+jsou v `FROZEN` uvnitř `att_day_summary_recompute`.
+
 ## 🗺️ SDÍLENÁ HODNOTA → NEJDŘÍV MAPA, NIC NEMĚNIT (Peťa 10. 8. 2026, podnět Kristý + Claude‑24)
 
 **Pravidlo:** než sáhnu na hodnotu, kterou plní nebo čte víc míst (sdílená tabulka, sloupec,

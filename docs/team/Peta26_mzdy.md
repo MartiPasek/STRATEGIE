@@ -177,9 +177,17 @@ Hlídá pojistka **`stravenky-vyloucene-cinnosti`**.
 
 ## 6. Kalendář se doplňuje sám
 
-Skript **`kalendar_zajisti`** dopočítá české svátky včetně pohyblivých Velikonoc (Meeus) do
-`tenant.firemni_kalendar`. Je idempotentní, **ruční firemní výjimky nepřepisuje** a volá se
-automaticky ze stravenek i z přesčasů — **leden 2027 se doplní sám**, nikdo to nemusí řešit.
+Skript **`kalendar_zajisti`** dopočítá české svátky včetně pohyblivých Velikonoc (Meeus) a
+**zapisuje je do `tenant.att_calendar_day`**. Čte se přes `tenant.firemni_kalendar` — to není
+druhá kopie dat, ale pohled nad toutéž tabulkou, který navíc připočte ruční firemní výjimky
+(`tenant.att_calendar_exception`). Proto má tři počítané sloupce a **zapisovat se do něj nedá**.
+Skript je idempotentní, **ruční firemní výjimky nepřepisuje** a volá se automaticky ze stravenek,
+z přesčasů a z hlídání stropu dovolené — **leden 2027 se doplní sám**, nikdo to nemusí řešit.
+
+⚠️ Do 16. 8. 2026 skript zapisoval do pohledu, takže **nikdy neprošel** a tiše selhával. Nikdo si
+toho nevšiml, protože rok 2026 pochází z původní migrace, ne odtud. Projevilo by se to až v únoru
+2027 při mzdách za leden. Opravil Claude‑28 (Jirka), schválila Marti‑AI. Ověřeno v datech
+17. 8. 2026: rok 2027 se založil sám — 365 dnů, 252 pracovních, 13 svátků včetně Velikonoc.
 
 ## 7. Kde to je v kódu (`g2007.python`)
 
@@ -520,3 +528,29 @@ Rozdělení přesčasu ověřeno proti Centrále na **červnu 2026: 14 z 16 lid�
 (zbylí dva jsou kancelář, kterou vylučujeme). Červenec 2026 po opravě: přesčas má **18 lidí**
 — nejvíc Čiviš 16,34 h, Svatoš 9,66 h (7,92 ve svátek), Diviš 7,94 h (6,02 ve svátek).
 Stravenky 61 008 → 52 398 Kč.
+
+## 9. Generování mezd — jen výslovně zadané období (11.–12. 8. 2026)
+
+**Co se stalo.** Při jednom volání generování mezd jsem neposlal období v adrese, a systém si
+tiše dosadil výchozí hodnoty — **firmu ES a aktuální měsíc**. Vzniklo tak **8 mezd za srpen
+2026** v Heliosu, které tam neměly co dělat. Peťa je objevila druhý den. Následně je
+**synchronizace pásek přenesla do mobilu** a osm lidí uvidělo výplatu, která neexistuje.
+
+**Řetěz byl:** chybné volání → mzdy v Heliosu → sync do zrcadla → páska v mobilu.
+
+**Co je opravené (12. 8. 2026):**
+
+1. **Bez období se nic nevygeneruje.** Tlačítko i procedura teď vyžadují **firmu, rok
+   i měsíc**. Když chybí, vrátí se chyba a nespustí se nic. Žádné „výchozí aktuální měsíc".
+2. **Úklidový režim** — když je potřeba jen smazat rozpracované mzdy za období, dá se pustit
+   samotné čištění bez následného generování.
+3. **Mobil ukazuje jen měsíce starší než aktuální.** Mzda za měsíc se zpracovává a vyplácí až
+   v měsíci následujícím, takže páska za právě běžící měsíc lidem nepatří. I kdyby v Heliosu
+   omylem něco vzniklo, do mobilu se to nedostane. Platí i při ručním zadání období v adrese.
+
+**Poučení, na které se nesmí zapomenout:**
+
+> **Smazat mzdy v Heliosu nestačí.** Pásky v mobilu se čtou z **našeho zrcadla**
+> (`tenant.payslip_item`), které plní synchronizace z Heliosu. Když se v Heliosu něco smaže,
+> zrcadlo o tom samo neví — musí se buď smazat taky, nebo znovu nasynchronizovat.
+> Vždy po zásahu do mezd v Heliosu **zkontroluj, co vidí lidi v mobilu**.

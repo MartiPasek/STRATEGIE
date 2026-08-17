@@ -771,3 +771,11 @@ Hlídá to pojistka `dochazka-oprava-bezici-prichod`.
 zůstal na původním čase" jsem svázal s tím, že se **nic neposunulo** — jenže záznam bez zakázky
 žádný úsek rozpadu nemá, takže hláška strašila i tam, kde nebylo co posouvat. **Poučení:
 varování zakládej na tom, že něco skutečně zbylo špatně, ne na tom, že se nic nestalo.**
+
+**Druhá chyba téhož dne — opravený řádek MUSÍ zezelenat.** Peťa 17. 8.: *„měli jsme to, že to
+má zezelenat."* Zelený štítek **🛠 opraveno** v přehledu (a taky příznak „den byl opravovaný"
+v `att_fix_day`) se řídí **jediným sloupcem: `att_entry.source = 'manual_fix'`**. Moje oprava
+na místě ho neměnila, takže opravený záznam vypadal jako netknuté píchnutí z appky. Doplněno.
+**Pravidlo: cokoli, co projde rukou editora, má mít `source='manual_fix'`** — jinak to nikde
+nezezelená a den se netváří jako opravovaný. Ve sloupci Odkud se tím popisek přepne na
+„ruční oprava", což je pravda. (Dva už opravené záznamy z 17. 8. jsem dorovnal zpětně.)

@@ -971,34 +971,48 @@ def _process_deploy() -> None:
     except Exception:
         _staged_all = []
     if _staged_all:
-        _res_db = _forward("SELECT kod FROM g2007.soubor", "pg")
-        if (not isinstance(_res_db, dict)) or _res_db.get("ok") is False or _res_db.get("error"):
-            log_lines.append("## DB-owned check — PŘESKOČEN (nešlo ověřit g2007: "
-                             + str((_res_db or {}).get("error"))[:160]
-                             + ") → deploy pokračuje (fail-open)")
-        else:
-            _db_kods = {(r[0] or "").strip() for r in (_res_db.get("rows") or []) if r}
-            _konflikt = [f for f in _staged_all if f in _db_kods]
-            if _konflikt:
-                _step("DB-owned check", 1,
-                      "STOP: tyto soubory jsou v g2007.soubor (DB = zdroj pravdy) a NEPATŘÍ do gitu:\n  "
-                      + "\n  ".join(_konflikt)
-                      + "\nEdituj je přes @@G2007SOUBOR / @@G2007PUBLISH, ne přes git — "
-                        "git edit by se do živé appky nedostal (skládá se z DB).")
-                try:
-                    _run_git(["reset", "HEAD", "--"] + _konflikt)
-                except Exception:
-                    pass
-                _write_deploy_out(
-                    f"# DEPLOY: ZASTAVEN (DB-owned soubor) · {INSTANCE_LABEL}\n# {ts}\n"
-                    f"# Commitnuté soubory jsou v g2007.soubor (DB=zdroj pravdy) — edituj přes "
-                    f"@@G2007SOUBOR/@@G2007PUBLISH, ne přes git. Nic nepushnuto/nenasazeno.\n\n"
-                    + "\n\n".join(log_lines) + "\n"
-                )
-                _consume_deploy()
-                return
+        try:
+            _res_db = _forward("SELECT kod FROM g2007.soubor", "pg")
+            if (not isinstance(_res_db, dict)) or _res_db.get("ok") is False or _res_db.get("error"):
+                log_lines.append("## DB-owned check — PŘESKOČEN (nešlo ověřit g2007: "
+                                 + str((_res_db or {}).get("error"))[:160]
+                                 + ") → deploy pokračuje (fail-open)")
             else:
-                _step("DB-owned check", 0, "OK — žádný staged soubor není v g2007.soubor")
+                # rows mohou byt list-of-dict (plain SELECT) NEBO list-of-list — zvladni obojí
+                _db_kods = set()
+                for _r in (_res_db.get("rows") or []):
+                    if isinstance(_r, dict):
+                        _k = (_r.get("kod") or "").strip()
+                    elif isinstance(_r, (list, tuple)) and _r:
+                        _k = (_r[0] or "").strip()
+                    else:
+                        _k = ""
+                    if _k:
+                        _db_kods.add(_k)
+                _konflikt = [f for f in _staged_all if f in _db_kods]
+                if _konflikt:
+                    _step("DB-owned check", 1,
+                          "STOP: tyto soubory jsou v g2007.soubor (DB = zdroj pravdy) a NEPATŘÍ do gitu:\n  "
+                          + "\n  ".join(_konflikt)
+                          + "\nEdituj je přes @@G2007SOUBOR / @@G2007PUBLISH, ne přes git — "
+                            "git edit by se do živé appky nedostal (skládá se z DB).")
+                    try:
+                        _run_git(["reset", "HEAD", "--"] + _konflikt)
+                    except Exception:
+                        pass
+                    _write_deploy_out(
+                        f"# DEPLOY: ZASTAVEN (DB-owned soubor) · {INSTANCE_LABEL}\n# {ts}\n"
+                        f"# Commitnuté soubory jsou v g2007.soubor (DB=zdroj pravdy) — edituj přes "
+                        f"@@G2007SOUBOR/@@G2007PUBLISH, ne přes git. Nic nepushnuto/nenasazeno.\n\n"
+                        + "\n\n".join(log_lines) + "\n"
+                    )
+                    _consume_deploy()
+                    return
+                else:
+                    _step("DB-owned check", 0, "OK — žádný staged soubor není v g2007.soubor")
+        except Exception as _ge:
+            log_lines.append("## DB-owned check — CHYBA guardu, přeskočeno (fail-open): "
+                             + type(_ge).__name__ + ": " + str(_ge)[:160])
 
     # 3) je co commitnout?
     rc_diff, _ = _run_git(["diff", "--cached", "--quiet"])

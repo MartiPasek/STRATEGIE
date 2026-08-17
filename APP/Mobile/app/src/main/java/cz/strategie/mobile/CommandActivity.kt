@@ -62,14 +62,17 @@ class CommandActivity : Activity() {
                     .setMessage(msg)
                     .setCancelable(true)
                 if (screen.isNotBlank()) {
-                    // Popisky drží appka, ne backend (G2007 doc-dochazka-mobile-command-payload-screen).
-                    // ⚠ STEJNÁ MAPA JE I VE WEBU (mobile_parts/20_home_phone_notifs.js
-                    // a 25_tasks.js). Kdo přidá nový screen, MUSÍ upravit obě místa,
-                    // jinak se popisky rozejdou. Vědomý dluh, viz G2007.
-                    val label = when (screen) {
-                        "absence" -> "✅ Otevřít schvalování"
-                        "dochazka" -> "🖊 Otevřít docházku"
-                        else -> "Otevřít"
+                    // Popisek posílá SERVER v `payload.label` (Jirka 17. 8. 2026, schválila
+                    // Marti-AI) — tím je zdroj pravdy jeden a texty se nemůžou rozejít.
+                    // Mapa níže je jen ZÁCHRANA pro zprávy bez `label` (starší zprávy
+                    // a případy, kdy ho server nepošle). Nová obrazovka se přidává na
+                    // serveru, ne sem; sem jen když má mít popisek i bez serveru.
+                    val label = (intent.getStringExtra("cmd_label") ?: "").trim().take(60).ifBlank {
+                        when (screen) {
+                            "absence" -> "✅ Otevřít schvalování"
+                            "dochazka" -> "🖊 Otevřít docházku"
+                            else -> "Otevřít"
+                        }
                     }
                     b.setPositiveButton(label) { _, _ ->
                         openScreen(screen); report(id, "done"); cancelNotif(id); finish()

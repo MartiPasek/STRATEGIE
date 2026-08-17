@@ -613,8 +613,15 @@ class DialPollService : Service() {
             // je jen cesta z notifikační lišty. Jirka 16. 8. 2026, schválila Marti-AI.
             try {
                 if (payload.isNotBlank()) {
-                    val scr = JSONObject(payload).optString("screen", "")
+                    val pj = JSONObject(payload)
+                    val scr = pj.optString("screen", "")
                     if (scr.isNotBlank()) putExtra("cmd_screen", scr)
+                    // payload.label = hotovy popisek tlacitka ze serveru (Jirka 17. 8. 2026,
+                    // schvalila Marti-AI). Sjednocuje texty: dosud mela kazda strana (web
+                    // i appka) vlastni kopii mapy popisku a pri pridani nove obrazovky se
+                    // tise rozesly. Kdyz `label` neprijde, appka spadne na svou mapu nize.
+                    val lbl = pj.optString("label", "")
+                    if (lbl.isNotBlank()) putExtra("cmd_label", lbl)
                 }
             } catch (e: Exception) {
             }

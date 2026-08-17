@@ -214,9 +214,11 @@ function pdkOpen(p, view){
       }
       t+='<button id="pdkPdf" style="margin-top:6px;cursor:pointer;background:#10b981;color:#04150e;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📄 Otevřít / tisk PDF</button>';
       t+=' <button id="pdkXlsx" style="margin-top:6px;cursor:pointer;background:#1e7a46;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📊 Excel (rozpad + kontrola)</button>';
+      t+=' <button id="pdkUkol" style="margin-top:6px;cursor:pointer;background:#3b82f6;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🗒 Odeslat úkolníkem na Nákup</button>';
       view.innerHTML=t;
       view.querySelector('#pdkPdf').onclick=function(){ pdkPdf(r); };
       var _xb=view.querySelector('#pdkXlsx'); if(_xb) _xb.onclick=function(){ pdkXlsx(r); };
+      var _ub=view.querySelector('#pdkUkol'); if(_ub) _ub.onclick=function(){ pdkUkol(r, p.uid, _ub); };
     }).catch(function(){ view.innerHTML='<div class="err" style="margin-top:10px">Chyba náhledu.</div>'; });
 }
 function pdkPdf(r){
@@ -234,6 +236,17 @@ function pdkXlsx(r){
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
   }catch(e){ alert('Excel chyba: '+e); }
+}
+function pdkUkol(r, targetUid, btn){
+  if(!confirm('Odeslat podklad "'+r.jmeno+'" úkolníkem do Centrály na Nákup?\nCelkem k fakturaci: '+r.celkem+' Kč.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Odesílám…'; }
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/ukol',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:targetUid})})
+    .then(function(rr){ return rr.json(); })
+    .then(function(rr){
+      if(rr&&rr.ok){ if(btn){ btn.textContent='✔ Úkol založen na Nákup (č. '+rr.id+')'; btn.style.background='#1e7a46'; } }
+      else { alert('Chyba úkolu: '+((rr&&rr.error)||'?')); if(btn){ btn.disabled=false; btn.textContent='🗒 Odeslat úkolníkem na Nákup'; } }
+    }).catch(function(){ alert('Chyba odeslání úkolu.'); if(btn){ btn.disabled=false; btn.textContent='🗒 Odeslat úkolníkem na Nákup'; } });
 }
 function renderVyroba(c,j){
   var rows=(j&&j.vyroba)||[];

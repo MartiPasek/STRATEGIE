@@ -817,26 +817,42 @@ def _sync_with_remote() -> tuple[str, str]:
 
 
 def _cloud_deploy(description: str) -> dict:
-    """POST cloud /deploy/now (git pull + restart API přes RESTART-WATCHER)."""
+    """POST cloud /deploy/now (git pull + restart API přes RESTART-WATCHER).
+
+    RETRY NA 401 stejne jako v _forward (Jirka 17.8.2026) — a tady to pali dvojnasob:
+    deploy sam restartuje API, takze prave v tu chvili je sance na failover Caddy
+    na sekundar 8003 (bez tokenu) NEJVYSSI. 17.8. takhle spadly dva po sobe jdouci
+    deploye: commit i push OK, ale `cloud: NENASAZENO ... HTTP 401` — kod byl v gitu,
+    na cloudu ale zustala stara verze, dokud si toho nekdo nevsiml.
+    Pauza je delsi nez u SQL (8 s), protoze restart API trva ~5 s."""
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
     payload = json.dumps({"description": description, "instance_id": INSTANCE_ID,
                           "hostname": HOSTNAME}).encode("utf-8")
-    rq = urllib.request.Request(
-        DEPLOY_URL, data=payload, method="POST",
-        headers={"Content-Type": "application/json", "X-Deploy-Token": token},
-    )
-    try:
-        with urllib.request.urlopen(rq, timeout=90) as resp:
-            return json.loads(resp.read().decode("utf-8", errors="replace"))
-    except urllib.error.HTTPError as e:
-        body = ""
+    posledni = {"ok": False, "error": "nespusteno"}
+    for pokus in range(1, 4):
+        rq = urllib.request.Request(
+            DEPLOY_URL, data=payload, method="POST",
+            headers={"Content-Type": "application/json", "X-Deploy-Token": token},
+        )
         try:
-            body = e.read().decode("utf-8", errors="replace")[:400]
-        except Exception:
-            pass
-        return {"ok": False, "error": f"HTTP {e.code}: {body or e.reason}"}
-    except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            with urllib.request.urlopen(rq, timeout=90) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")[:400]
+            except Exception:
+                pass
+            posledni = {"ok": False, "error": f"HTTP {e.code}: {body or e.reason}"}
+            if e.code == 401 and pokus < 3:
+                _log(f"deploy: 401 (nejspis failover na sekundar 8003) — "
+                     f"pokus {pokus}/3, zkousim znovu za 8 s")
+                time.sleep(8)
+                continue
+            return posledni
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return posledni
 
 
 def _write_deploy_out(text_body: str) -> None:

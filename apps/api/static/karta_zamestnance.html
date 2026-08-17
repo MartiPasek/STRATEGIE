@@ -1867,28 +1867,105 @@ async function absUdaje(){
 // „osobní hodnoty jsou sync z Centrály". Nebyla to pravda — do tenant.staff_cond žádný
 // sync nevede, hodnoty tam 23. 7. 2026 někdo přenesl jednorázově a od té doby se
 // neaktualizovaly. Od 13. 8. je zadává personální oddělení přímo ve STRATEGII.
+// EDITACE 17. 8. 2026 (Jirka, schválila Marti-AI): do té doby šly podmínky měnit JEN
+// v mobilní appce (HR → Podmínky → Jednotlivci) a karta byla čistě ke čtení — zůstal
+// tak nedodělaný bod 1 z rozhodnutí o nároku D/DN/SD. Teď se editují i tady, stejným
+// vzorem jako v mobilu: prázdné pole = dědí se ze skupiny/systému, vyplněné = osobní
+// výjimka. Zapisuje se EXISTUJÍCÍM endpointem /app/hr/conditions/save — žádná nová
+// logika ani nová práva: stejná funkce _hr_can_manage (rodič nebo skupina HR) hlídá
+// čtení i zápis, takže kdo sekci vůbec uvidí, ten smí i psát; ostatní dostanou 403.
+// Audit (staff_cond.changed_by / changed_at) zapisuje endpoint sám.
+// „Dovolená celkem" se nezadává — je to počítadlo, součet drží databázový trigger
+// (endpoint ruční zápis do dovolena_dni odmítá), proto je v úpravách jen ke čtení.
+let PODM_DATA=null, PODM_UID=null;
+const PODM_POCITADLO='dovolena_dni';
 async function podmUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
-  const d=await j(API+'/app/hr/conditions?scope_kind=user&user_id='+uid);
+  PODM_DATA=await j(API+'/app/hr/conditions?scope_kind=user&user_id='+uid); PODM_UID=uid;
+  renderPodm(false);
+}
+function podmSrcBadge(s){ s=(s||'').toLowerCase();
+  const m=/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4']);
+  return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; }
+function podmPole(dd, own){
+  const v=(own==null?'':String(own));
+  const st='width:120px;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit';
+  if(dd.kind==='bool'){
+    return '<select data-c="'+esc(dd.code)+'" style="'+st+'">'+
+      ['','ANO','NE'].map(o=>'<option value="'+o+'"'+(v===o?' selected':'')+'>'+(o===''?'— dědit —':o)+'</option>').join('')+'</select>';
+  }
+  return '<input data-c="'+esc(dd.code)+'" type="text" value="'+esc(v)+'" placeholder="'+(dd.kind==='time'?'HH:MM':'— dědit —')+'" style="'+st+';text-align:right">';
+}
+function renderPodm(edit){
+  const d=PODM_DATA||{}, uid=PODM_UID, det=document.getElementById('det');
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
-  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">📋 Podmínky (aktuálně platné)</span>'+back+'</div>';
-  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
-  const defs=d.defs||[], res=d.resolved||{};
-  const srcBadge=(s)=>{ s=(s||'').toLowerCase();
-    const m=/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4']);
-    return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; };
+  const btn = !d.ok ? '' : (edit
+    ? '<span><a href="#" onclick="podmSave();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a> &nbsp;·&nbsp; <a href="#" onclick="renderPodm(false);return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></span>'
+    : '<a href="#" onclick="renderPodm(true);return false;" style="color:#aac8ec;text-decoration:none">✏️ Upravit</a>');
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">📋 Podmínky (aktuálně platné)</span>'+
+    '<span style="display:flex;gap:14px;white-space:nowrap">'+back+btn+'</span></div>';
+  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error==='forbidden'?'Nemáš oprávnění — podmínky vidí a mění jen HR a vedení.':(d.error||'nedostupné'))+'</div>'; det.innerHTML=h; return; }
+  const defs=d.defs||[], res=d.resolved||{}, own=d.own||{};
   if(!defs.length){ h+='<div class="empty">Žádné podmínky nejsou nastavené.</div>'; det.innerHTML=h; return; }
+  h+='<div id="podmstat" style="padding:0 16px 4px;font-size:11.5px;min-height:14px;color:#5d6b7c"></div>';
   h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     defs.map(dd=>{ const r=res[dd.code]||{}; const val=(r.value==null||r.value==='')?'<span style="color:#5d6b7c">—</span>':esc(r.value);
+      const o=(own[dd.code]&&own[dd.code].value!=null)?own[dd.code].value:null;
+      const lbl=esc(dd.label)+(dd.unit?(' <span style="color:#5d6b7c">('+esc(dd.unit)+')</span>'):'');
+      if(!edit){
+        return '<tr style="border-top:1px solid #1e2730">'+
+          '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+'</td>'+
+          '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
+          '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
+      }
+      const pole = (dd.code===PODM_POCITADLO)
+        ? '<span style="color:#e8eef5;font-weight:700">'+val+'</span><div style="color:#5d6b7c;font-size:11px">počítá se ze součtu</div>'
+        : podmPole(dd, o);
       return '<tr style="border-top:1px solid #1e2730">'+
-        '<td style="padding:7px 16px;color:#cdd6e2">'+esc(dd.label)+(dd.unit?(' <span style="color:#5d6b7c">('+esc(dd.unit)+')</span>'):'')+'</td>'+
-        '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
-        '<td style="padding:7px 16px;text-align:right">'+srcBadge(r.src)+'</td></tr>'; }).join('')+'</table>';
-  h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.</div>';
+        '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+
+          '<div style="color:#5d6b7c;font-size:11px">teď: '+val+' ('+esc(r.src||'—')+')</div></td>'+
+        '<td style="padding:7px 16px;text-align:right;white-space:nowrap">'+pole+'</td>'+
+        '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
+    }).join('')+'</table>';
+  h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">'+(edit
+    ? 'Prázdné pole = hodnota se zdědí ze skupiny nebo ze systému. Vyplněné pole = osobní výjimka jen pro tohoto člověka. „Dovolená celkem“ se nezadává — je to součet „Dovolené“ a „Dovolené navíc“.'
+    : 'Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.')+'</div>';
   h+=vernostHTML(d.vernost||[]);
   det.innerHTML=h;
+}
+// Ukládá se jen to, co se opravdu změnilo — každá podmínka zvlášť, jak to umí endpoint.
+// Chyby se vypisují do stavového řádku (ne do alertu), aby zůstalo vidět, co prošlo.
+async function podmSave(){
+  const uid=PODM_UID, own=(PODM_DATA&&PODM_DATA.own)||{};
+  const st=document.getElementById('podmstat');
+  const zmeny=[];
+  document.querySelectorAll('#det [data-c]').forEach(f=>{
+    const code=f.getAttribute('data-c'), val=(f.value||'').trim();
+    const puv=(own[code]&&own[code].value!=null)?String(own[code].value).trim():'';
+    if(val!==puv) zmeny.push({code:code, val:val});
+  });
+  if(!zmeny.length){ renderPodm(false); return; }
+  if(st){ st.style.color='#9aa7b4'; st.textContent='Ukládám…'; }
+  const chyby=[];
+  for(const z of zmeny){
+    let d={};
+    try{
+      const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({scope_kind:'user',user_id:uid,cond_code:z.code,value:z.val})});
+      d=await r.json();
+    }catch(e){ d={ok:false,error:'nedostupná síť'}; }
+    if(!d.ok) chyby.push(z.code+' — '+(d.error||'chyba'));
+  }
+  await podmUdaje();
+  const st2=document.getElementById('podmstat');
+  if(st2){
+    if(chyby.length){ st2.style.color='#ff8a7a'; st2.textContent='✗ Neuložilo se: '+chyby.join(' · '); }
+    else { st2.style.color='#7fe0a0'; st2.textContent='✓ Uloženo ('+zmeny.length+').'; }
+  }
 }
 
 // Věrnostní dny dovolené navíc (Jirka 14. 8. 2026, schválila Marti-AI). Kdo výročí ještě

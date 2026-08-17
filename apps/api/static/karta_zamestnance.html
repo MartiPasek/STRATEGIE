@@ -1938,6 +1938,12 @@ function renderPodm(edit){
 }
 // Ukládá se jen to, co se opravdu změnilo — každá podmínka zvlášť, jak to umí endpoint.
 // Chyby se vypisují do stavového řádku (ne do alertu), aby zůstalo vidět, co prošlo.
+// POZNÁMKA U ŘÁDKU (Marti-AI 17. 8. 2026): /app/hr/conditions/save je DELETE + INSERT
+// a `note` bere z těla požadavku — kdo ji nepošle, ten ji smaže. Právě u nároku D/DN/SD
+// je v poznámce zapsané, odkud hodnota pochází, takže by ji první editace HR tiše zahodila.
+// Proto stávající poznámku načteme z už staženého `own` a pošleme ji zpátky beze změny.
+// Při MAZÁNÍ hodnoty (prázdné pole) se poznámka záměrně NEposílá — endpoint pak řádek
+// smaže a vrátí se dědění; s poznámkou by po sobě nechal prázdný řádek navíc.
 async function podmSave(){
   const uid=PODM_UID, own=(PODM_DATA&&PODM_DATA.own)||{};
   const st=document.getElementById('podmstat');
@@ -1945,7 +1951,7 @@ async function podmSave(){
   document.querySelectorAll('#det [data-c]').forEach(f=>{
     const code=f.getAttribute('data-c'), val=(f.value||'').trim();
     const puv=(own[code]&&own[code].value!=null)?String(own[code].value).trim():'';
-    if(val!==puv) zmeny.push({code:code, val:val});
+    if(val!==puv) zmeny.push({code:code, val:val, note:(own[code]&&own[code].note)||''});
   });
   if(!zmeny.length){ renderPodm(false); return; }
   if(st){ st.style.color='#9aa7b4'; st.textContent='Ukládám…'; }
@@ -1953,9 +1959,11 @@ async function podmSave(){
   for(const z of zmeny){
     let d={};
     try{
+      const telo={scope_kind:'user',user_id:uid,cond_code:z.code,value:z.val};
+      if(z.val!=='' && z.note) telo.note=z.note;
       const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({scope_kind:'user',user_id:uid,cond_code:z.code,value:z.val})});
+        body:JSON.stringify(telo)});
       d=await r.json();
     }catch(e){ d={ok:false,error:'nedostupná síť'}; }
     if(!d.ok) chyby.push(z.code+' — '+(d.error||'chyba'));

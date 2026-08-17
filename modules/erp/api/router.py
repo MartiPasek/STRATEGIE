@@ -39921,6 +39921,11 @@ async def diag_sql(req: Request) -> JSONResponse:
         _parts3 = _rest3.split("\n", 1)
         _head3 = _parts3[0].strip()
         _obsah3 = _parts3[1] if len(_parts3) > 1 else ""
+        # Bod 2 (C24 17.8.2026): most ořezal koncový \n přes .strip() (řádek ~39678) → u dílku
+        # (typ='zdroj') to při slepení způsobilo, že koncový // komentář sežral další fragment.
+        # Uložíme obsah VŽDY s koncovou newline (idempotentní), ať je dílek na disku i v DB korektní.
+        if _obsah3 and not _obsah3.endswith("\n"):
+            _obsah3 = _obsah3 + "\n"
         _hp3 = [x.strip() for x in _head3.split("|")]
         if len(_hp3) < 2 or not _obsah3:
             return JSONResponse({"ok": False, "error":
@@ -40003,7 +40008,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 # sdileji lokalni promenne (app, el, topbar, SCREENS, B) pres closure, ne pres
                 # window. Skutecna izolace se vyviji a testuje na /mobile2 (apps/api/static/
                 # mobile2.html) - NEPRIDAVAT separatory sem, dokud neni reseni overene tam.
-                _body4 = "".join(_body_parts4)
+                # Bod 2 (C24 17.8.2026): každý fragment zakonči newline PŘED slepením. NENÍ to
+                # <script> separátor (ten rozbil sdílený closure 1.8. — viz komentář výše), jen
+                # řádkový zlom → koncový // komentář fragmentu nesežere první řádek dalšího
+                # (Jirkův nález: most ořezal koncový \n přes .strip() na řádku ~39678).
+                _body4 = "".join((_p if _p.endswith("\n") else _p + "\n") for _p in _body_parts4)
                 _banner4 = ("<!-- ============================================================\n"
                            "     GENEROVANO prikazem @@G2007SESTAV z g2007.soubor (typ='zdroj').\n"
                            "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"
@@ -40103,7 +40112,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                             _body_parts6.append(_zr)
                     if _missing6:
                         return JSONResponse({"ok": False, "error": "chybi zdrojove kody: %s" % ", ".join(_missing6)})
-                    _body6 = "".join(_body_parts6)
+                    # Bod 2 (C24 17.8.2026): newline-safe slepení (viz @@G2007SESTAV) — fragment bez
+                    # koncové newline by jinak slepil svůj poslední řádek s prvním řádkem dalšího.
+                    _body6 = "".join((_p if _p.endswith("\n") else _p + "\n") for _p in _body_parts6)
                     _banner6 = ("<!-- ============================================================\n"
                                "     GENEROVANO prikazem @@G2007PUBLISH z g2007.soubor (typ='zdroj').\n"
                                "     NEEDITUJ TENTO SOUBOR PRIMO - edituj zdrojove radky pres\n"

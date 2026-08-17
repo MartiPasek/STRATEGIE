@@ -213,8 +213,10 @@ function pdkOpen(p, view){
         t+='<tr style="text-align:right;border-top:2px solid #22303f"><td style="text-align:left"><b>Celkem k fakturaci</b></td><td></td><td></td><td><b>'+esc(r.celkem)+' Kč</b></td></tr></table>';
       }
       t+='<button id="pdkPdf" style="margin-top:6px;cursor:pointer;background:#10b981;color:#04150e;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📄 Otevřít / tisk PDF</button>';
+      t+=' <button id="pdkXlsx" style="margin-top:6px;cursor:pointer;background:#1e7a46;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📊 Excel (rozpad + kontrola)</button>';
       view.innerHTML=t;
       view.querySelector('#pdkPdf').onclick=function(){ pdkPdf(r); };
+      var _xb=view.querySelector('#pdkXlsx'); if(_xb) _xb.onclick=function(){ pdkXlsx(r); };
     }).catch(function(){ view.innerHTML='<div class="err" style="margin-top:10px">Chyba náhledu.</div>'; });
 }
 function pdkPdf(r){
@@ -222,6 +224,16 @@ function pdkPdf(r){
     for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
     var url=URL.createObjectURL(new Blob([arr],{type:'application/pdf'})); window.open(url,'_blank');
   }catch(e){ alert('PDF chyba: '+e); }
+}
+function pdkXlsx(r){
+  try{ if(!r.xlsx_b64){ alert('Excel není k dispozici'); return; }
+    var bin=atob(r.xlsx_b64), arr=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    var url=URL.createObjectURL(new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    var a=document.createElement('a'); a.href=url; a.download=r.xlsx_filename||'podklad.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }catch(e){ alert('Excel chyba: '+e); }
 }
 function renderVyroba(c,j){
   var rows=(j&&j.vyroba)||[];

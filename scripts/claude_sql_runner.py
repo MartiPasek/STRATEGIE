@@ -52,6 +52,17 @@ NSSM install (NB) — diky urllib staci SYSTEMOVY python (ne venv):
   & $nssm set STRATEGIE-CLAUDE-SQL Start SERVICE_AUTO_START
   & $nssm restart STRATEGIE-CLAUDE-SQL
 
+POZOR — cesty se mezi stroji LISI (Marti D:\Projekty, Jirka C:\projekty), a kdyz
+nssm chybi, doinstaluje se pres `winget install --id NSSM.NSSM`. Instalovano na
+Jirkove stroji 17.8.2026; do te doby tam most bezel jen jako rucne spusteny proces,
+takze `restart_self` z mostu ho ZABIL a uz nenastartoval (sluzba neexistovala).
+Kdyz restart_self nechá most mrtvy, hledej prave tohle.
+
+Sluzba bezi pod LocalSystem, ktery NEMA pristup ke Credential Manageru uzivatele.
+Pro `git push` (= deploy) proto potrebuje bud STRATEGIE_GIT_PAT v AppEnvironmentExtra,
+nebo musi sluzba bezet pod uzivatelskym uctem (`nssm set <sluzba> ObjectName <ucet> <heslo>`).
+Cteni (`git fetch`/`pull`) pod LocalSystem funguje i bez toho — overeno 17.8.2026.
+
 Manual (debug):  python scripts/claude_sql_runner.py   (Ctrl+C konec)
 """
 from __future__ import annotations

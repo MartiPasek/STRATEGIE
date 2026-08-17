@@ -19861,9 +19861,14 @@ async def app_hr_conditions(req: Request) -> JSONResponse:
         if sk == "user" and tu:
             grp = _cond_group_of(s, tu)
             own = {}
-            for r in s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
-                                  "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u"), {"u": tu}).fetchall():
-                own[r[0]] = {"value": r[1], "note": r[2]}
+            for r in s.execute(_t(
+                    "SELECT c.cond_code, c.value, c.note, c.changed_at, "
+                    " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS zmenil "
+                    "FROM tenant.staff_cond c LEFT JOIN public.users u ON u.id=c.changed_by "
+                    "WHERE c.tenant_id=2 AND c.scope_kind='user' AND c.user_id=:u"), {"u": tu}).fetchall():
+                own[r[0]] = {"value": r[1], "note": r[2],
+                             "zmenil": (r[4] or ""),
+                             "zmeneno": (r[3].strftime("%d.%m.%Y") if r[3] else "")}
             resolved = {}
             for d in defs:
                 val, src = _resolve_cond(s, tu, d["code"], grp)

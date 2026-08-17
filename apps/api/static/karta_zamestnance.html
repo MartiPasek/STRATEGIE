@@ -1915,9 +1915,11 @@ function renderPodm(edit){
     defs.map(dd=>{ const r=res[dd.code]||{}; const val=(r.value==null||r.value==='')?'<span style="color:#5d6b7c">—</span>':esc(r.value);
       const o=(own[dd.code]&&own[dd.code].value!=null)?own[dd.code].value:null;
       const lbl=esc(dd.label)+(dd.unit?(' <span style="color:#5d6b7c">('+esc(dd.unit)+')</span>'):'');
+      const ow=own[dd.code]||{};
+      const zm=ow.zmenil?('<div style="color:#7f8ea0;font-size:10.5px;margin-top:1px">✎ změnil/a: '+esc(ow.zmenil)+(ow.zmeneno?(' · '+esc(ow.zmeneno)):'')+'</div>'):'';
       if(!edit){
         return '<tr style="border-top:1px solid #1e2730">'+
-          '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+'</td>'+
+          '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+zm+'</td>'+
           '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
           '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
       }
@@ -1926,7 +1928,7 @@ function renderPodm(edit){
         : podmPole(dd, o);
       return '<tr style="border-top:1px solid #1e2730">'+
         '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+
-          '<div style="color:#5d6b7c;font-size:11px">teď: '+val+' ('+esc(r.src||'—')+')</div></td>'+
+          '<div style="color:#5d6b7c;font-size:11px">teď: '+val+' ('+esc(r.src||'—')+')</div>'+zm+'</td>'+
         '<td style="padding:7px 16px;text-align:right;white-space:nowrap">'+pole+'</td>'+
         '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
     }).join('')+'</table>';

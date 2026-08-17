@@ -126,7 +126,56 @@ def _check_martinky_sweeper(sg):
     return "ok", zprava, sum(pocty.values()), status_block
 
 
+def _check_db_git_drift(sg):
+    """Vrstva 3 detekcni hlidac (C24/Kristy 17.8.2026): najde soubory, ktere jsou
+    v GITU I v g2007.soubor (past dvou zdroju pravdy). Prace na takovem souboru se muze
+    tise prepisovat/ztracet - presne co se stalo Peta 5.8. + Sarka 12.8. (89 z 92 radku
+    nikdy nebeselo, nikde chyba). Deploy-guard tomu brani do budoucna; tenhle hlidac je
+    zachytna sit: kdyz uz nejaky soubor v obou je, DENNE to nahlasi (status 'chyba' ->
+    eskalace) misto aby to bylo tise. Rychly check: SELECT kod + git ls-files."""
+    from sqlalchemy import text as T
+    import os as _os
+    import subprocess as _sp
+    db_kods = [r[0] for r in sg.execute(T(
+        "SELECT kod FROM g2007.soubor WHERE kod IS NOT NULL")).fetchall()]
+    _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.dirname(_os.path.abspath(__file__)))))
+    trap = []
+    if db_kods:
+        try:
+            _r = _sp.run(["git", "ls-files", "--"] + db_kods, cwd=_root,
+                         capture_output=True, text=True, timeout=30,
+                         encoding="utf-8", errors="replace")
+            trap = sorted(f.strip().replace("\\", "/")
+                          for f in _r.stdout.splitlines() if f.strip())
+        except Exception as e:  # noqa: BLE001
+            status_block = "NEJASNO: git ls-files selhal (%s) - nelze overit git vs DB." % (str(e)[:120])
+            try:
+                sg.execute(T("UPDATE g2007.automat SET status_block=:sb, status_block_updated_at=now() "
+                             "WHERE kod='db_git_drift'"), {"sb": status_block})
+            except Exception:  # noqa: BLE001
+                pass
+            return "nejasno", "git ls-files selhal: " + str(e)[:100], 0, status_block
+    if trap:
+        status_block = (("POZOR: %d souboru je v GITU I v g2007.soubor (past dvou zdroju pravdy - "
+                         "prace se muze tise prepisovat/ztracet, viz Peta/Sarka 5.-12.8.):\n  " % len(trap))
+                        + "\n  ".join(trap)
+                        + "\nVyrad je z gitu (.gitignore + git rm --cached) a edituj JEN pres "
+                          "@@G2007SOUBOR/@@G2007PUBLISH.")
+        _vysledek, _zprava = "chyba", "%d souboru v gitu I DB - viz status_block" % len(trap)
+    else:
+        status_block = "OK: zadny soubor neni v gitu i g2007.soubor zaroven (kontrolovano %d DB cest)." % len(db_kods)
+        _vysledek, _zprava = "ok", "OK, 0 souboru v obou (z %d DB cest)" % len(db_kods)
+    try:
+        sg.execute(T("UPDATE g2007.automat SET status_block=:sb, status_block_updated_at=now() "
+                     "WHERE kod='db_git_drift'"), {"sb": status_block})
+    except Exception as e:  # noqa: BLE001
+        _log.warning("_check_db_git_drift: zapis status_block selhal: %s", e)
+    return _vysledek, _zprava, len(trap), status_block
+
+
 DOMAIN_CHECKS = {
     "poptavky_status": _check_poptavky_status,
     "martinky_sweeper": _check_martinky_sweeper,
+    "db_git_drift": _check_db_git_drift,
 }

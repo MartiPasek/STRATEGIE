@@ -41,7 +41,12 @@ _SELECT_COLS = (
     "CisloZamNavrhl AS cislo_zam_navrhl, CisloZam AS cislo_zam, "
     "[Přeneseno] AS preneseno, IdMzdoveSlozky AS id_mzdove_slozky, "
     "CAST(Mesicne AS int) AS mesicne, CAST(Fix AS int) AS fix, "
-    "Mesic AS mesic, Rok AS rok, "
+    # ROK A MESIC ODVOZENE Z PLATNOSTI (Peta 6.8.2026) — v Centrale se sloupce
+    # Rok/Mesic bezne NEVYPLNUJI (3 700+ radku od vsech autoru vcetne Peti;
+    # napr. fakturacni podklady od automatu je nemaji nikdy). Skutecne obdobi
+    # nese PlatnostOd, tak ho pouzijeme, kdyz sloupce chybi.
+    "COALESCE(Mesic, MONTH(PlatnostOd)) AS mesic, "
+    "COALESCE(Rok, YEAR(PlatnostOd)) AS rok, "
     "CONVERT(varchar(19), PlatnostOd, 120) AS platnost_od, "
     "CONVERT(varchar(19), PlatnostDo, 120) AS platnost_do, "
     "Hodiny AS hodiny, Sazba AS sazba, Castka AS castka, "
@@ -174,7 +179,8 @@ def sync_from_ec(back_years: int = 1, full: bool = False) -> dict:
                 "'YYYY-MM-DD HH24:MI:SS') FROM ec.pripl_srazky "
                 "WHERE rok IN (" + yin + ")")).scalar()
 
-        where = "Rok IN (" + yin + ")"
+        # filtr podle SKUTECNEHO obdobi (PlatnostOd), ne podle casto prazdneho Rok
+        where = "COALESCE(Rok, YEAR(PlatnostOd)) IN (" + yin + ")"
         if wm:
             # >= (ne >) — v jedné sekundě může být víc řádků; upsert je idempotentní.
             where += " AND ISNULL(DatZmeny, DatPorizeni) >= '" + wm + "'"
@@ -202,7 +208,8 @@ def sync_from_ec(back_years: int = 1, full: bool = False) -> dict:
         #      Proto: co je v Centrále a chybí u nás, dotáhneme adresně podle ID.
         #   b) ÚKLID — co v Centrále v daných letech už není, smažeme i u nás.
         ec_ids = [int(x["id"]) for x in _mcp_query(
-            "SELECT ID AS id FROM EC_FinPriplatkySrazkyDefinice WHERE Rok IN (" + yin + ")")]
+            "SELECT ID AS id FROM EC_FinPriplatkySrazkyDefinice "
+            "WHERE COALESCE(Rok, YEAR(PlatnostOd)) IN (" + yin + ")")]
         if ec_ids:
             our_ids = {int(r[0]) for r in s.execute(_t(
                 "SELECT id FROM ec.pripl_srazky WHERE rok IN (" + yin + ")")).fetchall()}

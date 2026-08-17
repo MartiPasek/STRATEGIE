@@ -956,6 +956,50 @@ def _process_deploy() -> None:
     if _pyfiles:
         _step("py_compile syntax check", 0, f"OK — {len(_pyfiles)} .py souborů bez chyby")
 
+    # 2.6) PRE-DEPLOY DB-OWNED CHECK (Vrstva 1, C24/Kristy 17.8.2026 — lekce z 5.-12.8.):
+    # Web obsah (dílky /mobile, artefakty, ERP komponenty) patří VÝHRADNĚ do g2007.soubor
+    # (DB = zdroj pravdy). Když někdo commitne soubor, který je v g2007.soubor, jeho git
+    # edit se do živé appky nikdy nedostane (skládá se z DB) → tiše zahozená práce (přesně
+    # Peťa 5.8. + Šárka 12.8.). Tenhle guard to chytne PŘED commitem a deploy zastaví
+    # s návodem. DATA-DRIVEN: seznam DB-vlastněných cest tahne z g2007.soubor, žádný hardcode.
+    # FAIL-OPEN: když check nejde (DB/síť/401), jen varování a deploy POKRAČUJE — guard
+    # nikdy nesmí shodit deploye kvůli vlastní nedostupnosti.
+    try:
+        _rcs, _sn = _run_git(["diff", "--cached", "--name-only"])
+        _staged_all = [n.strip().replace("\\", "/")
+                       for n in (_sn.splitlines() if _rcs == 0 else []) if n.strip()]
+    except Exception:
+        _staged_all = []
+    if _staged_all:
+        _res_db = _forward("SELECT kod FROM g2007.soubor", "pg")
+        if (not isinstance(_res_db, dict)) or _res_db.get("ok") is False or _res_db.get("error"):
+            log_lines.append("## DB-owned check — PŘESKOČEN (nešlo ověřit g2007: "
+                             + str((_res_db or {}).get("error"))[:160]
+                             + ") → deploy pokračuje (fail-open)")
+        else:
+            _db_kods = {(r[0] or "").strip() for r in (_res_db.get("rows") or []) if r}
+            _konflikt = [f for f in _staged_all if f in _db_kods]
+            if _konflikt:
+                _step("DB-owned check", 1,
+                      "STOP: tyto soubory jsou v g2007.soubor (DB = zdroj pravdy) a NEPATŘÍ do gitu:\n  "
+                      + "\n  ".join(_konflikt)
+                      + "\nEdituj je přes @@G2007SOUBOR / @@G2007PUBLISH, ne přes git — "
+                        "git edit by se do živé appky nedostal (skládá se z DB).")
+                try:
+                    _run_git(["reset", "HEAD", "--"] + _konflikt)
+                except Exception:
+                    pass
+                _write_deploy_out(
+                    f"# DEPLOY: ZASTAVEN (DB-owned soubor) · {INSTANCE_LABEL}\n# {ts}\n"
+                    f"# Commitnuté soubory jsou v g2007.soubor (DB=zdroj pravdy) — edituj přes "
+                    f"@@G2007SOUBOR/@@G2007PUBLISH, ne přes git. Nic nepushnuto/nenasazeno.\n\n"
+                    + "\n\n".join(log_lines) + "\n"
+                )
+                _consume_deploy()
+                return
+            else:
+                _step("DB-owned check", 0, "OK — žádný staged soubor není v g2007.soubor")
+
     # 3) je co commitnout?
     rc_diff, _ = _run_git(["diff", "--cached", "--quiet"])
     committed_sha = None

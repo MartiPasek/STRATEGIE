@@ -287,29 +287,50 @@ def _log(msg: str) -> None:
 
 
 def _forward(sql: str, db: str) -> dict:
-    """POST {sql, db} na cloud diag-sql endpoint. Returns parsed dict."""
+    """POST {sql, db} na cloud diag-sql endpoint. Returns parsed dict.
+
+    RETRY NA 401 (Jirka 17.8.2026, schvalila Marti-AI). Proc: Caddy ma na defaultni
+    ceste failover retez `8002 8003`. Kdyz primarni instance chvili neodpovida —
+    typicky pri restartu po nasazeni — pozadavek spadne na sekundar 8003, ktery
+    NEMA env STRATEGIE_DEPLOY_TOKEN. Server pak token neuzna, spadne na kontrolu
+    prihlaseni uzivatele (most zadnou session nema) a vrati 401 "Nejsi prihlasen".
+    DUKAZ (17.8.2026): stejny token a dotaz na primar vrati 3x 200, se souborem
+    cookie `strategie_api_version=previous` (= vynuceny sekundar) 3x 401.
+    Behem 16.-17.8. to zpusobilo 19 chyb v logu, vzdy ve shlucich kolem nasazeni.
+    Tohle je JEN NALEPKA — spravna oprava je doplnit token do sluzby STRATEGIE-API-B
+    na cloudu; do te doby most misto chyby proste pockne a zkusi znovu.
+    Retry je zamerne JEN pro 401, aby nemaskoval jine chyby (500, timeout, syntaxe)."""
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
     if not token:
         return {"ok": False, "error": "chybí env STRATEGIE_DEPLOY_TOKEN na NB"}
     payload = json.dumps({"sql": sql, "db": db, "instance_id": INSTANCE_ID,
                           "hostname": HOSTNAME}).encode("utf-8")
-    rq = urllib.request.Request(
-        CLOUD_URL, data=payload, method="POST",
-        headers={"Content-Type": "application/json", "X-Deploy-Token": token},
-    )
-    try:
-        with urllib.request.urlopen(rq, timeout=HTTP_TIMEOUT_SEC) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-        return json.loads(raw)
-    except urllib.error.HTTPError as e:
-        body = ""
+    posledni = {"ok": False, "error": "nespusteno"}
+    for pokus in range(1, 4):          # 1. pokus + 2 opakovani
+        rq = urllib.request.Request(
+            CLOUD_URL, data=payload, method="POST",
+            headers={"Content-Type": "application/json", "X-Deploy-Token": token},
+        )
         try:
-            body = e.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            pass
-        return {"ok": False, "error": f"HTTP {e.code}: {body or e.reason}"}
-    except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            with urllib.request.urlopen(rq, timeout=HTTP_TIMEOUT_SEC) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+            return json.loads(raw)
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            posledni = {"ok": False, "error": f"HTTP {e.code}: {body or e.reason}"}
+            if e.code == 401 and pokus < 3:
+                _log(f"401 ze serveru (nejspis failover na sekundar 8003) — "
+                     f"pokus {pokus}/3, zkousim znovu za 3 s")
+                time.sleep(3)
+                continue
+            return posledni
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return posledni
 
 
 def _poll_write_status(request_id, max_wait_sec: int = 120) -> dict | None:

@@ -54,12 +54,56 @@ abych spoléhal, že platí, co jsem věděl minule.
 | Odpracované hodiny | `tenant.att_entry` přes `tenant.att_den_hodiny` | hrubý součet `att_entry.hours` |
 | Mzdový podklad dne | `tenant.att_day_summary` **počítaný z `att_entry`** | zrcadlo Centrály (`@@DOCHSUM`) |
 | Nárok dovolená / dovolená navíc / sick days | **Podmínky (`staff_cond`)** | `engagement_entitlement` (zrušeno 16. 8.) |
+| **Týdenní úvazek** | **Podmínky (`staff_cond`, `uvazek_h_tyden`)** — potvrdil Jirka 18. 8. 2026 | `engagement.uvazek_tyden_h` je zatím to, z čeho se fakticky počítá — viz ⚠️ níže |
 | Docházka ze staré Centrály | **nic — sync ukončen 14. 8. 2026** | `sync_ec_dochazka_recent` |
 | Rozpad na zakázky | `tenant.vyroba_work` s vazbou `att_entry_id` | položky bez vazby (sirotci) |
 | Zakázka „režie" | zakázka **`Rezie`** (bez háčku) | činnost „Režie" (archivovaná 3. 8.) |
 
 ⚠️ **Červen 2026 je zmrazený** — přepočet mzdového podkladu ho odmítne. Zmrazené měsíce
 jsou v `FROZEN` uvnitř `att_day_summary_recompute`.
+
+### ⚠️ ÚVAZEK I NÁROKY NA VOLNO = PODMÍNKY, JEDINÁ PRAVDA (potvrdil Jirka 18. 8. 2026)
+
+Peťa: *„Jirka potvrzuje, že jediná pravda je v Podmínkách — tam je vidět jak úvazek,
+tak nároky na volno."*
+
+- **Ptám se vždycky Podmínek** (`tenant.staff_cond`), ne smluvního záznamu a **nikdy
+  ne Centrály**. Podmínky mají tři vrstvy: systém → skupina → jednotlivec, specifičtější
+  přebíjí. Leží tam i to, co jinde není — Bernardová „32 h = 4×8", Mózer „pracovní dny
+  úterý", Novotná „15 sick days místo navýšení mzdy".
+- **Dnešní realita je jinde a musím to říkat nahlas:** denní fond se fakticky počítá
+  z `engagement.uvazek_tyden_h` (kanonický skript `att_denni_fond`) a Podmínky se na to
+  nečtou vůbec. Ověřeno 18. 8. 2026: u všech 8 lidí, kteří mají úvazek na obou místech,
+  se hodnoty **shodují**, takže se zatím nic nerozešlo.
+- **Nedodělek k dořešení:** napojit `att_denni_fond` na Podmínky (v Šárčině dokumentu
+  je to jako úkol „resolver podmínek + napojení na docházku" už od 12. 6. 2026).
+  Dokud to nebude, platí: **kdo píše nový výpočet, ptá se Podmínek**, a kde to zatím
+  nejde, napíše k tomu proč.
+- Zdroj: G2007 `doc-podminky-skupin-zamestnancu`, `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy`,
+  `doc-dochazka-uvazek-a-naroky-jedina-pravda-podminky`.
+
+## 🔍 NEJDŘÍV HLEDEJ, JESTLI TO UŽ EXISTUJE — NIC NOVÉHO NEPSAT (Peťa 18. 8. 2026, ZÁVAZNÉ)
+
+Peťa: *„vždycky zkus najít, jestli to, co potřebujeme, už existuje. Myslím, že málokdy
+bychom měli něco výslovně vytvářet."*
+
+**Spouštěč:** 18. 8. 2026 jsem si na denní fond člověka začal psát vlastní SQL, přestože
+na to existuje **kanonický skript `att_denni_fond`** (`g2007.python`) a G2007 o něm výslovně
+říká *„podle něj se sjednocuje zbytek"*. Peťa mě poslala do G2007 a našel jsem to tam sám.
+Dvojí vzorec je začátek dvojí pravdy — čísla se rozejdou a nikdo nepozná proč.
+
+**Než napíšu jakoukoli funkci, výpočet, dotaz nebo tabulku, projdu tenhle sled:**
+
+1. **G2007** — `@@KB` / hledání v `g2007.znalost`. Není na to už znalost, která říká,
+   odkud se to má brát a čím se to počítá?
+2. **`g2007.python`** — neexistuje už skript? (`SELECT kod, popis FROM g2007.python WHERE …`)
+   Když ano, **zavolám ho**, nekopíruju si ho a nepřepisuju.
+3. **Kód v repu** — grep na název pojmu, tabulky, sloupce.
+4. **Pojistky** (`tenant.pojistka`) — není na to už pravidlo i s odůvodněním?
+5. Teprve když nic z toho neexistuje, **řeknu Petře, že to znamená něco nového**, a proč.
+
+Platí to i pro tabulky, sloupce a číselníky — viz pravidlo „jeden jasný zdroj pravdy"
+výše. Nové místo pro hodnotu, která už někde je, je horší než žádné.
 
 ## 💾 HROMADNÁ ZMĚNA DAT → NEJDŘÍV ZÁLOHA A NEJUŽŠÍ ROZSAH (Peťa 18. 8. 2026, ZÁVAZNÉ)
 

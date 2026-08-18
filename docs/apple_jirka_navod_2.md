@@ -14,7 +14,12 @@ hlasové zprávy pro Marti-AI), otevření **telefonu** přes `tel:` a **pull-to
 
 **A1. Přepiš `ContentView.swift`**
 - V levém panelu Xcode klikni na **`ContentView.swift`**.
-- **Smaž vše** a vlož obsah souboru z našeho repa: **`APP/iOS/ContentView.swift`**
+- **Smaž vše** a vlož obsah souboru z našeho repa: **`APP/iOS/mobile/ContentView.swift`**
+  > ⚠️ **Pozor na cestu.** Xcode staví **jen složku `APP/iOS/mobile/`** (projekt má
+  > `PBXFileSystemSynchronizedRootGroup` s `path = mobile`). Do 18. 8. 2026 tu byla cesta
+  > `APP/iOS/ContentView.swift` — kopie **mimo** build target. Kdo psal do ní, do appky se
+  > nedostal a nikde to nehlásilo chybu (přesně takhle se 15. 6. ztratil marker
+  > `STRATEGIE-iOS`). Kopie je smazaná, platí jen cesta výše.
   (Marti/Claude ti ho pošle, nebo ho najdeš v repu — viz ČÁST C).
 
 **A2. Přidej oprávnění do Info.plist** (jinak iOS mikrofon nepustí)
@@ -119,4 +124,4 @@ Držím palce, Jirko! 🤝 Klid, krok po kroku.
 
 ---
 *Připravil Claude (id=23), 10. 6. 2026. Navazuje na `apple_jirka_navod.md` + `apple_app_priprava.md`.
-Kód: `APP/iOS/ContentView.swift`.*
+Kód: `APP/iOS/mobile/ContentView.swift` (cesta opravena 18. 8. 2026 — viz poznámka u kroku A1).*

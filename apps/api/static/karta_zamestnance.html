@@ -441,7 +441,7 @@ const SEKCE=[
   {ic:"📋",t:"Podmínky a bonusy",d:"Úvazek, nástup, dovolená, sick days, stravenka + bonusy a srážky (mobilní tarif, služební auto…).",on:true,key:'podminky'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
   {ic:"🗒️",t:"Personální zápisy",d:"Pohovory, události, poznámky HR (jen HR).",on:true,key:'zapisy'},
-  {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
+  {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti prohlídek + upomínka před vypršením (z Centrály).",on:true,key:'lekar'},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
   {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, oblečení, protokol.",on:true,key:'majetek'},
@@ -1362,7 +1362,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje'};
+    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -1382,6 +1382,41 @@ async function zapisyUdaje(){
   const d=await j(API+'/app/hr/zapisy?uid='+uid);
   if(!d.ok){ det.innerHTML='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div><div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
   ZAP_DATA=d.zapisy||[]; renderZapisy();
+}
+
+// ── Lékařské prohlídky (Šárka 18.8.2026): READ-ONLY z Centrály (EC_TerminyPripomenuti Typ=1).
+// Upomínka: platnost do 60 dní = ⚠️, po platnosti = ⛔. Nic se do Centrály nezapisuje.
+async function lekarUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  det.innerHTML=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">🩺 Lékařské prohlídky</span>'+back+'</div><div class="empty">Načítám z Centrály…</div>';
+  let d; try{ d=await j(API+'/app/hr/med-exams?uid='+uid); }catch(e){ d={ok:false,error:'síť'}; }
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">🩺 Lékařské prohlídky</span>'+
+    '<span style="display:flex;gap:14px">'+back+'</span></div>'+
+    '<div style="padding:2px 16px 8px;color:#5d6b7c;font-size:11.5px">Platnosti pracovnělékařských prohlídek. 📌 Zdroj: Centrála (jen ke čtení) · upomínka 60 dní před koncem.</div>';
+  if(!d||!d.ok){ h+='<div class="empty">🔒 '+esc(d&&d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
+  const it=d.items||[];
+  if(!it.length){ h+='<div class="empty">'+esc(d.note||'Žádná lékařská prohlídka není evidovaná.')+'</div>'; det.innerHTML=h; return; }
+  const badge=function(t){
+    if(t.stav==='po_platnosti') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#2e1a1a;color:#ff8a7a">⛔ po platnosti'+(t.dni!=null?(' ('+(-t.dni)+' dní)'):'')+'</span>';
+    if(t.stav==='brzy') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#3a2f12;color:#E0A94A">⚠️ vyprší za '+t.dni+' dní</span>';
+    if(t.stav==='plati') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#122a1e;color:#7fe0a0">✅ platí</span>';
+    return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#23262b;color:#9aa7b4">bez platnosti</span>';
+  };
+  h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+    '<tr style="color:#7f8ea0;font-size:11px;text-transform:uppercase"><td style="padding:6px 16px">Kategorie / téma</td><td style="padding:6px 16px">Platnost od</td><td style="padding:6px 16px">Platnost do</td><td style="padding:6px 16px;text-align:right">Stav</td></tr>'+
+    it.map(function(t){
+      const kat=esc(t.poznamka||t.tema||'—');
+      return '<tr style="border-top:1px solid #1e2730">'+
+        '<td style="padding:8px 16px;color:#e8eef5">'+kat+(t.zmenil?('<div style="color:#7f8ea0;font-size:10.5px">✎ '+esc(t.zmenil)+(t.zmeneno?(' · '+esc(t.zmeneno)):'')+'</div>'):'')+'</td>'+
+        '<td style="padding:8px 16px;color:#cdd6e2;white-space:nowrap">'+esc(t.od||'—')+'</td>'+
+        '<td style="padding:8px 16px;color:#e8eef5;font-weight:700;white-space:nowrap">'+esc(t.do||'—')+'</td>'+
+        '<td style="padding:8px 16px;text-align:right;white-space:nowrap">'+badge(t)+'</td></tr>';
+    }).join('')+'</table>';
+  det.innerHTML=h;
 }
 function renderZapisy(){
   const uid=ZAP_UID, det=document.getElementById('det');

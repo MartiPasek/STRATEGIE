@@ -10866,6 +10866,67 @@ async def app_hr_benefits_del(bid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/med-exams")
+async def app_hr_med_exams(req: Request):
+    """Lékařské prohlídky člověka — READ-ONLY z Centrály (EC_TerminyPripomenuti, Typ=1).
+    Párování Centrála CisloZam ↔ STRATEGIE přes tenant.att_employee.cislo_zam. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tu = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tu = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cisla = [str(r[0]) for r in s.execute(_t(
+            "SELECT DISTINCT ae.cislo_zam FROM tenant.att_employee ae "
+            "WHERE ae.tenant_id=2 AND ae.user_id=:u AND ae.cislo_zam ~ '^[0-9]+$'"), {"u": tu}).fetchall()]
+    finally:
+        cm.__exit__(None, None, None)
+    if not cisla:
+        return JSONResponse({"ok": True, "items": [], "note": "Zaměstnanec nemá číslo z Centrály."})
+    inlist = ",".join(str(int(c)) for c in cisla)
+    sql = ("SELECT CisloZam cz, CONVERT(varchar(10),PlatnostOd,104) od, "
+           "CONVERT(varchar(10),PlatnostDo,104) doo, ISNULL(Poznamka,'') pozn, "
+           "ISNULL(Tema,'') tema, ISNULL(Zmenil,Autor) kdo, CONVERT(varchar(10),DatZmeny,104) zmen "
+           "FROM EC_TerminyPripomenuti WHERE Typ=1 AND CisloZam IN (" + inlist + ") "
+           "ORDER BY PlatnostDo DESC, PlatnostOd DESC")
+    try:
+        rows = _ec_mcp_rows(sql)
+    except Exception as exc:
+        logger.exception("[hr_med_exams] %s", exc)
+        return JSONResponse({"ok": False, "error": "Centrála nedostupná: " + str(exc)}, status_code=502)
+    import datetime as _dt
+
+    def _stav(doo):
+        if not doo:
+            return ("bez_platnosti", None)
+        try:
+            d = _dt.datetime.strptime(doo, "%d.%m.%Y").date()
+        except Exception:
+            return ("bez_platnosti", None)
+        dni = (d - _dt.date.today()).days
+        if dni < 0:
+            return ("po_platnosti", dni)
+        if dni <= 60:
+            return ("brzy", dni)
+        return ("plati", dni)
+
+    items = []
+    for r in rows:
+        doo = (r.get("doo") or "").strip()
+        st, dni = _stav(doo)
+        items.append({"od": (r.get("od") or "").strip(), "do": doo,
+                      "poznamka": (r.get("pozn") or "").strip(), "tema": (r.get("tema") or "").strip(),
+                      "stav": st, "dni": dni,
+                      "zmenil": (r.get("kdo") or "").strip(), "zmeneno": (r.get("zmen") or "").strip()})
+    return JSONResponse({"ok": True, "items": items})
+
+
 @api_router.post("/app/hr/zapisy/ucesat")
 async def app_hr_zapisy_ucesat(req: Request):
     """AI učesání personálního zápisu + extrakce akčních bodů. Jen HR. NEUKLÁDÁ —

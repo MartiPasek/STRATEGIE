@@ -910,8 +910,54 @@ def _process_deploy() -> None:
         rc, out = _run_git(["add", "-A"])
         _step("git add -A", rc, out)
     else:
-        rc, out = _run_git(["add", "--"] + file_specs)
-        _step("git add " + " ".join(file_specs), rc, out)
+        # Claude-28 (Jirka) 18.8.2026 — lekce z commitu 33cb649d: kdyz je v seznamu
+        # cesta, ktera uz byla odstranena pres `git rm` (neni na disku ANI v indexu),
+        # spadne CELY `git add -- <cesty>` na rc=128 "pathspec did not match any files"
+        # a nenaindexuje se ANI JEDEN z uvedenych souboru. Deploy pritom pokracoval
+        # a v hlavicce hlasil OK -> cast prace tise vypadla z commitu.
+        # (Pozn.: samotne `-A` to NERESI, overeno — `git add -A -- <uz git-rm-nuta
+        # cesta>` spadne uplne stejne. Musi se odfiltrovat.)
+        _specs_add: list[str] = []    # da se pridat (na disku, nebo smazane ale jeste v indexu)
+        _specs_done: list[str] = []   # uz naindexovane mazani — neni co delat
+        _specs_bad: list[str] = []    # preklep / cesta neexistuje nikde
+        for _f in file_specs:
+            if (REPO_ROOT / _f).exists():
+                _specs_add.append(_f)
+                continue
+            _rc_i, _o_i = _run_git(["ls-files", "--", _f])
+            if _rc_i == 0 and _o_i.strip():
+                _specs_add.append(_f)          # smazany na disku, ale tracked -> add zapise D
+                continue
+            _rc_s, _o_s = _run_git(["diff", "--cached", "--name-only", "--", _f])
+            if _rc_s == 0 and _o_s.strip():
+                _specs_done.append(_f)         # `git rm` uz to naindexoval, commit to vezme
+            else:
+                _specs_bad.append(_f)          # opravdu neexistuje = preklep v ceste
+        if _specs_done:
+            log_lines.append("## git add — POZNAMKA\nJiz naindexovane mazani, "
+                             "preskoceno (commit je vezme): " + " ".join(_specs_done))
+        if _specs_bad:
+            _step("git add " + " ".join(file_specs), 128,
+                  "Tyto cesty neexistuji na disku, v indexu ani mezi staged zmenami "
+                  "(preklep?): " + " ".join(_specs_bad))
+            rc = 128
+        elif _specs_add:
+            rc, out = _run_git(["add", "--"] + _specs_add)
+            _step("git add " + " ".join(_specs_add), rc, out)
+        else:
+            rc = 0
+    # Claude-28 (Jirka) 18.8.2026: kdyz staging selhal, NEPOKRACUJ. Commit by vznikl
+    # z toho, co uz v indexu nahodou bylo, a hlavicka by lhala "DEPLOY: OK".
+    # Stejny vzor jako py_compile gate nize.
+    if rc != 0:
+        _write_deploy_out(
+            f"# DEPLOY: ZASTAVEN (git add) · {INSTANCE_LABEL}\n# {ts}\n"
+            f"# Staging selhal — nic nepushnuto/nenasazeno. Oprav cesty v CLAUDE_DEPLOY.txt "
+            f"a deployni znovu.\n\n"
+            + "\n\n".join(log_lines) + "\n"
+        )
+        _consume_deploy()
+        return
 
     # 2.5) PRE-DEPLOY SYNTAX CHECK (Claude 8.6.2026 — lekce z outage):
     # py_compile na všech staged .py souborech. Syntax chyba → deploy STOP,

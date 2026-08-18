@@ -10700,13 +10700,13 @@ async def app_hr_zapisy_save(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         who = _self_person_name(s, uid) or ("HR #" + str(uid))
         if zid:
-            s.execute(_t("UPDATE tenant.hr_zapis SET typ=:t, datum=COALESCE(:d::date,datum), nadpis=:n, text=:x, "
+            s.execute(_t("UPDATE tenant.hr_zapis SET typ=:t, datum=COALESCE(CAST(:d AS date),datum), nadpis=:n, text=:x, "
                          "autor_user_id=:au, autor_text=:aw, updated_at=now() "
                          "WHERE id=:id AND tenant_id=2"),
                       {"t": typ, "d": datum, "n": nadpis, "x": text, "au": uid, "aw": who, "id": zid})
         else:
             s.execute(_t("INSERT INTO tenant.hr_zapis (tenant_id,user_id,typ,datum,nadpis,text,autor_user_id,autor_text) "
-                         "VALUES (2,:u,:t,COALESCE(:d::date,current_date),:n,:x,:au,:aw)"),
+                         "VALUES (2,:u,:t,COALESCE(CAST(:d AS date),current_date),:n,:x,:au,:aw)"),
                       {"u": tu, "t": typ, "d": datum, "n": nadpis, "x": text, "au": uid, "aw": who})
         s.commit()
         return JSONResponse({"ok": True})

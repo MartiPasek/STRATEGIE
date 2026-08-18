@@ -143,6 +143,9 @@ class HybridActivity : ComponentActivity() {
         } catch (e: Exception) { false }
     }
 
+    // Thread pool pro callAsync (async JS most) — mimo Bridge, ať vzniká jen jednou.
+    private val asyncPool = java.util.concurrent.Executors.newFixedThreadPool(3)
+
     inner class Bridge {
         @JavascriptInterface
         fun dial(number: String) {
@@ -300,6 +303,35 @@ class HybridActivity : ComponentActivity() {
                 s?.bufferedReader()?.use { it.readText() } ?: ""
             } catch (e: Exception) {
                 ""
+            }
+        }
+
+        // ── ASYNC most (C23 + Marti 5.8.2026 — pomalost appky) ─────────────
+        // Synchronní @JavascriptInterface volání (authedFetch, checkUpdate,
+        // avatarDataUrl, getContacts…) blokuje JS vlákno WebView po celou dobu
+        // HTTP requestu / čtení kontaktů → appka „nereaguje na tlačítka".
+        // callAsync spustí tutéž operaci na pozadí a výsledek vrátí callbackem
+        // window.__stgAsyncDone(id, base64). JS strana (10_core.js) si vybere
+        // async cestu automaticky, stará JS verze callAsync prostě nevolá.
+        @JavascriptInterface
+        fun callAsync(reqId: String, fn: String, a1: String, a2: String, a3: String) {
+            asyncPool.execute {
+                val res: String = try {
+                    when (fn) {
+                        "authedFetch" -> authedFetch(a1, a2, a3)
+                        "checkUpdate" -> checkUpdate()
+                        "avatarDataUrl" -> avatarDataUrl()
+                        "getContacts" -> getContacts(a1)
+                        "getCallLog" -> getCallLog(a1)
+                        "getSmsLog" -> getSmsLog(a1)
+                        else -> ""
+                    }
+                } catch (e: Exception) { "" }
+                val b64 = android.util.Base64.encodeToString(
+                    res.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+                val js = "window.__stgAsyncDone&&window.__stgAsyncDone(" +
+                    JSONObject.quote(reqId) + ",\"" + b64 + "\")"
+                runOnUiThread { try { web.evaluateJavascript(js, null) } catch (e: Exception) {} }
             }
         }
 

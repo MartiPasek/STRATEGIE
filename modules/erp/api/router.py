@@ -19124,101 +19124,16 @@ async def app_plan_mine(req: Request) -> JSONResponse:
 
 @api_router.get("/app/plan/my-default")
 async def app_plan_my_default(req: Request) -> JSONResponse:
-    """Individuální výchozí plán — odvozený (NEukládá se): ČR kalendář × osobní
-    úvazek + týdenní vzorec (work_schedule, fallback úvazek/5 Po–Pá)."""
+    """DB-driven delegate (g2007.python kod=plan_my_default). Puvodni telo migrovano
+    do DB 18.8.2026 pri sjednoceni uvazku na jedno misto (zdroj = smlouva/engagement,
+    ne Podminky). Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        target = uid
-        tu = req.query_params.get("user_id")
-        if tu and int(tu) != uid:
-            if not _hr_can_manage(s, uid):
-                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-            target = int(tu)
-        cal = s.execute(_t(
-            "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
-            "WHERE tenant_id=2 AND date_part('year', day)=date_part('year', CURRENT_DATE) "
-            "ORDER BY day")).fetchall()
-        sched = {}
-        try:
-            for r in s.execute(_t(
-                "SELECT weekday, works, hours, start_time::text FROM tenant.work_schedule WHERE tenant_id=2 AND user_id=:u"),
-                {"u": target}).fetchall():
-                sched[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None, (r[3] or "")[:5])
-        except Exception:
-            sched = {}
-        try:
-            uvazek = float(_resolve_cond_num(s, target, "uvazek_h_tyden", 40.0)) or 40.0
-        except Exception:
-            uvazek = 40.0
-        per_day = round(uvazek / 5.0, 2)
-        # fallback příchodu: skupinový/systémový "Povinný nástup nejpozději" (null → firma/skupina)
-        try:
-            gstart = _norm_hhmm(_resolve_cond(s, target, "nastup_max")[0])
-        except Exception:
-            gstart = ""
-        # Marti 14.6.: výjimkové vrstvy (firma → skupina → osobní) se MUSÍ propsat
-        # i do osobního plánu (Můj plán/Týden), ne jen do skupinového/efektivního.
-        eff = {}   # ex_date -> (hours, scope: firma|skupina|osobní), priorita osobní > skupina > firma
-        try:
-            for rr in s.execute(_t(
-                "SELECT ex_date, hours FROM tenant.att_calendar_exception "
-                "WHERE tenant_id=2 AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall():
-                eff[rr[0]] = (float(rr[1]), "firma")
-            grp = set(g[0] for g in s.execute(_t(
-                "SELECT group_id FROM tenant.staff_group_member WHERE tenant_id=2 AND user_id=:u"),
-                {"u": target}).fetchall())
-            for rr in s.execute(_t(
-                "SELECT ex_date, hours, scope_id FROM tenant.att_exception_scope "
-                "WHERE tenant_id=2 AND scope_type='group' "
-                "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE) ORDER BY ex_date, id")).fetchall():
-                if rr[2] in grp:
-                    eff[rr[0]] = (float(rr[1]), "skupina")
-            # OSOBNÍ (user) vrstvu do „Můj plán" NEzapékáme — osobní korekce se ukazuje jako
-            # návrh/korekce navrch (přeškrtne původní plán), ne jako zapečená hodnota. Marti 4.7.
-        except Exception:
-            eff = {}
-        out = []
-        total = 0.0
-        for day, is_wd, is_hol in cal:
-            wd = day.isoweekday()  # 1=Po .. 7=Ne
-            st = ""
-            exc_scope = None
-            if is_hol:
-                dt, h = "holiday", 0
-            elif wd in sched:
-                if sched[wd][0]:
-                    dt, h = "work", (sched[wd][1] if sched[wd][1] is not None else per_day)
-                    st = sched[wd][2]
-                else:
-                    dt, h = ("weekend" if wd >= 6 else "off"), 0
-            elif wd <= 5 and is_wd:
-                dt, h = "work", per_day
-            else:
-                dt, h = ("weekend" if wd >= 6 else "off"), 0
-            if dt == "work" and not st:
-                st = gstart
-            # přebití výjimkou (firma/skupina/osobní) — 0 h = volno té úrovně, jinak počet hodin
-            exv = eff.get(day)
-            if exv is not None:
-                h, exc_scope = exv
-                if h > 0:
-                    dt = "exception"
-                    if not st:
-                        st = gstart
-                else:
-                    dt, st = "exoff", ""
-            total += h
-            out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
-                        "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
-                        "hours": float(h), "day_type": dt, "start": st, "exc_scope": exc_scope})
-        return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek,
-                             "total_hours": round(total, 2), "has_plan": len(out) > 0})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("plan_my_default", uid, req.query_params.get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/plan/my-uvazek")
@@ -19292,80 +19207,16 @@ async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
 
 @api_router.get("/app/plan/group")
 async def app_plan_group(req: Request) -> JSONResponse:
-    """Plán skupiny (display): ČR základ × firemní výjimky × cílené výjimky té skupiny.
-    Overlay read-only, priorita skupina > firma. Jen HR/rodič."""
+    """DB-driven delegate (g2007.python kod=plan_group). Puvodni telo migrovano do DB
+    18.8.2026 pri sjednoceni uvazku na jedno misto. Zaklad sablony skupiny je nove
+    pojmenovana konstanta 40 h misto systemove Podminky. Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    try:
-        gid = int(req.query_params.get("group_id") or 0)
-    except Exception:
-        gid = 0
-    if not gid:
-        return JSONResponse({"ok": False, "error": "group_id"})
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        gname = s.execute(_t("SELECT name FROM tenant.staff_group WHERE tenant_id=2 AND id=:g"), {"g": gid}).scalar() or ("skupina #" + str(gid))
-        sysv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
-                            "AND cond_code='uvazek_h_tyden' LIMIT 1")).scalar()
-        try:
-            uvazek = float(str(sysv).replace(",", ".")) if sysv else 40.0
-        except Exception:
-            uvazek = 40.0
-        per_day = round(uvazek / 5.0, 2)
-        # příchod skupiny: "Povinný nástup nejpozději" (skupina → systém)
-        nm = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='group' "
-                          "AND group_code=:g AND cond_code='nastup_max' LIMIT 1"), {"g": str(gid)}).scalar()
-        if not nm:
-            nm = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
-                              "AND cond_code='nastup_max' LIMIT 1")).scalar()
-        gstart = _norm_hhmm(nm)
-        cal = s.execute(_t(
-            "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
-            "WHERE tenant_id=2 AND date_part('year', day)=date_part('year', CURRENT_DATE) ORDER BY day")).fetchall()
-        firma = {}
-        try:
-            for r in s.execute(_t("SELECT ex_date, hours, reason FROM tenant.att_calendar_exception WHERE tenant_id=2 "
-                                  "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall():
-                firma[r[0]] = (float(r[1]), r[2])
-        except Exception:
-            pass
-        grp = {}
-        try:
-            for r in s.execute(_t("SELECT ex_date, hours, reason FROM tenant.att_exception_scope WHERE tenant_id=2 "
-                                  "AND scope_type='group' AND scope_id=:g "
-                                  "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)"), {"g": gid}).fetchall():
-                grp[r[0]] = (float(r[1]), r[2])
-        except Exception:
-            pass
-        out = []
-        total = 0.0
-        for day, is_wd, is_hol in cal:
-            wd = day.isoweekday()
-            if is_hol:
-                dt, h = "holiday", 0
-            elif wd <= 5 and is_wd:
-                dt, h = "work", per_day
-            else:
-                dt, h = ("weekend" if wd >= 6 else "off"), 0
-            total += h
-            ex = grp.get(day)
-            scope = "skupina"
-            if ex is None:
-                ex = firma.get(day)
-                scope = "firma"
-            out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
-                        "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
-                        "hours": float(h), "day_type": dt, "start": (gstart if dt == "work" else ""),
-                        "exc_hours": (ex[0] if ex else None), "exc_reason": (ex[1] if ex else None),
-                        "exc_scope": (scope if ex else None)})
-        return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek, "group_name": gname,
-                             "total_hours": round(total, 2), "has_plan": len(out) > 0})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("plan_group", uid, req.query_params.get("group_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/plan/generate-effective")
@@ -20215,40 +20066,16 @@ _WD = [(1, "Pondělí"), (2, "Úterý"), (3, "Středa"), (4, "Čtvrtek"), (5, "P
 
 @api_router.get("/app/hr/schedule")
 async def app_hr_schedule(req: Request) -> JSONResponse:
-    """Vzor týdne (Marti 12.6.): které dny člověk pracuje + kolik h + volitelně pevný konec.
-    Když nemá vlastní vzor, odvodí se z úvazku (Po–Pá rovnoměrně)."""
+    """DB-driven delegate (g2007.python kod=hr_schedule). Puvodni telo migrovano do DB
+    18.8.2026 pri sjednoceni uvazku na jedno misto (zdroj = smlouva/engagement,
+    ne Podminky). Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    try:
-        tu = int(req.query_params.get("user_id") or 0)
-    except Exception:
-        tu = 0
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rowmap = {}
-        for r in s.execute(_t("SELECT weekday,works,hours,to_char(end_time,'HH24:MI') FROM tenant.work_schedule "
-                              "WHERE tenant_id=2 AND user_id=:u"), {"u": tu}).fetchall():
-            rowmap[r[0]] = {"works": r[1], "hours": float(r[2]), "end_time": r[3]}
-        uvazek = _resolve_cond_num(s, tu, "uvazek_h_tyden", 40.0)
-        per_day = round(uvazek / 5.0, 2) if uvazek else 8.0
-        dny = []
-        for wd, label in _WD:
-            if wd in rowmap:
-                r = rowmap[wd]
-                dny.append({"weekday": wd, "label": label, "works": bool(r["works"]),
-                            "hours": r["hours"], "end_time": r["end_time"], "explicit": True})
-            else:
-                w = wd <= 5
-                dny.append({"weekday": wd, "label": label, "works": w,
-                            "hours": (per_day if w else 0.0), "end_time": None, "explicit": False})
-        suma = round(sum(d["hours"] for d in dny if d["works"]), 2)
-        return JSONResponse({"ok": True, "user_id": tu, "uvazek": uvazek, "dny": dny, "suma_h": suma})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_schedule", uid, req.query_params.get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/learn/frames")

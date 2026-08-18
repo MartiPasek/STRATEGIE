@@ -43,7 +43,7 @@
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
       // Šárka 12.8.2026: „Ve firmě" je v KPI; 5 vyrovnaných panelů v jedné mřížce (3+2);
       // Novinky hned pod nimi (viditelné); Úkoly jsou samostatný uzel (dlaždice „Úkoly").
-      '  <div class="hrp-blocks hrp-cols3">' +
+      '  <div class="hrp-blocks hrp-cols6">' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🏢</span> Aktuálně ve firmě <span class="hrp-cnt" id="hrpVeFirmeCnt"></span></div>' +
       '      <div id="hrpVeFirmeList"><div class="hrp-empty">Načítám…</div></div>' +
@@ -537,11 +537,15 @@
   function style() {
     return '<style>' +
       '.hrp-wrap{max-width:none;margin:0;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
-      '.hrp-blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start;margin-bottom:8px;}' +
-      '.hrp-cols3{grid-template-columns:repeat(3,minmax(0,1fr));}' +
-      '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;}' +
-      '@media(max-width:900px){.hrp-blocks{grid-template-columns:repeat(2,minmax(0,1fr));}}' +
-      '#hrpVeFirmeList,#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:148px;overflow:auto;}' +
+      // Šárka 17.8.2026: detailní panely v 6 zarovnaných sloupcích (1:1 pod KPI čísly),
+      // stejně vysoké (stretch), seznam vyplní zbytek sloupce.
+      '.hrp-blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:stretch;margin-bottom:8px;}' +
+      '.hrp-cols6{grid-template-columns:repeat(6,minmax(0,1fr));}' +
+      '@media(max-width:1400px){.hrp-cols6{grid-template-columns:repeat(3,minmax(0,1fr));}}' +
+      '@media(max-width:1000px){.hrp-cols6{grid-template-columns:repeat(2,minmax(0,1fr));}}' +
+      '@media(max-width:640px){.hrp-cols6{grid-template-columns:1fr;}}' +
+      '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;display:flex;flex-direction:column;}' +
+      '#hrpVeFirmeList,#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:210px;overflow:auto;flex:1 1 auto;}' +
       '#hrpNovList{max-height:200px;overflow:auto;}' +
       '#hrpUkoly{max-height:60vh;overflow:auto;}' +
       '.hrp-duo{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}' +

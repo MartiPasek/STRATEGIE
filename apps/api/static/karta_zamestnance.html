@@ -1446,34 +1446,44 @@ async function zapDel(id){
   if(!d.ok){ alert('Smazání selhalo: '+((d&&d.error)||r.status)); return; }
   zapisyUdaje();
 }
-// Namluvení zápisu → přepis přes /app/transcribe (Whisper). Šárka 18.8.2026.
-let ZAP_REC={mr:null,chunks:[],on:false,stream:null};
+// Namluvení zápisu → přepis přes /app/transcribe (Whisper). Šárka 18.8.2026. Robustní verze.
+let ZAP_REC={mr:null,chunks:[],on:false,stream:null,mime:'audio/webm'};
 async function zapRecToggle(){
   const btn=document.getElementById('zf_rec'), stt=document.getElementById('zf_recst');
-  if(ZAP_REC.on){ try{ ZAP_REC.mr.stop(); }catch(e){} return; }
-  if(!navigator.mediaDevices||!window.MediaRecorder){ if(stt) stt.textContent='Nahrávání není v tomto prohlížeči podporováno.'; return; }
-  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ if(stt) stt.textContent='🎤 Mikrofon nepovolen.'; return; }
+  if(ZAP_REC.on){ if(stt) stt.textContent='⏳ zpracovávám…'; try{ ZAP_REC.mr.stop(); }catch(e){} return; }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){
+    alert('Tahle aplikace/prohlížeč neumí nahrávat zvuk. Otevři STRATEGII v prohlížeči Chrome (strategie-ai.com) a zkus to tam.'); return; }
+  let stream;
+  try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(e){ alert('Mikrofon se nepodařilo zapnout ('+((e&&e.name)||e)+').\nPovol mikrofon pro tuhle stránku (ikona vlevo v adresním řádku) a zkus znovu.'); return; }
   ZAP_REC.stream=stream; ZAP_REC.chunks=[];
-  let mr; try{ mr=new MediaRecorder(stream); }catch(e){ mr=new MediaRecorder(stream,{mimeType:'audio/webm'}); }
-  ZAP_REC.mr=mr; ZAP_REC.on=true;
-  const recMime=(mr.mimeType||'audio/webm').split(';')[0]||'audio/webm';
+  let want='audio/webm';
+  try{ if(MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported('audio/webm')){ want=(MediaRecorder.isTypeSupported('audio/ogg')?'audio/ogg':''); } }catch(e){}
+  let mr;
+  try{ mr= want? new MediaRecorder(stream,{mimeType:want}) : new MediaRecorder(stream); }
+  catch(e){ try{ mr=new MediaRecorder(stream); }catch(e2){ alert('Nahrávání nelze spustit: '+((e2&&e2.message)||e2)); try{stream.getTracks().forEach(t=>t.stop());}catch(_){}; return; } }
+  ZAP_REC.mr=mr; ZAP_REC.on=true; ZAP_REC.mime=((mr.mimeType||want||'audio/webm').split(';')[0])||'audio/webm';
   mr.ondataavailable=e=>{ if(e.data&&e.data.size) ZAP_REC.chunks.push(e.data); };
   mr.onstop=async()=>{
     ZAP_REC.on=false;
     try{ ZAP_REC.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
     if(btn) btn.textContent='🎤 Namluvit';
-    const blob=new Blob(ZAP_REC.chunks,{type:recMime});
-    if(!blob.size){ if(stt) stt.textContent=''; return; }
-    if(stt) stt.textContent='⏳ Přepisuji…';
-    const b64=await new Promise(res=>{ const rd=new FileReader(); rd.onloadend=()=>res((rd.result||'').toString().split(',')[1]||''); rd.readAsDataURL(blob); });
+    const blob=new Blob(ZAP_REC.chunks,{type:ZAP_REC.mime});
+    if(!blob||blob.size<800){ if(stt) stt.textContent=''; alert('Nenahrálo se žádné audio (nebo bylo moc krátké). Zkontroluj, že je mikrofon zapnutý/povolený, a mluv aspoň pár sekund.'); return; }
+    if(stt) stt.textContent='⏳ Přepisuji… ('+Math.round(blob.size/1024)+' kB)';
+    let b64;
+    try{ b64=await new Promise((res,rej)=>{ const rd=new FileReader(); rd.onerror=()=>rej('read'); rd.onloadend=()=>res((rd.result||'').toString().split(',')[1]||''); rd.readAsDataURL(blob); }); }
+    catch(e){ if(stt) stt.textContent=''; alert('Nepodařilo se zpracovat nahrávku.'); return; }
     try{
-      const rr=await fetch(API+'/app/transcribe',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_b64:b64,mime:recMime,filename:'zapis.'+(recMime.indexOf('ogg')>=0?'ogg':'webm')})});
-      const d=await rr.json();
-      if(d.ok&&d.text){ const ta=document.getElementById('zf_text'); if(ta){ ta.value=(ta.value?ta.value.trim()+'\n':'')+d.text.trim(); } if(stt) stt.textContent='✓ přepsáno'; }
-      else { if(stt) stt.textContent='✗ '+((d&&d.error)||'přepis selhal'); }
-    }catch(e){ if(stt) stt.textContent='✗ síť'; }
+      const rr=await fetch(API+'/app/transcribe',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_b64:b64,mime:ZAP_REC.mime,filename:'zapis.'+(ZAP_REC.mime.indexOf('ogg')>=0?'ogg':'webm')})});
+      let d={}; try{ d=await rr.json(); }catch(e){}
+      if(d.ok&&(d.text||'').trim()){ const ta=document.getElementById('zf_text'); if(ta){ ta.value=(ta.value?ta.value.trim()+'\n':'')+d.text.trim(); ta.focus(); } if(stt) stt.textContent='✓ přepsáno'; }
+      else if(d.ok){ if(stt) stt.textContent=''; alert('Přepis se vrátil prázdný — nejspíš ticho nebo moc tichý mikrofon. Zkus mluvit hlasitěji a blíž.'); }
+      else { if(stt) stt.textContent=''; alert('Přepis selhal: '+((d&&d.error)||('HTTP '+rr.status))); }
+    }catch(e){ if(stt) stt.textContent=''; alert('Síťová chyba při přepisu.'); }
   };
-  mr.start(); if(btn) btn.textContent='⏹ Zastavit a přepsat'; if(stt) stt.textContent='🔴 nahrávám…';
+  try{ mr.start(1000); }catch(e){ try{ mr.start(); }catch(e2){} }
+  if(btn) btn.textContent='⏹ Zastavit a přepsat'; if(stt) stt.textContent='🔴 nahrávám… (mluv, pak Zastavit a přepsat)';
 }
 
 // Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person, zobrazí a umožní HR editaci.

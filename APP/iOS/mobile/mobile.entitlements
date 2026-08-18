@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- APNs notifikace (verze 1.84). Push Notifications capability zapnuta
+	     u App ID cz.strategie.mobile na developer.apple.com 18. 8. 2026.
+	     Hodnota "development" platí pro vývoj; při archivaci pro App Store
+	     Xcode použije distribuční profil s "production" sám. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

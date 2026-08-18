@@ -1399,6 +1399,10 @@ async function lekarUdaje(){
     '<div style="padding:2px 16px 8px;color:#5d6b7c;font-size:11.5px">Platnosti pracovnělékařských prohlídek. 📌 Zdroj: Centrála (jen ke čtení) · upomínka 60 dní před koncem.</div>';
   if(!d||!d.ok){ h+='<div class="empty">🔒 '+esc(d&&d.error||'nedostupné')+'</div>'; det.innerHTML=h; return; }
   if(d.osvc){ h+='<div style="margin:8px 16px 16px;padding:12px 14px;border:1px solid #233040;border-radius:8px;background:#12181f;color:#9aa7b4">🩺 Zaměstnanec spolupracuje formou <b>OSVČ</b> — lékařská prohlídka se tohoto typu spolupráce netýká, nehlídá se.</div>'; det.innerHTML=h; return; }
+  h+='<div style="margin:2px 16px 10px;padding:10px 14px;border:1px solid #233040;border-radius:8px;background:#12181f;color:#9aa7b4;font-size:12px;line-height:1.6">'+
+     '📁 <b>Podepsané originály (papírově):</b> šanon <b>BOZP – Lékařské prohlídky zaměstnanců</b>.<br>'+
+     '📄 <b>Objednávka k firemnímu lékaři</b> (posouzení zdravotní způsobilosti, kat. 2) — šablona v HR šablonách.'+
+     '</div>';
   const it=d.items||[];
   if(!it.length){ h+='<div class="empty">'+esc(d.note||'Žádná lékařská prohlídka není evidovaná.')+'</div>'; det.innerHTML=h; return; }
   const badge=function(t){

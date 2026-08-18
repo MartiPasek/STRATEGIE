@@ -10953,7 +10953,13 @@ async def app_hr_med_exams(req: Request):
         do_d = _parse_d(do_s)
         # kategorie z poznámky ("Kategorie 1"/"Kategorie 2")
         mk = _re.search(r"[Kk]ategori\w*\s*([12])", pozn)
-        kat = int(mk.group(1)) if mk else None
+        # Pravidlo (Šárka 18.8.2026): kde NENÍ výslovně Kategorie 1, doplň Kategorie 2.
+        if mk:
+            kat = int(mk.group(1))
+            kat_doplneno = False
+        else:
+            kat = 2
+            kat_doplneno = True
         dopocteno = False
         if kat == 1:
             # Kategorie 1 (neriziková) — prohlídka není povinná, nehlídá se.
@@ -10970,6 +10976,7 @@ async def app_hr_med_exams(req: Request):
             st, dni = _stav(do_d)
         items.append({"od": od_s, "do": do_s, "poznamka": pozn,
                       "tema": (r.get("tema") or "").strip(), "kategorie": kat,
+                      "kat_doplneno": kat_doplneno,
                       "dopocteno": dopocteno, "stav": st, "dni": dni,
                       "zmenil": (r.get("kdo") or "").strip(), "zmeneno": (r.get("zmen") or "").strip()})
     return JSONResponse({"ok": True, "items": items})

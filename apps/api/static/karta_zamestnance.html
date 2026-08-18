@@ -1411,7 +1411,7 @@ async function lekarUdaje(){
   h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     '<tr style="color:#7f8ea0;font-size:11px;text-transform:uppercase"><td style="padding:6px 16px">Kategorie / téma</td><td style="padding:6px 16px">Platnost od</td><td style="padding:6px 16px">Platnost do</td><td style="padding:6px 16px;text-align:right">Stav</td></tr>'+
     it.map(function(t){
-      const kat=(t.poznamka||t.tema)?esc(t.poznamka||t.tema):'<span style="color:#E0A94A" title="Kategorie práce není v Centrále vyplněná">kategorie neuvedena</span>';
+      const kat='Kategorie '+(t.kategorie||'?')+(t.kat_doplneno?' <span style="color:#7f8ea0;font-weight:500;font-size:11px" title="V Centrále nebyla Kategorie 1 → dle pravidla doplněna Kategorie 2">(doplněno)</span>':'')+(t.tema?(' · '+esc(t.tema)):'');
       const doTxt=t.do?(esc(t.do)+(t.dopocteno?' <span style="color:#7f8ea0;font-weight:500;font-size:11px" title="Dopočteno z periody dle kategorie a věku (chybí v Centrále)">(dopočteno)</span>':'')):'—';
       return '<tr style="border-top:1px solid #1e2730">'+
         '<td style="padding:8px 16px;color:#e8eef5">'+kat+(t.zmenil?('<div style="color:#7f8ea0;font-size:10.5px">✎ '+esc(t.zmenil)+(t.zmeneno?(' · '+esc(t.zmeneno)):'')+'</div>'):'')+'</td>'+
@@ -1419,7 +1419,7 @@ async function lekarUdaje(){
         '<td style="padding:8px 16px;color:#e8eef5;font-weight:700;white-space:nowrap">'+doTxt+'</td>'+
         '<td style="padding:8px 16px;text-align:right;white-space:nowrap">'+badge(t)+'</td></tr>';
     }).join('')+'</table>'+
-    '<div style="padding:8px 16px;color:#5d6b7c;font-size:11px">Pravidlo EUROSOFT: Kategorie 1 = prohlídky nepovinné (nehlídá se). Kategorie 2 = periodická povinná (4 roky, nad 50 let 2 roky) + výstupní při ukončení poměru. „kategorie neuvedena" = v Centrále chybí; „(dopočteno)" = chybí platnost do, termín je spočítaný z data prohlídky a věku.</div>';
+    '<div style="padding:8px 16px;color:#5d6b7c;font-size:11px">Pravidlo EUROSOFT: Kategorie 1 = prohlídky nepovinné (nehlídá se). Kategorie 2 = periodická povinná (4 roky, nad 50 let 2 roky) + výstupní při ukončení poměru. „(doplněno)" u kategorie = v Centrále nebyla Kategorie 1, dle pravidla doplněna Kategorie 2. „(dopočteno)" u data = chybí platnost do, termín je spočítaný z data prohlídky a věku.</div>';
   det.innerHTML=h;
 }
 function renderZapisy(){

@@ -638,6 +638,19 @@ Peťa se pak nemusí u každé obrazovky ptát, co ta barva znamená.
 | 🔵 **modrá** | **automatická kontrola / informace** — nic se po tobě nechce | hlášky automatu, dopočty, poznámky systému |
 | 🟢 **zelená** | **bylo tam něco, ale je to opravené** | nález, který Peťa srovnala; úspěšně uložená oprava |
 
+### 🟢 ZELENÁ = SROVNÁNO, ne „někdo se toho dotkl" (Peťa 18. 8. 2026, závazné)
+Zelená smí svítit **jen když už není co opravovat**. Do 18. 8. stačilo, že v tom dni editor
+cokoli opravil — a den i karta ve frontě zezelenaly, i když v něm dál visel **zapomenutý
+odchod** (půlnoční automat uzavřel směnu na 23:59). Peťa tak měla 17. 8. směnu 18,4 h
+s hlavičkou „den je mezitím opravený" a fronta jí nabízela „✓ Hotovo — z fronty".
+
+- **Dokud v dni zbývá cokoli k opravě → červená**, i kdyby se v něm deset věcí opravilo.
+- **Štítek „🛠 opraveno" u řádku je zelený** (web i mobil). Dřív byl modrý — modrá patří
+  **jen informacím automatu**, ne výsledku lidské opravy.
+- Platí i pro frontu „K vyřešení": příznak `opraveno` se počítá na serveru
+  (`g2007.python` → `att_fix_queue`) a nově vylučuje dny se zapomenutým odchodem.
+- Hlídá pojistka `dochazka-zelena-jen-kdyz-srovnano`.
+
 **Vzhled červeného upozornění** (ověřený, drž se ho): světlý podklad `#fee2e2`, tmavý rámeček
 `#991b1b`, silný pruh vlevo `#dc2626`, tmavé písmo `#7f1d1d`. **Vlastní rámeček**, ne splynutí
 s okolím. Zůstává na obrazovce a **zavírá se křížkem** — nemizí samo.

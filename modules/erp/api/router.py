@@ -10740,6 +10740,72 @@ async def app_hr_zapisy_del(zid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/hr/zapisy/ucesat")
+async def app_hr_zapisy_ucesat(req: Request):
+    """AI učesání personálního zápisu + extrakce akčních bodů. Jen HR. NEUKLÁDÁ —
+    vrací návrh, který si HR zkontroluje a případně uloží (Šárka 18.8.2026)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    raw = (str((b or {}).get("text") or "")).strip()
+    if not raw:
+        return JSONResponse({"ok": False, "error": "Chybí text k učesání."})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        cm.__exit__(None, None, None)
+    _SYS = (
+        "Jsi asistent personálního oddělení. Dostaneš SYROVÝ přepis (z diktafonu, může být "
+        "zkomolený) osobního zápisu HR — pohovor, událost, poznámka o zaměstnanci. Úkol:\n"
+        "1) Přepiš ho do ČITELNÉHO, věcného a stručného zápisu v češtině. Oprav zjevné "
+        "přepisové chyby, srovnej do vět, zachovej význam. NIC si nevymýšlej; co je nejasné, "
+        "ponech opatrně a fakta nehádej.\n"
+        "2) Vytáhni konkrétní BODY K ŘEŠENÍ / AKCE pro personální oddělení (co udělat, ověřit, "
+        "dořešit). Když žádné nejsou, vrať prázdné pole.\n"
+        "Odpověz POUZE validním JSON, nic dalšího, ve tvaru:\n"
+        '{"zapis": "učesaný text", "akce": ["akce 1", "akce 2"]}'
+    )
+
+    def _call():
+        import anthropic as _anth
+        from core.config import settings as _st
+        client = _anth.Anthropic(api_key=_st.anthropic_api_key)
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=1400,
+            system=_SYS, messages=[{"role": "user", "content": raw}])
+        return "".join(x.text for x in resp.content if x.type == "text").strip()
+
+    from starlette.concurrency import run_in_threadpool
+    try:
+        out = await run_in_threadpool(_call)
+    except Exception as exc:
+        logger.exception("[hr_zapisy_ucesat] %s", exc)
+        return JSONResponse({"ok": False, "error": "AI zpracování selhalo: " + str(exc)}, status_code=500)
+    import json as _json
+    txt = out.strip()
+    if txt.startswith("```"):
+        txt = txt.strip("`")
+        if txt.lower().startswith("json"):
+            txt = txt[4:]
+    a, z = txt.find("{"), txt.rfind("}")
+    if a >= 0 and z > a:
+        txt = txt[a:z + 1]
+    try:
+        data = _json.loads(txt)
+        zapis = str(data.get("zapis") or "").strip()
+        akce = [str(x).strip() for x in (data.get("akce") or []) if str(x).strip()]
+    except Exception:
+        # kdyby model nevrátil čistý JSON, aspoň vrátíme celý text jako učesaný zápis
+        zapis, akce = out.strip(), []
+    return JSONResponse({"ok": True, "zapis": zapis, "akce": akce})
+
+
 @api_router.post("/app/hr/pomer-zmena")
 async def app_hr_pomer_zmena(req: Request):
     """HR změna / prodloužení poměru (Šárka 11.8.2026): doba trvání (určitá do data /

@@ -1419,8 +1419,9 @@ function zapFormShow(z){
       '<div><div style="color:#7f8ea0;font-size:11px">Datum</div><input id="zf_datum" type="date" value="'+esc(z.datum||'')+'" style="'+st+'"></div>'+
     '</div>'+
     '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px">Typ</div><select id="zf_typ" style="'+st+'">'+ZAP_TYPY.map(t=>'<option value="'+t[0]+'"'+(z.typ===t[0]?' selected':'')+'>'+t[1]+'</option>').join('')+'</select></div>'+
-    '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px;display:flex;align-items:center;gap:12px">Text zápisu '+
+    '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">Text zápisu '+
       '<a href="#" id="zf_rec" onclick="zapRecToggle();return false;" style="color:#7fe0a0;text-decoration:none;font-weight:700">🎤 Namluvit</a>'+
+      '<a href="#" id="zf_ucesat" onclick="zapUcesat();return false;" style="color:#c9a0ff;text-decoration:none;font-weight:700">✨ Učesat + akční body</a>'+
       '<span id="zf_recst" style="color:#7f8ea0;font-size:11px"></span></div>'+
       '<textarea id="zf_text" rows="5" style="'+st+';resize:vertical">'+esc(z.text||'')+'</textarea>'+
       '<div style="color:#5d6b7c;font-size:10.5px;margin-top:2px">Klikni na 🎤, namluv body, pak „Zastavit a přepsat" — text se doplní sem, můžeš ho upravit.</div></div>'+
@@ -1484,6 +1485,23 @@ async function zapRecToggle(){
   };
   try{ mr.start(1000); }catch(e){ try{ mr.start(); }catch(e2){} }
   if(btn) btn.textContent='⏹ Zastavit a přepsat'; if(stt) stt.textContent='🔴 nahrávám… (mluv, pak Zastavit a přepsat)';
+}
+// AI učesání zápisu + akční body (Šárka 18.8.2026). Neukládá — jen navrhne, HR zkontroluje.
+async function zapUcesat(){
+  const ta=document.getElementById('zf_text'), btn=document.getElementById('zf_ucesat'), stt=document.getElementById('zf_recst');
+  const raw=((ta&&ta.value)||'').trim();
+  if(!raw){ alert('Nejdřív napiš nebo namluv nějaký text, ať mám co učesat.'); return; }
+  if(btn) btn.textContent='✨ Zpracovávám…'; if(stt) stt.textContent='✨ AI češe zápis…';
+  try{
+    const r=await fetch(API+'/app/hr/zapisy/ucesat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:raw})});
+    let d={}; try{ d=await r.json(); }catch(e){}
+    if(!d.ok){ if(stt) stt.textContent=''; alert('Učesání selhalo: '+((d&&d.error)||('HTTP '+r.status))); if(btn) btn.textContent='✨ Učesat + akční body'; return; }
+    let nt=(d.zapis||'').trim();
+    if(d.akce&&d.akce.length){ nt+=(nt?'\n\n':'')+'Body k řešení:\n'+d.akce.map(a=>'• '+a).join('\n'); }
+    if(ta&&nt){ ta.value=nt; ta.focus(); }
+    if(stt) stt.textContent='✓ učesáno — projdi a uprav, pak Uložit';
+  }catch(e){ if(stt) stt.textContent=''; alert('Síťová chyba při učesání.'); }
+  if(btn) btn.textContent='✨ Učesat + akční body';
 }
 
 // Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person, zobrazí a umožní HR editaci.

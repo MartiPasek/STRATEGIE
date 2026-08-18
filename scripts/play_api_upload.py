@@ -81,8 +81,10 @@ def upload_aab(confirmed):
             # POZOR: text se meni s KAZDYM vydanim - pred uploadem ho prepis na to,
             # co je v teto verzi opravdu nove. Do 16.8.2026 tu zustaval text z v74
             # ("nova ikona"), ktery uz davno neplatil. Jirka + Claude-28 16.8.2026.
+            # Aktualne v1.83 (Jirka 18.8.2026, schvalila Marti-AI msg 12890).
             "releaseNotes": [{"language": LANG,
-                              "text": "- Sjednocene popisky tlacitek u upozorneni.\n"
+                              "text": "- Rychlejsi reakce tlacitek - pozadavky na server\n"
+                                      "  uz nezdrzuji ovladani appky.\n"
                                       "- Drobna vylepseni stability."}],
         }]
     }).execute()

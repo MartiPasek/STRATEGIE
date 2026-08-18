@@ -438,7 +438,7 @@ const SEKCE=[
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, docházka po dnech, absence.",on:true,key:'absence'},
-  {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, ze STRATEGIE).",on:true,key:'podminky'},
+  {ic:"📋",t:"Podmínky a bonusy",d:"Úvazek, nástup, dovolená, sick days, stravenka + bonusy a srážky (mobilní tarif, služební auto…).",on:true,key:'podminky'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
   {ic:"🗒️",t:"Personální zápisy",d:"Pohovory, události, poznámky HR (jen HR).",on:true,key:'zapisy'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
@@ -2095,7 +2095,102 @@ function renderPodm(edit){
     ? 'Prázdné pole = hodnota se zdědí ze skupiny nebo ze systému. Vyplněné pole = osobní výjimka jen pro tohoto člověka. „Dovolená celkem“ se nezadává — je to součet „Dovolené“ a „Dovolené navíc“. „Týdenní úvazek“ je jediný údaj ze smlouvy — mění se tady, ale ukládá se do poměru.'
     : 'Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.')+'</div>';
   h+=vernostHTML(d.vernost||[]);
+  if(!edit){ h+='<div id="bonusybox" style="border-top:8px solid #0b0f14"></div>'; }
   det.innerHTML=h;
+  if(!edit){ loadBonusy(uid); }
+}
+
+// ── Bonusy a srážky (Šárka 18.8.2026): mobilní tarif, služební auto, stravenky, srážky.
+// Vlastní lehká tabulka tenant.hr_benefit — nezávislá na payroll benefit_* (mzdy).
+const BON_DRUH=[['mobilni_tarif','📱 Mobilní tarif'],['sluzebni_auto','🚗 Služební auto'],['stravenky','🍽️ Stravenky'],['prispevek_doprava','🚌 Příspěvek na dopravu'],['srazka','➖ Srážka'],['jine','• Jiné']];
+const BON_HRADI=[['firma','Hradí firma'],['zamestnanec','Hradí zaměstnanec'],['sdilene','Půl na půl']];
+let BON_DATA=[], BON_UID=null;
+function bonDruhLbl(d){ const x=BON_DRUH.find(a=>a[0]===d); return x?x[1]:(d||'—'); }
+function bonHradiLbl(h){ const x=BON_HRADI.find(a=>a[0]===h); return x?x[1]:''; }
+async function loadBonusy(uid){
+  const box=document.getElementById('bonusybox'); if(!box) return; BON_UID=uid;
+  box.innerHTML='<div style="padding:12px 16px;color:#7f8ea0">Načítám bonusy…</div>';
+  let d; try{ d=await j(API+'/app/hr/benefits?uid='+uid); }catch(e){ box.innerHTML='<div style="padding:12px 16px;color:#ff8a7a">✗ síť</div>'; return; }
+  if(!d||!d.ok){ box.innerHTML='<div style="padding:12px 16px;color:#7f8ea0">🔒 '+esc(d&&d.error||'nedostupné')+'</div>'; return; }
+  BON_DATA=d.items||[]; renderBonusy();
+}
+function renderBonusy(){
+  const box=document.getElementById('bonusybox'); if(!box) return;
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px">'+
+    '<span style="font-weight:800;color:#e8eef5">🎁 Bonusy a srážky</span>'+
+    '<a href="#" onclick="bonNovy();return false;" style="color:#7fe0a0;text-decoration:none;font-weight:700;font-size:13px">➕ Přidat</a></div>';
+  if(!BON_DATA.length){
+    h+='<div style="padding:2px 16px 16px;color:#7f8ea0;font-size:13px">Zatím nic. Přidej např. mobilní tarif tlačítkem ➕ Přidat.</div>';
+    box.innerHTML=h; return;
+  }
+  h+=BON_DATA.map(function(b){
+    const isSraz=(b.typ==='srazka');
+    const chip='<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+(isSraz?'#2e1a1a':'#122a1e')+';color:'+(isSraz?'#e08080':'#7fe0a0')+'">'+(isSraz?'srážka':'bonus')+'</span>';
+    const det=[];
+    if(b.operator) det.push(esc(b.operator));
+    if(b.tel_cislo) det.push(esc(b.tel_cislo));
+    if(b.kdo_hradi) det.push(esc(bonHradiLbl(b.kdo_hradi)));
+    if(b.castka_mesic!=null) det.push(esc(String(b.castka_mesic).replace('.',','))+' Kč/měs');
+    if(b.ma===true) det.push('✔ ano'); if(b.ma===false) det.push('✘ ne');
+    const vis=b.visible_to_employee?'<span title="Vidí zaměstnanec" style="color:#7fb2e8">👁 vidí zaměstnanec</span>':'<span title="Skryté" style="color:#5d6b7c">🔒 skryté</span>';
+    const zm=b.zmenil?('<div style="color:#7f8ea0;font-size:10.5px;margin-top:2px">✎ změnil/a: '+esc(b.zmenil)+(b.zmeneno?(' · '+esc(b.zmeneno)):'')+'</div>'):'';
+    return '<div style="padding:10px 16px;border-top:1px solid #1e2730;display:flex;gap:10px;align-items:flex-start">'+
+      '<span style="min-width:0;flex:1">'+
+        '<div style="font-weight:700;color:#e8eef5">'+esc(bonDruhLbl(b.druh))+' '+chip+(b.nazev?(' <span style="color:#cdd6e2;font-weight:500">— '+esc(b.nazev)+'</span>'):'')+'</div>'+
+        (det.length?('<div style="color:#9aa7b4;font-size:12.5px;margin-top:2px">'+det.join(' · ')+'</div>'):'')+
+        '<div style="font-size:11px;margin-top:2px">'+vis+'</div>'+
+        (b.poznamka?('<div style="color:#7f8ea0;font-size:12px;margin-top:2px">'+esc(b.poznamka)+'</div>'):'')+zm+
+      '</span>'+
+      '<span style="white-space:nowrap"><a href="#" onclick="bonEdit('+b.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️</a> &nbsp; <a href="#" onclick="bonDel('+b.id+');return false;" style="color:#ff8a7a;text-decoration:none;font-size:12px">🗑</a></span>'+
+    '</div>';
+  }).join('');
+  box.innerHTML=h;
+}
+function bonNovy(){ bonForm({id:0,druh:'mobilni_tarif',typ:'bonus',nazev:'',ma:null,operator:'',tel_cislo:'',kdo_hradi:'firma',castka_mesic:null,platnost_od:'',platnost_do:'',visible_to_employee:false,poznamka:''}); }
+function bonEdit(id){ const b=BON_DATA.find(x=>x.id===id); if(b) bonForm(b); }
+function bonForm(b){
+  const box=document.getElementById('bonusybox'); if(!box) return;
+  const inp='background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit;box-sizing:border-box';
+  const maSel=function(v){ return ['','ano','ne'].map(function(o){ const val=(o==='ano')?'true':(o==='ne'?'false':''); const sel=((v===true&&o==='ano')||(v===false&&o==='ne')||(v==null&&o==='')); return '<option value="'+val+'"'+(sel?' selected':'')+'>'+(o===''?'—':o)+'</option>'; }).join(''); };
+  let h='<div style="padding:12px 16px"><div style="font-weight:800;color:#e8eef5;margin-bottom:10px">'+(b.id?'Upravit':'Nový')+' bonus / srážka</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+      '<label style="font-size:12px;color:#9aa7b4">Druh<br><select id="bf_druh" style="'+inp+';width:100%">'+BON_DRUH.map(function(a){return '<option value="'+a[0]+'"'+(b.druh===a[0]?' selected':'')+'>'+a[1]+'</option>';}).join('')+'</select></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Typ<br><select id="bf_typ" style="'+inp+';width:100%"><option value="bonus"'+(b.typ!=='srazka'?' selected':'')+'>bonus</option><option value="srazka"'+(b.typ==='srazka'?' selected':'')+'>srážka</option></select></label>'+
+      '<label style="font-size:12px;color:#9aa7b4;grid-column:1/3">Název / popis<br><input id="bf_nazev" type="text" value="'+esc(b.nazev||'')+'" placeholder="např. O2 NEO neomezený" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Má / využívá<br><select id="bf_ma" style="'+inp+';width:100%">'+maSel(b.ma)+'</select></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Kdo hradí<br><select id="bf_hradi" style="'+inp+';width:100%"><option value="">—</option>'+BON_HRADI.map(function(a){return '<option value="'+a[0]+'"'+(b.kdo_hradi===a[0]?' selected':'')+'>'+a[1]+'</option>';}).join('')+'</select></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Operátor<br><input id="bf_op" type="text" value="'+esc(b.operator||'')+'" placeholder="O2 / T-Mobile / Vodafone" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Telefonní číslo<br><input id="bf_tel" type="text" value="'+esc(b.tel_cislo||'')+'" placeholder="+420…" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Částka Kč/měs<br><input id="bf_castka" type="text" value="'+(b.castka_mesic!=null?esc(String(b.castka_mesic)):'')+'" placeholder="volitelné" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Platnost od<br><input id="bf_od" type="date" value="'+esc(b.platnost_od||'')+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Platnost do<br><input id="bf_do" type="date" value="'+esc(b.platnost_do||'')+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4;grid-column:1/3;display:flex;align-items:center;gap:8px;margin-top:2px"><input id="bf_vis" type="checkbox"'+(b.visible_to_employee?' checked':'')+' style="width:16px;height:16px"> Viditelné zaměstnanci (v mobilu „Moje podmínky“)</label>'+
+      '<label style="font-size:12px;color:#9aa7b4;grid-column:1/3">Poznámka<br><textarea id="bf_pozn" rows="2" style="'+inp+';width:100%;resize:vertical">'+esc(b.poznamka||'')+'</textarea></label>'+
+    '</div>'+
+    '<div style="margin-top:12px;display:flex;gap:14px;align-items:center">'+
+      '<a href="#" onclick="bonSave('+b.id+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a>'+
+      '<a href="#" onclick="renderBonusy();return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+      '<span id="bf_stat" style="font-size:12px;color:#7f8ea0"></span>'+
+    '</div></div>';
+  box.innerHTML=h;
+}
+async function bonSave(id){
+  const g=function(x){ const e=document.getElementById(x); return e?e.value:''; };
+  const stat=document.getElementById('bf_stat'); if(stat){ stat.style.color='#9aa7b4'; stat.textContent='Ukládám…'; }
+  const telo={id:id,user_id:BON_UID,druh:g('bf_druh'),typ:g('bf_typ'),nazev:g('bf_nazev'),
+    ma:g('bf_ma'),operator:g('bf_op'),tel_cislo:g('bf_tel'),kdo_hradi:g('bf_hradi'),
+    castka_mesic:g('bf_castka'),platnost_od:g('bf_od'),platnost_do:g('bf_do'),
+    visible_to_employee:(document.getElementById('bf_vis')||{}).checked||false,poznamka:g('bf_pozn')};
+  let d; try{ const r=await fetch(API+'/app/hr/benefits/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(telo)}); d=await r.json(); }
+  catch(e){ d={ok:false,error:'síť'}; }
+  if(!d.ok){ if(stat){ stat.style.color='#ff8a7a'; stat.textContent='✗ '+(d.error||'chyba'); } return; }
+  await loadBonusy(BON_UID);
+}
+async function bonDel(id){
+  if(!confirm('Opravdu smazat tuto položku (bonus / srážku)?')) return;
+  let d; try{ const r=await fetch(API+'/app/hr/benefits/'+id+'/smazat',{method:'POST',credentials:'same-origin'}); d=await r.json(); }
+  catch(e){ d={ok:false,error:'síť'}; }
+  if(d.ok) await loadBonusy(BON_UID); else alert('Nepovedlo se: '+(d.error||'chyba'));
 }
 // Ukládá se jen to, co se opravdu změnilo — každá podmínka zvlášť, jak to umí endpoint.
 // Chyby se vypisují do stavového řádku (ne do alertu), aby zůstalo vidět, co prošlo.

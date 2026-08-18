@@ -10740,6 +10740,132 @@ async def app_hr_zapisy_del(zid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/benefits")
+async def app_hr_benefits(req: Request):
+    """Bonusy a srážky člověka (mobilní tarif, služební auto, stravenky, srážky). Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tu = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tu = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT b.id, b.druh, b.typ, b.nazev, b.ma, b.operator, b.tel_cislo, b.kdo_hradi, "
+            " b.castka_mesic, b.platnost_od, b.platnost_do, b.visible_to_employee, b.poznamka, "
+            " b.changed_at, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'') AS zmenil "
+            "FROM tenant.hr_benefit b LEFT JOIN public.users u ON u.id=b.changed_by_user_id "
+            "WHERE b.tenant_id=2 AND b.user_id=:u "
+            "ORDER BY CASE b.typ WHEN 'bonus' THEN 0 ELSE 1 END, b.id"), {"u": tu}).fetchall()
+        items = [{"id": int(r[0]), "druh": r[1] or "jine", "typ": r[2] or "bonus",
+                  "nazev": r[3] or "", "ma": (None if r[4] is None else bool(r[4])),
+                  "operator": r[5] or "", "tel_cislo": r[6] or "", "kdo_hradi": r[7] or "",
+                  "castka_mesic": (float(r[8]) if r[8] is not None else None),
+                  "platnost_od": (r[9].isoformat() if r[9] else ""),
+                  "platnost_do": (r[10].isoformat() if r[10] else ""),
+                  "visible_to_employee": bool(r[11]), "poznamka": r[12] or "",
+                  "zmeneno": (r[13].strftime("%d.%m.%Y") if r[13] else ""),
+                  "zmenil": r[14] or ""} for r in rows]
+        return JSONResponse({"ok": True, "items": items})
+    except Exception as exc:
+        logger.exception("[hr_benefits] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/benefits/save")
+async def app_hr_benefits_save(req: Request):
+    """Vytvoření/úprava bonusu nebo srážky. Jen HR. Zapisuje kdo měnil (viditelné v kartě)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    bid = int((b or {}).get("id") or 0)
+    try:
+        tu = int((b or {}).get("user_id") or 0)
+    except Exception:
+        tu = 0
+    druh = (str((b or {}).get("druh") or "jine")).strip() or "jine"
+    typ = (str((b or {}).get("typ") or "bonus")).strip() or "bonus"
+    nazev = (str((b or {}).get("nazev") or "")).strip() or None
+    operator = (str((b or {}).get("operator") or "")).strip() or None
+    tel_cislo = (str((b or {}).get("tel_cislo") or "")).strip() or None
+    kdo_hradi = (str((b or {}).get("kdo_hradi") or "")).strip() or None
+    poznamka = (str((b or {}).get("poznamka") or "")).strip() or None
+    platnost_od = (str((b or {}).get("platnost_od") or "")).strip() or None
+    platnost_do = (str((b or {}).get("platnost_do") or "")).strip() or None
+    vis = bool((b or {}).get("visible_to_employee") or False)
+    _ma = (b or {}).get("ma")
+    ma = None if _ma in (None, "") else bool(_ma)
+    _ck = (b or {}).get("castka_mesic")
+    try:
+        castka = None if _ck in (None, "") else float(str(_ck).replace(",", ".").replace(" ", ""))
+    except Exception:
+        castka = None
+    if not tu:
+        return JSONResponse({"ok": False, "error": "Chybí zaměstnanec"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        p = {"u": tu, "dr": druh, "ty": typ, "nz": nazev, "ma": ma, "op": operator,
+             "tc": tel_cislo, "kh": kdo_hradi, "ck": castka, "po": platnost_od,
+             "pd": platnost_do, "vi": vis, "pz": poznamka, "au": uid, "id": bid}
+        if bid:
+            s.execute(_t(
+                "UPDATE tenant.hr_benefit SET druh=:dr, typ=:ty, nazev=:nz, ma=:ma, operator=:op, "
+                "tel_cislo=:tc, kdo_hradi=:kh, castka_mesic=:ck, platnost_od=CAST(:po AS date), "
+                "platnost_do=CAST(:pd AS date), visible_to_employee=:vi, poznamka=:pz, "
+                "changed_by_user_id=:au, changed_at=now() WHERE id=:id AND tenant_id=2"), p)
+        else:
+            s.execute(_t(
+                "INSERT INTO tenant.hr_benefit (tenant_id,user_id,druh,typ,nazev,ma,operator,tel_cislo,"
+                "kdo_hradi,castka_mesic,platnost_od,platnost_do,visible_to_employee,poznamka,"
+                "changed_by_user_id,changed_at) VALUES (2,:u,:dr,:ty,:nz,:ma,:op,:tc,:kh,:ck,"
+                "CAST(:po AS date),CAST(:pd AS date),:vi,:pz,:au,now())"), p)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_benefits_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/benefits/{bid}/smazat")
+async def app_hr_benefits_del(bid: int, req: Request):
+    """Smazání bonusu/srážky. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.hr_benefit WHERE id=:id AND tenant_id=2"), {"id": bid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_benefits_del] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/zapisy/ucesat")
 async def app_hr_zapisy_ucesat(req: Request):
     """AI učesání personálního zápisu + extrakce akčních bodů. Jen HR. NEUKLÁDÁ —

@@ -69,7 +69,7 @@
       '      <div id="hrpVrList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
       '  </div>' +
-      '  <div class="hrp-panel">' +
+      '  <div class="hrp-panel hrp-grow">' +
       '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Novinky <a href="#" id="hrpNovNew" style="margin-left:12px;font-size:12px;color:#7fb2e8;text-decoration:none;font-weight:600">➕ Přidat</a></div>' +
       '    <div style="font-size:11.5px;color:#8fa6c4;margin:-4px 0 9px;line-height:1.5;">ℹ️ Informace pro zaměstnance — zobrazí se jim v mobilní aplikaci. Položky označené „🔒 Jen HR" zůstávají interní a do mobilu se neposílají.</div>' +
       '    <div id="hrpNovForm"></div>' +
@@ -536,7 +536,9 @@
 
   function style() {
     return '<style>' +
-      '.hrp-wrap{max-width:none;margin:0;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
+      '.hrp-wrap{max-width:none;margin:0;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;display:flex;flex-direction:column;min-height:100%;}' +
+      // Šárka 18.8.2026: Novinky vyplní zbytek monitoru dolů (roste, seznam scrolluje uvnitř).
+      '.hrp-grow{flex:1 1 auto;display:flex;flex-direction:column;min-height:240px;}' +
       // Šárka 17.8.2026: detailní panely v 6 zarovnaných sloupcích (1:1 pod KPI čísly),
       // stejně vysoké (stretch), seznam vyplní zbytek sloupce.
       '.hrp-blocks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:stretch;margin-bottom:8px;}' +
@@ -546,7 +548,7 @@
       '@media(max-width:640px){.hrp-cols6{grid-template-columns:1fr;}}' +
       '.hrp-blocks .hrp-panel{margin:0;padding:10px 11px;display:flex;flex-direction:column;}' +
       '#hrpVeFirmeList,#hrpMimoList,#hrpJubList,#hrpAkt,#hrpNoviList,#hrpVrList{max-height:210px;overflow:auto;flex:1 1 auto;}' +
-      '#hrpNovList{max-height:200px;overflow:auto;}' +
+      '#hrpNovList{flex:1 1 auto;max-height:none;min-height:120px;overflow:auto;}' +
       '#hrpUkoly{max-height:60vh;overflow:auto;}' +
       '.hrp-duo{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}' +
       '@media(max-width:800px){.hrp-duo{grid-template-columns:1fr;}}' +

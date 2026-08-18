@@ -1400,13 +1400,33 @@ function renderZapisy(){
         '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'+
           '<span><span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:#12243a;color:#7fb2e8">'+esc(zapLabel(z.typ))+'</span> '+
           '<b style="color:#e8eef5">'+esc(z.nadpis||'—')+'</b> <span style="color:#7f8ea0;font-size:12px">· '+esc(z.datum||'')+'</span></span>'+
-          '<span style="white-space:nowrap"><a href="#" onclick="zapEdit('+z.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Upravit</a> &nbsp; <a href="#" onclick="zapDel('+z.id+');return false;" style="color:#ff8a7a;text-decoration:none;font-size:12px">🗑</a></span>'+
+          '<span style="white-space:nowrap"><a href="#" onclick="zapTisk('+z.id+');return false;" style="color:#9fb3cc;text-decoration:none;font-size:12px">🖨 Tisk</a> &nbsp; <a href="#" onclick="zapEdit('+z.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Upravit</a> &nbsp; <a href="#" onclick="zapDel('+z.id+');return false;" style="color:#ff8a7a;text-decoration:none;font-size:12px">🗑</a></span>'+
         '</div>'+
         (z.text?'<div style="color:#cdd6e2;font-size:13px;margin-top:4px;white-space:pre-wrap">'+esc(z.text)+'</div>':'')+
         ((z.autor||z.zmeneno)?'<div style="color:#5d6b7c;font-size:10.5px;margin-top:3px">zapsal/a: '+esc(z.autor||'')+(z.zmeneno?(' · '+esc(z.zmeneno)):'')+'</div>':'')+
       '</div>').join('');
   }
   det.innerHTML=h;
+}
+function zapTisk(id){
+  const z=ZAP_DATA.find(x=>x.id===id); if(!z) return;
+  const p=LIDE.find(x=>x.user_id===ZAP_UID)||{};
+  const jm=esc(p.jmeno||('ID '+ZAP_UID));
+  const w=window.open('','_blank','width=820,height=920');
+  if(!w){ alert('Povol prosím vyskakovací okna, ať můžu otevřít tisk.'); return; }
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Personální zápis — '+jm+'</title>'+
+    '<style>body{font-family:Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:32px auto;padding:0 16px;line-height:1.55}'+
+    'h1{font-size:18px;margin:0 0 2px}.meta{color:#555;font-size:13px;margin-bottom:14px}'+
+    '.lbl{color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:16px}'+
+    '.txt{white-space:pre-wrap;font-size:14px;margin-top:3px}hr{border:0;border-top:1px solid #bbb;margin:14px 0}'+
+    '.foot{color:#777;font-size:11px;margin-top:28px;border-top:1px solid #ddd;padding-top:8px}</style></head><body>'+
+    '<h1>Personální zápis</h1>'+
+    '<div class="meta">'+jm+' &nbsp;·&nbsp; '+esc(zapLabel(z.typ))+' &nbsp;·&nbsp; '+esc(z.datum||'')+'</div><hr>'+
+    '<div class="lbl">Nadpis</div><div class="txt"><b>'+esc(z.nadpis||'—')+'</b></div>'+
+    '<div class="lbl">Zápis</div><div class="txt">'+esc(z.text||'')+'</div>'+
+    '<div class="foot">Zapsal/a: '+esc(z.autor||'')+(z.zmeneno?(' · '+esc(z.zmeneno)):'')+' &nbsp;·&nbsp; Vytištěno ze systému STRATEGIE (EUROSOFT). Interní / důvěrné.</div>'+
+    '<script>window.onload=function(){setTimeout(function(){window.print();},150);};<\/script></body></html>';
+  w.document.open(); w.document.write(html); w.document.close();
 }
 function zapNovy(){ zapFormShow({id:0,typ:'pohovor',datum:new Date().toISOString().slice(0,10),nadpis:'',text:''}); }
 function zapEdit(id){ const z=ZAP_DATA.find(x=>x.id===id); if(z) zapFormShow(z); }

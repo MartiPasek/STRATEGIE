@@ -1419,7 +1419,11 @@ function zapFormShow(z){
       '<div><div style="color:#7f8ea0;font-size:11px">Datum</div><input id="zf_datum" type="date" value="'+esc(z.datum||'')+'" style="'+st+'"></div>'+
     '</div>'+
     '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px">Typ</div><select id="zf_typ" style="'+st+'">'+ZAP_TYPY.map(t=>'<option value="'+t[0]+'"'+(z.typ===t[0]?' selected':'')+'>'+t[1]+'</option>').join('')+'</select></div>'+
-    '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px">Text zápisu</div><textarea id="zf_text" rows="5" style="'+st+';resize:vertical">'+esc(z.text||'')+'</textarea></div>'+
+    '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px;display:flex;align-items:center;gap:12px">Text zápisu '+
+      '<a href="#" id="zf_rec" onclick="zapRecToggle();return false;" style="color:#7fe0a0;text-decoration:none;font-weight:700">🎤 Namluvit</a>'+
+      '<span id="zf_recst" style="color:#7f8ea0;font-size:11px"></span></div>'+
+      '<textarea id="zf_text" rows="5" style="'+st+';resize:vertical">'+esc(z.text||'')+'</textarea>'+
+      '<div style="color:#5d6b7c;font-size:10.5px;margin-top:2px">Klikni na 🎤, namluv body, pak „Zastavit a přepsat" — text se doplní sem, můžeš ho upravit.</div></div>'+
     '<div style="margin-top:8px;display:flex;gap:14px"><a href="#" onclick="zapSave('+(z.id||0)+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a>'+
       '<a href="#" onclick="document.getElementById(\'zapForm\').innerHTML=\'\';return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></div>'+
   '</div>';
@@ -1441,6 +1445,35 @@ async function zapDel(id){
   let d={}; try{ d=await r.json(); }catch(e){}
   if(!d.ok){ alert('Smazání selhalo: '+((d&&d.error)||r.status)); return; }
   zapisyUdaje();
+}
+// Namluvení zápisu → přepis přes /app/transcribe (Whisper). Šárka 18.8.2026.
+let ZAP_REC={mr:null,chunks:[],on:false,stream:null};
+async function zapRecToggle(){
+  const btn=document.getElementById('zf_rec'), stt=document.getElementById('zf_recst');
+  if(ZAP_REC.on){ try{ ZAP_REC.mr.stop(); }catch(e){} return; }
+  if(!navigator.mediaDevices||!window.MediaRecorder){ if(stt) stt.textContent='Nahrávání není v tomto prohlížeči podporováno.'; return; }
+  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }catch(e){ if(stt) stt.textContent='🎤 Mikrofon nepovolen.'; return; }
+  ZAP_REC.stream=stream; ZAP_REC.chunks=[];
+  let mr; try{ mr=new MediaRecorder(stream); }catch(e){ mr=new MediaRecorder(stream,{mimeType:'audio/webm'}); }
+  ZAP_REC.mr=mr; ZAP_REC.on=true;
+  const recMime=(mr.mimeType||'audio/webm').split(';')[0]||'audio/webm';
+  mr.ondataavailable=e=>{ if(e.data&&e.data.size) ZAP_REC.chunks.push(e.data); };
+  mr.onstop=async()=>{
+    ZAP_REC.on=false;
+    try{ ZAP_REC.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    if(btn) btn.textContent='🎤 Namluvit';
+    const blob=new Blob(ZAP_REC.chunks,{type:recMime});
+    if(!blob.size){ if(stt) stt.textContent=''; return; }
+    if(stt) stt.textContent='⏳ Přepisuji…';
+    const b64=await new Promise(res=>{ const rd=new FileReader(); rd.onloadend=()=>res((rd.result||'').toString().split(',')[1]||''); rd.readAsDataURL(blob); });
+    try{
+      const rr=await fetch(API+'/app/transcribe',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_b64:b64,mime:recMime,filename:'zapis.'+(recMime.indexOf('ogg')>=0?'ogg':'webm')})});
+      const d=await rr.json();
+      if(d.ok&&d.text){ const ta=document.getElementById('zf_text'); if(ta){ ta.value=(ta.value?ta.value.trim()+'\n':'')+d.text.trim(); } if(stt) stt.textContent='✓ přepsáno'; }
+      else { if(stt) stt.textContent='✗ '+((d&&d.error)||'přepis selhal'); }
+    }catch(e){ if(stt) stt.textContent='✗ síť'; }
+  };
+  mr.start(); if(btn) btn.textContent='⏹ Zastavit a přepsat'; if(stt) stt.textContent='🔴 nahrávám…';
 }
 
 // Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person, zobrazí a umožní HR editaci.

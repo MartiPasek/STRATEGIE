@@ -10888,8 +10888,15 @@ async def app_hr_med_exams(req: Request):
         _bd = s.execute(_t(
             "SELECT max(hp.birth_date) FROM tenant.hr_person hp "
             "WHERE hp.user_id=:u AND hp.tenant_id=2 AND hp.is_current"), {"u": tu}).scalar()
+        _typy = set(str(r[0] or "").lower() for r in s.execute(_t(
+            "SELECT DISTINCT lower(e.engagement_type) FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id "
+            "WHERE ae.tenant_id=2 AND ae.user_id=:u AND e.is_current=true"), {"u": tu}).fetchall())
     finally:
         cm.__exit__(None, None, None)
+    # OSVČ (a jen OSVČ) — lékařská prohlídka se tohoto typu spolupráce netýká.
+    if _typy and _typy.issubset({"osvc"}):
+        return JSONResponse({"ok": True, "osvc": True, "items": []})
     if not cisla:
         return JSONResponse({"ok": True, "items": [], "note": "Zaměstnanec nemá číslo z Centrály."})
     inlist = ",".join(str(int(c)) for c in cisla)

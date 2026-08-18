@@ -15,6 +15,7 @@ struct WebView: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true                       // audio/video uvnitř stránky
         config.mediaTypesRequiringUserActionForPlayback = []          // přehraj bez extra kliknutí
+        config.applicationNameForUserAgent = "STRATEGIE-iOS"          // marker → web pozná nativní iOS obal (zobrazí "Nativní appka"). Kristý/Jirka 12.6., do stavěného souboru doplnil Jirka 18.8.2026
         let web = WKWebView(frame: .zero, configuration: config)
         web.allowsBackForwardNavigationGestures = true                // gesto zpět/vpřed
         web.uiDelegate = context.coordinator

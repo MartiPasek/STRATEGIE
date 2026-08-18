@@ -71,14 +71,20 @@ tak nároky na volno."*
   ne Centrály**. Podmínky mají tři vrstvy: systém → skupina → jednotlivec, specifičtější
   přebíjí. Leží tam i to, co jinde není — Bernardová „32 h = 4×8", Mózer „pracovní dny
   úterý", Novotná „15 sick days místo navýšení mzdy".
-- **Dnešní realita je jinde a musím to říkat nahlas:** denní fond se fakticky počítá
-  z `engagement.uvazek_tyden_h` (kanonický skript `att_denni_fond`) a Podmínky se na to
-  nečtou vůbec. Ověřeno 18. 8. 2026: u všech 8 lidí, kteří mají úvazek na obou místech,
-  se hodnoty **shodují**, takže se zatím nic nerozešlo.
-- **Nedodělek k dořešení:** napojit `att_denni_fond` na Podmínky (v Šárčině dokumentu
-  je to jako úkol „resolver podmínek + napojení na docházku" už od 12. 6. 2026).
-  Dokud to nebude, platí: **kdo píše nový výpočet, ptá se Podmínek**, a kde to zatím
-  nejde, napíše k tomu proč.
+- **Kde to podle té pravdy nefunguje, musí se to opravit tam** (Jirka 18. 8. 2026:
+  *„je vždy jen jedna pravda a kde to podle pravdy nefunguje, musí se to tam změnit"*).
+  Žádné obcházení, žádné druhé místo, žádné vysvětlování v kódu, proč to jde jinudy.
+- **Dnešní stav:** denní fond se pořád počítá z `engagement.uvazek_tyden_h` (kanonický
+  skript `att_denni_fond`). **Cíl je přepnout ho na Podmínky.**
+- ⛔ **Nepřepínat, dokud nejsou Podmínky úplné.** Mapa z 18. 8. 2026: 9 aktivních lidí
+  nemá vyplněnou skupinu ani individuální výjimku, takže by na ně spadla systémová
+  výchozí hodnota **40 h** — Duspivová (smlouva 35), Senft (5), Vlková (15), Šik (30)
+  a pět lidí bez úvazku. Přepnutí naslepo by jim fond nafouklo. Hlídá to pojistka
+  **`uvazek-z-podminek-uplny`** — dokud svítí, přepínat se nesmí.
+- **Doplnění Podmínek je personální práce (Šárka), ne moje** — jsou to skutečné údaje
+  o lidech a nesmím si je domýšlet. Peťa to Šárce předala 18. 8. 2026; až to doplní,
+  dá vědět a teprve pak se `att_denni_fond` přepne a ověří, že všem vyjde totéž co dřív
+  (kromě těch, u kterých to bylo špatně).
 - Zdroj: G2007 `doc-podminky-skupin-zamestnancu`, `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy`,
   `doc-dochazka-uvazek-a-naroky-jedina-pravda-podminky`.
 

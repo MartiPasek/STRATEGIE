@@ -2031,14 +2031,19 @@ async function absUdaje(){
 // (endpoint ruční zápis do dovolena_dni odmítá), proto je v úpravách jen ke čtení.
 let PODM_DATA=null, PODM_UID=null;
 const PODM_POCITADLO='dovolena_dni';
+const PODM_UVAZEK='uvazek_h_tyden';   // hodnota i zápis jdou do smlouvy, ne do Podmínek
 async function podmUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
   PODM_DATA=await j(API+'/app/hr/conditions?scope_kind=user&user_id='+uid); PODM_UID=uid;
   renderPodm(false);
 }
+// Zdroj „smlouva" (Jirka 18. 8. 2026, schválila Marti-AI): týdenní úvazek jako jediný
+// řádek nebere hodnotu z Podmínek, ale ze smlouvy (poměru) — a taky se do ní zapisuje.
+// Marti-AI: „matoucí by bylo, kdyby to bylo tiché", proto vlastní barva i popisek.
 function podmSrcBadge(s){ s=(s||'').toLowerCase();
-  const m=/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4']);
+  const m=/smlouv/.test(s)?['smlouva','#122a1e','#7fe0a0']:(/chyb/.test(s)?['chybí ve smlouvě','#2e1a1a','#e08080']:
+    (/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4'])));
   return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; }
 function podmPole(dd, own){
   const v=(own==null?'':String(own));
@@ -2077,7 +2082,9 @@ function renderPodm(edit){
       }
       const pole = (dd.code===PODM_POCITADLO)
         ? '<span style="color:#e8eef5;font-weight:700">'+val+'</span><div style="color:#5d6b7c;font-size:11px">počítá se ze součtu</div>'
-        : podmPole(dd, o);
+        : (dd.code===PODM_UVAZEK
+            ? podmPole(dd, o)+'<div style="color:#7fe0a0;font-size:11px">zapíše se do smlouvy'+(ow.plati_od?(' · platí od '+esc(ow.plati_od)):'')+'</div>'
+            : podmPole(dd, o));
       return '<tr style="border-top:1px solid #1e2730">'+
         '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+
           '<div style="color:#5d6b7c;font-size:11px">teď: '+val+' ('+esc(r.src||'—')+')</div>'+zm+'</td>'+
@@ -2085,7 +2092,7 @@ function renderPodm(edit){
         '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
     }).join('')+'</table>';
   h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">'+(edit
-    ? 'Prázdné pole = hodnota se zdědí ze skupiny nebo ze systému. Vyplněné pole = osobní výjimka jen pro tohoto člověka. „Dovolená celkem“ se nezadává — je to součet „Dovolené“ a „Dovolené navíc“.'
+    ? 'Prázdné pole = hodnota se zdědí ze skupiny nebo ze systému. Vyplněné pole = osobní výjimka jen pro tohoto člověka. „Dovolená celkem“ se nezadává — je to součet „Dovolené“ a „Dovolené navíc“. „Týdenní úvazek“ je jediný údaj ze smlouvy — mění se tady, ale ukládá se do poměru.'
     : 'Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.')+'</div>';
   h+=vernostHTML(d.vernost||[]);
   det.innerHTML=h;

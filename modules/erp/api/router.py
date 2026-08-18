@@ -19152,57 +19152,21 @@ async def app_plan_my_uvazek(req: Request) -> JSONResponse:
 
 @api_router.post("/app/plan/my-uvazek/save")
 async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
-    """Uloží úvazek (staff_cond user) + týdenní vzorec (work_schedule). Jen HR/rodič."""
+    """DB-driven delegate (g2007.python kod=plan_my_uvazek_save). Puvodni telo migrovano
+    do DB 18.8.2026 pri sjednoceni uvazku na jedno misto - uvazek se nove uklada do
+    SMLOUVY, ne do Podminek. Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
     except Exception:
         b = {}
-    try:
-        target = int((b or {}).get("user_id") or 0) or uid
-        uvazek = round(float((b or {}).get("uvazek")), 2)
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatný úvazek."})
-    if uvazek <= 0 or uvazek > 80:
-        return JSONResponse({"ok": False, "error": "Úvazek musí být 1–80 h."})
-    days = (b or {}).get("days") or []
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "Úvazek může měnit jen HR/rodič."}, status_code=403)
-        # úvazek → staff_cond user scope (idempotentní)
-        s.execute(_t("DELETE FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='user' "
-                     "AND cond_code='uvazek_h_tyden' AND COALESCE(user_id,0)=:u"), {"u": target})
-        s.execute(_t("INSERT INTO tenant.staff_cond (tenant_id,scope_kind,group_code,user_id,cond_code,value,note,"
-                     "changed_by,changed_at) VALUES (2,'user',NULL,:u,'uvazek_h_tyden',:v,NULL,:by,now())"),
-                  {"u": target, "v": str(uvazek), "by": uid})
-        # týdenní vzorec → work_schedule (per den upsert)
-        for d in days:
-            try:
-                wd = int(d.get("weekday"))
-                if wd not in (1, 2, 3, 4, 5, 6, 7):
-                    continue
-                works = bool(d.get("works"))
-                hrs = round(float(d.get("hours") or 0), 2)
-            except Exception:
-                continue
-            st = str(d.get("start") or "").strip() or None
-            s.execute(_t(
-                "INSERT INTO tenant.work_schedule (tenant_id,user_id,weekday,works,hours,start_time,changed_by,changed_at) "
-                "VALUES (2,:u,:wd,:w,:h,CAST(:st AS time),:by,now()) "
-                "ON CONFLICT (tenant_id,user_id,weekday) DO UPDATE SET works=EXCLUDED.works, "
-                "hours=EXCLUDED.hours, start_time=EXCLUDED.start_time, changed_by=EXCLUDED.changed_by, changed_at=now()"),
-                {"u": target, "wd": wd, "w": works, "h": hrs, "st": st, "by": uid})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("plan_my_uvazek_save", uid, (b or {}).get("user_id"),
+                        (b or {}).get("uvazek"), (b or {}).get("days"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/plan/group")
@@ -19735,124 +19699,37 @@ def _resolve_cond_num(s, user_id, code, dflt=0.0):
 
 @api_router.get("/app/hr/conditions")
 async def app_hr_conditions(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=hr_conditions). Puvodni telo migrovano do DB
+    18.8.2026 pri sjednoceni uvazku - radek Tydenni uvazek se cte ze SMLOUVY a hlasi
+    zdroj smlouva. Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    sk = (req.query_params.get("scope_kind") or "system").strip()
-    gc = (req.query_params.get("group_code") or "").strip()
-    try:
-        tu = int(req.query_params.get("user_id") or 0)
-    except Exception:
-        tu = 0
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        defs = [{"code": r[0], "label": r[1], "kind": r[2], "unit": r[3] or ""} for r in s.execute(_t(
-            "SELECT code,label,kind,unit FROM tenant.staff_cond_def WHERE tenant_id=2 AND active=true "
-            "ORDER BY sort_order, id")).fetchall()]
-        if sk == "user" and tu:
-            grp = _cond_group_of(s, tu)
-            own = {}
-            for r in s.execute(_t(
-                    "SELECT c.cond_code, c.value, c.note, c.changed_at, "
-                    " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS zmenil "
-                    "FROM tenant.staff_cond c LEFT JOIN public.users u ON u.id=c.changed_by "
-                    "WHERE c.tenant_id=2 AND c.scope_kind='user' AND c.user_id=:u"), {"u": tu}).fetchall():
-                own[r[0]] = {"value": r[1], "note": r[2],
-                             "zmenil": (r[4] or ""),
-                             "zmeneno": (r[3].strftime("%d.%m.%Y") if r[3] else "")}
-            resolved = {}
-            for d in defs:
-                val, src = _resolve_cond(s, tu, d["code"], grp)
-                resolved[d["code"]] = {"value": val, "src": src}
-            # Věrnostní dny dovolené navíc (Jirka 14. 8. 2026, schválila Marti-AI) — evidence
-            # z tenant.vernost_dovolena_log, aby bylo v kartě vidět kdy a za kolik let kdo den
-            # dostal. Jen čtení. Tabulka je nová, proto v try — kdyby chyběla, podmínky se
-            # zobrazí i tak a jen zmizí tenhle blok.
-            vern = []
-            try:
-                vern = [{"roky": r[0], "vyroci": (r[1].isoformat() if r[1] else None),
-                         "dnu": float(r[2] or 0),
-                         "pridano": (r[3].isoformat() if r[3] else None),
-                         "zdroj": r[4] or "", "poznamka": r[5] or ""}
-                        for r in s.execute(_t(
-                            "SELECT roky_ve_firme, vyroci_datum, pridano_dnu, datum_pridani, zdroj, poznamka "
-                            "FROM tenant.vernost_dovolena_log WHERE tenant_id=2 AND user_id=:u "
-                            "ORDER BY roky_ve_firme"), {"u": tu}).fetchall()]
-            except Exception:
-                vern = []
-            return JSONResponse({"ok": True, "scope_kind": "user", "user_id": tu, "group_code": grp,
-                                 "defs": defs, "own": own, "resolved": resolved, "vernost": vern})
-        # system / group
-        if sk == "group":
-            rows = s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
-                                "WHERE tenant_id=2 AND scope_kind='group' AND group_code=:g"), {"g": gc}).fetchall()
-        else:
-            sk = "system"
-            rows = s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
-                                "WHERE tenant_id=2 AND scope_kind='system'")).fetchall()
-        vals = {r[0]: {"value": r[1], "note": r[2]} for r in rows}
-        return JSONResponse({"ok": True, "scope_kind": sk, "group_code": gc, "defs": defs, "values": vals})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_conditions", uid, req.query_params.get("scope_kind"),
+                        req.query_params.get("group_code"), req.query_params.get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/hr/conditions/save")
 async def app_hr_conditions_save(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=hr_conditions_save). Puvodni telo migrovano
+    do DB 18.8.2026 pri sjednoceni uvazku - Tydenni uvazek miri do SMLOUVY, do Podminek
+    uz nikdy. Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
     try:
         b = await req.json()
     except Exception:
         b = {}
-    sk = str((b or {}).get("scope_kind") or "").strip()
-    gc = str((b or {}).get("group_code") or "").strip() or None
-    cc = str((b or {}).get("cond_code") or "").strip()
-    val = (b or {}).get("value")
-    val = None if (val is None or str(val).strip() == "") else str(val).strip()
-    note = str((b or {}).get("note") or "").strip()[:300] or None
-    try:
-        tu = int((b or {}).get("user_id") or 0) or None
-    except Exception:
-        tu = None
-    if sk not in ("system", "group", "user") or not cc:
-        return JSONResponse({"ok": False, "error": "scope_kind + cond_code"})
-    # Celková dovolená je od 16. 8. 2026 POČÍTADLO, ne zadávaná hodnota (Jirka, schválila
-    # Marti-AI): drží ji databázový trigger jako součet dovolena_zakladni_dni +
-    # dovolena_navic_dni. Ruční zápis se proto odmítá — jinak by vznikl třetí zdroj
-    # pravdy, který se při nejbližší změně jednoho ze sčítanců tiše rozejde.
-    if cc == "dovolena_dni":
-        return JSONResponse({"ok": False, "error": "Celková dovolená se nezadává — je to součet "
-                                                   "položek „Dovolená“ a „Dovolená navíc“. "
-                                                   "Uprav jednu z nich a součet se přepočítá sám."})
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        if sk == "group" and not gc:
-            return JSONResponse({"ok": False, "error": "group_code"})
-        if sk == "user" and not tu:
-            return JSONResponse({"ok": False, "error": "user_id"})
-        # smaž stávající řádek pro daný scope+code (idempotentní)
-        s.execute(_t("DELETE FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind=:sk AND cond_code=:c "
-                     "AND COALESCE(group_code,'')=COALESCE(:g,'') AND COALESCE(user_id,0)=COALESCE(:u,0)"),
-                  {"sk": sk, "c": cc, "g": gc, "u": tu})
-        # u system/group prázdná hodnota = smazat (fallback); u user prázdná = zrušit override
-        if val is not None or note is not None:
-            s.execute(_t("INSERT INTO tenant.staff_cond (tenant_id,scope_kind,group_code,user_id,cond_code,value,note,"
-                         "changed_by,changed_at) VALUES (2,:sk,:g,:u,:c,:v,:n,:by,now())"),
-                      {"sk": sk, "g": gc, "u": tu, "c": cc, "v": val, "n": note, "by": uid})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_conditions_save", uid, (b or {}).get("scope_kind"),
+                        (b or {}).get("group_code"), (b or {}).get("cond_code"),
+                        (b or {}).get("value"), (b or {}).get("note"), (b or {}).get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/hr/conditions/assign")

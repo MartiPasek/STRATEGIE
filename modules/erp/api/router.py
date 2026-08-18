@@ -10885,6 +10885,9 @@ async def app_hr_med_exams(req: Request):
         cisla = [str(r[0]) for r in s.execute(_t(
             "SELECT DISTINCT ae.cislo_zam FROM tenant.att_employee ae "
             "WHERE ae.tenant_id=2 AND ae.user_id=:u AND ae.cislo_zam ~ '^[0-9]+$'"), {"u": tu}).fetchall()]
+        _bd = s.execute(_t(
+            "SELECT max(hp.birth_date) FROM tenant.hr_person hp "
+            "WHERE hp.user_id=:u AND hp.tenant_id=2 AND hp.is_current"), {"u": tu}).scalar()
     finally:
         cm.__exit__(None, None, None)
     if not cisla:
@@ -10901,13 +10904,30 @@ async def app_hr_med_exams(req: Request):
         logger.exception("[hr_med_exams] %s", exc)
         return JSONResponse({"ok": False, "error": "Centrála nedostupná: " + str(exc)}, status_code=502)
     import datetime as _dt
+    import re as _re
+    # Periodicita pracovnělékařských prohlídek (Šárka 18.8.2026, dle vyhlášky):
+    # perioda v LETECH podle kategorie a věku k datu prohlídky. (do 50 let, nad 50 let)
+    _PERIODA = {1: (6, 4), 2: (4, 2)}
 
-    def _stav(doo):
-        if not doo:
-            return ("bez_platnosti", None)
+    def _parse_d(x):
         try:
-            d = _dt.datetime.strptime(doo, "%d.%m.%Y").date()
+            return _dt.datetime.strptime((x or "").strip(), "%d.%m.%Y").date()
         except Exception:
+            return None
+
+    def _vek_k(datum):
+        if not _bd or not datum:
+            return None
+        return datum.year - _bd.year - ((datum.month, datum.day) < (_bd.month, _bd.day))
+
+    def _plus_let(datum, let):
+        try:
+            return datum.replace(year=datum.year + let)
+        except ValueError:  # 29.2.
+            return datum.replace(year=datum.year + let, day=28)
+
+    def _stav(d):
+        if not d:
             return ("bez_platnosti", None)
         dni = (d - _dt.date.today()).days
         if dni < 0:
@@ -10918,11 +10938,27 @@ async def app_hr_med_exams(req: Request):
 
     items = []
     for r in rows:
-        doo = (r.get("doo") or "").strip()
-        st, dni = _stav(doo)
-        items.append({"od": (r.get("od") or "").strip(), "do": doo,
-                      "poznamka": (r.get("pozn") or "").strip(), "tema": (r.get("tema") or "").strip(),
-                      "stav": st, "dni": dni,
+        pozn = (r.get("pozn") or "").strip()
+        od_s = (r.get("od") or "").strip()
+        do_s = (r.get("doo") or "").strip()
+        od_d = _parse_d(od_s)
+        do_d = _parse_d(do_s)
+        # kategorie z poznámky ("Kategorie 1"/"Kategorie 2")
+        mk = _re.search(r"[Kk]ategori\w*\s*([12])", pozn)
+        kat = int(mk.group(1)) if mk else None
+        dopocteno = False
+        # chybí Platnost do → dopočti z Platnost od + perioda(kategorie, věk)
+        if not do_d and od_d and kat in _PERIODA:
+            vek = _vek_k(od_d)
+            if vek is not None:
+                let = _PERIODA[kat][1 if vek > 50 else 0]
+                do_d = _plus_let(od_d, let)
+                do_s = do_d.strftime("%d.%m.%Y")
+                dopocteno = True
+        st, dni = _stav(do_d)
+        items.append({"od": od_s, "do": do_s, "poznamka": pozn,
+                      "tema": (r.get("tema") or "").strip(), "kategorie": kat,
+                      "dopocteno": dopocteno, "stav": st, "dni": dni,
                       "zmenil": (r.get("kdo") or "").strip(), "zmeneno": (r.get("zmen") or "").strip()})
     return JSONResponse({"ok": True, "items": items})
 

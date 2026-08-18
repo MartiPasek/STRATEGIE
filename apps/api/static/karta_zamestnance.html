@@ -1410,12 +1410,14 @@ async function lekarUdaje(){
     '<tr style="color:#7f8ea0;font-size:11px;text-transform:uppercase"><td style="padding:6px 16px">Kategorie / téma</td><td style="padding:6px 16px">Platnost od</td><td style="padding:6px 16px">Platnost do</td><td style="padding:6px 16px;text-align:right">Stav</td></tr>'+
     it.map(function(t){
       const kat=esc(t.poznamka||t.tema||'—');
+      const doTxt=t.do?(esc(t.do)+(t.dopocteno?' <span style="color:#7f8ea0;font-weight:500;font-size:11px" title="Dopočteno z periody dle kategorie a věku (chybí v Centrále)">(dopočteno)</span>':'')):'—';
       return '<tr style="border-top:1px solid #1e2730">'+
         '<td style="padding:8px 16px;color:#e8eef5">'+kat+(t.zmenil?('<div style="color:#7f8ea0;font-size:10.5px">✎ '+esc(t.zmenil)+(t.zmeneno?(' · '+esc(t.zmeneno)):'')+'</div>'):'')+'</td>'+
         '<td style="padding:8px 16px;color:#cdd6e2;white-space:nowrap">'+esc(t.od||'—')+'</td>'+
-        '<td style="padding:8px 16px;color:#e8eef5;font-weight:700;white-space:nowrap">'+esc(t.do||'—')+'</td>'+
+        '<td style="padding:8px 16px;color:#e8eef5;font-weight:700;white-space:nowrap">'+doTxt+'</td>'+
         '<td style="padding:8px 16px;text-align:right;white-space:nowrap">'+badge(t)+'</td></tr>';
-    }).join('')+'</table>';
+    }).join('')+'</table>'+
+    '<div style="padding:8px 16px;color:#5d6b7c;font-size:11px">Perioda: Kategorie 1 = 6 let (nad 50 let 4 roky), Kategorie 2 = 4 roky (nad 50 let 2 roky). „(dopočteno)" = Centrála nemá vyplněnou platnost do, termín další prohlídky je spočítaný z data prohlídky a věku.</div>';
   det.innerHTML=h;
 }
 function renderZapisy(){

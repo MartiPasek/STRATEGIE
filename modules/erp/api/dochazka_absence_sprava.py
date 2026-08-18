@@ -154,6 +154,31 @@ def _engagement(s, emp):
                         "ORDER BY id DESC LIMIT 1"), {"e": emp, "t": _TEN}).scalar()
 
 
+def _fond_den(s, emp, den=None):
+    """Kolik hodin má DEN toho člověka. NEPOČÍTÁ se tu — volá se KANONICKÝ skript
+    `att_denni_fond` (g2007.python), aby existoval jediný vzorec.
+
+    Peťa + Jirka 18. 8. 2026. PROČ VZNIKLO: formulář „Nová absence" ve Správě docházky
+    měl v poli „Hodin za den" natvrdo 8 a server tuhle osmičku bral bez ptaní. Kdo ji
+    ručně nepřepsal, zapsal člověku se zkráceným úvazkem o hodinu víc, než na kolik má
+    nárok — Duspivová (úvazek 7 h) měla žádostí č. 78 zapsaných 10.–14. 8. pět dnů po
+    8 h, tedy o 5 hodin dovolené víc. Peťa to od července opravovala ručně.
+    Nově se počítá ze skutečného úvazku a osmička je až poslední záchrana, když
+    o člověku nic nevíme. Stejný výpočet jako v přehledu Správa docházky a v automatu.
+
+    ⚠️ Hodnota se drží NA DVOU MÍSTECH — v denních záznamech (`att_entry.hours`)
+    i v samotné žádosti (`att_absence_request.hours_per_day`). Když se opraví jen
+    docházka, přepočet žádosti tam osmičku vrátí. Proto se plní obojí ze stejného
+    zdroje, tedy odsud.
+    """
+    from modules.erp.api.router import _att_denni_fond
+    try:
+        v = float(_att_denni_fond(s, emp, 8.0) or 0)
+    except Exception:
+        v = 0.0
+    return v if 0 < v <= 24 else 8.0
+
+
 class _Kousek:
     """Bezpečná obálka pro „když to nevyjde, nevadí" bloky.
 
@@ -721,10 +746,12 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
     typ = str((b or {}).get("typ") or "").strip()[:40]
     d_od, d_do = _den((b or {}).get("datum_od")), _den((b or {}).get("datum_do"))
     pozn = str((b or {}).get("poznamka") or "").strip()[:250]
+    # Peťa + Jirka 18.8.2026: prázdné pole = doplň podle úvazku (viz `_fond_den`).
     try:
-        hpd = float((b or {}).get("hodin_den") or 8)
+        _hd = (b or {}).get("hodin_den")
+        hpd = float(_hd) if str(_hd if _hd is not None else "").strip() != "" else None
     except (TypeError, ValueError):
-        hpd = 8.0
+        hpd = None
     # Skutečný čas absence (zatím jen Lékař, Peťa 12.8.2026) — viz `_zapis_dny`.
     c_od, c_do = _cas_hhmm((b or {}).get("cas_od")), _cas_hhmm((b or {}).get("cas_do"))
     if c_od and c_do:
@@ -755,6 +782,8 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
             bad = _smi(s, uid, emp)
             if bad:
                 return _chyba(bad[0], bad[1])
+            if hpd is None:
+                hpd = _fond_den(s, emp, d_od)
             chyba_sd = _sd_check(emp, typ, hpd, d_od)
             if chyba_sd:
                 return _chyba(chyba_sd)
@@ -794,6 +823,8 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         bad = _smi(s, uid, emp)
         if bad:
             return _chyba(bad[0], bad[1])
+        if hpd is None:
+            hpd = _fond_den(s, emp, d_od)
         chyba_sd = _sd_check(emp, typ, hpd, d_od)
         if chyba_sd:
             return _chyba(chyba_sd)
@@ -851,10 +882,13 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
     typ = str((b or {}).get("typ") or "").strip()[:40]
     d_od, d_do = _den((b or {}).get("datum_od")), _den((b or {}).get("datum_do"))
     pozn = str((b or {}).get("poznamka") or "").strip()[:250]
+    # Peťa + Jirka 18.8.2026: prázdné pole „Hodin za den" = DOPLŇ PODLE ÚVAZKU.
+    # Osmička se sem už nedosazuje — viz `_fond_den`. Doplní se níž, až známe člověka.
     try:
-        hpd = float((b or {}).get("hodin_den") or 8)
+        _hd = (b or {}).get("hodin_den")
+        hpd = float(_hd) if str(_hd if _hd is not None else "").strip() != "" else None
     except (TypeError, ValueError):
-        hpd = 8.0
+        hpd = None
     schvaleno = bool((b or {}).get("schvaleno", True))
     # Skutečný čas absence (zatím jen Lékař, Peťa 12.8.2026). Když přijdou oba,
     # hodiny se z nich přepočítají — ať nemůže vzniknout rozpor mezi časem a hodinami.
@@ -883,6 +917,8 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         if not r:
             return _chyba("Pracovník s číslem %s není v evidenci docházky." % cislo, 404)
         emp, zam_uid = int(r[0]), r[1]
+        if hpd is None:
+            hpd = _fond_den(s, emp, d_od)
         chyba_sd = _sd_check(emp, typ, hpd, d_od)
         if chyba_sd:
             return _chyba(chyba_sd)

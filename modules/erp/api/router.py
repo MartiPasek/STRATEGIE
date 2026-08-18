@@ -10639,6 +10639,107 @@ async def app_hr_orgman(req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/zapisy")
+async def app_hr_zapisy(req: Request):
+    """Personální zápisy člověka (pohovory / události / poznámky HR). Jen HR (citlivé)."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tu = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tu = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT z.id, z.typ, z.datum, z.nadpis, z.text, z.updated_at, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), z.autor_text, '') AS autor "
+            "FROM tenant.hr_zapis z LEFT JOIN public.users u ON u.id=z.autor_user_id "
+            "WHERE z.tenant_id=2 AND z.user_id=:u ORDER BY z.datum DESC, z.id DESC"), {"u": tu}).fetchall()
+        zapisy = [{"id": int(r[0]), "typ": r[1] or "ostatni",
+                   "datum": (r[2].isoformat() if r[2] else ""),
+                   "nadpis": r[3] or "", "text": r[4] or "",
+                   "zmeneno": (r[5].strftime("%d.%m.%Y") if r[5] else ""),
+                   "autor": r[6] or ""} for r in rows]
+        return JSONResponse({"ok": True, "zapisy": zapisy})
+    except Exception as exc:
+        logger.exception("[hr_zapisy] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/zapisy/save")
+async def app_hr_zapisy_save(req: Request):
+    """Vytvoření/úprava personálního zápisu. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    zid = int((b or {}).get("id") or 0)
+    try:
+        tu = int((b or {}).get("user_id") or 0)
+    except Exception:
+        tu = 0
+    typ = (str((b or {}).get("typ") or "ostatni")).strip() or "ostatni"
+    datum = (str((b or {}).get("datum") or "")).strip() or None
+    nadpis = (str((b or {}).get("nadpis") or "")).strip() or None
+    text = (str((b or {}).get("text") or "")).strip() or None
+    if not tu:
+        return JSONResponse({"ok": False, "error": "Chybí zaměstnanec"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        who = _self_person_name(s, uid) or ("HR #" + str(uid))
+        if zid:
+            s.execute(_t("UPDATE tenant.hr_zapis SET typ=:t, datum=COALESCE(:d::date,datum), nadpis=:n, text=:x, "
+                         "autor_user_id=:au, autor_text=:aw, updated_at=now() "
+                         "WHERE id=:id AND tenant_id=2"),
+                      {"t": typ, "d": datum, "n": nadpis, "x": text, "au": uid, "aw": who, "id": zid})
+        else:
+            s.execute(_t("INSERT INTO tenant.hr_zapis (tenant_id,user_id,typ,datum,nadpis,text,autor_user_id,autor_text) "
+                         "VALUES (2,:u,:t,COALESCE(:d::date,current_date),:n,:x,:au,:aw)"),
+                      {"u": tu, "t": typ, "d": datum, "n": nadpis, "x": text, "au": uid, "aw": who})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_zapisy_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/zapisy/{zid}/smazat")
+async def app_hr_zapisy_del(zid: int, req: Request):
+    """Smazání personálního zápisu. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.hr_zapis WHERE id=:id AND tenant_id=2"), {"id": zid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_zapisy_del] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/pomer-zmena")
 async def app_hr_pomer_zmena(req: Request):
     """HR změna / prodloužení poměru (Šárka 11.8.2026): doba trvání (určitá do data /

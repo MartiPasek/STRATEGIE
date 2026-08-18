@@ -440,6 +440,7 @@ const SEKCE=[
   {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, docházka po dnech, absence.",on:true,key:'absence'},
   {ic:"📋",t:"Podmínky",d:"Úvazek, nástup, dovolená, sick days, stravenka… (aktuálně platné, ze STRATEGIE).",on:true,key:'podminky'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
+  {ic:"🗒️",t:"Personální zápisy",d:"Pohovory, události, poznámky HR (jen HR).",on:true,key:'zapisy'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
   {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
@@ -1361,7 +1362,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje'};
+    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -1370,6 +1371,76 @@ function openP(uid,row){
   h+='</div>';
   det.innerHTML=h;
   loadLeave(uid);
+}
+// Personální zápisy (Šárka 18.8.2026) — pohovory/události/poznámky HR ke konkrétnímu člověku. Jen HR.
+const ZAP_TYPY=[['konec_zkusebni_doby','Konec zkušební doby'],['pohovor','Pohovor'],['incident','Incident / nepříjemnost'],['hodnoceni','Hodnocení'],['ostatni','Ostatní']];
+function zapLabel(t){ const f=ZAP_TYPY.find(x=>x[0]===t); return f?f[1]:(t||'Ostatní'); }
+let ZAP_UID=null, ZAP_DATA=[];
+async function zapisyUdaje(){
+  const uid=CUR_UID; if(!uid) return; ZAP_UID=uid;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+'/app/hr/zapisy?uid='+uid);
+  if(!d.ok){ det.innerHTML='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div><div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
+  ZAP_DATA=d.zapisy||[]; renderZapisy();
+}
+function renderZapisy(){
+  const uid=ZAP_UID, det=document.getElementById('det');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  let h=pheadHTML(p)+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">🗒️ Personální zápisy</span>'+
+    '<span style="display:flex;gap:14px">'+back+'<a href="#" onclick="zapNovy();return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">➕ Nový zápis</a></span></div>';
+  h+='<div style="padding:2px 16px 8px;color:#5d6b7c;font-size:11.5px">Interní poznámky HR (pohovory, události, incidenty). Jen pro HR. 📌 Zdroj: STRATEGIE.</div>';
+  h+='<div id="zapForm" style="margin:0 16px 8px"></div>';
+  if(!ZAP_DATA.length){ h+='<div class="empty">Zatím žádný zápis.</div>'; }
+  else {
+    h+=ZAP_DATA.map(z=>
+      '<div style="border-top:1px solid #1e2730;padding:9px 16px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'+
+          '<span><span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:#12243a;color:#7fb2e8">'+esc(zapLabel(z.typ))+'</span> '+
+          '<b style="color:#e8eef5">'+esc(z.nadpis||'—')+'</b> <span style="color:#7f8ea0;font-size:12px">· '+esc(z.datum||'')+'</span></span>'+
+          '<span style="white-space:nowrap"><a href="#" onclick="zapEdit('+z.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Upravit</a> &nbsp; <a href="#" onclick="zapDel('+z.id+');return false;" style="color:#ff8a7a;text-decoration:none;font-size:12px">🗑</a></span>'+
+        '</div>'+
+        (z.text?'<div style="color:#cdd6e2;font-size:13px;margin-top:4px;white-space:pre-wrap">'+esc(z.text)+'</div>':'')+
+        ((z.autor||z.zmeneno)?'<div style="color:#5d6b7c;font-size:10.5px;margin-top:3px">zapsal/a: '+esc(z.autor||'')+(z.zmeneno?(' · '+esc(z.zmeneno)):'')+'</div>':'')+
+      '</div>').join('');
+  }
+  det.innerHTML=h;
+}
+function zapNovy(){ zapFormShow({id:0,typ:'pohovor',datum:new Date().toISOString().slice(0,10),nadpis:'',text:''}); }
+function zapEdit(id){ const z=ZAP_DATA.find(x=>x.id===id); if(z) zapFormShow(z); }
+function zapFormShow(z){
+  const box=document.getElementById('zapForm'); if(!box) return;
+  const st='width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit';
+  box.innerHTML='<div style="background:#12181f;border:1px solid #233040;border-radius:10px;padding:10px 12px">'+
+    '<div style="display:grid;grid-template-columns:1fr 150px;gap:8px">'+
+      '<div><div style="color:#7f8ea0;font-size:11px">Nadpis</div><input id="zf_nadpis" value="'+esc(z.nadpis||'')+'" style="'+st+'"></div>'+
+      '<div><div style="color:#7f8ea0;font-size:11px">Datum</div><input id="zf_datum" type="date" value="'+esc(z.datum||'')+'" style="'+st+'"></div>'+
+    '</div>'+
+    '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px">Typ</div><select id="zf_typ" style="'+st+'">'+ZAP_TYPY.map(t=>'<option value="'+t[0]+'"'+(z.typ===t[0]?' selected':'')+'>'+t[1]+'</option>').join('')+'</select></div>'+
+    '<div style="margin-top:6px"><div style="color:#7f8ea0;font-size:11px">Text zápisu</div><textarea id="zf_text" rows="5" style="'+st+';resize:vertical">'+esc(z.text||'')+'</textarea></div>'+
+    '<div style="margin-top:8px;display:flex;gap:14px"><a href="#" onclick="zapSave('+(z.id||0)+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a>'+
+      '<a href="#" onclick="document.getElementById(\'zapForm\').innerHTML=\'\';return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a></div>'+
+  '</div>';
+}
+async function zapSave(id){
+  const telo={id:id,user_id:ZAP_UID,
+    typ:document.getElementById('zf_typ').value,
+    datum:document.getElementById('zf_datum').value,
+    nadpis:document.getElementById('zf_nadpis').value,
+    text:document.getElementById('zf_text').value};
+  const r=await fetch(API+'/app/hr/zapisy/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(telo)});
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!d.ok){ alert('Uložení selhalo: '+((d&&d.error)||r.status)); return; }
+  zapisyUdaje();
+}
+async function zapDel(id){
+  if(!confirm('Smazat tento zápis?')) return;
+  const r=await fetch(API+'/app/hr/zapisy/'+id+'/smazat',{method:'POST',credentials:'same-origin'});
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!d.ok){ alert('Smazání selhalo: '+((d&&d.error)||r.status)); return; }
+  zapisyUdaje();
 }
 
 // Šárka 21.7.2026: „Základní údaje" — načte z /app/hr/person, zobrazí a umožní HR editaci.

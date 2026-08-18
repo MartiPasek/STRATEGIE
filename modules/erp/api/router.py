@@ -19223,51 +19223,16 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
 
 @api_router.get("/app/plan/my-uvazek")
 async def app_plan_my_uvazek(req: Request) -> JSONResponse:
-    """Můj úvazek + týdenní vzorec. Self čte vlastní; HR/rodič může ?user_id=."""
+    """DB-driven delegate (g2007.python kod=plan_my_uvazek). Puvodni telo migrovano
+    do DB 18.8.2026 pri sjednoceni uvazku na jedno misto (zdroj = smlouva/engagement,
+    ne Podminky). Zadal Jirka, schvalila Marti-AI."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        can = _hr_can_manage(s, uid)
-        target = uid
-        tu = req.query_params.get("user_id")
-        if tu and int(tu) != uid:
-            if not can:
-                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-            target = int(tu)
-        try:
-            uvazek = float(_resolve_cond_num(s, target, "uvazek_h_tyden", 40.0)) or 40.0
-        except Exception:
-            uvazek = 40.0
-        per_day = round(uvazek / 5.0, 2)
-        rowmap = {}
-        try:
-            for r in s.execute(_t("SELECT weekday, works, hours, start_time::text FROM tenant.work_schedule "
-                                  "WHERE tenant_id=2 AND user_id=:u"), {"u": target}).fetchall():
-                rowmap[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None, (r[3] or "")[:5])
-        except Exception:
-            rowmap = {}
-        _wn = {1: "Pondělí", 2: "Úterý", 3: "Středa", 4: "Čtvrtek", 5: "Pátek", 6: "Sobota", 7: "Neděle"}
-        days = []
-        for wd in range(1, 8):
-            if wd in rowmap:
-                works, h = rowmap[wd][0], (rowmap[wd][1] if rowmap[wd][1] is not None else per_day)
-                st = rowmap[wd][2]
-                expl = True
-            else:
-                works = wd <= 5
-                h = per_day if works else 0
-                st = ""
-                expl = False
-            days.append({"weekday": wd, "label": _wn[wd], "works": works,
-                         "hours": float(h), "start": st, "explicit": expl})
-        suma = round(sum(d["hours"] for d in days if d["works"]), 2)
-        return JSONResponse({"ok": True, "user_id": target, "uvazek": uvazek,
-                             "per_day": per_day, "days": days, "suma": suma, "can_edit": can})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("plan_my_uvazek", uid, req.query_params.get("user_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/plan/my-uvazek/save")

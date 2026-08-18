@@ -1404,6 +1404,7 @@ async function lekarUdaje(){
     if(t.stav==='po_platnosti') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#2e1a1a;color:#ff8a7a">⛔ po platnosti'+(t.dni!=null?(' ('+(-t.dni)+' dní)'):'')+'</span>';
     if(t.stav==='brzy') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#3a2f12;color:#E0A94A">⚠️ vyprší za '+t.dni+' dní</span>';
     if(t.stav==='plati') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#122a1e;color:#7fe0a0">✅ platí</span>';
+    if(t.stav==='nepovinne') return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#12243a;color:#7fb2e8" title="Kategorie 1 — prohlídka není povinná">kat. 1 · nepovinné</span>';
     return '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#23262b;color:#9aa7b4">bez platnosti</span>';
   };
   h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
@@ -1824,6 +1825,7 @@ async function termPreview(){
     '<div>• '+(p.plne_ukonceni?'<b>Plné ukončení</b> — archivace členství, deaktivace účtu, odchod z org struktury':'Zůstává jiný živý poměr — člověk zůstává aktivní')+'</div>'+
     (p.je_schvalovatel?'<div style="color:#E0A94A">⚠️ Je schvalovatel/odpovědný — schvalování se deaktivuje, přiřaď náhradníka.</div>':'')+
     (p.majetek_nevraceno>0?'<div style="color:#E0A94A">⚠️ Nevrácený majetek: '+p.majetek_nevraceno+' položek — vyřeš ve Svěřeném majetku.</div>':'')+
+    '<div style="color:#E0A94A;margin-top:4px">🩺 Kategorie 2: vyžádej od zaměstnance <b>výstupní lékařskou prohlídku</b>. (Kategorie 1 se neřeší.)</div>'+
     '<div style="color:#7f8ea0;margin-top:4px">Mzdy: cinkne se Petře na dokončení v Heliosu.</div></div>';
   box.innerHTML=h; go.disabled=false; go.style.opacity=1;
 }

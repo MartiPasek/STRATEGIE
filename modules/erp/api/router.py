@@ -10905,9 +10905,10 @@ async def app_hr_med_exams(req: Request):
         return JSONResponse({"ok": False, "error": "Centrála nedostupná: " + str(exc)}, status_code=502)
     import datetime as _dt
     import re as _re
-    # Periodicita pracovnělékařských prohlídek (Šárka 18.8.2026, dle vyhlášky):
-    # perioda v LETECH podle kategorie a věku k datu prohlídky. (do 50 let, nad 50 let)
-    _PERIODA = {1: (6, 4), 2: (4, 2)}
+    # Pravidlo EUROSOFT (Šárka 18.8.2026): kategorie 1 = žádná povinná prohlídka
+    # (vstupní/periodická/výstupní se nehlídá). Kategorie 2 = periodická povinná,
+    # perioda v LETECH podle věku k datu prohlídky (do 50 let / nad 50 let).
+    _PERIODA = {2: (4, 2)}
 
     def _parse_d(x):
         try:
@@ -10947,15 +10948,19 @@ async def app_hr_med_exams(req: Request):
         mk = _re.search(r"[Kk]ategori\w*\s*([12])", pozn)
         kat = int(mk.group(1)) if mk else None
         dopocteno = False
-        # chybí Platnost do → dopočti z Platnost od + perioda(kategorie, věk)
-        if not do_d and od_d and kat in _PERIODA:
-            vek = _vek_k(od_d)
-            if vek is not None:
-                let = _PERIODA[kat][1 if vek > 50 else 0]
-                do_d = _plus_let(od_d, let)
-                do_s = do_d.strftime("%d.%m.%Y")
-                dopocteno = True
-        st, dni = _stav(do_d)
+        if kat == 1:
+            # Kategorie 1 (neriziková) — prohlídka není povinná, nehlídá se.
+            st, dni = ("nepovinne", None)
+        else:
+            # chybí Platnost do → dopočti z Platnost od + perioda(kategorie, věk)
+            if not do_d and od_d and kat in _PERIODA:
+                vek = _vek_k(od_d)
+                if vek is not None:
+                    let = _PERIODA[kat][1 if vek > 50 else 0]
+                    do_d = _plus_let(od_d, let)
+                    do_s = do_d.strftime("%d.%m.%Y")
+                    dopocteno = True
+            st, dni = _stav(do_d)
         items.append({"od": od_s, "do": do_s, "poznamka": pozn,
                       "tema": (r.get("tema") or "").strip(), "kategorie": kat,
                       "dopocteno": dopocteno, "stav": st, "dni": dni,

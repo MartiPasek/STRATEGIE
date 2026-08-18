@@ -61,6 +61,30 @@ abych spoléhal, že platí, co jsem věděl minule.
 ⚠️ **Červen 2026 je zmrazený** — přepočet mzdového podkladu ho odmítne. Zmrazené měsíce
 jsou v `FROZEN` uvnitř `att_day_summary_recompute`.
 
+## 💾 HROMADNÁ ZMĚNA DAT → NEJDŘÍV ZÁLOHA A NEJUŽŠÍ ROZSAH (Peťa 18. 8. 2026, ZÁVAZNÉ)
+
+Peťa: *„nerozbijeme tím něco, neměli jsme to udělat jen třeba od toho června, co máme
+docházku v S?"* — a měla pravdu.
+
+**Spouštěč:** 18. 8. 2026 jsem smazal časy u **1 677 absenčních záznamů** naráz, včetně
+ledna až května, což jsou **uzavřené měsíce, kde ta změna nepřinesla vůbec nic**. A hlavně
+**bez zálohy**. Nic se nerozbilo (hodiny, FPD ani mzdy časy u absencí nečtou a původní
+hodnota je pořád v Centrále), ale kdyby to byla chyba, neměl bych ji čím vrátit.
+
+Závazně, u každého `UPDATE`/`DELETE`, který se dotkne víc než pár řádků:
+
+1. **Nejdřív záloha dotčených sloupců** do `tenant.zaloha_<něco>_<datum>`, vždy včetně `id`
+   původního řádku. Teprve pak měnit. Je to pár vteřin práce.
+2. **Sám navrhnu co NEJUŽŠÍ rozsah** — období, druh, lidi. Nikdy „všechno", když stačí
+   „od června". Peťa se nemá muset ptát, jestli to není zbytečně široké; mám jí ten
+   nejužší rozsah nabídnout jako první.
+3. **Řeknu předem počet dotčených řádků** a z čeho se skládá (po druzích, po obdobích),
+   ať Peťa vidí, co schvaluje.
+4. **Po zápisu ověřím čtením** — návratovka nestačí.
+
+Pojistka `zaloha-pred-hromadnou-zmenou` umí automaticky hlídat jen to, že už existující
+zálohy nikdo nesmaže. Disciplínu hlídá tenhle odstavec.
+
 ## 🗺️ SDÍLENÁ HODNOTA → NEJDŘÍV MAPA, NIC NEMĚNIT (Peťa 10. 8. 2026, podnět Kristý + Claude‑24)
 
 **Pravidlo:** než sáhnu na hodnotu, kterou plní nebo čte víc míst (sdílená tabulka, sloupec,

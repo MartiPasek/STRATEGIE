@@ -614,14 +614,24 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
         start = zac + ":00"
         konec = kon + ":00"
     else:
-        # RÁMEC DNE 8:00 → 8:00 + denní úvazek (Peťa 12.8.2026: „v Centrále jsme
-        # dávali vždy 8–16, většinu věcí chceme jako v C"). Do 12.8. se počítalo
-        # od 6:00, což neodpovídalo tomu, na co jsou lidi z Centrály zvyklí.
-        # Konec plyne z hodin za den, takže u sedmihodinového úvazku vyjde 8–15.
-        # Na mzdy to nemá vliv — sdílený výpočet hodin časy u absencí nečte.
-        start = "08:00:00"
-        konec_min = min(1439, 480 + int(round(float(hpd) * 60)))
-        konec = "%02d:%02d:00" % (konec_min // 60, konec_min % 60)
+        # ABSENCE SE VEDE BEZ ČASU (Peťa 17.–18. 8. 2026). Do 18. 8. se sem psal
+        # umělý rámec dne (8:00 → 8:00 + úvazek, do 12.8. od 6:00). Peťa: „v opravě
+        # docházky se nemá co opravovat čas, maximálně měnit z celého dne na půl den,
+        # takže ty časy by tam naopak mohly být zavádějící, dala bych je všude pryč."
+        # Hlavní důvod: umělý rámec dělal FALEŠNÉ PŘEKRYVY s píchnutou docházkou
+        # (Peťa: „je fajn, že nebudou překryvy časů docházky, tak jako se nám to
+        # dělalo v C"). V Centrále se absence taky vede na den / půl dne, ne na čas.
+        # V přehledech se místo časů ukazuje 1 D / 0,5 D. Na hodiny, FPD ani mzdy to
+        # nemá vliv — sdílený výpočet (tenant.att_den_hodiny) u absencí časy vůbec
+        # nečte, sčítá jen `hours` (ověřeno v definici funkce 17.8.2026).
+        # VÝJIMKA Lékař: leží UVNITŘ dne mezi píchnutími a čas se mu dopočítává
+        # z mezery v docházce (`/app/dochazka-abs/najdi-mezeru`, Peťa 12.8.2026) —
+        # tam přijde `cas_od`/`cas_do` a použije se větev nahoře.
+        # ⚠️ Opravy docházky MUSÍ umět otevřít záznam BEZ času (dochazka-opravy.html,
+        # větev `_absDen` → volá `/app/dochazka-abs/save`) — jinak by absence nešla
+        # opravit vůbec. Proto se to nasazovalo v tomhle pořadí.
+        start = None
+        konec = None
     # `ved_schvaleno` = zaškrtnutí „Schváleno" v okně (Peťa 31.7.2026). Co zadává
     # správce, platí rovnou — v přehledu se to hned ukáže s ✓ ve sloupci S.
     par = [{"e": emp, "d": d, "ti": ti, "h": float(hpd), "u": uid,

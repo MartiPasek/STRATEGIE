@@ -23708,7 +23708,11 @@ def _vyroba_can_manage(uid) -> bool:
 # ── Podklady OSVČ (fakturace) — konzole Výroby. Brána: rodiče + Dušan Havlát (41).
 #    Logika je v g2007.python (podklad_osvc_seznam, podklad_vyplaceni_pdf) — read-only.
 #    Tenké delegáty, C24/Kristy 6.8.2026.
-_PODKLAD_OSVC_UIDS = {41}  # Dušan Havlát
+# Kristý 19. 8. 2026: „může zatím Péťa, Dušan, Šárka, já, ale časem to budou všichni
+# vedoucí oddělení, budou si to dělat pro své lidi." Rodiče (Marti 1, Kristý 11) projdou
+# přes is_marti_parent, ostatní jsou tady. Ověřeno proti tenant.att_employee:
+#   41 = Dušan Havlát (č. 105) · 18 = Petra Šafránková ml (č. 1, „Peťa") · 13 = Šárka Novotná (č. 16)
+_PODKLAD_OSVC_UIDS = {41, 18, 13}
 
 
 def _podklad_osvc_can(uid) -> bool:
@@ -23775,6 +23779,57 @@ async def app_vyroba_podklad_ukol(req: Request) -> JSONResponse:
     from modules.erp.api import erp_registry as _ereg
     try:
         res = _ereg.call("podklad_ukol_send", int(tgt), uid)
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+    sc = res.pop("_status_code", 200) if isinstance(res, dict) else 200
+    return JSONResponse(res, status_code=sc)
+
+
+@api_router.get("/app/vyroba/podklad-osvc/plan")
+async def app_vyroba_podklad_plan(req: Request) -> JSONResponse:
+    """Náhled objednávky před ostrým zápisem (?uid=&firma=EC|ES).
+    g2007.python podklad_osvc_helios_plan. READ-ONLY — ukáže, do které objednávky
+    by to šlo a jaké položky by v ní vznikly. Brána rodiče + Dušan/Peťa/Šárka.
+    C24/Kristy 19.8.2026 (Fáze 2)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    tgt = (req.query_params.get("uid") or "").strip()
+    if not tgt.isdigit():
+        return JSONResponse({"ok": False, "error": "chybí/špatné uid zaměstnance"}, status_code=400)
+    firma = (req.query_params.get("firma") or "EC").strip().upper()
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        res = _ereg.call("podklad_osvc_helios_plan", int(tgt), firma)
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+    sc = res.pop("_status_code", 200) if isinstance(res, dict) else 200
+    return JSONResponse(res, status_code=sc)
+
+
+@api_router.post("/app/vyroba/podklad-osvc/objednavka")
+async def app_vyroba_podklad_objednavka(req: Request) -> JSONResponse:
+    """OSTRÝ běh: zapíše podklad, založí objednávku v Heliosu a pošle úkol na Nákup.
+    Body: {uid, firma: 'EC'|'ES'}. g2007.python podklad_osvc_generuj.
+    Brána rodiče + Dušan/Peťa/Šárka. C24/Kristy 19.8.2026 (Fáze 2)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    tgt = str((body or {}).get("uid") or "").strip()
+    if not tgt.isdigit():
+        return JSONResponse({"ok": False, "error": "chybí/špatné uid zaměstnance"}, status_code=400)
+    firma = str((body or {}).get("firma") or "EC").strip().upper()
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        res = _ereg.call("podklad_osvc_generuj", int(tgt), firma, uid)
     except Exception as _e:
         return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
     sc = res.pop("_status_code", 200) if isinstance(res, dict) else 200

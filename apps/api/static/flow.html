@@ -215,10 +215,21 @@ function pdkOpen(p, view){
       t+='<button id="pdkPdf" style="margin-top:6px;cursor:pointer;background:#10b981;color:#04150e;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📄 Otevřít / tisk PDF</button>';
       t+=' <button id="pdkXlsx" style="margin-top:6px;cursor:pointer;background:#1e7a46;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📊 Excel (rozpad + kontrola)</button>';
       t+=' <button id="pdkUkol" style="margin-top:6px;cursor:pointer;background:#3b82f6;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🗒 Odeslat úkolníkem na Nákup</button>';
+      // Fáze 2 (Kristý 19. 8. 2026): dvě tlačítka podle firmy — každé založí objednávku
+      // v Heliosu (řada 800 pro EC, 801 pro ES), orazítkuje zdroje a pošle úkol na Nákup.
+      t+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid #22303f">'
+        +'<div class="muted" style="margin-bottom:8px">Objednávka a odeslání na Nákup — vyber firmu:</div>'
+        +'<button id="pdkObjEC" style="cursor:pointer;background:#b45309;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🧾 Objednávka EUROSOFT (EC)</button>'
+        +' <button id="pdkObjES" style="cursor:pointer;background:#7c3aed;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🧾 Objednávka EUROSOFT - System (ES)</button>'
+        +' <button id="pdkPlan" style="cursor:pointer;background:#334155;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">👁 Náhled objednávky</button>'
+        +'<div id="pdkObjOut" style="margin-top:10px"></div></div>';
       view.innerHTML=t;
       view.querySelector('#pdkPdf').onclick=function(){ pdkPdf(r); };
       var _xb=view.querySelector('#pdkXlsx'); if(_xb) _xb.onclick=function(){ pdkXlsx(r); };
       var _ub=view.querySelector('#pdkUkol'); if(_ub) _ub.onclick=function(){ pdkUkol(r, p.uid, _ub); };
+      var _pl=view.querySelector('#pdkPlan'); if(_pl) _pl.onclick=function(){ pdkPlan(p.uid, 'EC', view.querySelector('#pdkObjOut')); };
+      var _oe=view.querySelector('#pdkObjEC'); if(_oe) _oe.onclick=function(){ pdkObj(r, p.uid, 'EC', _oe, view.querySelector('#pdkObjOut')); };
+      var _os=view.querySelector('#pdkObjES'); if(_os) _os.onclick=function(){ pdkObj(r, p.uid, 'ES', _os, view.querySelector('#pdkObjOut')); };
     }).catch(function(){ view.innerHTML='<div class="err" style="margin-top:10px">Chyba náhledu.</div>'; });
 }
 function pdkPdf(r){
@@ -236,6 +247,54 @@ function pdkXlsx(r){
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
   }catch(e){ alert('Excel chyba: '+e); }
+}
+function pdkPlan(targetUid, firma, out){
+  if(out) out.innerHTML='<div class="muted">Načítám náhled objednávky…</div>';
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/plan?uid='+encodeURIComponent(targetUid)+'&firma='+firma,
+        {credentials:'same-origin'})
+    .then(function(rr){ return rr.json(); })
+    .then(function(j){
+      if(!out) return;
+      if(!(j&&j.ok)){ out.innerHTML='<div class="err">'+esc((j&&j.error)||'Náhled se nepodařil.')+'</div>'; return; }
+      var o=j.objednavka||{};
+      var h='<div style="font-size:13px"><b>'+esc(j.organizace)+'</b> · řada '+esc(j.rada_dokladu)
+        +' · objednávka č. '+esc(o.poradove_cislo||'?')+' (založila '+esc(o.autor||'?')+' '+esc(o.porizeno||'')+')</div>'
+        +'<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px">'
+        +'<tr style="text-align:right;color:#9fb0c0"><th style="text-align:left">Položka</th><th>Typ</th><th>Částka</th></tr>';
+      (j.plan||[]).forEach(function(x){
+        h+='<tr style="text-align:right;border-top:1px solid #22303f"><td style="text-align:left">'
+          +esc(x.zakazka)+(x.poznamka?(' — '+esc(x.poznamka)):'')+'</td><td>'+esc(x.typ_obj)+'</td><td><b>'+esc(x.castka)+'</b></td></tr>';
+      });
+      h+='<tr style="text-align:right;border-top:2px solid #22303f"><td style="text-align:left"><b>Celkem</b></td><td></td><td><b>'
+        +esc(j.celkem)+' Kč</b></td></tr></table>'
+        +'<div class="muted">Orazítkuje se u nás '+esc(j.orazitkuje_vyroba_work+j.orazitkuje_att_entry)
+        +' řádků docházky, v Centrále '+esc(j.orazitkuje_odmen_v_centrale)+' odměn. Nic zatím zapsáno není.</div>';
+      out.innerHTML=h;
+    }).catch(function(){ if(out) out.innerHTML='<div class="err">Chyba náhledu objednávky.</div>'; });
+}
+function pdkObj(r, targetUid, firma, btn, out){
+  var fn = (firma==='ES') ? 'EUROSOFT - System (ES)' : 'EUROSOFT (EC)';
+  if(!confirm('Založit objednávku v '+fn+' pro '+r.jmeno+'?\n\nCelkem k fakturaci: '+r.celkem+' Kč.\n'
+     +'Zapíše se do Heliosu, orazítkují se hodiny a na Nákup půjde úkol.')) return;
+  var txt=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Zakládám…'; }
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/objednavka',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid:targetUid, firma:firma})})
+    .then(function(rr){ return rr.json(); })
+    .then(function(j){
+      if(btn){ btn.disabled=false; btn.textContent=txt; }
+      if(!out) return;
+      if(j&&j.ok){
+        out.innerHTML='<div style="background:#0d3b25;border:1px solid #1e7a46;border-radius:9px;padding:10px;font-size:13px">'
+          +'✔ <b>Objednávka '+esc(j.poradove_cislo)+'</b> založena pro '+esc(j.organizace)+' — '+esc(j.celkem)+' Kč.<br>'
+          +'Orazítkováno u nás: '+esc(j.orazitkovano_u_nas)+' řádků, v Centrále: '+esc(j.orazitkovano_v_centrale)+'.<br>'
+          +(j.ukol_ok ? ('Úkol na Nákup odeslán (č. '+esc(j.ukol_id)+').')
+                      : ('<span style="color:#fbbf24">Úkol se neodeslal: '+esc(j.ukol_chyba||'?')+' — pošlete ho prosím ručně.</span>'))
+          +'</div>';
+      } else {
+        out.innerHTML='<div class="err">'+esc((j&&j.error)||'Objednávku se nepodařilo založit.')+'</div>';
+      }
+    }).catch(function(){ if(btn){ btn.disabled=false; btn.textContent=txt; }
+      if(out) out.innerHTML='<div class="err">Chyba při zakládání objednávky.</div>'; });
 }
 function pdkUkol(r, targetUid, btn){
   if(!confirm('Odeslat podklad "'+r.jmeno+'" úkolníkem do Centrály na Nákup?\nCelkem k fakturaci: '+r.celkem+' Kč.')) return;

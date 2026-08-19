@@ -111,8 +111,34 @@ def ensure_tables(s) -> None:
 
 # ───────────────────────────── konfigurace ─────────────────────────────
 
+def _z_trezoru(klic: str) -> str:
+    """Přečte hodnotu z fw.app_secret. Tam leží i klíč trezoru (`vault_key`),
+    takže je to zavedené místo pro tajemství, která nesmí do repa ani do gitu.
+
+    PROČ TUDY a ne jen přes .env: soukromý APNs klíč vydá Apple JEN JEDNOU a
+    platí pro celý tým. V databázi je na jednom místě pro obě instance, přežije
+    redeploy i výměnu stroje a je v záloze — na rozdíl od `.env`, který se musí
+    ručně donést na každý server a při reinstalaci se snadno ztratí."""
+    try:
+        from core.database_data import get_data_session as _g
+        s = _g()
+        try:
+            row = s.execute(_t("SELECT sval FROM fw.app_secret WHERE skey = :k"),
+                            {"k": klic}).first()
+            return (row[0] or "").strip() if row else ""
+        finally:
+            s.close()
+    except Exception as exc:
+        logger.warning("[ios_push] čtení %s z fw.app_secret selhalo: %s", klic, exc)
+        return ""
+
+
 def _cfg():
-    """Nastavení APNs ze Settings. Vrací (enabled, p8, key_id, team_id, topic)."""
+    """Nastavení APNs. Vrací (enabled, p8, key_id, team_id, topic).
+
+    Klíč a identifikátory se berou přednostně z .env (Settings); co tam chybí,
+    dohledá se v fw.app_secret pod `apns_key_p8` / `apns_key_id`. Díky tomu
+    stačí na produkci nastavit APNS_ENABLED=1 a zbytek si server načte sám."""
     try:
         from core.config import settings as _s
     except Exception:
@@ -126,10 +152,13 @@ def _cfg():
         except Exception as exc:
             logger.warning("[ios_push] APNS_KEY_P8 ukazuje na nečitelný soubor: %s", exc)
             p8 = ""
+    if not p8:
+        p8 = _z_trezoru("apns_key_p8")
+    key_id_cfg = (getattr(_s, "apns_key_id", "") or "").strip() or _z_trezoru("apns_key_id")
     return (
         bool(getattr(_s, "apns_enabled", False)),
         p8,
-        (getattr(_s, "apns_key_id", "") or "").strip(),
+        key_id_cfg,
         (getattr(_s, "apns_team_id", "") or "").strip(),
         (getattr(_s, "apns_topic", "") or "").strip(),
     )

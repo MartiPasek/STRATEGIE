@@ -41277,6 +41277,81 @@ async def diag_sql(req: Request) -> JSONResponse:
             _sd2.close()
         return JSONResponse({"ok": True, "doc_id": did, "name": meta.name, "vectors": nv})
 
+    # ── @@PYRUN <kod> [| <args JSON pole>] — spuštění DB-driven skriptu z g2007.python
+    #  přes most (Claude-24 / Kristý, 19. 8. 2026). Vzniklo při Fázi 1 podkladu fakturace
+    #  OSVČ: `g2007.python` má na `kod` unikátní index, takže stará a nová verze téhož
+    #  výpočtu vedle sebe nežijí — novou je potřeba SPUSTIT a porovnat dřív, než přepíše
+    #  ostrou. Bez tohohle by jedinou cestou bylo přepsat produkci a věřit.
+    #  BEZPEČNOSTNÍ HRANICE (schváleno Kristý 19. 8. 2026): most pustí JEN skripty
+    #  `stav_zivota='active'` A ZÁROVEŇ `vedlejsi_ucinek=false` (= čtou, nezapisují).
+    #  Cokoli s dopadem na data (mzdy, migrace, syncy) přes most spustit NELZE — od toho
+    #  jsou schvalovací banner a mirror joby. Auditováno do g2007.python_run_audit stejně
+    #  jako HTTP endpoint /app/erp_registry/run. Velké hodnoty (pdf_b64…) se zkracují.
+    if sql.upper().startswith("@@PYRUN"):
+        import json as _jpr
+        import time as _timepr
+        from sqlalchemy import text as _tpr
+        from core.database_data import get_data_session as _gpr
+        _rest = sql[len("@@PYRUN"):].strip()
+        if not _rest:
+            return JSONResponse({"ok": False, "error": "@@PYRUN <kod> [| <args JSON pole>]"})
+        _pp = [x.strip() for x in _rest.split("|", 1)]
+        _kod = _pp[0].split()[0]
+        _args = []
+        if len(_pp) > 1 and _pp[1]:
+            try:
+                _args = _jpr.loads(_pp[1])
+            except Exception as _ea:
+                return JSONResponse({"ok": False, "error": "args nejsou platný JSON: %s" % _ea})
+            if not isinstance(_args, list):
+                return JSONResponse({"ok": False, "error": "args musí být JSON pole, např. [47]"})
+        _spr = _gpr()
+        try:
+            _prow = _spr.execute(_tpr(
+                "SELECT verze, COALESCE(vedlejsi_ucinek,false) FROM g2007.python "
+                "WHERE kod=:k AND stav_zivota='active'"), {"k": _kod}).fetchone()
+        finally:
+            _spr.close()
+        if not _prow:
+            return JSONResponse({"ok": False, "error": "kód '%s' nemá aktivní implementaci" % _kod})
+        if _prow[1]:
+            return JSONResponse({"ok": False, "error": (
+                "kód '%s' má vedlejsi_ucinek=true — přes most se nespouští. "
+                "Zápisy jdou přes schvalovací banner nebo mirror job." % _kod)})
+        from starlette.concurrency import run_in_threadpool as _rtppr
+        from modules.erp.api import erp_registry as _eregpr
+        _t0pr = _timepr.monotonic()
+        _okpr, _chybapr, _vysl = True, None, None
+        try:
+            _vysl = await _rtppr(_eregpr.call, _kod, *_args)
+        except Exception as _epr:
+            _okpr, _chybapr = False, "%s: %s" % (type(_epr).__name__, _epr)
+        _mspr = int((_timepr.monotonic() - _t0pr) * 1000)
+        _spr2 = _gpr()
+        try:
+            _spr2.execute(_tpr(
+                "INSERT INTO g2007.python_run_audit (kod, verze, uid, args, ok, chyba, trvani_ms) "
+                "VALUES (:k, :v, NULL, CAST(:a AS jsonb), :ok, :ch, :ms)"),
+                {"k": _kod, "v": _prow[0], "a": _jpr.dumps(_args),
+                 "ok": _okpr, "ch": _chybapr, "ms": _mspr})
+            _spr2.commit()
+        finally:
+            _spr2.close()
+
+        def _pyrun_zkrat(v):
+            _sv = v if isinstance(v, str) else _jpr.dumps(v, ensure_ascii=False, default=str)
+            return _sv if len(_sv) <= 300 else "%s… (%d znaků)" % (_sv[:300], len(_sv))
+
+        _rowspr = [["_stav", "OK" if _okpr else "CHYBA"],
+                   ["_trvani_ms", str(_mspr)], ["_verze", str(_prow[0])]]
+        if _chybapr:
+            _rowspr.append(["_chyba", _chybapr[:400]])
+        if isinstance(_vysl, dict):
+            _rowspr += [[str(_k), _pyrun_zkrat(_v)] for _k, _v in _vysl.items()]
+        elif _vysl is not None:
+            _rowspr.append(["vysledek", _pyrun_zkrat(_vysl)])
+        return JSONResponse({"ok": bool(_okpr), "columns": ["klic", "hodnota"], "rows": _rowspr})
+
     # Diagnostika/spuštění mirror jobu v procesu (Marti 5.7.2026): obejde plánovač,
     # vrátí reálný výsledek/chybu. @@MIRRORRUN <job_key>
     if sql.upper().startswith("@@MIRRORRUN"):

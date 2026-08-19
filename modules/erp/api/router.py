@@ -41388,9 +41388,30 @@ async def diag_sql(req: Request) -> JSONResponse:
         from modules.erp.api import erp_registry as _ereg_kask
         _kr = _ereg_kask.call("att_fix_resync", 1, _kfrm, _kto, None, _kdry, False)
         if not isinstance(_kr, dict):
-            _kr = {"ok": False, "error": "neocekavana odpoved kaskady", "raw": str(_kr)[:200]}
-        _kr["rezim"] = "NÁHLED (dry_run) — nic se nezapsalo" if _kdry else "OSTRÝ ZÁPIS"
-        return JSONResponse(_kr)
+            return JSONResponse({"ok": False, "error": "neocekavana odpoved kaskady",
+                                 "raw": str(_kr)[:300]})
+        if not _kr.get("ok"):
+            return JSONResponse(_kr)
+        # Most vykresluje jen columns/rows, ne vnorene JSON → prelozime souhrn do tabulky.
+        _ksum = _kr.get("souhrn") or {}
+        _krows = [
+            {"blok": "režim", "polozka": ("NÁHLED (dry_run) — nic se nezapsalo" if _kdry
+                                          else "OSTRÝ ZÁPIS"), "hodnota": _kfrm + " .. " + _kto},
+            {"blok": "souhrn", "polozka": "dvojic (člověk × den)", "hodnota": str(_ksum.get("dvojic", 0))},
+            {"blok": "souhrn", "polozka": "dnů se změnou", "hodnota": str(_ksum.get("zmenene_dny", 0))},
+            {"blok": "souhrn", "polozka": "ořez položky (clip)", "hodnota": str(_ksum.get("clip", 0))},
+            {"blok": "souhrn", "polozka": "vypnuto — bez překryvu", "hodnota": str(_ksum.get("deactivate", 0))},
+            {"blok": "souhrn", "polozka": "vypnuto — duplicita", "hodnota": str(_ksum.get("dedup_off", 0))},
+            {"blok": "souhrn", "polozka": "založeno nových", "hodnota": str(_ksum.get("create", 0))},
+        ]
+        for _u in (_kr.get("ukazka") or [])[:30]:
+            _krows.append({"blok": "ukázka", "polozka": "emp %s · %s" % (_u.get("emp"), _u.get("den")),
+                           "hodnota": "clip=%s off=%s new=%s" % (_u.get("clip"), _u.get("off"), _u.get("new"))})
+        for _p in (_kr.get("podezrele") or [])[:20]:
+            _krows.append({"blok": "podezřelé", "polozka": "emp %s · %s" % (_p.get("emp"), _p.get("den")),
+                           "hodnota": "%s položek, ale žádná docházka" % _p.get("polozek")})
+        return JSONResponse({"ok": True, "columns": ["blok", "polozka", "hodnota"],
+                             "rows": _krows, "count": len(_krows)})
 
     #   @@ORIENT <doména>  → načte doménové prostředí (identita+znalosti+tooly) z tenant.domain_env
     #   do session Clauda. Sdílené s Marti-AI GO režimem. Bez argumentu = obecná + seznam domén.

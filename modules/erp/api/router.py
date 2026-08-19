@@ -26382,11 +26382,12 @@ def _att_sync_vyroba_work(s, employee_id, den, dry_run=False, create_missing=Tru
 # dopočítají se joinem na tenant.zakazka a tenant.vyroba_cinnost, ať mobil (klíče
 # project_ref/project_nazev/cinnost_name/cinnost_icon/is_rezie/since) jede beze změny.
 def _wa_close_running(s, uid: int) -> None:
-    from sqlalchemy import text as _t
-    s.execute(_t("UPDATE tenant.vyroba_work SET konec=now(), "
-                 "hodiny=round((EXTRACT(EPOCH FROM (now()-od))/3600.0)::numeric,3), updated_at=now() "
-                 "WHERE tenant_id=:t AND user_id=:u AND source_system='app' AND konec IS NULL"),
-              {"t": _ATT_TENANT, "u": uid})
+    """DB-driven delegate (g2007.python kod=att_wa_close_running). Puvodni telo migrovano
+    do DB 18.8.2026 (Kristy + Claude-24). Tahle kopie NEMELA orez casu na cele minuty
+    (Peta ho 4.8.2026 doplnil jen do DB verzi), takze pres ni vznikaly polozky rozpadu se
+    sekundami - 408 z 1277 srpnovych radku. Ted je implementace jedna a sdilena."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_wa_close_running", s, uid)
 
 
 def _wa_latest_today(s, uid: int):
@@ -26421,31 +26422,15 @@ def _wa_running(s, uid: int):
 def _wa_open(s, uid: int, project_ref=None, project_nazev=None,
              cinnost_id=None, cinnost_name=None, cinnost_icon=None,
              is_rezie=False, source="mobile") -> None:
-    from sqlalchemy import text as _t
-    _wa_close_running(s, uid)
-    # Marti 19.6.: přepnutí zakázky → výběr činnosti vytvářelo PARAZITNÍ úsek (skoro nula).
-    # Smaž právě zavřený parazit (< 60 s) a nový úsek převezme jeho začátek (spojitě, bez mezery).
-    st_override = None
-    prev = s.execute(_t(
-        "SELECT id, od AS started_at, EXTRACT(EPOCH FROM (konec - od)) AS sec "
-        "FROM tenant.vyroba_work WHERE tenant_id=:t AND user_id=:u AND source_system='app' "
-        "AND konec IS NOT NULL AND datum=current_date ORDER BY id DESC LIMIT 1"),
-        {"t": _ATT_TENANT, "u": uid}).mappings().first()
-    if prev and prev["sec"] is not None and float(prev["sec"]) < 60:
-        st_override = prev["started_at"]
-        s.execute(_t("DELETE FROM tenant.vyroba_work WHERE tenant_id=:t AND id=:id"),
-                  {"t": _ATT_TENANT, "id": prev["id"]})
-    # Režie → zakazka_ref='Rezie' (rozhodnutí Kristý 28.7.2026), jinak sjednocené číslo.
-    _zak = _REZIE_REF if is_rezie else (_norm_zakazka(project_ref) or None)
-    s.execute(_t(
-        "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
-        "zakazka_ref,cinnost_id,hodiny,source_system,created_at,updated_at) "
-        "VALUES (:t,:u,"
-        "(SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=:u AND e.tenant_id=:t AND e.cislo_zam IS NOT NULL LIMIT 1),"
-        "(COALESCE(CAST(:st AS timestamptz),now()))::date,"
-        "COALESCE(CAST(:st AS timestamptz),now()),NULL,"
-        ":zak,(SELECT id FROM tenant.vyroba_cinnost WHERE id=:ci LIMIT 1),NULL,'app',now(),now())"),
-        {"t": _ATT_TENANT, "u": uid, "st": st_override, "zak": _zak, "ci": cinnost_id})
+    """DB-driven delegate (g2007.python kod=att_wa_open). Puvodni telo migrovano do DB
+    19.8.2026 (Kristy + Claude-24) - jedna sdilena implementace pro router.py i att_checkin,
+    vcetne orezu zacatku useku na cele minuty. Pravidlo o parazitnim useku (< 60 s) zustalo
+    beze zmeny; jeho oprava je samostatny krok."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_wa_open", s, uid, project_ref=project_ref,
+                      project_nazev=project_nazev, cinnost_id=cinnost_id,
+                      cinnost_name=cinnost_name, cinnost_icon=cinnost_icon,
+                      is_rezie=is_rezie, source=source)
 
 
 def _att_is_working(s, emp):

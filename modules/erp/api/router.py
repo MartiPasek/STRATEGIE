@@ -19868,7 +19868,7 @@ async def app_hr_conditions_save(req: Request) -> JSONResponse:
     result = _ereg.call("hr_conditions_save", uid, (b or {}).get("scope_kind"),
                         (b or {}).get("group_code"), (b or {}).get("cond_code"),
                         (b or {}).get("value"), (b or {}).get("note"), (b or {}).get("user_id"),
-                        (b or {}).get("plati_od"))
+                        (b or {}).get("plati_od"), (b or {}).get("pomer_id"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

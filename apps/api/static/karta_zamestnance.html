@@ -2136,6 +2136,15 @@ function renderPodm(edit){
               +'<span style="color:#7fe0a0;font-size:11px">platí od</span>'
               +'<input id="podmUvazekOd" type="date" value="'+esc(dnesISO())+'" style="width:130px;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:3px 6px;font:inherit;font-size:12px">'
               +'</div>'
+              // Kdo má víc souběžných poměrů (dnes jediný člověk), musí říct, které smlouvy
+              // se změna týká — hádat za něj se nemá (Jirka + Marti-AI 19. 8. 2026).
+              +(((ow.pomery||[]).length>1)
+                 ? ('<div style="margin-top:4px;display:flex;gap:6px;align-items:center;justify-content:flex-end">'
+                    +'<span style="color:#E0A94A;font-size:11px">poměr</span>'
+                    +'<select id="podmUvazekPomer" style="width:190px;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:3px 6px;font:inherit;font-size:12px">'
+                    +(ow.pomery||[]).map(pm=>'<option value="'+pm.id+'">'+esc(pm.firma)+(pm.uvazek!=null?(' — '+pm.uvazek+' h'):'')+'</option>').join('')
+                    +'</select></div>')
+                 : '')
               +'<div style="color:#7fe0a0;font-size:11px">zapíše se do smlouvy jako nová verze'+(ow.plati_od?(' · dnes platí od '+esc(ow.plati_od)):'')+'</div>'
             : podmPole(dd, o));
       return '<tr style="border-top:1px solid #1e2730">'+
@@ -2275,6 +2284,8 @@ async function podmSave(){
       if(z.code===PODM_UVAZEK){
         const od=document.getElementById('podmUvazekOd');
         if(od && od.value) telo.plati_od=od.value;
+        const pm=document.getElementById('podmUvazekPomer');
+        if(pm && pm.value) telo.pomer_id=pm.value;
       }
       const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json'},

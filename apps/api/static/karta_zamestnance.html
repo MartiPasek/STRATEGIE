@@ -921,6 +921,8 @@ async function tabuleUpload(){
 }
 let PODMINKY=null;
 function _dcz(iso){ if(!iso) return ''; const p=iso.split('-'); return p.length===3?(parseInt(p[2])+'. '+parseInt(p[1])+'. '+p[0]):iso; }
+// Šárka 19.8.2026: v přehledu zobrazit „Příjmení Jméno".
+function _pjmeno(s){ s=(s||'').trim(); const p=s.split(/\s+/); return p.length<2?s:(p[p.length-1]+' '+p.slice(0,-1).join(' ')); }
 async function loadPodminky(){
   const body=document.getElementById('podmbody'); if(!body) return;
   if(PODMINKY){ podminkyFilter(); return; }
@@ -962,7 +964,7 @@ function podminkyFilter(){
     const sd=(x.sd_dny!=null)?(String(x.sd_dny).replace('.',',')+' dní'):'<span style="color:#5d6b7c">—</span>';
     const typBg=x.typ==='HPP'?'#1b3a5c':(x.typ==='OSVC'?'#3a2f5c':'#4a3a1b');
     return '<tr style="border-top:1px solid #1e2730">'+
-      '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+esc(x.jmeno)+'</td>'+
+      '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+esc(_pjmeno(x.jmeno))+'</td>'+
       '<td style="padding:4px 8px;color:#cdd6e2">'+esc(x.firma||'')+'</td>'+
       '<td style="padding:4px 8px"><span style="background:'+typBg+';color:#dfeaf7;border-radius:5px;padding:1px 7px;font-size:11px">'+esc(x.typ||'')+'</span></td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+(x.uvazek!=null?esc(''+x.uvazek)+' h':'—')+'</td>'+

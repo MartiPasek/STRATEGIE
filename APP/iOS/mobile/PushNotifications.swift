@@ -81,6 +81,13 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         NSLog("[push] device token získán (%d znaků)", token.count)
+        // Celý token vypisujeme JEN v ladicím buildu — v ostré verzi by neměl
+        // co dělat v systémovém logu telefonu. Slouží k ověření notifikací
+        // na skutečném zařízení dřív, než je hotová serverová část:
+        //   python3 ~/.strategie_apns/nastroje/poslat_notifikaci.py <token>
+        #if DEBUG
+        NSLog("[push] LADENI — device token: %@", token)
+        #endif
         odeslatTokenNaServer(token)
     }
 

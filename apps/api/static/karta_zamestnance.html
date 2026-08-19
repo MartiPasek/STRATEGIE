@@ -1321,6 +1321,9 @@ function pheadHTML(p){
 // Šárka 5.8.2026: dovolená + sick days v hlavičce (Pinya-styl), data z docházky (Péťa).
 async function loadLeave(uid){
   const box=document.getElementById('leaveBox'); if(!box||!uid) return;
+  // Šárka 19.8.2026: souhrn dovolená/sick/fond jen u HPP; u OSVČ (živnostníků) se nezobrazuje.
+  const _pp=LIDE.find(x=>x.user_id===uid)||{};
+  if((_pp.typ||'').includes('OSVČ') && !(_pp.typ||'').includes('HPP')){ box.style.display='none'; box.innerHTML=''; return; }
   let d; try{ d=await j(API+'/app/hr/person-leave?uid='+uid); }catch(e){ box.style.display='none'; return; }
   if(!d||!d.ok||!d.has){ box.style.display='none'; return; }
   const num=(x)=> (x==null?'0':(''+x).replace('.',','));

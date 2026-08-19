@@ -28062,6 +28062,12 @@ def _mirror_run_job(job_key):
                                                fromlist=["sync_user_job"]).sync_user_job(30, limit=100),
         "sync_mail_projects": lambda: __import__("modules.erp.api.mail_mirror",
                                                  fromlist=["sync_user_job"]).sync_user_job(111, limit=100),
+        # OSVČ podklad fakturace — zálohy/platby zakázek z Centrály (Claude-24, Kristý 19.8.2026).
+        # Jednosměrné zrcadlo EC_Zakazky_PlatbyZam → tenant.osvc_zaloha_zakazek; z něj se
+        # ve výpočtu podkladu odečítá „už objednáno". Logika žije v g2007.python
+        # (kód jako data, kód `sync_osvc_zalohy_from_ec`), tady je jen tenký delegate.
+        "sync_osvc_zalohy": lambda: __import__("modules.erp.api.erp_registry",
+                                               fromlist=["call"]).call("sync_osvc_zalohy_from_ec"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

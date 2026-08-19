@@ -54,7 +54,7 @@ abych spoléhal, že platí, co jsem věděl minule.
 | Odpracované hodiny | `tenant.att_entry` přes `tenant.att_den_hodiny` | hrubý součet `att_entry.hours` |
 | Mzdový podklad dne | `tenant.att_day_summary` **počítaný z `att_entry`** | zrcadlo Centrály (`@@DOCHSUM`) |
 | Nárok dovolená / dovolená navíc / sick days | **Podmínky (`staff_cond`)** | `engagement_entitlement` (zrušeno 16. 8.) |
-| **Týdenní úvazek** | **Podmínky (`staff_cond`, `uvazek_h_tyden`)** — potvrdil Jirka 18. 8. 2026 | `engagement.uvazek_tyden_h` je zatím to, z čeho se fakticky počítá — viz ⚠️ níže |
+| **Týdenní úvazek** | **smlouva (`engagement.uvazek_tyden_h`)** — stav k 19. 8. 2026, ⚠️ ještě se řeší | Podmínky (`staff_cond`, `uvazek_h_tyden`) — Jirka je 19. 8. odstranil, aby úvazek nebyl na dvou místech |
 | Docházka ze staré Centrály | **nic — sync ukončen 14. 8. 2026** | `sync_ec_dochazka_recent` |
 | Rozpad na zakázky | `tenant.vyroba_work` s vazbou `att_entry_id` | položky bez vazby (sirotci) |
 | Zakázka „režie" | zakázka **`Rezie`** (bez háčku) | činnost „Režie" (archivovaná 3. 8.) |
@@ -62,31 +62,23 @@ abych spoléhal, že platí, co jsem věděl minule.
 ⚠️ **Červen 2026 je zmrazený** — přepočet mzdového podkladu ho odmítne. Zmrazené měsíce
 jsou v `FROZEN` uvnitř `att_day_summary_recompute`.
 
-### ⚠️ ÚVAZEK I NÁROKY NA VOLNO = PODMÍNKY, JEDINÁ PRAVDA (potvrdil Jirka 18. 8. 2026)
+### ⏳ ÚVAZEK — JEŠTĚ SE ŘEŠÍ, NEODVOZOVAT SI TO SÁM (stav k 19. 8. 2026)
 
-Peťa: *„Jirka potvrzuje, že jediná pravda je v Podmínkách — tam je vidět jak úvazek,
-tak nároky na volno."*
+Nepiš sem závěr, dokud nepadne. 18. 8. Jirka potvrdil „úvazek i nároky jsou v Podmínkách",
+19. 8. ale úvazek z Podmínek **odstranil úplně** (Šárčina varianta 1), aby nebyl na dvou
+místech. Předchozí zápis tady i znalost v G2007 proto Peťa nechala smazat — mylný záznam
+je horší než žádný.
 
-- **Ptám se vždycky Podmínek** (`tenant.staff_cond`), ne smluvního záznamu a **nikdy
-  ne Centrály**. Podmínky mají tři vrstvy: systém → skupina → jednotlivec, specifičtější
-  přebíjí. Leží tam i to, co jinde není — Bernardová „32 h = 4×8", Mózer „pracovní dny
-  úterý", Novotná „15 sick days místo navýšení mzdy".
-- **Kde to podle té pravdy nefunguje, musí se to opravit tam** (Jirka 18. 8. 2026:
-  *„je vždy jen jedna pravda a kde to podle pravdy nefunguje, musí se to tam změnit"*).
-  Žádné obcházení, žádné druhé místo, žádné vysvětlování v kódu, proč to jde jinudy.
-- **Dnešní stav:** denní fond se pořád počítá z `engagement.uvazek_tyden_h` (kanonický
-  skript `att_denni_fond`). **Cíl je přepnout ho na Podmínky.**
-- ⛔ **Nepřepínat, dokud nejsou Podmínky úplné.** Mapa z 18. 8. 2026: 9 aktivních lidí
-  nemá vyplněnou skupinu ani individuální výjimku, takže by na ně spadla systémová
-  výchozí hodnota **40 h** — Duspivová (smlouva 35), Senft (5), Vlková (15), Šik (30)
-  a pět lidí bez úvazku. Přepnutí naslepo by jim fond nafouklo. Hlídá to pojistka
-  **`uvazek-z-podminek-uplny`** — dokud svítí, přepínat se nesmí.
-- **Doplnění Podmínek je personální práce (Šárka), ne moje** — jsou to skutečné údaje
-  o lidech a nesmím si je domýšlet. Peťa to Šárce předala 18. 8. 2026; až to doplní,
-  dá vědět a teprve pak se `att_denni_fond` přepne a ověří, že všem vyjde totéž co dřív
-  (kromě těch, u kterých to bylo špatně).
-- Zdroj: G2007 `doc-podminky-skupin-zamestnancu`, `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy`,
-  `doc-dochazka-uvazek-a-naroky-jedina-pravda-podminky`.
+- **Dnes platí:** úvazek → **smlouva** · nároky na volno → **Podmínky**. Každý údaj má
+  jedno místo, takže pravidlo o jednom zdroji pravdy porušené není.
+- **Otevřené:** Peťa 19. 8.: *„ještě se to bude řešit, pravděpodobně se to udělá opravdu
+  na jednu pravdu pro obojí."* Do rozhodnutí **nic nepřepínat a nic nezobecňovat**.
+- **Riziko, na které se má pamatovat:** v číselníku Podmínek je „Týdenní úvazek" pořád
+  aktivní, jen bez hodnot — nic nebrání tomu, aby ho tam někdo zase vyplnil a byl zpátky
+  na dvou místech.
+- Pojistka `uvazek-z-podminek-uplny` je **vypnutá** (19. 8.), protože hlídala opak toho,
+  co teď platí. Až rozhodnutí padne, přepsat ji podle výsledku.
+- Zdroj: G2007 `doc-podminky-skupin-zamestnancu`, `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy`.
 
 ## 🔍 NEJDŘÍV HLEDEJ, JESTLI TO UŽ EXISTUJE — NIC NOVÉHO NEPSAT (Peťa 18. 8. 2026, ZÁVAZNÉ)
 

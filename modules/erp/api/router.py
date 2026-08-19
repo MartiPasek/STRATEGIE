@@ -41369,6 +41369,29 @@ async def diag_sql(req: Request) -> JSONResponse:
         _r = _sync_ec_dochazka_recent(frm=_frm, to=_to, wipe=True)
         return JSONResponse(_r)
 
+    #   @@DOCHKASKADA <od> <do> [ostra]  → backfill rozpadu kanonickou kaskádou přes rozsah dnů
+    #   (att_fix_resync). BEZ slova "ostra" běží jako NÁHLED (dry_run) a nic nezapisuje.
+    #   Kaskáda si sama hlídá zámek období a nezakládá chybějící řádky (create_missing=False).
+    #   Doteď šlo pustit jen přes API endpoint /app/attendance/fix/resync, který nemá tlačítko
+    #   v ERP — takže backfill neuměl spustit nikdo z mostu (C24 + Kristý, 19.8.2026).
+    #   Rozsah je omezen na 62 dnů (kontroluje att_fix_resync) — pouštěj po měsících.
+    if sql.upper().startswith("@@DOCHKASKADA"):
+        _kparts = sql.split()
+        _kargs = [p for p in _kparts[1:] if p.lower() != "ostra"]
+        _kdry = not any(p.lower() == "ostra" for p in _kparts[1:])
+        _kfrm = _kargs[0] if len(_kargs) > 0 else None
+        _kto = _kargs[1] if len(_kargs) > 1 else None
+        if not _kfrm or not _kto:
+            return JSONResponse({"ok": False, "error": "použití: @@DOCHKASKADA <od> <do> [ostra]"})
+        # Most je token-auth (bez session), takže ACL v att_fix_resync potřebuje uid.
+        # Bereme Martiho (rodič) — /diag-sql je podle své vlastní dokumentace rodičovská cesta.
+        from modules.erp.api import erp_registry as _ereg_kask
+        _kr = _ereg_kask.call("att_fix_resync", 1, _kfrm, _kto, None, _kdry, False)
+        if not isinstance(_kr, dict):
+            _kr = {"ok": False, "error": "neocekavana odpoved kaskady", "raw": str(_kr)[:200]}
+        _kr["rezim"] = "NÁHLED (dry_run) — nic se nezapsalo" if _kdry else "OSTRÝ ZÁPIS"
+        return JSONResponse(_kr)
+
     #   @@ORIENT <doména>  → načte doménové prostředí (identita+znalosti+tooly) z tenant.domain_env
     #   do session Clauda. Sdílené s Marti-AI GO režimem. Bez argumentu = obecná + seznam domén.
     if sql.upper().startswith("@@ORIENT"):

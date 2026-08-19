@@ -2076,6 +2076,7 @@ async function absUdaje(){
 let PODM_DATA=null, PODM_UID=null;
 const PODM_POCITADLO='dovolena_dni';
 const PODM_UVAZEK='uvazek_h_tyden';   // hodnota i zápis jdou do smlouvy, ne do Podmínek
+function dnesISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 async function podmUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
@@ -2127,7 +2128,15 @@ function renderPodm(edit){
       const pole = (dd.code===PODM_POCITADLO)
         ? '<span style="color:#e8eef5;font-weight:700">'+val+'</span><div style="color:#5d6b7c;font-size:11px">počítá se ze součtu</div>'
         : (dd.code===PODM_UVAZEK
-            ? podmPole(dd, o)+'<div style="color:#7fe0a0;font-size:11px">zapíše se do smlouvy'+(ow.plati_od?(' · platí od '+esc(ow.plati_od)):'')+'</div>'
+            ? podmPole(dd, o)
+              // „Platí od" (Jirka 19. 8. 2026): změna úvazku zakládá NOVOU VERZI smlouvy,
+              // takže se musí říct, od kdy platí — mzdy za dřívější měsíce mají zůstat
+              // na starém úvazku. Prázdné = ode dneška.
+              +'<div style="margin-top:4px;display:flex;gap:6px;align-items:center;justify-content:flex-end">'
+              +'<span style="color:#7fe0a0;font-size:11px">platí od</span>'
+              +'<input id="podmUvazekOd" type="date" value="'+esc(dnesISO())+'" style="width:130px;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:3px 6px;font:inherit;font-size:12px">'
+              +'</div>'
+              +'<div style="color:#7fe0a0;font-size:11px">zapíše se do smlouvy jako nová verze'+(ow.plati_od?(' · dnes platí od '+esc(ow.plati_od)):'')+'</div>'
             : podmPole(dd, o));
       return '<tr style="border-top:1px solid #1e2730">'+
         '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+
@@ -2261,6 +2270,12 @@ async function podmSave(){
     try{
       const telo={scope_kind:'user',user_id:uid,cond_code:z.code,value:z.val};
       if(z.val!=='' && z.note) telo.note=z.note;
+      // U úvazku posíláme i datum, od kdy nová hodnota platí — založí se nová verze
+      // smlouvy a mzdy za dřívější měsíce zůstanou na starém úvazku (Jirka 19. 8. 2026).
+      if(z.code===PODM_UVAZEK){
+        const od=document.getElementById('podmUvazekOd');
+        if(od && od.value) telo.plati_od=od.value;
+      }
       const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify(telo)});

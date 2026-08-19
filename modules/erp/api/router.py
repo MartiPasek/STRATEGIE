@@ -19303,7 +19303,8 @@ async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
         b = {}
     from modules.erp.api import erp_registry as _ereg
     result = _ereg.call("plan_my_uvazek_save", uid, (b or {}).get("user_id"),
-                        (b or {}).get("uvazek"), (b or {}).get("days"))
+                        (b or {}).get("uvazek"), (b or {}).get("days"),
+                        (b or {}).get("plati_od"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 
@@ -19866,7 +19867,8 @@ async def app_hr_conditions_save(req: Request) -> JSONResponse:
     from modules.erp.api import erp_registry as _ereg
     result = _ereg.call("hr_conditions_save", uid, (b or {}).get("scope_kind"),
                         (b or {}).get("group_code"), (b or {}).get("cond_code"),
-                        (b or {}).get("value"), (b or {}).get("note"), (b or {}).get("user_id"))
+                        (b or {}).get("value"), (b or {}).get("note"), (b or {}).get("user_id"),
+                        (b or {}).get("plati_od"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 
@@ -33679,7 +33681,7 @@ async def mzdy_c_smlouva_save(req: Request) -> JSONResponse:
     from modules.erp.api import erp_registry as _ereg
     result = _ereg.call("mzdy_c_smlouva_save", uid, p.get("id"),
                          p.get("mzda"), p.get("osobni"), p.get("uvazek"),
-                         p.get("pojistovna"), p.get("sleva"))
+                         p.get("pojistovna"), p.get("sleva"), p.get("plati_od"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

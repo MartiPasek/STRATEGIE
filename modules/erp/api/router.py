@@ -23836,6 +23836,52 @@ async def app_vyroba_podklad_objednavka(req: Request) -> JSONResponse:
     return JSONResponse(res, status_code=sc)
 
 
+@api_router.get("/app/vyroba/podklad-osvc/historie")
+async def app_vyroba_podklad_historie(req: Request) -> JSONResponse:
+    """Přehled vygenerovaných podkladů (volitelně ?uid= konkrétního člověka).
+    g2007.python podklad_osvc_historie. READ-ONLY. C24/Kristy 19.8.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    tgt = (req.query_params.get("uid") or "").strip()
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        return JSONResponse(_ereg.call("podklad_osvc_historie",
+                                       (int(tgt) if tgt.isdigit() else None), 20))
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+
+
+@api_router.post("/app/vyroba/podklad-osvc/storno")
+async def app_vyroba_podklad_storno(req: Request) -> JSONResponse:
+    """Vrátí zpět vygenerovaný podklad: smaže platby a položky objednávky v Heliosu,
+    zruší razítka tam i u nás, hlavičku přepne na 'storno'. Body: {vobj_id, dry}.
+    g2007.python podklad_osvc_storno. Brána rodiče + Dušan/Peťa/Šárka.
+    C24/Kristy 19.8.2026 — úkol na Nákup se ruší ručně v úkolníku."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    vid = str((body or {}).get("vobj_id") or "").strip()
+    if not vid.isdigit():
+        return JSONResponse({"ok": False, "error": "chybí/špatné vobj_id"}, status_code=400)
+    dry = bool((body or {}).get("dry", False))
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        res = _ereg.call("podklad_osvc_storno", int(vid), dry, uid)
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+    sc = res.pop("_status_code", 200) if isinstance(res, dict) else 200
+    return JSONResponse(res, status_code=sc)
+
+
 @api_router.get("/app/vyroba/can-manage")
 async def app_vyroba_can_manage(req: Request) -> JSONResponse:
     """DB-driven delegate (g2007.python kod=app_vyroba_can_manage). Puvodni telo migrovano do DB dne 31.7.2026, Faze E davka 2."""

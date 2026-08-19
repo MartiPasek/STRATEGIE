@@ -222,7 +222,8 @@ function pdkOpen(p, view){
         +'<button id="pdkObjEC" style="cursor:pointer;background:#b45309;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🧾 Objednávka EUROSOFT (EC)</button>'
         +' <button id="pdkObjES" style="cursor:pointer;background:#7c3aed;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🧾 Objednávka EUROSOFT - System (ES)</button>'
         +' <button id="pdkPlan" style="cursor:pointer;background:#334155;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">👁 Náhled objednávky</button>'
-        +'<div id="pdkObjOut" style="margin-top:10px"></div></div>';
+        +'<div id="pdkObjOut" style="margin-top:10px"></div>'
+        +'<div id="pdkHist" style="margin-top:12px"></div></div>';
       view.innerHTML=t;
       view.querySelector('#pdkPdf').onclick=function(){ pdkPdf(r); };
       var _xb=view.querySelector('#pdkXlsx'); if(_xb) _xb.onclick=function(){ pdkXlsx(r); };
@@ -230,6 +231,7 @@ function pdkOpen(p, view){
       var _pl=view.querySelector('#pdkPlan'); if(_pl) _pl.onclick=function(){ pdkPlan(p.uid, 'EC', view.querySelector('#pdkObjOut')); };
       var _oe=view.querySelector('#pdkObjEC'); if(_oe) _oe.onclick=function(){ pdkObj(r, p.uid, 'EC', _oe, view.querySelector('#pdkObjOut')); };
       var _os=view.querySelector('#pdkObjES'); if(_os) _os.onclick=function(){ pdkObj(r, p.uid, 'ES', _os, view.querySelector('#pdkObjOut')); };
+      pdkHist(p.uid, view.querySelector('#pdkHist'));
     }).catch(function(){ view.innerHTML='<div class="err" style="margin-top:10px">Chyba náhledu.</div>'; });
 }
 function pdkPdf(r){
@@ -295,6 +297,51 @@ function pdkObj(r, targetUid, firma, btn, out){
       }
     }).catch(function(){ if(btn){ btn.disabled=false; btn.textContent=txt; }
       if(out) out.innerHTML='<div class="err">Chyba při zakládání objednávky.</div>'; });
+}
+function pdkHist(targetUid, box){
+  if(!box) return;
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/historie?uid='+encodeURIComponent(targetUid),
+        {credentials:'same-origin'})
+    .then(function(rr){ return rr.json(); })
+    .then(function(j){
+      if(!(j&&j.ok)||!(j.polozky||[]).length){ box.innerHTML=''; return; }
+      var h='<div class="muted" style="margin-bottom:6px">Vygenerované podklady:</div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        +'<tr style="text-align:left;color:#9fb0c0"><th>#</th><th>Datum</th><th>Firma</th>'
+        +'<th>Objednávka</th><th style="text-align:right">Částka</th><th>Stav</th><th></th></tr>';
+      j.polozky.forEach(function(x){
+        var st = x.stav==='storno' ? '<span style="color:#94a3b8">stornováno</span>'
+               : (x.stav==='objednano' ? '<span style="color:#34d399">objednáno</span>'
+                                       : '<span style="color:#fbbf24">navrženo</span>');
+        h+='<tr style="border-top:1px solid #22303f"><td>'+esc(x.id)+'</td><td>'+esc(x.datum)
+          +'</td><td>'+esc(x.firma)+'</td><td>'+esc(x.objednavka||'—')+'</td>'
+          +'<td style="text-align:right">'+esc(x.castka)+' Kč</td><td>'+st+'</td><td style="text-align:right">'
+          +(x.lze_stornovat
+             ? '<button class="pdkStorno" data-id="'+esc(x.id)+'" data-c="'+esc(x.castka)+'" '
+               +'style="cursor:pointer;background:#7f1d1d;color:#fff;border:none;border-radius:7px;'
+               +'padding:5px 10px;font-size:12px">↩ Storno</button>'
+             : '')+'</td></tr>';
+      });
+      h+='</table>';
+      box.innerHTML=h;
+      Array.prototype.forEach.call(box.querySelectorAll('.pdkStorno'), function(b){
+        b.onclick=function(){ pdkStorno(b.getAttribute('data-id'), b.getAttribute('data-c'), b, box, targetUid); };
+      });
+    }).catch(function(){ box.innerHTML=''; });
+}
+function pdkStorno(vobjId, castka, btn, box, targetUid){
+  if(!confirm('Vrátit zpět podklad #'+vobjId+' ('+castka+' Kč)?\n\n'
+     +'Smažou se položky objednávky i řádky plateb v Heliosu, zruší se razítka tam i u nás.\n'
+     +'Úkol na Nákup se tím NEZRUŠÍ — ten je potřeba zrušit ručně v úkolníku.')) return;
+  var txt=btn.textContent; btn.disabled=true; btn.textContent='Vracím…';
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/storno',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({vobj_id:parseInt(vobjId,10), dry:false})})
+    .then(function(rr){ return rr.json(); })
+    .then(function(j){
+      if(j&&j.ok){ pdkHist(targetUid, box); alert('Storno hotové. Nechte prosím proběhnout zrcadla, '
+        +'ať zmizí i odečet „už objednáno". Úkol na Nákup zrušte v úkolníku.'); }
+      else { alert('Storno se nepodařilo: '+((j&&j.error)||'?')); btn.disabled=false; btn.textContent=txt; }
+    }).catch(function(){ alert('Chyba storna.'); btn.disabled=false; btn.textContent=txt; });
 }
 function pdkUkol(r, targetUid, btn){
   if(!confirm('Odeslat podklad "'+r.jmeno+'" úkolníkem do Centrály na Nákup?\nCelkem k fakturaci: '+r.celkem+' Kč.')) return;

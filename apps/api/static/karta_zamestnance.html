@@ -941,6 +941,9 @@ function podminkyFilter(){
   if(q) r=r.filter(x=>(x.jmeno||'').toLowerCase().includes(q));
   if(ff) r=r.filter(x=>x.firma===ff);
   if(tf) r=r.filter(x=>x.typ===tf);
+  // Šárka 19.8.2026: řadit abecedně podle příjmení (poslední slovo jména), česká abeceda.
+  const _prijmeni=x=>((x.jmeno||'').trim().split(/\s+/).slice(-1)[0]||'').toLowerCase();
+  r=r.slice().sort((a,b)=>_prijmeni(a).localeCompare(_prijmeni(b),'cs'));
   if(cnt) cnt.textContent='('+r.length+' poměrů)';
   if(!r.length){ body.innerHTML='<tr><td colspan="10" class="empty">Nic nenalezeno.</td></tr>'; return; }
   body.innerHTML=r.map(function(x){

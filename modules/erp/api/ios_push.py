@@ -155,8 +155,12 @@ def _cfg():
     if not p8:
         p8 = _z_trezoru("apns_key_p8")
     key_id_cfg = (getattr(_s, "apns_key_id", "") or "").strip() or _z_trezoru("apns_key_id")
+    # Zapnout se dá i z trezoru — kdo nemá přístup na server (a tím k `.env`),
+    # nastaví všechno přes /app/ios/push/key.
+    zapnuto = bool(getattr(_s, "apns_enabled", False)) or \
+        _z_trezoru("apns_enabled").lower() in ("1", "true", "ano", "yes")
     return (
-        bool(getattr(_s, "apns_enabled", False)),
+        zapnuto,
         p8,
         key_id_cfg,
         (getattr(_s, "apns_team_id", "") or "").strip(),
@@ -577,6 +581,101 @@ async def ios_push_status(req: Request) -> JSONResponse:
                 "posledni_odeslani": (r["last_sent_at"].isoformat() if r["last_sent_at"] else None),
             } for r in rows],
         })
+    finally:
+        s.close()
+
+
+@ios_push_router.post("/app/ios/push/key")
+async def ios_push_key_upload(req: Request) -> JSONResponse:
+    """Nahraje APNs klíč (.p8) do trezoru `fw.app_secret` přes HTTPS.
+
+    PROČ TENHLE ENDPOINT existuje: klíč vydá Apple jen jednou a musí se dostat na
+    server. Do repa nesmí (sdílené repo je veřejné), přes SQL most taky ne (zapsal
+    by se do `CLAUDE_SQL.sql`, do auditu `fw.claude_sql_log` i do schvalovacího
+    banneru) a k databázi napřímo se z firemní sítě nedá — port 5432 je zavřený
+    a ostrý DSN žije v NSSM proměnné na API serveru. Tudy jde klíč rovnou do
+    cílové tabulky, po HTTPS, bez mezizastávek.
+
+    Smí to jen rodiče a IT (`_can_run_sync`). Klíč se nikde neloguje.
+
+    Tělo requestu: buď rovnou obsah `.p8` (`content-type: text/plain`), nebo JSON
+    `{"key_p8": "...", "key_id": "...", "enable": true}`.
+    """
+    from modules.erp.api.router import _uid_from_token_or_cookie, _can_run_sync
+    from core.database_data import get_data_session as _g
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    s = _g()
+    try:
+        if not _can_run_sync(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+
+    syrove = (await req.body()).decode("utf-8", errors="replace").strip()
+    key_id = ""
+    zapnout = False
+    if syrove.startswith("{"):
+        try:
+            data = json.loads(syrove)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "neplatný JSON"}, status_code=400)
+        p8 = (str(data.get("key_p8") or "")).strip()
+        key_id = (str(data.get("key_id") or "")).strip()
+        zapnout = bool(data.get("enable"))
+    else:
+        p8 = syrove
+
+    # Kontroly, ať se do trezoru nedostane rozbitý klíč. Obsah se NEloguje.
+    if not p8.startswith("-----BEGIN PRIVATE KEY-----"):
+        return JSONResponse({"ok": False, "error": "nezačíná -----BEGIN PRIVATE KEY-----"},
+                            status_code=400)
+    if not p8.endswith("-----END PRIVATE KEY-----"):
+        return JSONResponse({"ok": False, "error": "nekončí -----END PRIVATE KEY----- "
+                                                   "(useknutý soubor?)"}, status_code=400)
+    if not (200 <= len(p8) <= 1000):
+        return JSONResponse({"ok": False, "error": f"podezřelá délka {len(p8)} znaků "
+                                                   f"(čeká se zhruba 240–260)"},
+                            status_code=400)
+
+    s = _g()
+    try:
+        ensure_tables(s)
+        s.execute(_t("CREATE TABLE IF NOT EXISTS fw.app_secret "
+                     "(skey text PRIMARY KEY, sval text)"))
+        polozky = [("apns_key_p8", p8)]
+        if key_id:
+            polozky.append(("apns_key_id", key_id))
+        if zapnout:
+            polozky.append(("apns_enabled", "1"))
+        for k, v in polozky:
+            s.execute(_t("INSERT INTO fw.app_secret (skey, sval) VALUES (:k, :v) "
+                         "ON CONFLICT (skey) DO UPDATE SET sval = EXCLUDED.sval"),
+                      {"k": k, "v": v})
+        s.commit()
+        logger.info("[ios_push] APNs klíč uložen do trezoru uživatelem %s (%d znaků)",
+                    uid, len(p8))
+        # Odpověď klíč NEobsahuje — jen tolik, aby šlo ověřit, že dorazil celý.
+        rows = s.execute(_t(
+            "SELECT skey, length(sval) AS delka, left(sval, 27) AS zacatek "
+            "FROM fw.app_secret WHERE skey LIKE 'apns%' ORDER BY skey")).mappings().all()
+        _JWT_CACHE["token"] = None   # klíč se mohl změnit → podepsat znovu
+        return JSONResponse({
+            "ok": True,
+            "ulozeno": [k for k, _ in polozky],
+            "trezor": [{"klic": r["skey"], "delka": r["delka"], "zacatek": r["zacatek"]}
+                       for r in rows],
+            "smycka_bezi": bool(_PUSH_TASK[0] is not None and not _PUSH_TASK[0].done()),
+            "poznamka": ("Když smyčka neběží, restartuj API — startuje se v lifespanu."
+                         if not (_PUSH_TASK[0] is not None and not _PUSH_TASK[0].done())
+                         else "Smyčka běží, notifikace se začnou odesílat."),
+        })
+    except Exception as exc:
+        s.rollback()
+        # Ani v chybě nesmí být obsah klíče — proto jen typ výjimky.
+        logger.exception("[ios_push_key_upload] selhalo: %s", type(exc).__name__)
+        return JSONResponse({"ok": False, "error": type(exc).__name__}, status_code=500)
     finally:
         s.close()
 

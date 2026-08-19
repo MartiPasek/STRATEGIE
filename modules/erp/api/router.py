@@ -19974,6 +19974,23 @@ async def app_my_conditions(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.get("/app/dochazka/muj-prehled")
+async def app_dochazka_muj_prehled(req: Request) -> JSONResponse:
+    """Tenky delegat (g2007.python kod=muj_prehled_narok) — data pro mobilni
+    obrazovku "Muj prehled". Naroky D / DN / SD a jejich cerpani, ctene z tehoz
+    vypoctu jako ERP prehled "Narok a cerpani" (jeden zdroj pravdy — Jirka 19.8.2026,
+    schvalila Marti-AI). Prava na ERP prehled se NEMENI: predava se VYHRADNE uid
+    prihlaseneho cloveka, z requestu se nebere nic. Kdo bude tenhle delegat menit,
+    at to tak necha."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("muj_prehled_narok", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 _WD = [(1, "Pondělí"), (2, "Úterý"), (3, "Středa"), (4, "Čtvrtek"), (5, "Pátek"),
        (6, "Sobota"), (7, "Neděle")]
 

@@ -28032,8 +28032,15 @@ def _mirror_run_job(job_key):
         #   sync_pripl_srazky_ec  → ec.pripl_srazky (1:1 zrcadlo pro modul 💰 Mzdy, Claude-27 21.7.)
         # Zrcadlo `ec` je PŘECHODNÝ stav (verdikt Marti-AI 22.7.) — nerozšiřovat, jen udržovat
         # živé, dokud modul nepřesedlá na wage_movement. Jednosměrné (jen čtení z Centrály).
+        # PLNÝ re-import (full=True), ne inkrementální — Claude-24 / Kristý 19.8.2026.
+        # Důvod: Centrála při generování podkladu fakturace vyplní IDPolVobj/IDPolPF
+        # (a při výplatě DatVyplaceni/Vyplaceno/Vyplatil), ale NESÁHNE přitom na DatZmeny.
+        # Vodoznak `ISNULL(DatZmeny, DatPorizeni)` tyhle změny neuvidí → zrcadlo drželo
+        # už objednané řádky pořád jako nevyplacené (19.8.2026 jich bylo 70 z 2 979 za
+        # 2025–2026; kvůli tomu podklad OSVČ nabízel k proplacení odměnu, která už
+        # objednaná byla). Plný běh je levný — 2 979 řádků, stejný UPDATE/INSERT kód.
         "sync_pripl_srazky_ec": lambda: __import__("modules.erp.api.pripl_srazky_sync",
-                                                   fromlist=["sync_from_ec"]).sync_from_ec(),
+                                                   fromlist=["sync_from_ec"]).sync_from_ec(full=True),
         # Hlídač přepnutí příplatků/srážek do Prahy (Jirka 29.7.2026, návrh schválila
         # Marti-AI msg 11699). Nesahá na mzdy — jen čte stav v tenant.pripl_cutover,
         # připomíná, žádá Petru o souhlas a odemkne teprve když platí všechno.

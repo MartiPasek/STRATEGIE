@@ -41338,18 +41338,21 @@ async def diag_sql(req: Request) -> JSONResponse:
         finally:
             _spr2.close()
 
-        def _pyrun_zkrat(v):
+        def _pyrun_zkrat(k, v):
             _sv = v if isinstance(v, str) else _jpr.dumps(v, ensure_ascii=False, default=str)
-            return _sv if len(_sv) <= 300 else "%s… (%d znaků)" % (_sv[:300], len(_sv))
+            # binární přílohy (pdf_b64/xlsx_b64) do mostu netahat — jen kolik toho je
+            if "b64" in str(k).lower():
+                return "(binárka, %d znaků base64)" % len(_sv)
+            return _sv if len(_sv) <= 1500 else "%s… (%d znaků)" % (_sv[:1500], len(_sv))
 
         _rowspr = [["_stav", "OK" if _okpr else "CHYBA"],
                    ["_trvani_ms", str(_mspr)], ["_verze", str(_prow[0])]]
         if _chybapr:
             _rowspr.append(["_chyba", _chybapr[:400]])
         if isinstance(_vysl, dict):
-            _rowspr += [[str(_k), _pyrun_zkrat(_v)] for _k, _v in _vysl.items()]
+            _rowspr += [[str(_k), _pyrun_zkrat(_k, _v)] for _k, _v in _vysl.items()]
         elif _vysl is not None:
-            _rowspr.append(["vysledek", _pyrun_zkrat(_vysl)])
+            _rowspr.append(["vysledek", _pyrun_zkrat("vysledek", _vysl)])
         return JSONResponse({"ok": bool(_okpr), "columns": ["klic", "hodnota"], "rows": _rowspr})
 
     # Diagnostika/spuštění mirror jobu v procesu (Marti 5.7.2026): obejde plánovač,

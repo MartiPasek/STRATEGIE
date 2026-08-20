@@ -13414,6 +13414,21 @@ def _hr_vernost_dovolena(s):
     return _ereg.call("att_vernost_dovolena", s)
 
 
+def _hr_dovolena_kaskada(s):
+    """DB-driven delegate (g2007.python kod=att_dovolena_kaskada) — Peťa 20. 8. 2026.
+
+    Rozpad dovolené na řádnou (činnost 20) a dovolenou navíc (30). Postaveno podle
+    Centrály (dbo.EC_Events_PropsatDoDoch, podklad od Týnky Štorkové), včetně dělení
+    zlomového dne na dva záznamy pod toutéž žádostí. Rozdíl proti Centrále je jediný,
+    ale zásadní: Centrála činnost jednou zapíše a už ji nikdy nepřepočítá, takže po
+    zrušení nebo posunu dřívější dovolené zůstanou staré značky špatně. Tenhle skript
+    projde celý rok znovu, chronologicky, a je idempotentní — pustit dvakrát dá totéž.
+    Uzamčených období se nedotýká, dnů v budoucnu taky ne (ty dostanou činnost až
+    v den, kdy nastanou = „překlopení")."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("att_dovolena_kaskada", None, False)
+
+
 def _hr_auto_narozeniny(s):
     """Automaticky odešle narozeninové přání každému aktivnímu zaměstnanci, který má DNES
     narozeniny a nemá pro dnešek 'sent'/'skipped' (Šárka 23.7.2026). Přeskočit v panelu = stopka.
@@ -13585,7 +13600,10 @@ def _hr_daily_pass():
         return
     cm, s = _att_session()
     try:
-        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena, _hr_mesicni_resume):
+        # _hr_dovolena_kaskada je ZÁMĚRNĚ až za _hr_vernost_dovolena — věrnostní den
+        # zvyšuje nárok v Podmínkách a rozpad D/DN se z něj počítá (Peťa 20. 8. 2026).
+        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena,
+                   _hr_dovolena_kaskada, _hr_mesicni_resume):
             try:
                 fn(s)
                 s.commit()

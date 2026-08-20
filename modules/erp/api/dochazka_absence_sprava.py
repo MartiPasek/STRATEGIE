@@ -769,6 +769,28 @@ def _prepocti_fond(emp, dny) -> None:
             pass
 
 
+def _prepocti_dovolenou() -> None:
+    """Po zásahu do absence srovnej rozpad dovolené na řádnou (20) a navíc (30).
+
+    PROČ (Peťa 20. 8. 2026): o tom, jestli je den řádná dovolená nebo dovolená
+    navíc, rozhoduje POŘADÍ čerpání od ledna. Když se dřívější dovolená zruší
+    nebo posune, pořadí se změní a staré značky přestanou platit. Přesně tím
+    trpí Centrála (`dbo.EC_Events_PropsatDoDoch`) — ta činnost jednou zapíše
+    a už ji nikdy nepřepočítá, takže lidem vycházela dovolená navíc, i když
+    ještě měli řádnou. Podklad od Týnky Štorkové, rozbor 19.–20. 8. 2026.
+
+    Přepočet (`g2007.python` kod=`att_dovolena_kaskada`) projde celý rok znovu,
+    chronologicky, a je idempotentní. Uzamčených období se nedotýká.
+
+    NIKDY nesmí shodit odpověď — absence je v té chvíli už zapsaná.
+    """
+    try:
+        from modules.erp.api import erp_registry as _ereg_kask
+        _ereg_kask.call("att_dovolena_kaskada", None, False)
+    except Exception:
+        pass
+
+
 # ── ÚPRAVA ───────────────────────────────────────────────────────────────────
 @doch_zak_tab_router.post("/app/dochazka-abs/save")
 async def dochazka_abs_save(req: Request) -> JSONResponse:
@@ -891,6 +913,7 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         # Srovnej doplnění do fondu — ve dnech, odkud absence zmizela, i tam,
         # kam nově přibyla (Peťa 20.8.2026, viz `_prepocti_fond`).
         _prepocti_fond(emp, list(stare) + _pracovni_dny(s, d_od, d_do))
+        _prepocti_dovolenou()
         try:
             _att_fix_notify(s, emp, uid, actor, "Úprava absence",
                             "%s upravil(a) tvou absenci: %s %s–%s (%d dnů). Důvod: %s"
@@ -1003,6 +1026,7 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         # u zpětně dopíchnuté dovolené zůstalo doplnění spočtené bez ní
         # (Peťa 20.8.2026, Saad 19.8. = 12,00 h za den; viz `_prepocti_fond`).
         _prepocti_fond(emp, _pracovni_dny(s, d_od, d_do))
+        _prepocti_dovolenou()
         try:
             _att_fix_notify(s, emp, uid, actor, "Zapsaná absence",
                             "%s ti zapsal(a) absenci: %s %s–%s (%d dnů)."
@@ -1100,6 +1124,7 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
             s.commit()
             # Po zrušení absence se den musí dopočítat znovu (Peťa 20.8.2026).
             _prepocti_fond(emp, dot_dny)
+            _prepocti_dovolenou()
             # POJISTKA (Peťa 30.7.2026): NIKDY nehlásit „smazáno", dokud to není
             # opravdu v datech. Dřív endpoint vrátil ok i když se změna cestou
             # ztratila (rollback v přepočtu zůstatku) — uživatel viděl zelenou
@@ -1140,6 +1165,7 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
         s.commit()
         # Po zrušení absence se den musí dopočítat znovu (Peťa 20.8.2026).
         _prepocti_fond(emp, data)
+        _prepocti_dovolenou()
         try:
             _att_fix_notify(s, emp, uid, actor, "Zrušená absence",
                             "%s zrušil(a) tvou absenci (%d dnů). Důvod: %s" % (actor, len(data), duvod))

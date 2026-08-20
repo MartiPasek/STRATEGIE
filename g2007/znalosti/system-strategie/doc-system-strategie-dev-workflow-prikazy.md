@@ -2,6 +2,13 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
+> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
+> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
+> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
+> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
+> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+
 ### Git workflow (Windows + PowerShell specific)
 
 **PowerShell nemá rád víceřádkové `-m "..."` commit messages.** Naučili
@@ -57,14 +64,15 @@ a pak se diví, že lupy nevidí. Připomeň mu to každou UI fázi.
                                    # + email fetcher (poll 60 s)
 python -m poetry run pytest        # testy (4 soubory v tests/unit/)
 python -m poetry run pytest tests/unit/test_dm_service.py::nazev_testu   # jeden test
-python scripts/build_mobile.py     # ⚠️ mobile.html je GENEROVANÝ
+# scripts/build_mobile.py UZ NESPOUSTEJ - od 17. 8. 2026 jen vypise varovani
 ```
 
-**⚠️ `apps/api/static/mobile.html` NEEDITUJ přímo** — je slepený z
-`apps/api/static/mobile_parts/NN_nazev.(js|css|html)` (rozhodnutí C23, 5. 7. 2026).
-Workflow: uprav partial → `python scripts/build_mobile.py` → commitni partial
-**i** vygenerovaný `mobile.html`. Přímá editace se při dalším buildu ztratí —
-tahle past už sklapla víckrát.
+**⚠️ Mobilní stránka se z disku nesestavuje — postup výše je od 17. 8. 2026 mrtvý.**
+Žádný `mobile.html` ani dílky v `apps/api/static/mobile_parts/` už v repu nejsou
+(commit `5b130553`, obojí v `.gitignore`). Obsah appky žije v `g2007.soubor` a mění se
+přes `@@G2007SOUBOR` + `@@G2007PUBLISH`.
+**Závazný postup drzí `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`** —
+řiď se jím, ne tímto dokumentem.
 
 **Lint / format / typecheck v repu NEJSOU** — žádný ruff, black, mypy, eslint,
 prettier, žádný pre-commit hook, žádné CI (`.github/` neexistuje). Nehledej je.

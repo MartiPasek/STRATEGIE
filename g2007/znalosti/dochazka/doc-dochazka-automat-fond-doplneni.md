@@ -6,6 +6,8 @@
 
 > Zapsal Claude-26 (Peťa) 21. 7. 2026 po dni oprav s Peťou. Vše ověřeno na živých
 > datech a nasazeno. Kdo sáhne na `_att_automat_level_day`, ať čte tohle první.
+> **Aktualizováno 29. 7. 2026 (Claude-26 / Peťa):** noční běh dostal spolehlivý
+> spouštěč — viz „Spolehlivý spouštěč (29. 7. 2026)" a přepsaná „Kdy se to počítá".
 
 ## K čemu automat je
 
@@ -24,8 +26,44 @@ nula volání. Needituj je, nic nedělají.
 
 ## Kdy se to počítá
 
-1. **Noční běh** 23:58–24:00, okno `days_back=4` (přes `_maybe_auto_checkout_midnight`).
-2. **Hned při uložení ruční opravy** — přidáno 21. 7. 2026, viz níže.
+1. **Denní srovnání** přes **`_maybe_att_level_catchup()`** v 30s smyčce — **1×/lokální
+   den**, okno `days_back=4`. Nezávisí na 2min okně: pustí se při prvním tiku dne (i po
+   restartu/nasazení, i po delším výpadku dožene zameškaný den). Značku „poslední srovnaný
+   den" drží **DB** (`tenant.ec_mirror_state`, `src_table='att_automat_level_day'`, den v
+   `last_note`). Detail v „Spolehlivý spouštěč (29. 7. 2026)" níže.
+2. **Hned při uložení ruční opravy** — `_att_automat_recalc_day()` z fix-endpointů,
+   přidáno 21. 7. 2026, viz níže.
+
+> ⚠️ `_maybe_auto_checkout_midnight()` (okno 23:58–24:00) **už srovnání na úvazek NEvolá** —
+> dělá jen půlnoční auto-odhlášení zapomenutých směn. Srovnání přešlo na spolehlivý spouštěč
+> výše (do 29. 7. 2026 viselo právě na tom křehkém 2min okně a při restartu v tu chvíli den
+> tiše vypadl).
+
+## Spolehlivý spouštěč (29. 7. 2026)
+
+**Problém:** srovnání na úvazek se dřív volalo jen z `_maybe_auto_checkout_midnight()`, tj.
+**jen v okně 23:58–24:00**, a značku „dnes už jsem běžel" držela **paměť procesu**
+(`_LAST_AUTO_CO`). Když se do těch dvou minut trefil restart/nasazení (a 28. 7. 2026 se
+trefil), běh se **přeskočil bez náhrady** — po půlnoci už žádný tik nic neudělal a den
+zůstal bez `fond_doplneni`/`nenarokova`. Projevilo se to celoplošně (všímla si Peťa u
+Honomichlové: 28. 7. chybělo doplnění do fondu).
+
+**Řešení:** nová funkce **`_maybe_att_level_catchup()`** v té samé 30s smyčce (`_att_sync_loop`):
+- **Trvalá značka místo paměti** — poslední srovnaný lokální den je v `tenant.ec_mirror_state`
+  (`src_table='att_automat_level_day'`, den v `last_note`; in-memory `_LAST_LEVEL_DAY` je jen
+  rychlá zkratka, ať se nechodí do DB každých 30 s). Restart značku nezahodí.
+- **Ne okno, ale dohnání** — když `last_note < dnešek`, srovná (`_att_automat_level_day()`,
+  `days_back=4`) a značku posune. Je jedno, kdy se trefí; první tik nového dne (i po výpadku)
+  to dožene. `days_back=4` sebeléčí i pár dní zpět, ale nikdy do zamčeného června (okno má
+  floor `2026-06-01`).
+- **Bezpečné pořadí** — značku posune **až po úspěchu** srovnání; při chybě ji nechá být, ať
+  to příště zkusí znovu. Srovnání běží 1×/den, takže se schválené automatové řádky
+  nepřepisují pořád dokola.
+
+**Výpočet ani per-edit přepočet se NEMĚNIL** — změna je jen ve **spouštěči**. Nasazeno
+29. 7. 2026 (commit `24dad207`); hned po nasazení spouštěč sám dohnal 27. i 28. 7. Ověřeno:
+Honomichlová 28. 7. doplnění do fondu 2,58 h, 27. 7. nad fond 0,10 h; celý červenec má na
+pracovních dnech srovnání (víkendy/svátek jen „nad fond", kde někdo odpracoval přes fond).
 
 ## Co se 21. 7. 2026 opravilo (čtyři chyby)
 
@@ -95,8 +133,19 @@ nezrealizovala: živá funkce jen **přidá řádek**, práci nesrazí.
 
 Důsledek: `nenarokova` má `category='presence'`, takže ji většina součtů
 (`/attendance/daily`, `_konto_compute`, HR grid, mobil „Odmakáno") **přičte** —
-den se tím nafoukne. Na mzdy to dnes nedopadá, protože ty čtou
-`att_day_summary` (plněno z Heliosu), ne `att_entry`.
+den se tím nafoukne.
+
+⚠️ **OPRAVA 18. 8. 2026 (rozhodl Jirka Honomichl, zapsal Claude-28).** Do 18. 8. tu stála věta
+*„Na mzdy to dnes nedopadá, protože ty čtou `att_day_summary` (plněno z Heliosu), ne `att_entry`."*
+**Od 6. 8. 2026 to neplatí:** `att_day_summary` se plní **ze STRATEGIE**, ne z Heliosu — závazné
+rozhodnutí (Kristý: *„tabulku můžeme použít, ale musí být plněná daty ze STRATEGIE"*, Týnka totéž),
+viz `doc-mzdy-zrcadlo-dochazky-ze-strategie`. Cesta z docházky do mzdového podkladu tedy **existuje**
+a původní věta uklidňovala něčím, co už neplatí. Upozornila na to Kristý (+ Claude-24) 17. 8. 2026
+v podkladu `dochazka_skupiny_pro_jirku_c28.md`.
+
+**Co tím NENÍ řečeno:** neověřovali jsme, jestli kvůli tomu někomu reálně vyšla špatná mzda —
+opravuje se jen zavádějící tvrzení. Ověření dopadu na konkrétní čísla je samostatná práce
+a patří Peti jako vlastníkovi této oblasti.
 
 **Otevřené rozhodnutí pro Martiho:** dodělat sražení práce na fond, nebo přestat
 nenárokový řádek zakládat? Peťa 21. 7.: *„rozhodně nechceme, aby se mazaly"* —
@@ -119,5 +168,4 @@ Příkaz, který **začíná `WITH`** a končí `DELETE`, projde detekcí zápis
 v `query_raw`. Řešení: dej `DELETE` / `INSERT` na začátek a CTE zabal do
 závorky jako poddotaz. Skulinu by měl zalepit C23 — schvalovací banner se tím
 dá obejít.
-
 

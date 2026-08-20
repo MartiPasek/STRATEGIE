@@ -2,6 +2,13 @@
 
 > oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
+> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
+> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
+> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
+> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
+> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+
 # Cílový režim — mobilní UI (nativní obrazovka) + gotcha auth
 
 Navazuje na `doc-marti-ai-cilovy-rezim-workflow-api`. UI Cílového režimu v mobilní appce (Kristý + C24, 24.7.2026). Ověřeno na PC i mobilu.

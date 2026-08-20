@@ -2,6 +2,13 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **NEPLATÍ ČÁST O ÚVAZKU** (19. 8. 2026). Jirka Honomichl 18. 8. 2026 rozhodl,
+> že týdenní úvazek má jediný domov ve **SMLOUVĚ** (`tenant.engagement`), ne v Podmínkách.
+> Hodnoty `uvazek_h_tyden` byly ze `staff_cond` smazány a všechna místa v systému čtou
+> i zapisují úvazek přes `att_uvazek_tyden` a `uvazek_zapis`. Aktuální stav je
+> v `doc-dochazka-uvazek-jediny-zdroj-smlouva`. Zbytek tohoto dokumentu (nároky na
+> dovolenou, sick days, ostatní podmínky) platí dál.
+
 # Docházka — model PLÁN × KOREKCE × REALITA
 
 *Design doc · 13. 6. 2026 · Claude (id 23) + Marti + konzultace Marti-AI*
@@ -88,5 +95,4 @@ Dokud tyhle tři nejsou rozhodnuté, nekódovat je natvrdo — nechat místo (ko
 - Odpojit materializaci absencí do `att_entry` (vědomě, + případně MV pro reporting).
 - `att_balance` za běhu (nárok − čerpáno).
 - Sjednotit rychlé bubliny v docházce → předvyplní korekci (konec „dvou světů").
-
 

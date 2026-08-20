@@ -2,6 +2,13 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
+> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
+> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
+> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
+> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
+> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+
 # Opravy docházky pověřenými osobami — NÁVRH (v1)
 
 **Autor:** Claude-28 (Jirka), 9. 7. 2026 · **Stav: NÁVRH — čeká na odsouhlasení (Jirka → Marti)**
@@ -637,5 +644,4 @@ Pokud se to v praxi ukáže jako problém, hotové řešení je **navázat pravi
 `att_period_lock`** místo na kalendář (žádost jde, dokud měsíc není zamčený) —
 splní Peťin důvod a přelom měsíce nerozbije. Peťa je na tenhle důsledek
 upozorněna e-mailem.
-
 

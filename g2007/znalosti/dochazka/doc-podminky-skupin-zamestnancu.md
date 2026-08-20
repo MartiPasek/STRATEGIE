@@ -2,6 +2,13 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **NEPLATÍ ČÁST O ÚVAZKU** (19. 8. 2026). Jirka Honomichl 18. 8. 2026 rozhodl,
+> že týdenní úvazek má jediný domov ve **SMLOUVĚ** (`tenant.engagement`), ne v Podmínkách.
+> Hodnoty `uvazek_h_tyden` byly ze `staff_cond` smazány a všechna místa v systému čtou
+> i zapisují úvazek přes `att_uvazek_tyden` a `uvazek_zapis`. Aktuální stav je
+> v `doc-dochazka-uvazek-jediny-zdroj-smlouva`. Zbytek tohoto dokumentu (nároky na
+> dovolenou, sick days, ostatní podmínky) platí dál.
+
 # Podmínky skupin zaměstnanců + individuální výjimky (Šárka, 12. 6. 2026)
 
 **Zdroj:** Šárka Novotná (personalistka), text 12.6.2026 · **Model:** 3vrstvý resolver

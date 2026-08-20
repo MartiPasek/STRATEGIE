@@ -23686,15 +23686,22 @@ def _podklad_osvc_can(uid) -> bool:
 
 
 def _podklad_osvc_sync_odmeny(target_uid) -> None:
-    """Mini-sync odměn jednoho člověka před náhledem/generováním (Kristý 19. 8. 2026:
-    „to budeme potřebovat mít hned"). Celý hodinový sync_pripl_srazky_ec trvá ~17 s
-    nad 3 000 řádky, tenhle jednotky řádků. Chyba syncu NESMÍ shodit podklad —
-    v nejhorším se ukáže o pár minut starší stav, který dotáhne hodinový sync."""
-    try:
-        from modules.erp.api import erp_registry as _ereg_so
-        _ereg_so.call("sync_odmeny_osoba", int(target_uid))
-    except Exception as _e:
-        logging.getLogger(__name__).warning("[podklad-osvc] mini-sync odměn selhal: %s", _e)
+    """Mini-sync odměn A ZÁLOH jednoho člověka před náhledem/generováním.
+
+    Kristý 19. 8. 2026: „to budeme potřebovat mít hned" — celá hodinová zrcadla
+    (sync_pripl_srazky_ec ~17 s / 3 000 řádků, sync_osvc_zalohy 6 233 řádků) jsou na každé
+    kliknutí moc; tyhle berou jednotky až stovky řádků jednoho člověka.
+    Zálohy přibyly 20. 8. 2026: podklad vytištěný v 11:23 ukazoval zakázky pořád jako
+    neuhrazené, protože platby z právě založené objednávky doputovaly do zrcadla až ve 12:51
+    (režie a odměna zmizely hned — ty se řídí razítkem, resp. IDPolVobj).
+    Chyba syncu NESMÍ shodit podklad — v nejhorším se ukáže starší stav, který dotáhne
+    hodinové zrcadlo."""
+    from modules.erp.api import erp_registry as _ereg_so
+    for _kod in ("sync_odmeny_osoba", "sync_zalohy_osoba"):
+        try:
+            _ereg_so.call(_kod, int(target_uid))
+        except Exception as _e:
+            logging.getLogger(__name__).warning("[podklad-osvc] mini-sync %s selhal: %s", _kod, _e)
 
 
 @api_router.get("/app/vyroba/podklad-osvc/seznam")

@@ -37153,11 +37153,12 @@ def _pref_plzen_ma_mzdy(mesic, rok):
 
 
 # Kristy 20.8.2026: IT se od obdobi 7/2026 NEfakturuje pulkou. Prefakturuji se
-# CELI jen tihle tri (Kristy ma dve osobni cisla, 21 a 27; Honomichl 9030),
-# ostatni ze skupiny IT (EC_Skupiny.ID=5) do prefakturace nejdou VUBEC.
-# TAZ trojice je natvrdo i v procedure Centraly EC_GenVFESzFaaDeniku_Priprava
+# CELI jen tihle (Kristy ma dve osobni cisla, 21 a 27; 349 Sik; 9030 Honomichl),
+# ostatni ze skupiny IT (EC_Skupiny.ID=5) do prefakturace nejdou VUBEC
+# (napr. 9103 Pillar -- fakturuje se jine firme).
+# TYZ seznam je natvrdo i v procedure Centraly EC_GenVFESzFaaDeniku_Priprava
 # (dokladova cast) -- pri zmene slozeni MENIT OBE MISTA.
-_PREF_IT_CELE = (21, 27, 9030)
+_PREF_IT_CELE = (21, 27, 349, 9030)
 
 
 def _pref_mzdy_praha_lines(mesic, rok, marze):

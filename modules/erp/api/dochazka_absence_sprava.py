@@ -722,6 +722,39 @@ def _znic_dny(s, ids, emp, uid, actor, duvod):
     return data
 
 
+def _prepocti_fond(emp, dny) -> None:
+    """Po zásahu do absence srovnej „doplnění do fondu“ v dotčených dnech.
+
+    PROČ (Peťa 20. 8. 2026, nález na Saadu Jarrarovi): automat počítá doplnění
+    do fondu jednou za noc. Když se dovolená dopichuje ZPĚTNĚ, den už má
+    doplnění spočtené BEZ ní — a nic ho nepřepočítalo. Saad 19. 8.: práce 3,98 h
+    + doplnění do fondu 4,02 h + dovolená 4,00 h = 12,00 h za den.
+
+    Opravy docházky (`fix/entry`, `fix/add`, `fix/void`, `fix/merge`,
+    `entry-trim`) i nahlášení absence z mobilu tenhle přepočet volají už od
+    20. 7. 2026 — Správa docházky jako jediná cesta ne. Tohle to dorovnává.
+
+    Používá se **existující** `_att_automat_recalc_day` (router.py → tenký
+    delegate na `g2007.python` kod=`att_automat_level_day`), takže výpočet
+    zůstává na jednom místě. Ten si sám ohlídá, že se dnešek nepřepočítává,
+    dokud někomu běží směna.
+
+    NIKDY nesmí shodit odpověď — absence je v té chvíli už zapsaná a uložení
+    nesmí spadnout kvůli dopočtu.
+    """
+    if not emp or not dny:
+        return
+    try:
+        from modules.erp.api.router import _att_automat_recalc_day
+    except Exception:
+        return
+    for d in sorted({x for x in dny if x is not None}):
+        try:
+            _att_automat_recalc_day(int(emp), d)
+        except Exception:
+            pass
+
+
 # ── ÚPRAVA ───────────────────────────────────────────────────────────────────
 @doch_zak_tab_router.post("/app/dochazka-abs/save")
 async def dochazka_abs_save(req: Request) -> JSONResponse:
@@ -841,6 +874,9 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         roky = {d.year for d in stare} | {d_od.year, d_do.year}
         zust = _abs_recalc_balances(s, emp, roky)
         s.commit()
+        # Srovnej doplnění do fondu — ve dnech, odkud absence zmizela, i tam,
+        # kam nově přibyla (Peťa 20.8.2026, viz `_prepocti_fond`).
+        _prepocti_fond(emp, list(stare) + _pracovni_dny(s, d_od, d_do))
         try:
             _att_fix_notify(s, emp, uid, actor, "Úprava absence",
                             "%s upravil(a) tvou absenci: %s %s–%s (%d dnů). Důvod: %s"
@@ -949,6 +985,10 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
                        detail="Správa docházky — nová absence #%s" % zid, old_date=d_od)
         zust = _abs_recalc_balances(s, emp, {d_od.year, d_do.year})
         s.commit()
+        # Srovnej doplnění do fondu ve dnech, kam absence přibyla — jinak by
+        # u zpětně dopíchnuté dovolené zůstalo doplnění spočtené bez ní
+        # (Peťa 20.8.2026, Saad 19.8. = 12,00 h za den; viz `_prepocti_fond`).
+        _prepocti_fond(emp, _pracovni_dny(s, d_od, d_do))
         try:
             _att_fix_notify(s, emp, uid, actor, "Zapsaná absence",
                             "%s ti zapsal(a) absenci: %s %s–%s (%d dnů)."
@@ -1013,8 +1053,9 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
                                "AND source_system='absence_req' AND source_id=:z "
                                "AND COALESCE(status,'')<>'superseded'"),
                             {"t": _TEN, "z": zid}).fetchall()
+            dot_dny = []
             if dny:
-                _znic_dny(s, [int(x[0]) for x in dny], emp, uid, actor, duvod)
+                dot_dny = _znic_dny(s, [int(x[0]) for x in dny], emp, uid, actor, duvod)
             # RUŠÍ SE CELÁ SKUPINA STEJNÝCH ŽÁDOSTÍ (Peťa 31.7.2026).
             # Přehled slučuje shodné žádosti (týž člověk + druh + období) do JEDNOHO
             # řádku — Duspivová měla 21.7. „lékař" ČTYŘIKRÁT (appka je založila
@@ -1043,6 +1084,8 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
                            old_date=r[1])
             zust = _abs_recalc_balances(s, emp, {r[1].year, r[2].year})
             s.commit()
+            # Po zrušení absence se den musí dopočítat znovu (Peťa 20.8.2026).
+            _prepocti_fond(emp, dot_dny)
             # POJISTKA (Peťa 30.7.2026): NIKDY nehlásit „smazáno", dokud to není
             # opravdu v datech. Dřív endpoint vrátil ok i když se změna cestou
             # ztratila (rollback v přepočtu zůstatku) — uživatel viděl zelenou
@@ -1081,6 +1124,8 @@ async def dochazka_abs_delete(req: Request) -> JSONResponse:
         data = _znic_dny(s, [int(r[0]) for r in rows], emp, uid, actor, duvod)
         zust = _abs_recalc_balances(s, emp, {d.year for d in data} or {rows[0][2].year})
         s.commit()
+        # Po zrušení absence se den musí dopočítat znovu (Peťa 20.8.2026).
+        _prepocti_fond(emp, data)
         try:
             _att_fix_notify(s, emp, uid, actor, "Zrušená absence",
                             "%s zrušil(a) tvou absenci (%d dnů). Důvod: %s" % (actor, len(data), duvod))

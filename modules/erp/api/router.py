@@ -29514,7 +29514,13 @@ def _netscan_auto_checkin() -> int:
         if not rows:
             s.commit()
             return 0
-        _NS_TITLE = "👋 Jsi v práci?"
+        # ZMĚNA (Kristý 20.8.2026): notifikace už NENÍ interaktivní — jen připomenutí.
+        # Přihlášení přes ni obcházelo kontrolu předchozího dne a nabourávalo rozpady
+        # (člověk se přihlásil, ale zakázku nevybral → ranní díra). Navíc ji spouští
+        # ZAŘÍZENÍ ve firemní síti, ne člověk, takže chodila i lidem, kteří v práci
+        # nebyli (podnět Peťa 19.8.2026). Píchnout se musí v aplikaci; větev 'checkin'
+        # v att_do_att_action proto od 20.8.2026 příchod nezakládá.
+        _NS_TITLE = "👋 Nemáš píchnutý příchod"
         for r in rows:
             # Marti 12.6.: NEpíchat automaticky — jen přátelské upozornění, 1×/den/člověk
             # (dedup přes mobile_command, bez vazby na docházkový záznam).
@@ -29525,14 +29531,16 @@ def _netscan_auto_checkin() -> int:
                 {"uid": r[1], "ti": _NS_TITLE}).first()
             if already:
                 continue
-            # Interaktivní (Marti 26.6.): Ano/Ne → Ano reálně píchne příchod.
+            # Neinteraktivní připomenutí (Kristý 20.8.2026) — žádné tlačítko, žádný
+            # att_action v payloadu. Do 20.8. tu byl 'claude_confirm' s Ano/Ne, kde Ano
+            # reálně píchlo příchod (Marti 26.6.).
             s.execute(_t(
                 "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, payload, created_by) "
-                "VALUES ('mobile', :uid, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
+                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL, NULL)"),
                 {"uid": r[1], "ti": _NS_TITLE,
-                 "msg": "Vidím tvoje zařízení ve firemní síti. Mám ti píchnout příchod do "
-                        "Docházky? Ano = píchnu ti ho hned teď, Ne = nech být. — Tvoje Marti",
-                 "pl": '{"att_action":"checkin"}'})
+                 "msg": "Vidím tvoje zařízení ve firemní síti, ale nemáš píchnutý příchod. "
+                        "Až budeš mít chvíli, píchni si ho prosím v aplikaci — přes tuhle "
+                        "zprávu to nejde. — Tvoje Marti"})
             done += 1
         s.commit()
         return done

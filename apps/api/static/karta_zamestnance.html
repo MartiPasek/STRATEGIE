@@ -2127,15 +2127,10 @@ function renderPodm(edit){
     '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">📋 Podmínky (aktuálně platné)</span>'+
     '<span style="display:flex;gap:14px;white-space:nowrap">'+back+btn+'</span></div>';
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error==='forbidden'?'Nemáš oprávnění — podmínky vidí a mění jen HR a vedení.':(d.error||'nedostupné'))+'</div>'; det.innerHTML=h; return; }
-  // Šárka 19.8.2026: u OSVČ (živnostníků) se zaměstnanecké benefity nezobrazují — pro tento typ
-  // spolupráce se neuplatňují. Jen zobrazení, data zůstávají uložená.
-  const HIDE_OSVC=new Set(['danova_obleceni','danova_ho','home_office_h','sick_days_rok','dovolena_dni','dovolena_zakladni_dni','dovolena_navic_dni','stravenka_kc','lekar_listecek_limit_h']);
-  const isOsvc=(p.typ||'').includes('OSVČ') && !(p.typ||'').includes('HPP');
-  const defsAll=d.defs||[], res=d.resolved||{}, own=d.own||{};
-  const defs=isOsvc?defsAll.filter(dd=>!HIDE_OSVC.has(dd.code)):defsAll;
+  // Šárka 20.8.2026: skrývání benefitů u OSVČ vráceno zpět — podmínky se u OSVČ zobrazují jako u ostatních.
+  const defs=d.defs||[], res=d.resolved||{}, own=d.own||{};
   if(!defs.length){ h+='<div class="empty">Žádné podmínky nejsou nastavené.</div>'; det.innerHTML=h; return; }
   h+='<div id="podmstat" style="padding:0 16px 4px;font-size:11.5px;min-height:14px;color:#5d6b7c"></div>';
-  if(isOsvc){ h+='<div style="padding:0 16px 6px;color:#7f8ea0;font-size:11.5px">ℹ️ U OSVČ se zaměstnanecké benefity (dovolená, sick days, stravenka, home office, daňové úlevy, lísteček od lékaře) nezobrazují — pro tento typ spolupráce se neuplatňují. Data zůstávají uložená.</div>'; }
   h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     defs.map(dd=>{ const r=res[dd.code]||{}; const val=(r.value==null||r.value==='')?'<span style="color:#5d6b7c">—</span>':esc(r.value);
       const o=(own[dd.code]&&own[dd.code].value!=null)?own[dd.code].value:null;

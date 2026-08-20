@@ -1133,7 +1133,7 @@ function render(){
       : '<span style="font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;background:#23262b;color:#7f8ea0">Bývalý</span>';
     const meta = [p.pozice||'', p.typ||'', p.nastup?('nástup '+p.nastup):'', (!p.ma_pomer&&p.konec)?('odešel '+p.konec):''].filter(Boolean).join(' · ');
     const klik = p.user_id ? (' onclick="openP('+p.user_id+',this)" style="cursor:pointer"') : ' style="opacity:.7;cursor:default"';
-    const note = p.user_id ? (p.ma_kartu?'':' · <span style="color:#c98">bez karty</span>') : ' · <span style="color:#7f8ea0">jen docházkový záznam</span>';
+    const note = p.user_id ? '' : ' · <span style="color:#7f8ea0">jen docházkový záznam</span>';
     return '<div class="prow" data-u="'+(p.user_id||('ae'+(p.att_emp_id||'')))+'"'+klik+'>'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
         '<div class="nm">'+esc(p.jmeno)+'</div>'+stav+'</div>'+
@@ -1158,7 +1158,7 @@ function renderTable(){
     const tel=p.prac_telefon?('<a href="tel:'+esc(telN)+'" onclick="event.stopPropagation()">'+esc(p.prac_telefon)+'</a>'):'<span class="muted">—</span>';
     const stav=p.ma_pomer?'<span class="schip ok">Aktivní</span>':'<span class="schip old">Bývalý</span>';
     const trk=p.user_id?(' onclick="openFromTable('+p.user_id+')" style="cursor:pointer"'):' style="opacity:.72"';
-    const cardnote=p.user_id?(p.ma_kartu?'':' <span class="muted" style="font-size:11px">(bez karty)</span>'):' <span class="muted" style="font-size:11px">(jen docházka)</span>';
+    const cardnote=p.user_id?'':' <span class="muted" style="font-size:11px">(jen docházka)</span>';
     return '<tr'+trk+'>'+
       '<td>'+foto+'</td>'+
       '<td><span class="tnm">'+esc(p.jmeno)+'</span>'+cardnote+'</td>'+

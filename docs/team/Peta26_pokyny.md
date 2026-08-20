@@ -693,6 +693,42 @@ s hlavičkou „den je mezitím opravený" a fronta jí nabízela „✓ Hotovo 
   (`g2007.python` → `att_fix_queue`) a nově vylučuje dny se zapomenutým odchodem.
 - Hlídá pojistka `dochazka-zelena-jen-kdyz-srovnano`.
 
+### 🔴🔵🟢 TŘI STAVY NÁLEZU — a zelená až od kontrolora (Peťa 19. 8. 2026, závazné)
+Peťa: *„nemělo by to být modré a pak nějak ok kontrolora?"* Ano — a je to lepší návrh, než
+jaký jsem měl já. **Zelená neznamená „někdo něco změnil", ale „kontrolor to odkývnul".**
+
+| stav | kdy | kde to je vidět |
+|---|---|---|
+| 🔴 **červená** | nález ještě nikdo nespravil | „⚠ Co systému nesedělo" |
+| 🔵 **modrá** | spravené, ale kontrolor to zatím neodbavil (typicky **si to člověk upravil sám** — v poznámce „zkráceno uživatelem") | „ℹ Co systému nesedělo — člověk si to upravil sám, zkontroluj a odbav" |
+| 🟢 **zelená** | odbaveno kontrolorem, nebo opravil editor | „✓ … den je mezitím opravený" |
+
+- **Potvrzení patří tam, kde se Peťa dívá.** V modré hlášce je tlačítko **„✓ V pořádku —
+  odbavit"**, jedno kliknutí, **bez okna na důvod** (Peťa: *„to když zamáčknu, vyskočí na mě
+  důvod změny"*). Detail dne k tomu dostává z `att_fix_day` pole `anomalie_ids`.
+- **Odbavením položka zmizí z fronty a to je správně** — fronta je seznam toho, co čeká,
+  ne archiv. Historie zůstává v „Historie oprav" a v poznámkách dne.
+
+### 🕛 RUČNĚ ZADANÉ 23:59 JE SKUTEČNÝ KONEC (Peťa 19. 8. 2026, závazné)
+Peťa: *„máme přece nastaveno, že když to odhlásí o půlnoci, pole konec se nechá prázdné —
+takže když se ručně zadá 23:59, je jasné, že je to reálný konec."*
+
+- „Zapomenutý odchod" (červená) platí **jen dokud záznam pořád končí ve 23:59 a nese poznámku
+  automatu**. Jakmile konec někdo doplní — ať editor, ať **člověk sám v appce** — je to hotové.
+- Platí **na obou obrazovkách**: v Opravách docházky i v **Docházce new**. Ta to měla schované
+  jinde — v datovém podkladu `fw.data_set`, kód `dochazka.zakazky_vse_list` (sloupec `CasKonec`
+  a příznak `_neodhl`). Dřív schovávala čas konce a barvila červeně jen podle poznámky, takže
+  opravený den vypadal pořád rozbitě.
+- **Poučení pro mě:** stejné pravidlo bývá zadrátované na víc místech (stránka + dataset +
+  mobil). Když měním chování, projdu všechna, ne jen to, kde si toho Peťa všimla.
+
+### 🧹 KDYŽ PEŤA VIDÍ STAROU VERZI (a já nasadil správně)
+Dvakrát 19. 8. platilo, že v DB i na serveru byla nová verze, ale Peťa viděla starou:
+1. **Běžela jí záloha B** (v patičce „běží B") — ta jede záměrně starší verzi. Přepnout na A.
+2. **Offline paměť prohlížeče** (aplikace si stránky ukládá) — **Ctrl+F5 nestačí**, pomůže
+   `Ctrl+Shift+R`, adresa s `?x=1`, nebo zavřít celý Chrome.
+Než začnu hledat chybu v kódu, **ověřím si nejdřív tyhle dvě věci** — ušetří to čas oběma.
+
 **Vzhled červeného upozornění** (ověřený, drž se ho): světlý podklad `#fee2e2`, tmavý rámeček
 `#991b1b`, silný pruh vlevo `#dc2626`, tmavé písmo `#7f1d1d`. **Vlastní rámeček**, ne splynutí
 s okolím. Zůstává na obrazovce a **zavírá se křížkem** — nemizí samo.

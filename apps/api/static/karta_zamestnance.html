@@ -2094,7 +2094,13 @@ async function podmUdaje(){
 // Zdroj „smlouva" (Jirka 18. 8. 2026, schválila Marti-AI): týdenní úvazek jako jediný
 // řádek nebere hodnotu z Podmínek, ale ze smlouvy (poměru) — a taky se do ní zapisuje.
 // Marti-AI: „matoucí by bylo, kdyby to bylo tiché", proto vlastní barva i popisek.
-function podmSrcBadge(s){ s=(s||'').toLowerCase();
+// „Neuvádí se" (Peťa 20. 8. 2026 přes Jirku, schválila Marti-AI): u dohod, brigádníků
+// a systémových účtů úvazek ve smlouvě NENÍ a doplňovat se nemá — šedý štítek s důvodem
+// místo červené výzvy, aby to nikdo (člověk ani AI) nechtěl „dodělat". Musí se testovat
+// PRVNÍ, jinak by text spadl na výchozí „systém" a důvod by se ztratil.
+function podmSrcBadge(s0){ const s=(s0||'').toLowerCase();
+  if(/neuvád|neuvad/.test(s)){
+    return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:#23262b;color:#9aa7b4">'+esc(s0||'')+'</span>'; }
   const m=/smlouv/.test(s)?['smlouva','#122a1e','#7fe0a0']:(/chyb/.test(s)?['chybí ve smlouvě','#2e1a1a','#e08080']:
     (/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4'])));
   return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; }

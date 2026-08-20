@@ -13414,21 +13414,6 @@ def _hr_vernost_dovolena(s):
     return _ereg.call("att_vernost_dovolena", s)
 
 
-def _hr_dovolena_kaskada(s):
-    """DB-driven delegate (g2007.python kod=att_dovolena_kaskada) — Peťa 20. 8. 2026.
-
-    Rozpad dovolené na řádnou (činnost 20) a dovolenou navíc (30). Postaveno podle
-    Centrály (dbo.EC_Events_PropsatDoDoch, podklad od Týnky Štorkové), včetně dělení
-    zlomového dne na dva záznamy pod toutéž žádostí. Rozdíl proti Centrále je jediný,
-    ale zásadní: Centrála činnost jednou zapíše a už ji nikdy nepřepočítá, takže po
-    zrušení nebo posunu dřívější dovolené zůstanou staré značky špatně. Tenhle skript
-    projde celý rok znovu, chronologicky, a je idempotentní — pustit dvakrát dá totéž.
-    Uzamčených období se nedotýká, dnů v budoucnu taky ne (ty dostanou činnost až
-    v den, kdy nastanou = „překlopení")."""
-    from modules.erp.api import erp_registry as _ereg
-    return _ereg.call("att_dovolena_kaskada", None, False)
-
-
 def _hr_auto_narozeniny(s):
     """Automaticky odešle narozeninové přání každému aktivnímu zaměstnanci, který má DNES
     narozeniny a nemá pro dnešek 'sent'/'skipped' (Šárka 23.7.2026). Přeskočit v panelu = stopka.
@@ -13589,6 +13574,40 @@ def _hr_mesicni_resume(s):
     logger.info("[hr_resume] měsíční resumé odesláno %d příjemcům (%s)", poslano, marker)
 
 
+_KASKADA_LAST = [""]
+
+
+def _dovolena_kaskada_nocni():
+    """1×/den V NOCI (2:00–5:00): přepočet rozpadu dovolené na řádnou (20) a navíc (30).
+
+    PROČ V NOCI (Peťa 20. 8. 2026): „přijde mi to špatně dělat to v době, kdy do toho
+    může ručně zasahovat někdo z nás." Přepočet přerovnává značky u celého roku podle
+    pořadí čerpání — kdyby běžel přes den, mohl by skákat pod rukama tomu, kdo zrovna
+    opravuje docházku. Centrála to má stejně (dbo.EC_Events_PropsatDoDoch jede jako
+    noční kontrola, s pojistkou proti druhému běhu za den).
+
+    Záměrně NENÍ v _hr_daily_pass — ten běží po 7. hodině a posílá mimo jiné
+    narozeninová přání, což ve dvě ráno nechceme.
+
+    Okamžitou reakci na změnu zajišťuje volání z rozhodnutí o žádosti a ze Správy
+    docházky (_prepocti_dovolenou); tohle je jen noční dorovnání, hlavně kvůli
+    „překlopení" dnů, které mezitím nastaly.
+
+    Idempotentní, best-effort. Volá se z att_sync smyčky."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    today = now.date().isoformat()
+    if _KASKADA_LAST[0] == today or not (2 <= now.hour < 5):
+        return
+    _KASKADA_LAST[0] = today
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        vys = _ereg.call("att_dovolena_kaskada", None, False)
+        logger.info("[dovolena_kaskada] nocni prepocet: %s", vys)
+    except Exception as _e:
+        logger.warning("[dovolena_kaskada] %s", _e)
+
+
 def _hr_daily_pass():
     """1×/den (po 7. hodině) na primáru: generátor úkolů, auto narozeninová přání,
     věrnostní dny za 10 let, měsíční personální resumé. Idempotentní, best-effort.
@@ -13600,10 +13619,7 @@ def _hr_daily_pass():
         return
     cm, s = _att_session()
     try:
-        # _hr_dovolena_kaskada je ZÁMĚRNĚ až za _hr_vernost_dovolena — věrnostní den
-        # zvyšuje nárok v Podmínkách a rozpad D/DN se z něj počítá (Peťa 20. 8. 2026).
-        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena,
-                   _hr_dovolena_kaskada, _hr_mesicni_resume):
+        for fn in (_hr_generuj_ukoly, _hr_auto_narozeniny, _hr_vernost_dovolena, _hr_mesicni_resume):
             try:
                 fn(s)
                 s.commit()
@@ -27962,6 +27978,10 @@ async def _att_sync_loop():
                 await loop.run_in_executor(None, _hr_daily_pass)
             except Exception as _he:
                 logger.warning("[hr_daily] %s", _he)
+            try:  # noční přepočet rozpadu dovolené D/DN — self-gated 1×/den mezi 2. a 5. hodinou
+                await loop.run_in_executor(None, _dovolena_kaskada_nocni)
+            except Exception as _ke:
+                logger.warning("[dovolena_kaskada] %s", _ke)
         except _aio.CancelledError:
             break
         except Exception as e:

@@ -37121,7 +37121,11 @@ _PREF_POPIS_MAP = [
     ("%Vedení společnosti%", "Správní výdaje - vedení"),
     ("%Personální%", "Personální služby"),
     ("%Zkušebna%", "Zkoušení rozvaděčů"),
-    ("%IT,%", "Správa a údržba IS a IT podpora uživatelů"),
+    # Kristy 20.8.2026: MUSI byt BYTE-shodne s CASE v procedure EC_GenVFESzFaaDeniku_Priprava,
+    # jinak mzdova a dokladova cast skonci na DVOU radcich faktury misto jednoho
+    # (slucovani v prefakturace_vystavit porovnava LTRIM(RTRIM(Popis))). Drive tu bylo
+    # zkracene "Správa a údržba IS a IT podpora uživatelů" -> VF 726009 mela IT 2x.
+    ("%IT,%", "Správa a údržba informačního systému a IT podpora uživatelů"),
     ("%Vedoucí projektů SW,%", "Dodavatelské služby pro software"),
     ("%Vytížení - montéři%", "Elektromontážní práce"),
     ("%Vytížení - výpomoc%", "Elektromontážní práce"),

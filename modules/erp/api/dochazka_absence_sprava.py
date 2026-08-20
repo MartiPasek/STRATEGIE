@@ -587,6 +587,20 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
     ti = _typ_id(s, typ_code)
     if not ti:
         return 0
+    # ── LÉKAŘ, NEMOC a OČR SE NESCHVALUJÍ SAMY (Peťa 19. 8. 2026) ─────────────
+    # U dovolené a sick day rozhoduje vedoucí a co zadá správce, platí hned.
+    # U lékaře, nemoci a OČR je to jinak: schválení neznamená „souhlasím",
+    # ale „doklad je doložený" — u lékaře po kontrole potvrzení, u nemoci až
+    # když máme v ruce UKONČENÍ neschopenky. Odklikává ho výhradně Peťa nebo
+    # Michelle, a to ručně, ne systém při zápisu.
+    # Konec neschopenky se přitom zadává hned jako odhad (potřebují ho jiné
+    # výpočty) — odhadnutý konec ale NENÍ důvod ke schválení.
+    # Stav do 19. 8. 2026: schválených bylo 308 z 308, tedy úplně všechny;
+    # ve Správě docházky proto svítily jako vyřízené, i když doklad nikdy nedorazil.
+    # Záznamy z Centrály a z ČSSZ sem nechodí (jdou vlastní synchronizací),
+    # takže se jich tohle pravidlo netýká.
+    if typ_code in ("medical", "sick", "family_care"):
+        schvaleno = False
     dny = _pracovni_dny(s, d_od, d_do)
     if not dny:
         return 0

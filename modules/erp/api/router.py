@@ -37132,9 +37132,18 @@ def _pref_plzen_ma_mzdy(mesic, rok):
         return False
 
 
+# Kristy 20.8.2026: IT se od obdobi 7/2026 NEfakturuje pulkou. Prefakturuji se
+# CELI jen tihle tri (Kristy ma dve osobni cisla, 21 a 27; Honomichl 9030),
+# ostatni ze skupiny IT (EC_Skupiny.ID=5) do prefakturace nejdou VUBEC.
+# TAZ trojice je natvrdo i v procedure Centraly EC_GenVFESzFaaDeniku_Priprava
+# (dokladova cast) -- pri zmene slozeni MENIT OBE MISTA.
+_PREF_IT_CELE = (21, 27, 9030)
+
+
 def _pref_mzdy_praha_lines(mesic, rok, marze):
     """Mzdova cast prefakturace ES z prazskeho Heliosu (superhruba + stravne u.527,
-    per zamestnanec -> skupina -> popis, IT pulkou, marze). ES = firma 2 (UCTO_ES).
+    per zamestnanec -> skupina -> popis, marze). ES = firma 2 (UCTO_ES).
+    IT: viz _PREF_IT_CELE -- trojice cela, zbytek IT vyrazen.
     Vraci [{popis, castka}] (castka s marzi, format ##TempFinal)."""
     cloud = _firma_cloud_db(2)
     q = ("SELECT z.Cislo AS zam, "
@@ -37161,9 +37170,12 @@ def _pref_mzdy_praha_lines(mesic, rok, marze):
         "  (SELECT S.Nazev + ', ' FROM EC_SkupinyVazby SV LEFT OUTER JOIN EC_Skupiny S ON SV.IDSkupiny=S.ID "
         "     WHERE SV.cislozam=q.zam AND SV.IDSkupiny not in(16,17,19,20,21,22,23,26,27,28,39,40,41,42) FOR XML PATH('')) AS Skupina "
         "  FROM (VALUES %s) q(zam, nak)), "
-        "ln AS (SELECT %s AS popis, (CASE WHEN isIT=1 THEN nak/2.0 ELSE nak END) * %s AS castka FROM emp) "
+        # Kristy 20.8.2026: zadne deleni dvema; misto toho z IT projdou jen _PREF_IT_CELE.
+        "ln AS (SELECT %s AS popis, nak * %s AS castka FROM emp "
+        "       WHERE isIT = 0 OR zam IN (%s)) "
         "SELECT popis, CAST(SUM(castka) AS numeric(18,2)) AS castka FROM ln GROUP BY popis ORDER BY popis"
-        % (vals, _pref_popis_case(mesic, rok), repr(mult)))
+        % (vals, _pref_popis_case(mesic, rok), repr(mult),
+           ",".join(str(int(c)) for c in _PREF_IT_CELE)))
     return _pref_clean(_pref_ec_rows(office_sql))
 
 
@@ -37454,8 +37466,11 @@ def prefakturace_detail_xlsx(req: Request):
         sp = _pref_skup_popis([c for c, _, _ in mzdy])
         for cislo, jmeno, nak in mzdy:
             isit, skup, popis = sp.get(cislo, (0, "", ""))
-            base = nak / 2.0 if isit else nak
-            detail.append((cislo, jmeno, skup, popis, "Mzdový list" + (" – IT ½" if isit else ""), round(base, 2), mf))
+            # Kristy 20.8.2026: IT uz ne pulkou -- _PREF_IT_CELE cele, zbytek IT ven.
+            if isit and cislo not in _PREF_IT_CELE:
+                continue
+            base = nak
+            detail.append((cislo, jmeno, skup, popis, "Mzdový list", round(base, 2), mf))
         pf = _pref_clean(_pref_ec_rows(
             "SELECT Z.Cislo AS cislo, RTRIM(Z.Prijmeni)+' '+RTRIM(Z.Jmeno) AS jmeno, "
             "CAST(SUM(D.SumaKcBezDPH) AS numeric(18,2)) AS castka "
@@ -37472,8 +37487,11 @@ def prefakturace_detail_xlsx(req: Request):
             except Exception:
                 continue
             isit, skup, popis = sp2.get(cislo, (0, "", ""))
-            base = amt / 2.0 if isit else amt
-            detail.append((cislo, d.get("jmeno") or "", popis, popis, "Přijatá faktura" + (" – IT ½" if isit else ""), round(base, 2), mf))
+            # Kristy 20.8.2026: IT uz ne pulkou -- _PREF_IT_CELE cele, zbytek IT ven.
+            if isit and cislo not in _PREF_IT_CELE:
+                continue
+            base = amt
+            detail.append((cislo, d.get("jmeno") or "", popis, popis, "Přijatá faktura", round(base, 2), mf))
         najem = _pref_clean(_pref_ec_rows(
             "SELECT CAST(SUM(D.SumaKcBezDPH) AS numeric(18,2)) AS castka FROM TabDokladyZbozi D "
             "WHERE YEAR(D.DUZP)=%d AND MONTH(D.DUZP)=%d AND D.RadaDokladu like '6%%' AND D.CisloOrg=1 "

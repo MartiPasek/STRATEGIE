@@ -28179,6 +28179,11 @@ def _mirror_run_job(job_key):
         # (kód jako data, kód `sync_osvc_zalohy_from_ec`), tady je jen tenký delegate.
         "sync_osvc_zalohy": lambda: __import__("modules.erp.api.erp_registry",
                                                fromlist=["call"]).call("sync_osvc_zalohy_from_ec"),
+        # Peťa 19. 8. 2026: 1. v měsíci připomínka, co pořád čeká na doklad.
+        # Běží denně, skript si sám hlídá, že je prvního — jindy skončí bez práce.
+        # Chodí těm, kdo mají právo „neschopenky" (dnes Peťa a Michelle), ne podle jmen.
+        "att_doklady_pripomenuti": lambda: __import__("modules.erp.api.erp_registry",
+                                                      fromlist=["call"]).call("att_doklady_pripomenuti"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

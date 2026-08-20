@@ -341,6 +341,10 @@ na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá)
 2. **V období zpracování mezd nenasazovat, když to nemusí být.** Každý deploy aplikaci vypne
    a znovu zapne — a právě při startu se skryté chyby projeví. Chyba přitom ležela v kódu dávno;
    „rozbilo" ji až to, že se aplikace musela restartovat.
+   **⏳ MZDY SE ZPRACOVÁVAJÍ 1.–12. V MĚSÍCI** (Peťa 20. 8. 2026). **Nasazuje se i v tom okně** —
+   Peťa výslovně: *„i ve mzdách budeme nasazovat, jen nebudeme řešit věci, které nejsou aktuální
+   a můžou počkat."* Takže v 1.–12. dělej to, co je právě potřeba, ale **nepouštěj se do věcí,
+   které snesou odklad** (velké úklidy, refaktory, nice-to-have). Od 13. dál žádné omezení.
 3. **Výpadek mostu neznamená konec práce.** Přes Petin přihlášený prohlížeč (Claude in Chrome)
    se dá číst i zapisovat docházka běžnými endpointy appky — `fix/lide`, `fix/day?uid&day`,
    `fix/entry`, `fix/add`, `fix/void`, `absence-registr`, `dochazka-zak-tab/data`.
@@ -375,6 +379,19 @@ na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá)
   Stejně tak „ostatní - kanceláře" bez čísla byla duplicita → platí činnost **6**.
 - **Kde to je celé:** G2007, znalost `doc-dochazka-cinnosti-ciselnik-centrala-vs-strategie`.
   Než se Peťy na cokoli kolem činností zeptáš, přečti si ji — už jsme to řešili 3×.
+- **Píše se VŽDY `Rezie`, bez háčku** (Peťa 20. 8. 2026: *„ať vidíme, že je to správně
+  a nevzniká nám tam něco jiného"*). Platí i v textu, který Peťa čte — ne jen v datech.
+  Hlídá **pojistka `rezie-vzdy-bez-hacku`**: rozpad (`vyroba_work.zakazka_ref`), docházka
+  (`att_entry.project_ref`) a číselník zakázek (`zakazka.cislo`). Při zavedení bylo všude 0
+  výskytů s háčkem. **Číselník činností se schválně nehlídá** — zůstává tam jeden neaktivní
+  záznam id 14 „Režie – NEPOUŽÍVAT, Rezie je ZAKÁZKA (archivováno 3.8.2026)", nechaný kvůli
+  historii. **Není to nález, nehlásit.**
+- ⚠️ **Nepleť si dvě různá „3. 8."** (Peťa 20. 8. 2026 se na to právem ptala, tak ať se to
+  neřeší potřetí): **archivace činnosti „Režie" se stala 3. 8. 2026** (den, kdy se srovnával
+  číselník činností s Centrálou). **„Lišková 3. 8." je naproti tomu DATUM DOCHÁZKY** — její
+  duplicitní úsek 05:55–07:48, kde vedle naší položky (VR10674) leží importovaná z Centrály
+  (Rezie) — a ten se řešil **až 19. 8.** a pořád čeká na Petino rozhodnutí. Dvě různé věci,
+  které spojuje jen shodné číslo dne.
 - **Zrušené záznamy docházky (`superseded`) se do mezd NEPOČÍTAJÍ — dořešeno 6. 8. 2026.**
   Filtr doplněn do `mzdy_absence_rows` a `mzdy_benefity_apply` (ostatní ho měly). Detail
   i s dopadem (Jirkovský −5 043 Kč) je na zdi: `Peta26_mzdy.md`, oddíl 7b. **Duplicity

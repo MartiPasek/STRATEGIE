@@ -19873,37 +19873,11 @@ async def app_hr_conditions_save(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
-@api_router.post("/app/hr/conditions/assign")
-async def app_hr_conditions_assign(req: Request) -> JSONResponse:
-    """Přiřadí člověka do podmínkové skupiny (att_employee.cond_group)."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    try:
-        b = await req.json()
-    except Exception:
-        b = {}
-    try:
-        tu = int((b or {}).get("user_id") or 0)
-    except Exception:
-        tu = 0
-    gc = str((b or {}).get("group_code") or "").strip() or None
-    if not tu:
-        return JSONResponse({"ok": False, "error": "user_id"})
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        s.execute(_t("UPDATE tenant.att_employee SET cond_group=:g, updated_at=now() "
-                     "WHERE tenant_id=2 AND user_id=:u"), {"g": gc, "u": tu})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+# Endpoint POST /app/hr/conditions/assign smazan 20. 8. 2026 (Claude-28 / Jirka, schvalila
+# Marti-AI). Nikdo ho nevolal a jako jediny zapisoval do sloupce att_employee.cond_group,
+# ktery uz taky nikdo necetl a byl tyz den zrusen (obsah 8 radku odlozen do zalohy
+# tenant.att_employee_cond_group__zaloha_20260820). Zarazeni do podminkove skupiny se
+# resi clenstvim ve staff_group_member.
 
 
 @api_router.get("/app/hr/conditions/groups")

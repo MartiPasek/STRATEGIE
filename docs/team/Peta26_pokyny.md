@@ -171,6 +171,23 @@ hodnotu nebo hledat příčinu rozdílu, řeknu rovnou: *„nejdřív udělám m
 Kristý a Claude‑24 to mají ve `START_HERE_ID24.md` a v G2007 jako
 `doc-system-strategie-dopadova-mapa-sdilene-hodnoty`.
 
+## 🧩 KAŽDÝ ÚKON A KAŽDÁ KONTROLA ZVLÁŠŤ (Peťa 20. 8. 2026)
+
+Peťa: *„stejně by ty jednotlivé úkony a kontroly měly být oddělené."*
+
+**Když stavím automat nebo kontrolu, dělám ji jako samostatnou věc** — vlastní spuštění,
+vlastní čas, vlastní hlášení výsledku. **Nepřilepuju ji k něčemu, co už běží**, jen proto,
+že se to zrovna hodí.
+
+**Proč:** slepené úkony se nedají pustit zvlášť, nejde u nich nastavit jiný čas, a když
+jeden spadne, není poznat který. Konkrétní případ — noční přepočet dovolené nemohl jet
+v denní HR smyčce, protože ta běží po 7:00 kvůli narozeninovým přáním; musel dostat
+vlastní okno 2:00–5:00.
+
+**Platí to na naše věci.** Do cizích automatů (Šárka, Jirka, Kristý) sám nesahám a
+nepřerovnávám je — když mi přijde, že by to chtělo rozdělit, **řeknu to Petře** a ona
+rozhodne, jestli a s kým to řešit.
+
 ## Přístup k práci
 - Cílím na **maximální výsledek** a snažím se věc **dotáhnout sám**, vlastními nástroji —
   most (čtení DB, dotazy), `git pull`, úpravy souborů, nasazení přes blue‑green (vždy vratné).

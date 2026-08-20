@@ -235,9 +235,8 @@ async function openP(uid,row){
       (p.cislo?'č. zam. '+esc(p.cislo)+' · ':'')+
       'úvazek '+(p.uvazek!=null?p.uvazek+' h/týd':'—')+
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
-      (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>'+
-      '<div class="addbar" style="margin-top:0;padding-top:8px"><label style="color:var(--muted);font-size:12px">Pozice:</label>'+
-      '<select onchange="savePozice('+eg+',this.value)">'+pozOpts(p.position_id)+'</select></div>';
+      (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
+      // Šárka 20.8.2026: výběr pozice odsud odebrán — pozice se mění v Pracovních údajích (Zařazení), ne u mezd.
     h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th><th></th></tr>';
     for(const c of (p.slozky||[])){
       const ph=c.per_hour?'<span class="ph">/hod</span>':'';

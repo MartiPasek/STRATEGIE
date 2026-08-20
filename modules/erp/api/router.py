@@ -19923,31 +19923,20 @@ async def app_hr_conditions_groups(req: Request) -> JSONResponse:
 
 @api_router.get("/app/hr/conditions/people")
 async def app_hr_conditions_people(req: Request) -> JSONResponse:
-    """Lidé pro záložku Jednotlivci: jméno, skupina, má vlastní výjimku?"""
+    """DB-driven delegate (g2007.python kod=hr_conditions_people). Původní tělo migrováno
+    do DB 20. 8. 2026 (Claude-28 / Jirka, schválila Marti-AI) při dokončení sloučení
+    Podmínek a Smlouvy. Dvě vědomé změny: podmínková skupina se čte z číselníku výchozích
+    hodnot (tenant.podminky_vychozi) — v pohledu tenant.staff_cond už skupinové řádky
+    nejsou, takže seznam psal u všech „bez skupiny"; a příznak „vlastní výjimka" je nově
+    rozdíl osobní hodnoty proti výchozí, protože po sloučení má osobní hodnoty každý.
+    Úpravy dělej v DB, ne tady."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT e.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),"
-            "                          max(e.full_name)) nm, "
-            "       (SELECT g.name FROM tenant.staff_group_member m "
-            "          JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
-            "        WHERE m.user_id=e.user_id AND EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 "
-            "          AND c.scope_kind='group' AND c.group_code=g.id::text) ORDER BY g.sort_order, g.id LIMIT 1) cond_grp, "
-            "       EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 AND c.scope_kind='user' "
-            "              AND c.user_id=e.user_id) vyjimka "
-            "FROM tenant.att_employee e LEFT JOIN public.users u ON u.id=e.user_id "
-            "WHERE e.tenant_id=2 AND e.user_id IS NOT NULL AND COALESCE(e.is_active,true)=true "
-            "GROUP BY e.user_id, u.first_name, u.last_name ORDER BY nm")).fetchall()
-        out = [{"user_id": r[0], "jmeno": r[1], "cond_group": r[2], "vyjimka": bool(r[3])} for r in rows]
-        return JSONResponse({"ok": True, "lide": out, "skupiny": _cond_groups(s)})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_conditions_people", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 # Marti 12.6.: zaměstnanec vidí SVÉ resolvované podmínky (nefinanční — hranice Marti-AI Q8).

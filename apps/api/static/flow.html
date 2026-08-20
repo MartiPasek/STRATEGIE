@@ -214,11 +214,16 @@ function pdkOpen(p, view){
       }
       t+='<button id="pdkPdf" style="margin-top:6px;cursor:pointer;background:#10b981;color:#04150e;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📄 Otevřít / tisk PDF</button>';
       t+=' <button id="pdkXlsx" style="margin-top:6px;cursor:pointer;background:#1e7a46;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📊 Excel (rozpad + kontrola)</button>';
-      t+=' <button id="pdkUkol" style="margin-top:6px;cursor:pointer;background:#3b82f6;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🗒 Odeslat úkolníkem na Nákup</button>';
+      // Tlačítko „Odeslat úkolníkem na Nákup" ODEBRÁNO (Kristý 20. 8. 2026): mátlo, protože
+      // úkol na Nákup vzniká automaticky jako součást generování objednávky níž. Funkce
+      // `pdkUkol` i endpoint zůstávají — kdyby úkol při generování selhal, jde doposlat.
       // Fáze 2 (Kristý 19. 8. 2026): dvě tlačítka podle firmy — každé založí objednávku
       // v Heliosu (řada 800 pro EC, 801 pro ES), orazítkuje zdroje a pošle úkol na Nákup.
       t+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid #22303f">'
-        +'<div class="muted" style="margin-bottom:8px">Objednávka a odeslání na Nákup — vyber firmu:</div>'
+        +'<div class="muted" style="margin-bottom:8px">Objednávka a odeslání na Nákup — vyber firmu:<br>'
+        +'<span style="font-size:12px">Tlačítko založí objednávku v Heliosu, označí položky jako '
+        +'objednané a <b>samo pošle úkol na Nákup</b> s rozpisem k fakturaci. '
+        +'Nezrealizovanou objednávku jde vrátit tlačítkem Storno v přehledu níž.</span></div>'
         +'<button id="pdkObjEC" style="cursor:pointer;background:#b45309;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🧾 Objednávka EUROSOFT (EC)</button>'
         +' <button id="pdkObjES" style="cursor:pointer;background:#7c3aed;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🧾 Objednávka EUROSOFT - System (ES)</button>'
         +' <button id="pdkPlan" style="cursor:pointer;background:#334155;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">👁 Náhled objednávky</button>'

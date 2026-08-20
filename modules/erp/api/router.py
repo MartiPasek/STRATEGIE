@@ -23685,6 +23685,18 @@ def _podklad_osvc_can(uid) -> bool:
         return False
 
 
+def _podklad_osvc_sync_odmeny(target_uid) -> None:
+    """Mini-sync odměn jednoho člověka před náhledem/generováním (Kristý 19. 8. 2026:
+    „to budeme potřebovat mít hned"). Celý hodinový sync_pripl_srazky_ec trvá ~17 s
+    nad 3 000 řádky, tenhle jednotky řádků. Chyba syncu NESMÍ shodit podklad —
+    v nejhorším se ukáže o pár minut starší stav, který dotáhne hodinový sync."""
+    try:
+        from modules.erp.api import erp_registry as _ereg_so
+        _ereg_so.call("sync_odmeny_osoba", int(target_uid))
+    except Exception as _e:
+        logging.getLogger(__name__).warning("[podklad-osvc] mini-sync odměn selhal: %s", _e)
+
+
 @api_router.get("/app/vyroba/podklad-osvc/seznam")
 async def app_vyroba_podklad_seznam(req: Request) -> JSONResponse:
     """Seznam OSVČ pro výběr v konzoli Výroby (g2007.python podklad_osvc_seznam). Brána rodiče+Dušan."""
@@ -23715,6 +23727,7 @@ async def app_vyroba_podklad_nahled(req: Request) -> JSONResponse:
     do_data = (req.query_params.get("do_data") or "").strip() or None
     from modules.erp.api import erp_registry as _ereg
     try:
+        _podklad_osvc_sync_odmeny(int(tgt))   # odměny musí být vidět hned
         res = _ereg.call("podklad_vyplaceni_pdf", int(tgt), do_data)
     except Exception as _e:
         return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
@@ -23765,6 +23778,7 @@ async def app_vyroba_podklad_plan(req: Request) -> JSONResponse:
     firma = (req.query_params.get("firma") or "EC").strip().upper()
     from modules.erp.api import erp_registry as _ereg
     try:
+        _podklad_osvc_sync_odmeny(int(tgt))   # odměny musí být vidět hned
         res = _ereg.call("podklad_osvc_helios_plan", int(tgt), firma)
     except Exception as _e:
         return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
@@ -23792,6 +23806,7 @@ async def app_vyroba_podklad_objednavka(req: Request) -> JSONResponse:
     firma = str((body or {}).get("firma") or "EC").strip().upper()
     from modules.erp.api import erp_registry as _ereg
     try:
+        _podklad_osvc_sync_odmeny(int(tgt))   # ať se nefakturuje podle starých odměn
         res = _ereg.call("podklad_osvc_generuj", int(tgt), firma, uid)
     except Exception as _e:
         return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)

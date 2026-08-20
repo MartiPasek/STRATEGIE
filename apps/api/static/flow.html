@@ -257,11 +257,21 @@ function pdkPlan(targetUid, firma, out){
     .then(function(rr){ return rr.json(); })
     .then(function(j){
       if(!out) return;
-      if(!(j&&j.ok)){ out.innerHTML='<div class="err">'+esc((j&&j.error)||'Náhled se nepodařil.')+'</div>'; return; }
-      var o=j.objednavka||{};
-      var h='<div style="font-size:13px"><b>'+esc(j.organizace)+'</b> · řada '+esc(j.rada_dokladu)
-        +' · objednávka č. '+esc(o.poradove_cislo||'?')+' (založila '+esc(o.autor||'?')+' '+esc(o.porizeno||'')+')</div>'
-        +'<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px">'
+      if(!(j&&j.ok)&&!(j&&j.plan)){ out.innerHTML='<div class="err">'+esc((j&&j.error)||'Náhled se nepodařil.')+'</div>'; return; }
+      var f=j.firmy||{}, h='<div style="font-size:13px"><b>'+esc(j.organizace)+'</b> (org. '+esc(j.cislo_org)+')</div>';
+      // připravené objednávky obou firem — ať je vidět, kde existuje a kde ne
+      h+='<div style="font-size:13px;margin:6px 0">';
+      ['EC','ES'].forEach(function(fr){
+        var x=f[fr]||{};
+        h+='<div>'+(x.ma_objednavku
+             ? ('✅ <b>'+fr+'</b> (řada '+esc(x.rada)+'): objednávka č. '+esc(x.poradove_cislo)
+                +' — založila '+esc(x.autor||'?')+' '+esc(x.porizeno||'')
+                +', '+esc(x.stavajicich_polozek)+' přípravných položek')
+             : ('⛔ <b>'+fr+'</b> (řada '+esc(x.rada)+'): připravená objednávka není'))+'</div>';
+      });
+      h+='</div>';
+      if(j.chybi_objednavka){ h+='<div class="err" style="margin:6px 0">'+esc(j.error||'')+'</div>'; }
+      h+='<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px">'
         +'<tr style="text-align:right;color:#9fb0c0"><th style="text-align:left">Položka</th><th>Typ</th><th>Částka</th></tr>';
       (j.plan||[]).forEach(function(x){
         h+='<tr style="text-align:right;border-top:1px solid #22303f"><td style="text-align:left">'

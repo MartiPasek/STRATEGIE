@@ -2101,7 +2101,10 @@ async function podmUdaje(){
 function podmSrcBadge(s0){ const s=(s0||'').toLowerCase();
   if(/neuvád|neuvad/.test(s)){
     return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:#23262b;color:#9aa7b4">'+esc(s0||'')+'</span>'; }
-  const m=/smlouv/.test(s)?['smlouva','#122a1e','#7fe0a0']:(/chyb/.test(s)?['chybí ve smlouvě','#2e1a1a','#e08080']:
+  // POŘADÍ: „chyb" se MUSÍ testovat dřív než „smlouv" (Jirka 20. 8. 2026). Slovo „smlouv"
+  // je obsažené i v „chybí ve smlouvě", takže se dřív vždycky trefil první test a chybějící
+  // úvazek se vykreslil ZELENĚ jako „smlouva" — červená výzva se nikdy neukázala.
+  const m=/chyb/.test(s)?['chybí ve smlouvě','#2e1a1a','#e08080']:(/smlouv/.test(s)?['smlouva','#122a1e','#7fe0a0']:
     (/osob|user/.test(s)?['osobní','#3a2f12','#E0A94A']:(/skup|group/.test(s)?['skupina','#12243a','#7fb2e8']:['systém','#23262b','#9aa7b4'])));
   return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[1]+';color:'+m[2]+'">'+m[0]+'</span>'; }
 function podmPole(dd, own){

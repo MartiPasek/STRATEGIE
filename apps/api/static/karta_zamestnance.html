@@ -1974,16 +1974,16 @@ function zuCell(it, edit, d){
   const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
   const val=zuVal(it, edit, d);
   const prov=edit?'':(' '+_zuProv(it.prov));
-  return '<div style="padding:5px 9px;min-width:0"><div style="color:#7f8ea0;font-size:11px;margin-bottom:2px">'+lbl+'</div>'+
+  return '<div style="padding:3px 9px;min-width:0"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lbl+'</div>'+
          '<div style="color:#e8eef5;word-break:break-word">'+val+prov+'</div></div>';
 }
 function zuCells(sec, edit, d){
   return (sec.items||[]).map(it=>zuCell(it, edit, d)).join('');
 }
 function zuCard(label, inner){
-  return '<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;break-inside:avoid">'+
-    '<div style="font-weight:800;color:#e8eef5;font-size:12px;padding:6px 10px;background:#161c24;border-bottom:1px solid #233040">'+esc(label)+'</div>'+
-    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0 6px;padding:4px 2px">'+inner+'</div></div>';
+  return '<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:8px;display:inline-block;width:100%;vertical-align:top;box-sizing:border-box">'+
+    '<div style="font-weight:800;color:#e8eef5;font-size:12px;padding:5px 10px;background:#161c24;border-bottom:1px solid #233040">'+esc(label)+'</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 6px;padding:3px 2px">'+inner+'</div></div>';
 }
 function zuAddrTab(i){
   document.querySelectorAll('[id^="zuapan"]').forEach(function(el){ el.style.display='none'; });
@@ -2018,11 +2018,11 @@ function renderZU(edit){
   if(addrSecs.length){
     const tabs=addrSecs.map((sec,i)=>'<a href="#" onclick="zuAddrTab('+i+');return false;" id="zuatab'+i+'" style="padding:6px 11px;font-size:12px;text-decoration:none;border-bottom:2px solid '+(i===0?'#3a7bd5':'transparent')+';color:'+(i===0?'#aac8ec':'#7f8ea0')+'">'+esc(sec.label)+'</a>').join('');
     const panels=addrSecs.map((sec,i)=>'<div id="zuapan'+i+'" style="display:'+(i===0?'grid':'none')+';grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0 6px;padding:4px 2px">'+zuCells(sec, edit, d)+'</div>').join('');
-    addrCard='<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;grid-column:1/-1">'+
+    addrCard='<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:8px;display:inline-block;width:100%;vertical-align:top;box-sizing:border-box">'+
       '<div style="display:flex;gap:2px;padding:2px 6px 0;background:#161c24;border-bottom:1px solid #233040">'+tabs+'</div>'+panels+'</div>';
   }
   if(!cards && !addrCard) cards='<div class="empty">Zaměstnanec zatím nemá vyplněné žádné základní údaje.</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;padding:8px 12px;font-size:12.5px;align-items:start">'+cards+addrCard+'</div>';
+  h+='<div style="column-width:300px;column-gap:8px;padding:8px 12px;font-size:12.5px">'+cards+addrCard+'</div>';
   det.innerHTML=h;
   if(edit){
     const mp=det.querySelector('input[data-k="birth_place"]'), zc=det.querySelector('input[data-k="birth_country"]');

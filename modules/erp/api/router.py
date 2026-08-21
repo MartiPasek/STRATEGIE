@@ -10866,6 +10866,124 @@ async def app_hr_benefits_del(bid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/med-exams-all")
+async def app_hr_med_exams_all(req: Request):
+    """Přehled lékařských prohlídek všech lidí — READ-ONLY z Centrály (EC_TerminyPripomenuti Typ=1).
+    Pro Míšu (BOZP/PO) ke kontrole. Kat 1 = nepovinné, kat 2 (i doplněná) = hlídané, OSVČ = netýká se. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        prows = s.execute(_t(
+            "SELECT ae.cislo_zam, ae.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'') AS jmeno, "
+            " (SELECT max(hp.birth_date) FROM tenant.hr_person hp WHERE hp.user_id=ae.user_id AND hp.tenant_id=2 AND hp.is_current) AS bd, "
+            " (SELECT bool_and(lower(e.engagement_type)='osvc') FROM tenant.engagement e JOIN tenant.att_employee a2 ON a2.id=e.employee_id "
+            "   WHERE a2.user_id=ae.user_id AND a2.tenant_id=2 AND e.is_current) AS osvc_only "
+            "FROM tenant.att_employee ae LEFT JOIN public.users u ON u.id=ae.user_id "
+            "WHERE ae.tenant_id=2 AND ae.is_active AND ae.user_id IS NOT NULL AND ae.cislo_zam ~ '^[0-9]+$'")).fetchall()
+        # user_id -> {jmeno, bd, osvc, cisla[]}
+        lide = {}
+        for r in prows:
+            u = int(r[1])
+            d = lide.setdefault(u, {"jmeno": r[2] or ("ID " + str(u)), "bd": r[3], "osvc": bool(r[4]), "cisla": []})
+            try:
+                d["cisla"].append(int(r[0]))
+            except Exception:
+                pass
+    finally:
+        cm.__exit__(None, None, None)
+    if not lide:
+        return JSONResponse({"ok": True, "items": []})
+    vsechna = sorted({c for d in lide.values() for c in d["cisla"]})
+    exams = {}
+    if vsechna:
+        inlist = ",".join(str(c) for c in vsechna)
+        sql = ("SELECT CisloZam cz, CONVERT(varchar(10),PlatnostOd,104) od, "
+               "CONVERT(varchar(10),PlatnostDo,104) doo, ISNULL(Poznamka,'') pozn "
+               "FROM EC_TerminyPripomenuti WHERE Typ=1 AND CisloZam IN (" + inlist + ") "
+               "ORDER BY PlatnostOd DESC")
+        try:
+            for r in _ec_mcp_rows(sql):
+                cz = int(str(r.get("cz")).strip())
+                if cz not in exams:  # první = nejnovější (ORDER BY DESC)
+                    exams[cz] = {"od": (r.get("od") or "").strip(), "do": (r.get("doo") or "").strip(),
+                                 "pozn": (r.get("pozn") or "").strip()}
+        except Exception as exc:
+            logger.exception("[med_exams_all] %s", exc)
+            return JSONResponse({"ok": False, "error": "Centrála nedostupná: " + str(exc)}, status_code=502)
+    import datetime as _dt
+    import re as _re
+    _PERIODA = {2: (4, 2)}
+
+    def _parse(x):
+        try:
+            return _dt.datetime.strptime((x or "").strip(), "%d.%m.%Y").date()
+        except Exception:
+            return None
+
+    def _plus(datum, let):
+        try:
+            return datum.replace(year=datum.year + let)
+        except ValueError:
+            return datum.replace(year=datum.year + let, day=28)
+
+    items = []
+    for u, d in lide.items():
+        # nejnovější prohlídka napříč čísly člověka
+        best = None
+        for c in d["cisla"]:
+            e = exams.get(c)
+            if e:
+                eod = _parse(e["od"])
+                if best is None or (eod and (best[0] is None or eod > best[0])):
+                    best = (eod, e)
+        rec = {"user_id": u, "jmeno": d["jmeno"], "osvc": d["osvc"],
+               "kategorie": None, "od": "", "do": "", "stav": "chybi", "dni": None, "dopocteno": False}
+        if d["osvc"]:
+            continue  # OSVČ se lékařské prohlídky netýkají — v přehledu se nezobrazují
+        if best is None or best[1] is None:
+            rec["stav"] = "chybi"
+            items.append(rec)
+            continue
+        e = best[1]
+        pozn = e["pozn"]
+        od_d = _parse(e["od"])
+        do_d = _parse(e["do"])
+        mk = _re.search(r"[Kk]ategori\w*\s*([12])", pozn)
+        if mk:
+            kat = int(mk.group(1))
+        else:
+            kat = 2
+            rec["kat_doplneno"] = True
+        rec["kategorie"] = kat
+        rec["od"] = e["od"]
+        if kat == 1:
+            rec["stav"] = "nepovinne"
+            rec["do"] = e["do"]
+            items.append(rec)
+            continue
+        if not do_d and od_d and kat in _PERIODA and d["bd"]:
+            vek = od_d.year - d["bd"].year - ((od_d.month, od_d.day) < (d["bd"].month, d["bd"].day))
+            let = _PERIODA[kat][1 if vek > 50 else 0]
+            do_d = _plus(od_d, let)
+            rec["dopocteno"] = True
+        rec["do"] = do_d.strftime("%d.%m.%Y") if do_d else ""
+        if do_d:
+            dni = (do_d - _dt.date.today()).days
+            rec["dni"] = dni
+            rec["stav"] = "po_platnosti" if dni < 0 else ("brzy" if dni <= 60 else "plati")
+        else:
+            rec["stav"] = "bez_platnosti"
+        items.append(rec)
+    items.sort(key=lambda x: (x["jmeno"].split()[-1].lower() if x["jmeno"] else "zzz"))
+    return JSONResponse({"ok": True, "items": items})
+
+
 @api_router.get("/app/hr/inspirace")
 async def app_hr_inspirace(req: Request):
     """Inspirace Marti — sbírka rad (firemní kultura a hodnoty). Jen HR."""
@@ -10973,15 +11091,28 @@ async def app_hr_dodavatele(req: Request):
             " COALESCE(dobehlo_kc,0), to_char(prvni_faktura_datum,'DD.MM.YYYY'), prvni_faktura_datum, okno_mesicu, "
             " to_char(dobehlo_changed_at,'DD.MM.YYYY') "
             "FROM tenant.dodavatel_smlouva WHERE tenant_id=2 ORDER BY stav, id")).fetchall()
+        # Evidence faktur kandidátů (základ pro automatický výpočet provize)
+        fak_rows = s.execute(_t(
+            "SELECT id, smlouva_id, cislo_faktury, obdobi, COALESCE(castka,0), "
+            " to_char(datum_vystaveni,'DD.MM.YYYY'), datum_vystaveni, zdroj, soubor_nazev, poznamka "
+            "FROM tenant.dodavatel_faktura WHERE tenant_id=2 ORDER BY datum_vystaveni, id")).fetchall()
+        fak_by_s = {}
+        for f in fak_rows:
+            fak_by_s.setdefault(int(f[1]), []).append(f)
         import datetime as _dt
         out = []
         for r in rows:
             strop = float(r[9] or 0)
-            dobehlo = float(r[19] or 0)
+            provize_pct = float(r[8] or 0)
+            faks = fak_by_s.get(int(r[0]), [])
+            suma_faktur = sum(float(f[4] or 0) for f in faks)
+            provize_auto = round(suma_faktur * provize_pct / 100.0, 2)
+            # Doběhlo = automaticky z faktur (pokud nějaké jsou), jinak ruční hodnota
+            dobehlo = provize_auto if faks else float(r[19] or 0)
             zbyva = max(strop - dobehlo, 0)
             pct = (dobehlo / strop * 100.0) if strop else 0.0
             konec_okna = ""
-            prvni = r[21]
+            prvni = min((f[6] for f in faks if f[6]), default=None) if faks else r[21]
             okno = int(r[22] or 0)
             if prvni and okno:
                 m = prvni.month - 1 + okno
@@ -10997,8 +11128,14 @@ async def app_hr_dodavatele(req: Request):
                         "kontakt_fakturace": r[14] or "", "email_fakturace": r[15] or "",
                         "soubor_nazev": r[16] or "", "poznamka": r[17] or "",
                         "dobehlo_kc": dobehlo, "zbyva_kc": zbyva, "pct": round(pct, 1),
-                        "prvni_faktura": r[20] or "", "konec_okna": konec_okna,
-                        "dobehlo_zmeneno": r[23] or ""})
+                        "prvni_faktura": (prvni.strftime("%d.%m.%Y") if faks and prvni else (r[20] or "")),
+                        "konec_okna": konec_okna, "dobehlo_zmeneno": r[23] or "",
+                        "suma_faktur": round(suma_faktur, 2), "pocet_faktur": len(faks),
+                        "auto": bool(faks),
+                        "faktury": [{"id": int(f[0]), "cislo": f[2] or "", "obdobi": f[3] or "",
+                                     "castka": float(f[4] or 0), "datum": f[5] or "",
+                                     "zdroj": f[7] or "rucni", "soubor": f[8] or "",
+                                     "poznamka": f[9] or ""} for f in faks]})
         return JSONResponse({"ok": True, "smlouvy": out})
     except Exception as exc:
         logger.exception("[hr_dodavatele] %s", exc)
@@ -11039,6 +11176,94 @@ async def app_hr_dodavatele_dobehlo(req: Request):
     except Exception as exc:
         s.rollback()
         logger.exception("[hr_dodavatele_dobehlo] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/dodavatele/faktura")
+async def app_hr_dodavatele_faktura(req: Request):
+    """Přidání / úprava faktury kandidáta (základ pro výpočet provize). Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    fid = int((b or {}).get("id") or 0)
+    sid = int((b or {}).get("smlouva_id") or 0)
+    _c = (b or {}).get("castka")
+    try:
+        castka = 0.0 if _c in (None, "") else float(str(_c).replace(",", ".").replace(" ", "").replace("Kč", ""))
+    except Exception:
+        castka = 0.0
+    cislo = (str((b or {}).get("cislo") or "")).strip() or None
+    obdobi = (str((b or {}).get("obdobi") or "")).strip() or None
+    datum = (str((b or {}).get("datum") or "")).strip() or None  # DD.MM.YYYY nebo YYYY-MM-DD
+    pozn = (str((b or {}).get("poznamka") or "")).strip() or None
+    soubor = (str((b or {}).get("soubor") or "")).strip() or None
+    # normalizace data DD.MM.YYYY -> YYYY-MM-DD
+    dnorm = None
+    if datum:
+        d = datum.replace("/", ".")
+        if "." in d:
+            p = d.split(".")
+            if len(p) == 3:
+                dnorm = "%s-%s-%s" % (p[2], p[1].zfill(2), p[0].zfill(2))
+        else:
+            dnorm = d
+    if not sid:
+        return JSONResponse({"ok": False, "error": "chybí smlouva"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if fid:
+            s.execute(_t("UPDATE tenant.dodavatel_faktura SET cislo_faktury=:c, obdobi=:o, castka=:k, "
+                         "datum_vystaveni=CAST(:d AS date), poznamka=:p, soubor_nazev=:f "
+                         "WHERE id=:id AND tenant_id=2"),
+                      {"c": cislo, "o": obdobi, "k": castka, "d": dnorm, "p": pozn, "f": soubor, "id": fid})
+        else:
+            s.execute(_t("INSERT INTO tenant.dodavatel_faktura "
+                         "(tenant_id, smlouva_id, cislo_faktury, obdobi, castka, datum_vystaveni, zdroj, poznamka, soubor_nazev, created_by) "
+                         "VALUES (2,:s,:c,:o,:k,CAST(:d AS date),'rucni',:p,:f,:u)"),
+                      {"s": sid, "c": cislo, "o": obdobi, "k": castka, "d": dnorm, "p": pozn, "f": soubor, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_dodavatele_faktura] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/dodavatele/faktura/smazat")
+async def app_hr_dodavatele_faktura_smazat(req: Request):
+    """Smazání faktury kandidáta. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    fid = int((b or {}).get("id") or 0)
+    if not fid:
+        return JSONResponse({"ok": False, "error": "chybí faktura"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.dodavatel_faktura WHERE id=:id AND tenant_id=2"), {"id": fid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_dodavatele_faktura_smazat] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

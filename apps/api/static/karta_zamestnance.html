@@ -830,35 +830,62 @@ function renderDodavatele(){
       '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2730">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
           '<b style="color:#e8eef5;font-size:13px">Hlídání provize</b>'+
-          '<a href="#" onclick="dodEdit('+s.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Zadat doběh / 1. fakturu</a>'+
+          '<a href="#" onclick="fakForm('+s.id+');return false;" style="color:#7fe0a0;text-decoration:none;font-size:12px">➕ Přidat fakturu</a>'+
         '</div>'+
         '<div style="height:16px;background:#0f141a;border-radius:8px;overflow:hidden;border:1px solid #233040"><div style="height:100%;width:'+pct+'%;background:'+barCol+'"></div></div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span style="color:#cdd6e2">Doběhlo: <b>'+_kc(s.dobehlo_kc)+'</b> ('+s.pct+' %)</span><span style="color:#9aa7b4">Zbývá do stropu: '+_kc(s.zbyva_kc)+'</span></div>'+
-        (s.prvni_faktura?('<div style="color:#7f8ea0;font-size:11.5px;margin-top:3px">1. faktura: '+esc(s.prvni_faktura)+(s.konec_okna?(' · okno končí '+esc(s.konec_okna)):'')+'</div>'):'<div style="color:#7f8ea0;font-size:11.5px;margin-top:3px">1. faktura zatím nezadaná — okno se počítá od ní.</div>')+
+        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span style="color:#cdd6e2">Provize doběhla: <b>'+_kc(s.dobehlo_kc)+'</b> ('+s.pct+' %)</span><span style="color:#9aa7b4">Zbývá do stropu: '+_kc(s.zbyva_kc)+'</span></div>'+
+        (s.auto?('<div style="color:#7f8ea0;font-size:11.5px;margin-top:3px">Počítá se automaticky z '+s.pocet_faktur+' faktur — fakturováno '+_kc(s.suma_faktur)+' × '+(s.provize_pct||0)+' %.</div>'):'')+
+        (s.prvni_faktura?('<div style="color:#7f8ea0;font-size:11.5px;margin-top:2px">1. faktura: '+esc(s.prvni_faktura)+(s.konec_okna?(' · okno končí '+esc(s.konec_okna)):'')+'</div>'):'<div style="color:#7f8ea0;font-size:11.5px;margin-top:2px">Zatím žádná faktura — okno nároku se počítá od 1. faktury.</div>')+
         warn+
+        (s.faktury&&s.faktury.length?('<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+          '<tr style="color:#7f8ea0;text-align:left"><th style="padding:3px 6px;font-weight:600">Faktura</th><th style="padding:3px 6px;font-weight:600">Období</th><th style="padding:3px 6px;font-weight:600;text-align:right">Fakturováno</th><th style="padding:3px 6px;font-weight:600;text-align:right">Provize '+(s.provize_pct||0)+' %</th><th style="padding:3px 6px;font-weight:600">Vystaveno</th><th></th></tr>'+
+          s.faktury.map(function(f){ return '<tr style="border-top:1px solid #1a2330">'+
+            '<td style="padding:4px 6px;color:#cdd6e2">'+esc(f.cislo||'—')+(f.soubor?(' <span title="'+esc(f.soubor)+'">📎</span>'):'')+'</td>'+
+            '<td style="padding:4px 6px;color:#9aa7b4">'+esc(f.obdobi||'')+'</td>'+
+            '<td style="padding:4px 6px;color:#e8eef5;text-align:right">'+_kc(f.castka)+'</td>'+
+            '<td style="padding:4px 6px;color:#7fe0a0;text-align:right">'+_kc(f.castka*(s.provize_pct||0)/100)+'</td>'+
+            '<td style="padding:4px 6px;color:#9aa7b4">'+esc(f.datum||'')+'</td>'+
+            '<td style="padding:4px 6px;text-align:right"><a href="#" onclick="fakEdit('+s.id+','+f.id+');return false;" style="color:#aac8ec;text-decoration:none">✏️</a> <a href="#" onclick="fakDel('+f.id+');return false;" style="color:#c98a8a;text-decoration:none">🗑</a></td>'+
+          '</tr>'; }).join('')+
+          '</table></div>'):'')+
         '<div id="dodform'+s.id+'"></div>'+
-        '<div style="color:#5d6b7c;font-size:11px;margin-top:6px">📌 Automatické napojení na faktury čeká na potvrzení zdroje s Petrou; zatím se doběh eviduje ručně.</div>'+
       '</div>'+
     '</div>';
   }).join('');
 }
-function dodEdit(id){
-  const s=DOD_DATA.find(x=>x.id===id)||{}; const box=document.getElementById('dodform'+id); if(!box) return;
+function fakForm(sid,f){
+  f=f||{}; const box=document.getElementById('dodform'+sid); if(!box) return;
   const inp='background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit;box-sizing:border-box';
-  box.innerHTML='<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'+
-    '<label style="font-size:12px;color:#9aa7b4">Doběhlo celkem (Kč)<br><input id="dodf_kc'+id+'" type="text" value="'+(s.dobehlo_kc||0)+'" style="'+inp+';width:140px"></label>'+
-    '<label style="font-size:12px;color:#9aa7b4">Datum 1. faktury<br><input id="dodf_prv'+id+'" type="date" style="'+inp+'"></label>'+
-    '<a href="#" onclick="dodSave('+id+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none;padding-bottom:6px">Uložit</a>'+
-    '<a href="#" onclick="document.getElementById(\'dodform'+id+'\').innerHTML=\'\';return false;" style="color:#7f8ea0;text-decoration:none;padding-bottom:6px">Zrušit</a>'+
-    '<span id="dodf_msg'+id+'" style="font-size:12px;padding-bottom:6px"></span></div>';
+  let dv=''; if(f.datum){ const p=String(f.datum).split('.'); if(p.length===3) dv=p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0'); }
+  box.innerHTML='<div style="margin-top:10px;padding:10px;border:1px solid #233040;border-radius:8px;background:#0f141a">'+
+    '<div style="font-weight:700;color:#e8eef5;font-size:12.5px;margin-bottom:8px">'+(f.id?'Úprava faktury':'Nová faktura kandidáta')+'</div>'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'+
+    '<label style="font-size:12px;color:#9aa7b4">Číslo faktury<br><input id="fk_c'+sid+'" type="text" value="'+esc(f.cislo||'')+'" style="'+inp+';width:120px"></label>'+
+    '<label style="font-size:12px;color:#9aa7b4">Období<br><input id="fk_o'+sid+'" type="text" placeholder="07/2026" value="'+esc(f.obdobi||'')+'" style="'+inp+';width:90px"></label>'+
+    '<label style="font-size:12px;color:#9aa7b4">Fakturováno (Kč)<br><input id="fk_k'+sid+'" type="text" value="'+(f.castka||'')+'" style="'+inp+';width:130px"></label>'+
+    '<label style="font-size:12px;color:#9aa7b4">Vystaveno<br><input id="fk_d'+sid+'" type="date" value="'+dv+'" style="'+inp+'"></label>'+
+    '<label style="font-size:12px;color:#9aa7b4">Poznámka<br><input id="fk_p'+sid+'" type="text" value="'+esc(f.poznamka||'')+'" style="'+inp+';width:180px"></label>'+
+    '</div>'+
+    '<div style="margin-top:8px;display:flex;gap:14px;align-items:center">'+
+    '<a href="#" onclick="fakSave('+sid+','+(f.id||0)+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a>'+
+    '<a href="#" onclick="document.getElementById(\'dodform'+sid+'\').innerHTML=\'\';return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+    '<span id="fk_msg'+sid+'" style="font-size:12px"></span></div></div>';
 }
-async function dodSave(id){
-  const kc=(document.getElementById('dodf_kc'+id)||{}).value||'';
-  const prv=(document.getElementById('dodf_prv'+id)||{}).value||'';
-  const msg=document.getElementById('dodf_msg'+id);
-  let d; try{ const r=await fetch(API+'/app/hr/dodavatele/dobehlo',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,dobehlo_kc:kc,prvni_faktura_datum:prv})}); d=await r.json(); }
+function fakEdit(sid,fid){
+  const s=DOD_DATA.find(x=>x.id===sid)||{}; const f=(s.faktury||[]).find(x=>x.id===fid); if(f) fakForm(sid,f);
+}
+async function fakSave(sid,fid){
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  const body={smlouva_id:sid,id:fid||0,cislo:g('fk_c'+sid),obdobi:g('fk_o'+sid),castka:g('fk_k'+sid),datum:g('fk_d'+sid),poznamka:g('fk_p'+sid)};
+  const msg=document.getElementById('fk_msg'+sid);
+  let d; try{ const r=await fetch(API+'/app/hr/dodavatele/faktura',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); d=await r.json(); }
   catch(e){ d={ok:false,error:'síť'}; }
   if(!d.ok){ if(msg){ msg.style.color='#ff8a7a'; msg.textContent='✗ '+(d.error||'chyba'); } return; }
+  loadDodavatele();
+}
+async function fakDel(fid){
+  if(!confirm('Smazat tuto fakturu z evidence?')) return;
+  try{ await fetch(API+'/app/hr/dodavatele/faktura/smazat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:fid})}); }catch(e){}
   loadDodavatele();
 }
 let ORG_POSTY=null;

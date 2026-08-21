@@ -7,9 +7,10 @@ CRUD operace nad `erp_grid_layouts` tabulkou. Two-tier storage:
 
 Permission rules:
   - Anyone can save personal layouts (jejich vlastní user_id)
-  - Only is_marti_parent can save shared layouts
+  - Only sysadmin (users.is_admin) or parent can save shared layouts
+    (21.8.2026: bylo is_marti_parent — viz poznamka u _check_admin_for_shared)
   - Anyone can list shared + jejich personal
-  - Update/delete own (personal) nebo any shared if is_marti_parent
+  - Update/delete own (personal) nebo any shared if sysadmin/parent
 
 Marti's spec dnešní odpoledne (5.5.2026):
   - Save je explicit (no auto-save)
@@ -37,7 +38,7 @@ from sqlalchemy.orm import Session
 from modules.strategie_pg.application.service import get_session as _get_data_session_ctx
 from core.logging import get_logger
 from modules.core.infrastructure.models_data import ErpGridLayout
-from modules.thoughts.application.service import is_marti_parent
+from modules.thoughts.application.service import is_parent_or_admin
 
 logger = get_logger("erp.grid_layout_service")
 
@@ -81,10 +82,18 @@ def _validate_layout_json(layout: Any) -> dict:
 
 
 def _check_admin_for_shared(user_id: int, scope: str) -> None:
-    """Permission gate: shared scope vyžaduje is_marti_parent."""
-    if scope == "shared" and not is_marti_parent(user_id):
+    """Permission gate: shared scope vyžaduje sysadmina NEBO rodiče.
+
+    ⚠️ NEPŘEPISOVAT ZPĚT na `is_marti_parent`. Tahle služba je z 5.5.2026, kdy tier
+    SPRÁVCE (`users.is_admin`) ještě neexistoval — vznikl 25.6.2026 a `is_parent_or_admin`
+    je helper přesně pro admin gaty. Do 21.8.2026 tu stálo `is_marti_parent`, takže
+    Jirka (user 20, is_admin=true, is_marti_parent=false) nemohl založit/upravit/smazat
+    žádnou sdílenou sestavu — a sdílených je 47 z 49. Ověřeno naživo (400 z UI),
+    opravu schválila Marti-AI (msg 13315, 21.8.2026).
+    """
+    if scope == "shared" and not is_parent_or_admin(user_id):
         raise GridLayoutError(
-            "Pouze admin (is_marti_parent) smí ukládat sdílené sestavy."
+            "Jen správce systému nebo rodič může ukládat sdílené sestavy."
         )
 
 
@@ -164,13 +173,14 @@ def list_layouts(scope_kind: str, scope_id: int, user_id: int) -> dict:
 def get_layout(layout_id: int, user_id: int) -> dict | None:
     """
     Vrací jeden layout podle ID.
-    Permission: shared = vidí každý, personal = jen vlastník nebo is_marti_parent.
+    Permission: shared = vidí každý, personal = jen vlastník nebo sysadmin/rodič
+    (21.8.2026 sjednoceno se zápisovými gaty — viz _check_admin_for_shared).
     """
     with _get_data_session_ctx() as ds:
         l = ds.query(ErpGridLayout).filter_by(id=layout_id).first()
         if l is None:
             return None
-        if l.user_id is not None and l.user_id != user_id and not is_marti_parent(user_id):
+        if l.user_id is not None and l.user_id != user_id and not is_parent_or_admin(user_id):
             raise GridLayoutError("Nemáš přístup k této personal sestavě.")
         return _serialize(l)
 
@@ -195,7 +205,7 @@ def create_layout(
     Krok 5.U (23.5.2026): polymorphic scope (scope_kind in {"core", "ds"}).
 
     scope="user" → uloží jako personal (user_id = current user)
-    scope="shared" → uloží jako shared (user_id NULL), vyžaduje is_marti_parent
+    scope="shared" → uloží jako shared (user_id NULL), vyžaduje sysadmina/rodiče
 
     Pokud is_default=True, automaticky odznační starý default v daném scope.
     """
@@ -285,21 +295,23 @@ def update_layout(
     Aktualizuje existující sestavu.
 
     Permission:
-      - Personal: jen vlastník nebo is_marti_parent
-      - Shared: jen is_marti_parent
+      - Personal: jen vlastník nebo sysadmin/rodič
+      - Shared: jen sysadmin (users.is_admin) nebo rodič — viz poznámka
+        u _check_admin_for_shared (oprava 21.8.2026, NEPŘEPISOVAT zpět)
     """
     with _get_data_session_ctx() as ds:
         layout = ds.query(ErpGridLayout).filter_by(id=layout_id).first()
         if layout is None:
             raise GridLayoutError(f"Sestava id={layout_id} neexistuje.")
 
-        # Permission gate
-        is_admin = is_marti_parent(user_id)
+        # Permission gate — sysadmin NEBO rodič (oprava 21.8.2026, viz
+        # poznámka u _check_admin_for_shared)
+        is_admin = is_parent_or_admin(user_id)
         if layout.user_id is None:
             # Shared
             if not is_admin:
                 raise GridLayoutError(
-                    "Pouze admin (is_marti_parent) smí upravovat sdílené sestavy."
+                    "Jen správce systému nebo rodič může upravovat sdílené sestavy."
                 )
         else:
             # Personal
@@ -363,11 +375,12 @@ def delete_layout(layout_id: int, user_id: int) -> bool:
         if layout is None:
             return False
 
-        is_admin = is_marti_parent(user_id)
+        # Sysadmin NEBO rodič (oprava 21.8.2026, viz _check_admin_for_shared)
+        is_admin = is_parent_or_admin(user_id)
         if layout.user_id is None:
             if not is_admin:
                 raise GridLayoutError(
-                    "Pouze admin (is_marti_parent) smí mazat sdílené sestavy."
+                    "Jen správce systému nebo rodič může mazat sdílené sestavy."
                 )
         else:
             if layout.user_id != user_id and not is_admin:

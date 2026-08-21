@@ -8319,7 +8319,9 @@ _SELF_FIELDS = [
     ("birth_country",  "Země narození",     "identita", "text",  False, False),
     ("gender",         "Pohlaví",           "identita", "text",  False, False),
     ("marital_status", "Rodinný stav",      "identita", "text",  False, False),
-    ("citizenship",    "Státní občanství",  "identita", "text",  False, False),
+    ("citizenship",    "Státní příslušnost","identita", "text",  False, False),
+    ("nationality",    "Národnost",         "identita", "text",  False, False),
+    ("poznamka",       "Poznámka",          "identita", "textarea", False, False, True),
     ("ico",            "IČO",               "podnikani", "text", False, False),
     ("dic",            "DIČ",               "podnikani", "text", False, False),
     ("bank_account_business","Podnikatelský účet","podnikani","text", False, False),
@@ -8351,6 +8353,11 @@ _SELF_FIELDS = [
     ("passport_valid", "Platnost pasu do",  "citlive", "date",  True,  False),
     ("memory_note",    "Moje poznámky",     "pamet",   "textarea", False, True),
 ]
+
+def _hr_only(f):
+    """7. prvek tuple = pole jen pro HR (zaměstnanec ho v self-service nevidí ani neukládá)."""
+    return len(f) > 6 and bool(f[6])
+
 
 # Číselník zdravotních pojišťoven ČR (Šárka 12.8.2026) — výběr ze seznamu místo volného
 # textu, ať se formát „Název (kód)" nerozjede. Ověřeno 8/2026: 7 aktivních VZP.
@@ -8441,7 +8448,7 @@ async def app_self_data_get(req: Request) -> JSONResponse:
             items = [{"key": f[0], "label": f[1], "type": f[3],
                       "sensitive": f[4], "value": vals.get(f[0], ""),
                       "options": (_POJISTOVNY if f[0] == "health_insurance" else None)}
-                     for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte]
+                     for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte and not _hr_only(f)]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
         return JSONResponse({"ok": True, "sections": secs, "updated_at": upd})
@@ -8463,8 +8470,8 @@ async def app_self_data_save(req: Request) -> JSONResponse:
         body = {}
     vals_in = (body or {}).get("values") or {}
     from sqlalchemy import text as _t
-    valid_keys = {f[0]: f for f in _SELF_FIELDS}
-    # normalizace vstupu (jen povolená pole, prázdné -> None)
+    valid_keys = {f[0]: f for f in _SELF_FIELDS if not _hr_only(f)}
+    # normalizace vstupu (jen povolená pole, prázdné -> None; HR-pole zaměstnanec neukládá)
     newv = {}
     for k, f in valid_keys.items():
         raw = vals_in.get(k)
@@ -8472,7 +8479,7 @@ async def app_self_data_save(req: Request) -> JSONResponse:
         newv[k] = (sv if sv != "" else None)
     cm, s = _att_session()
     try:
-        cols = [f[0] for f in _SELF_FIELDS]
+        cols = [f[0] for f in _SELF_FIELDS if not _hr_only(f)]
         prev = s.execute(_t(
             "SELECT " + ", ".join(cols) + " FROM tenant.user_self_data "
             "WHERE tenant_id=2 AND user_id=:u"), {"u": uid}).first()
@@ -9047,7 +9054,7 @@ async def app_ambassador_marti_card(req: Request) -> JSONResponse:
             items = [{"key": f[0], "label": f[1], "type": f[3],
                       "sensitive": f[4], "value": vals.get(f[0], ""),
                       "options": (_POJISTOVNY if f[0] == "health_insurance" else None)}
-                     for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte]
+                     for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte and not _hr_only(f)]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
         # audit pristupu (best-effort)

@@ -1974,8 +1974,9 @@ function zuCell(it, edit, d){
   const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
   const val=zuVal(it, edit, d);
   const prov=edit?'':(' '+_zuProv(it.prov));
-  return '<div style="padding:4px 4px;min-width:0"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lbl+'</div>'+
-         '<div style="color:#e8eef5;word-break:break-word">'+val+prov+'</div></div>';
+  const span=(it.type==='textarea')?'grid-column:1/-1;':'';
+  return '<div style="'+span+'padding:4px 4px;min-width:0"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lbl+'</div>'+
+         '<div style="color:#e8eef5;word-break:break-word;white-space:pre-wrap">'+val+prov+'</div></div>';
 }
 const ZU_HIDE=new Set(['Titul za jménem','Prostřední jméno']);
 function zuCells(sec, edit, d){

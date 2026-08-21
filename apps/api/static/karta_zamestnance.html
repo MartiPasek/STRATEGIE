@@ -2822,15 +2822,21 @@ function pmfUdaje(){
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const det=document.getElementById('det');
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
-  const blok=(title,src,h)=>'<div style="margin:0 0 4px">'+
-    '<div style="font-weight:800;color:#aac8ec;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 16px 4px">'+esc(title)+'</div>'+
-    '<iframe src="'+src+'" style="width:100%;height:'+h+';border:0;border-top:1px solid #1e2730;background:#0f141a;display:block" title="'+esc(title)+'"></iframe></div>';
+  const blok=(ic,title,owner,ocol,src,h)=>'<div style="margin:0 14px 12px;border:1px solid #233040;border-radius:12px;overflow:hidden;background:#12181f">'+
+    '<div style="display:flex;align-items:center;gap:9px;padding:9px 14px;background:#161c24;border-bottom:1px solid #233040">'+
+      '<span style="font-size:15px">'+ic+'</span>'+
+      '<span style="font-weight:800;color:#e8eef5;font-size:13px">'+esc(title)+'</span>'+
+      '<span style="margin-left:auto;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;background:'+ocol+'22;color:'+ocol+';border:1px solid '+ocol+'44">'+esc(owner)+'</span>'+
+    '</div>'+
+    '<iframe src="'+src+'" style="width:100%;height:'+h+';border:0;background:#0f141a;display:block" title="'+esc(title)+'"></iframe></div>';
   let html=pheadHTML(p)+
-    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #1e2730">'+
-    '<span style="font-weight:800;color:#e8eef5">💼 Personální a finanční podmínky</span>'+back+'</div>'+
-    blok('Poměr a smlouva','/karta-zamestnance?embedsec=pracovni&uid='+uid,'380px')+
-    blok('Mzdové podmínky (Petra)','/finance-podminky?uid='+uid+'&embed=1','540px')+
-    blok('Podmínky a bonusy (Marti)','/karta-zamestnance?embedsec=podminky&uid='+uid,'540px');
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730;position:sticky;top:0;background:#0f141a;z-index:2">'+
+    '<span style="font-weight:800;color:#e8eef5;font-size:15px">💼 Personální a finanční podmínky</span>'+back+'</div>'+
+    '<div style="padding:10px 0 6px">'+
+      blok('💼','Poměr a smlouva','HR','#7fe0a0','/karta-zamestnance?embedsec=pracovni&uid='+uid,'380px')+
+      blok('💰','Mzdové podmínky','Petra','#E0A94A','/finance-podminky?uid='+uid+'&embed=1','540px')+
+      blok('📋','Podmínky a bonusy','Marti','#7fb2e8','/karta-zamestnance?embedsec=podminky&uid='+uid,'540px')+
+    '</div>';
   det.innerHTML=html;
 }
 

@@ -9408,7 +9408,7 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 AND p.aktivni=true "
             "   WHERE ae.user_id=u.id AND ae.tenant_id=2) AS post, "
             " (SELECT ae.cislo_zam FROM tenant.att_employee ae "
-            "   WHERE ae.user_id=u.id AND ae.tenant_id=2 AND COALESCE(ae.cislo_zam,'')<>'' "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2 AND ae.cislo_zam IS NOT NULL "
             "   ORDER BY ae.id LIMIT 1) AS cislo_zam, "
             " (SELECT max(e.smlouva_do) FROM tenant.engagement e "
             "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "

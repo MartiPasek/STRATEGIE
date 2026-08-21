@@ -4972,6 +4972,18 @@
             const inp = wrap.querySelector("input, textarea, select");
             if (inp) val = inp.value;
           }
+          // 21.8.2026 (Claude-28 / Jirka): vyprazdnene ciselne, hodinove a datumove pole
+          // musi jit do DB jako PRAZDNO, ne jako prazdny retezec - do numeric/time/date
+          // se "" ulozit neda a save skoncil chybou 500. U textovych poli se chovani nemeni.
+          try {
+            if (val === "") {
+              const _inpT = (wrap._inst && wrap._inst.input) || wrap.querySelector("input");
+              const _ty = _inpT && _inpT.type;
+              if (_ty === "number" || _ty === "time" || _ty === "date" || _ty === "datetime-local") {
+                val = null;
+              }
+            }
+          } catch (e) {}
           fieldChanges[fieldName] = val;
         }
 

@@ -1977,8 +1977,9 @@ function zuCell(it, edit, d){
   return '<div style="padding:4px 4px;min-width:0"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lbl+'</div>'+
          '<div style="color:#e8eef5;word-break:break-word">'+val+prov+'</div></div>';
 }
+const ZU_HIDE=new Set(['Titul za jménem','Prostřední jméno']);
 function zuCells(sec, edit, d){
-  return (sec.items||[]).map(it=>zuCell(it, edit, d)).join('');
+  return (sec.items||[]).filter(it=>!ZU_HIDE.has((it.label||'').trim())).map(it=>zuCell(it, edit, d)).join('');
 }
 // Jemný nadpis sekce přes celou šířku formuláře (bez krabice).
 function zuHdr(label, first){

@@ -1952,6 +1952,45 @@ function zuOptSelect(key, opts, val){
   o+=opts.map(x=>'<option'+(x===cur?' selected':'')+'>'+esc(x)+'</option>').join('');
   return '<select data-k="'+esc(key)+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'+o+'</select>';
 }
+// Hodnota / vstup pro jedno pole (sdílené náhled + editace).
+function zuVal(it, edit, d){
+  if(edit){
+    if(it.key==='marital_status') return maritalSelect(it.value, d.zena);
+    if(it.key==='gender') return genderSelect(it.value);
+    if(it.key==='education') return eduSelect(it.value);
+    if(it.options && it.options.length) return zuOptSelect(it.key, it.options, it.value);
+    if(it.type==='textarea') return '<textarea data-k="'+esc(it.key)+'" rows="2" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit;resize:vertical">'+esc(it.value||'')+'</textarea>';
+    const t=it.type==='date'?'date':'text';
+    return '<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">';
+  }
+  let dv=it.value;
+  if(it.key==='marital_status') dv=maritalDisplay(it.value, d.zena);
+  else if(it.type==='date'&&it.value) dv=czDate(it.value);
+  if(it.type==='textarea' && dv) return '<span style="white-space:pre-wrap">'+esc(dv)+'</span>';
+  return dv?esc(dv):'<span style="color:#5d6b7c">—</span>';
+}
+// Buňka Centrála-stylu: popisek nad hodnotou.
+function zuCell(it, edit, d){
+  const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
+  const val=zuVal(it, edit, d);
+  const prov=edit?'':(' '+_zuProv(it.prov));
+  return '<div style="padding:5px 9px;min-width:0"><div style="color:#7f8ea0;font-size:11px;margin-bottom:2px">'+lbl+'</div>'+
+         '<div style="color:#e8eef5;word-break:break-word">'+val+prov+'</div></div>';
+}
+function zuCells(sec, edit, d){
+  return (sec.items||[]).map(it=>zuCell(it, edit, d)).join('');
+}
+function zuCard(label, inner){
+  return '<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;break-inside:avoid">'+
+    '<div style="font-weight:800;color:#e8eef5;font-size:12px;padding:6px 10px;background:#161c24;border-bottom:1px solid #233040">'+esc(label)+'</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0 6px;padding:4px 2px">'+inner+'</div></div>';
+}
+function zuAddrTab(i){
+  document.querySelectorAll('[id^="zuapan"]').forEach(function(el){ el.style.display='none'; });
+  document.querySelectorAll('[id^="zuatab"]').forEach(function(el){ el.style.borderBottomColor='transparent'; el.style.color='#7f8ea0'; });
+  const pan=document.getElementById('zuapan'+i); if(pan) pan.style.display='grid';
+  const tab=document.getElementById('zuatab'+i); if(tab){ tab.style.borderBottomColor='#3a7bd5'; tab.style.color='#aac8ec'; }
+}
 function renderZU(edit){
   const d=ZU_DATA, uid=ZU_UID, det=document.getElementById('det');
   const p=LIDE.find(x=>x.user_id===uid)||{};
@@ -1964,44 +2003,26 @@ function renderZU(edit){
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #1e2730">'+
     '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">🧾 Základní údaje</span>'+legenda+
     '<span style="display:flex;gap:14px;white-space:nowrap">'+back+btn+'</span></div>';
+  // Filtr sekcí (OSVČ podnikání jen u OSVČ) + rozdělení na adresy vs. ostatní.
+  const secs=(d.sections||[]).filter(function(sec){
+    if(sec.key==='podnikani' && !((p.typ||'').includes('OSVČ'))) return false;
+    return true;
+  });
+  const isAddr=sec=>/adres/i.test(sec.key||'')||/adres/i.test(sec.label||'');
+  const addrSecs=secs.filter(isAddr);
+  const otherSecs=secs.filter(s=>!isAddr(s));
   let cards='';
-  for(const sec of (d.sections||[])){
-    // Šárka 22.7.2026: sekci Podnikání (OSVČ) ukázat jen u OSVČ; u HPP/DPP skrýt.
-    if(sec.key==='podnikani' && !((p.typ||'').includes('OSVČ'))) continue;
-    // Šárka 22.7.2026: doručovací adresu v náhledu jen když je vyplněná; v úpravách vždy.
-    if((sec.key==='adresa_kontaktni'||sec.key==='kontakt_prac') && !edit && !((sec.items||[]).some(it=>(it.value||'').trim()!==''))) continue;
-    let rows='';
-    for(const it of (sec.items||[])){
-      let val;
-      if(edit){
-        if(it.key==='marital_status') val=maritalSelect(it.value, d.zena);
-        else if(it.key==='gender') val=genderSelect(it.value);
-        else if(it.key==='education') val=eduSelect(it.value);
-        else if(it.options && it.options.length) val=zuOptSelect(it.key, it.options, it.value);
-        else if(it.type==='textarea') val='<textarea data-k="'+esc(it.key)+'" rows="2" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit;resize:vertical">'+esc(it.value||'')+'</textarea>';
-        else { const t=it.type==='date'?'date':'text'; val='<input data-k="'+esc(it.key)+'" type="'+t+'" value="'+esc(it.value||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'; }
-      } else {
-        let dv=it.value;
-        if(it.key==='marital_status') dv=maritalDisplay(it.value, d.zena);
-        else if(it.type==='date'&&it.value) dv=czDate(it.value);
-        if(it.type==='textarea' && dv) val='<span style="white-space:pre-wrap">'+esc(dv)+'</span>';
-        else val=dv?esc(dv):'<span style="color:#5d6b7c">—</span>';
-      }
-      const lbl=esc(it.label)+(it.sensitive?' <span title="Citlivé — vidí jen HR, změna se loguje" style="color:#E0A94A">🔒</span>':'');
-      if(edit){
-        rows+='<div style="padding:3px 10px"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lbl+'</div>'+val+'</div>';
-      } else {
-        rows+='<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:2px 10px">'+
-          '<span style="color:#7f8ea0;white-space:nowrap">'+lbl+'</span>'+
-          '<span style="color:#e8eef5;text-align:right">'+val+' '+_zuProv(it.prov)+'</span></div>';
-      }
-    }
-    cards+='<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;break-inside:avoid">'+
-      '<div style="font-weight:800;color:#e8eef5;font-size:12px;padding:5px 10px;background:#161c24;border-bottom:1px solid #233040">'+esc(sec.label)+'</div>'+
-      '<div style="padding:3px 0">'+rows+'</div></div>';
+  for(const sec of otherSecs){ cards+=zuCard(sec.label, zuCells(sec, edit, d)); }
+  // Adresy jako pod-záložky (Trvalé bydliště / Kontaktní adresa) — Centrála styl.
+  let addrCard='';
+  if(addrSecs.length){
+    const tabs=addrSecs.map((sec,i)=>'<a href="#" onclick="zuAddrTab('+i+');return false;" id="zuatab'+i+'" style="padding:6px 11px;font-size:12px;text-decoration:none;border-bottom:2px solid '+(i===0?'#3a7bd5':'transparent')+';color:'+(i===0?'#aac8ec':'#7f8ea0')+'">'+esc(sec.label)+'</a>').join('');
+    const panels=addrSecs.map((sec,i)=>'<div id="zuapan'+i+'" style="display:'+(i===0?'grid':'none')+';grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0 6px;padding:4px 2px">'+zuCells(sec, edit, d)+'</div>').join('');
+    addrCard='<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;grid-column:1/-1">'+
+      '<div style="display:flex;gap:2px;padding:2px 6px 0;background:#161c24;border-bottom:1px solid #233040">'+tabs+'</div>'+panels+'</div>';
   }
-  if(!cards) cards='<div class="empty">Zaměstnanec zatím nemá vyplněné žádné základní údaje.</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;padding:8px 12px;font-size:12.5px;align-items:start">'+cards+'</div>';
+  if(!cards && !addrCard) cards='<div class="empty">Zaměstnanec zatím nemá vyplněné žádné základní údaje.</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;padding:8px 12px;font-size:12.5px;align-items:start">'+cards+addrCard+'</div>';
   det.innerHTML=h;
   if(edit){
     const mp=det.querySelector('input[data-k="birth_place"]'), zc=det.querySelector('input[data-k="birth_country"]');

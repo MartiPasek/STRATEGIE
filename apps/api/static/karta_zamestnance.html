@@ -1665,15 +1665,22 @@ function pheadHTML(p){
   const _t=new Date(), _bd=(p.narozeniny||'').split('.').filter(Boolean);
   const isBday=(_bd.length>=2 && parseInt(_bd[0],10)===_t.getDate() && parseInt(_bd[1],10)===(_t.getMonth()+1));
   const img='<img src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="this.remove();this.parentNode.textContent=\''+_ini+'\'">';
-  const kontakt=[cell('📞',p.telefon,telHref), cell('✉️',p.email,p.email?('mailto:'+p.email):'')].filter(Boolean).join('');
-  const factsLine=[p.osobni_cislo?('Č. zam. '+p.osobni_cislo):'', p.nastup?('nástup '+p.nastup):'', p.datum_odchodu?('odchod '+p.datum_odchodu):'', (p.vek!=null?(p.vek+' '+_rs(p.vek)):'')].filter(Boolean).join(' · ');
+  const cbtn=function(t){ return t?(' <span onclick="_copy(\''+String(t).replace(/[\'"\\]/g,'')+'\',this)" title="Kopírovat" style="cursor:pointer;color:#6b7a8c;font-size:11px">📋</span>'):''; };
+  const kline=function(ic,val,href){ return val?('<div style="display:flex;align-items:center;gap:6px"><span style="opacity:.85">'+ic+'</span><a href="'+href+'" style="color:#cdd6e2;text-decoration:none;word-break:break-all">'+esc(val)+'</a>'+cbtn(val)+'</div>'):''; };
+  const kontakt=kline('📞',p.telefon,telHref)+kline('✉️',p.email,p.email?('mailto:'+esc(p.email)):'');
+  const cisloLine=p.osobni_cislo?('<div style="color:#8595a8;font-size:12px;display:flex;align-items:center;gap:6px;margin-top:4px">Č. zam. <b style="color:#cdd6e2">'+esc(p.osobni_cislo)+'</b>'+cbtn(p.osobni_cislo)+'</div>'):'';
+  const nadrLine=p.nadrizeny?('<div style="color:#8595a8;font-size:12px;margin-top:3px">👤 Nadřízený: <span style="color:#cdd6e2">'+esc(p.nadrizeny)+'</span></div>'):'';
+  const factsLine=[p.nastup?('nástup '+p.nastup):'', p.datum_odchodu?('odchod '+p.datum_odchodu):'', (p.vek!=null?(p.vek+' '+_rs(p.vek)):'')].filter(Boolean).join(' · ');
   const postyChip='<span onclick="var e=document.getElementById(\'pheadPosty\');if(e)e.style.display=(e.style.display===\'none\'?\'block\':\'none\');" title="Posty zaměstnance v organizaci" style="cursor:pointer;font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:#231c2e;color:#c58af0;white-space:nowrap">🏷️ Posty ('+postN+')</span>';
-  const stavChips=(p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
+  const stavChips=(p.typ?chip(p.typ,'#1b2733','#9fc0e0'):'')+
+    (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
     (isBday?chip('🎂 Narozeniny dnes','#2a2140','#c58af0'):(roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):''))+postyChip;
   const postyPanel=(postN?posty.map(function(x){return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:6px;background:#12181f;border:1px solid #233040;color:#cdd6e2">'+esc(x)+'</span>';}).join(''):'<span style="color:#7f8ea0">Žádné posty v organizaci.</span>');
   return '<div class="phead" style="align-items:flex-start;gap:20px;flex-wrap:wrap">'+
     '<div style="display:flex;gap:12px;align-items:flex-start;min-width:230px">'+
-      '<div class="avatar">'+img+'</div>'+
+      '<div class="avatar" style="position:relative">'+img+
+        '<span onclick="photoChange('+p.user_id+')" title="Změnit fotku" style="position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:#26527a;border:2px solid #0f141a;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer">✎</span>'+
+      '</div>'+
       '<div style="min-width:0">'+
         '<div class="nm">'+esc(celeJm)+'</div>'+
         (p.pozice?'<div style="color:#bcd3ef;font-size:14.5px;font-weight:600;margin:1px 0">'+esc(p.pozice)+'</div>':'')+
@@ -1682,12 +1689,27 @@ function pheadHTML(p){
     '</div>'+
     '<div style="flex:1;min-width:230px;font-size:12.5px">'+
       (kontakt?'<div style="display:flex;flex-direction:column;gap:3px">'+kontakt+'</div>':'')+
+      cisloLine+nadrLine+
       (factsLine?'<div style="color:#8595a8;font-size:12px;margin-top:6px">'+esc(factsLine)+'</div>':'')+
       '<div style="margin-top:8px">'+stavChips+'</div>'+
       '<div id="pheadPosty" style="display:none;margin-top:6px;font-size:12px">'+postyPanel+'</div>'+
       '<div id="leaveBox" style="margin-top:9px"></div>'+
     '</div>'+
   '</div>';
+}
+// Click-to-copy + změna profilové fotky (Šárka 21.8.2026).
+function _copy(t,el){ try{ navigator.clipboard.writeText(t); }catch(e){} if(el){ var o=el.textContent; el.textContent='✓'; setTimeout(function(){ el.textContent=o; },900); } }
+function photoChange(uid){
+  var inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.onchange=function(){ var f=inp.files&&inp.files[0]; if(!f) return;
+    var fd=new FormData(); fd.append('file',f); fd.append('target_uid',uid);
+    fetch(API+'/app/hr/photo/upload',{method:'POST',credentials:'same-origin',body:fd})
+      .then(function(r){return r.json();}).then(function(d){
+        if(!d||!d.ok){ alert('✗ '+((d&&d.error)||'nahrání selhalo')); return; }
+        document.querySelectorAll('img[src*="/app/hr/photo/'+uid+'"]').forEach(function(im){ im.src=API+'/app/hr/photo/'+uid+'?_='+Date.now(); });
+      }).catch(function(){ alert('✗ síť'); });
+  };
+  inp.click();
 }
 // Šárka 5.8.2026: dovolená + sick days v hlavičce (Pinya-styl), data z docházky (Péťa).
 async function loadLeave(uid){

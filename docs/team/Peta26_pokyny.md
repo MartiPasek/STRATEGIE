@@ -188,6 +188,43 @@ vlastní okno 2:00–5:00.
 nepřerovnávám je — když mi přijde, že by to chtělo rozdělit, **řeknu to Petře** a ona
 rozhodne, jestli a s kým to řešit.
 
+## 🧾 KONTROLA PŘIJATÉ FAKTURY PROTI PDF (Peťa 21. 8. 2026)
+
+Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přiloženo v PDF."*
+
+**Co porovnávat:** DUZP · splatnost (jiná data ne) · číslo účtu · částky u položek ·
+kurz · **celková cena**.
+
+**Dvě pravidla, jak to hlásit** (Peťa 21. 8., *„zapomněla jsem říct"*):
+
+1. **Rozhoduje celková cena.** Když sedí celková částka a rozdíl je jen v rozpisu DPH
+   **do 5 Kč**, **není to nález a neřeší se.** Typický případ: dodavatel dá zaokrouhlení
+   do sazby 0 %, Centrála ho má v 21 % → základ i daň se rozejdou o pár haléřů opačným
+   směrem, k úhradě sedí přesně. Nehlásit jako chybu.
+2. **Když je všechno v pořádku, NEROZEPISOVAT.** Stačí napsat **„vše OK"** — žádná
+   tabulka, žádný výčet položek. Rozepisuje se **jen to, co nesedí**.
+
+**Kde to je (ověřeno 21. 8. 2026, DB_EC přes most `db=mssql`):**
+
+- Přehled Centrály **2300 „Přijaté faktury – vše"** — menu `EC_CentralaMenu` id 181,
+  definice v `EC_DELPHI_TabObecnyPrehled` (Cislo=2300, skupina DELPHI).
+- Hlavička: `TabDokladyZbozi` — `PoradoveCislo` (to je „poř. číslo", které Peťa zadává),
+  `Obdobi` (2026 = 40, **pořadové číslo se opakuje každý rok, vždy filtrovat období**),
+  `DUZP`, `Splatnost`, `Kurz`, `Mena`, `SumaKcBezDPH`, `SumaKc`, `SumaValBezDPH`,
+  `SumaVal`, `DodFak` (číslo faktury dodavatele), `CisloOrg` → `TabCisOrg.Nazev`.
+  Filtr přehledu: `DruhPohybuZbo` 18–19, `RadaDokladu in ('500','510','520','530','540','560','590')`.
+- Číslo účtu: `TabDokladyZbozi.IDBankSpoj` → `TabBankSpojeni.CisloUctu` / `IBANPisemny`.
+  U faktury v EUR má dodavatel často víc účtů — kontroluj ten ve měně faktury.
+- Položky: `TabPohybyZbozi` (`IDDoklad`) — `Nazev1`, `Mnozstvi`, `JCbezDaniVal`,
+  `JCbezDaniKC`, `JCsDPHVal`, `JCsDPHKc`.
+- **Cesta k PDF je přímo v datech:** `dbo.EC_Doklad_NajdiDokument(D.ID)` vrací
+  `\\192.168.30.11\data\FakturyP\FP<ID dokladu>\<soubor>.pdf`. Peťa má sdílený disk
+  připojený jako **`Z:\FakturyP`**, takže tentýž soubor čtu jako
+  `Z:\FakturyP\FP<ID>\<soubor>.pdf` **Read tool-em** (sandbox/bash na `Z:` nevidí,
+  soubor přes něj neotevřu).
+- ⚠️ Sloupec `VarSymbol` v `TabDokladyZbozi` **neexistuje** (je jen `KonstSymbol`,
+  `SpecifickySymbol`); variabilní symbol = `DodFak`. Nehádat názvy sloupců.
+
 ## Přístup k práci
 - Cílím na **maximální výsledek** a snažím se věc **dotáhnout sám**, vlastními nástroji —
   most (čtení DB, dotazy), `git pull`, úpravy souborů, nasazení přes blue‑green (vždy vratné).

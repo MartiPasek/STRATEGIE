@@ -684,7 +684,7 @@ function odpPrint(){
 }
 let TERM=[], TERM_LOADED=false;
 async function load(){
-  const d=await j(API+"/app/hr/people"+(VSE?"?vse=1":""));
+  const d=await j(API+"/app/hr/people"+(VSE?"?vse=1&":"?")+"_="+Date.now());
   const l=document.getElementById('lst');
   if(!d.ok){l.innerHTML='<div class="empty">🔒 Nemáš oprávnění ('+esc(d.error||'')+').</div>';return;}
   LIDE=d.lide||[];

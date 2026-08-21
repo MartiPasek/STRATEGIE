@@ -10866,6 +10866,95 @@ async def app_hr_benefits_del(bid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/inspirace")
+async def app_hr_inspirace(req: Request):
+    """Inspirace Marti — sbírka rad (firemní kultura a hodnoty). Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, kategorie, nadpis, text, odkaz, to_char(datum,'DD.MM.YYYY'), autor_text, "
+            " to_char(updated_at,'DD.MM.YYYY') "
+            "FROM tenant.hr_rada WHERE tenant_id=2 ORDER BY datum DESC NULLS LAST, id DESC")).fetchall()
+        it = [{"id": int(r[0]), "kategorie": r[1] or "jine", "nadpis": r[2] or "",
+               "text": r[3] or "", "odkaz": r[4] or "", "datum": r[5] or "",
+               "autor": r[6] or "Marti", "zmeneno": r[7] or ""} for r in rows]
+        return JSONResponse({"ok": True, "rady": it})
+    except Exception as exc:
+        logger.exception("[hr_inspirace] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/inspirace/save")
+async def app_hr_inspirace_save(req: Request):
+    """Vytvoření/úprava rady. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    rid = int((b or {}).get("id") or 0)
+    kat = (str((b or {}).get("kategorie") or "jine")).strip() or "jine"
+    nadpis = (str((b or {}).get("nadpis") or "")).strip() or None
+    text = (str((b or {}).get("text") or "")).strip() or None
+    odkaz = (str((b or {}).get("odkaz") or "")).strip() or None
+    datum = (str((b or {}).get("datum") or "")).strip() or None
+    autor = (str((b or {}).get("autor") or "Marti")).strip() or "Marti"
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if rid:
+            s.execute(_t("UPDATE tenant.hr_rada SET kategorie=:k, nadpis=:n, text=:x, odkaz=:o, "
+                         "datum=COALESCE(CAST(:d AS date),datum), autor_text=:a, updated_at=now() "
+                         "WHERE id=:id AND tenant_id=2"),
+                      {"k": kat, "n": nadpis, "x": text, "o": odkaz, "d": datum, "a": autor, "id": rid})
+        else:
+            s.execute(_t("INSERT INTO tenant.hr_rada (tenant_id,kategorie,nadpis,text,odkaz,datum,autor_text,autor_user_id) "
+                         "VALUES (2,:k,:n,:x,:o,COALESCE(CAST(:d AS date),current_date),:a,:u)"),
+                      {"k": kat, "n": nadpis, "x": text, "o": odkaz, "d": datum, "a": autor, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_inspirace_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/inspirace/{rid}/smazat")
+async def app_hr_inspirace_del(rid: int, req: Request):
+    """Smazání rady. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.hr_rada WHERE id=:id AND tenant_id=2"), {"id": rid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_inspirace_del] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/dodavatele")
 async def app_hr_dodavatele(req: Request):
     """Agenturní / dodavatelské smlouvy + hlídání provize (kolik z limitu už doběhlo). Jen HR."""

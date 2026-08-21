@@ -314,6 +314,20 @@
     <div id="uklist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="inspiracecard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">💡 Inspirace Marti</b>
+      <span id="inspcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <select id="inspfilt" onchange="renderInspirace()" style="margin-left:12px"><option value="">Vše</option><option value="firma">Fungování firmy</option><option value="vztahy">Vztahy a lidé</option><option value="vedeni">Vedení</option><option value="hodnoty">Hodnoty</option><option value="jine">Jiné</option></select>
+      <a href="#" onclick="inspNovy();return false;" style="margin-left:12px;color:#7fe0a0;font-weight:800;text-decoration:none;font-size:13px">➕ Přidat</a>
+      <button onclick="loadInspirace()" style="margin-left:auto;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">↻ Obnovit</button>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Rady a moudra od Martiho — firemní kultura a hodnoty. Jen HR.</div>
+    <div id="inspform" style="margin:0 14px 8px"></div>
+    <div id="insplist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <div class="wrapfull" id="dodavatelecard" style="display:none">
   <div class="card">
     <div class="tbar">
@@ -489,6 +503,8 @@ function setView(v){
   const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
   const ddc=document.getElementById('dodavatelecard'); if(ddc) ddc.style.display=(v==='dodavatele')?'':'none';
+  const inc=document.getElementById('inspiracecard'); if(inc) inc.style.display=(v==='inspirace')?'':'none';
+  if(v==='inspirace'){ loadInspirace(); return; }
   if(v==='dodavatele'){ loadDodavatele(); return; }
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
@@ -706,6 +722,75 @@ async function ukolHotovo(id, cb){
     if(!d.ok){ cb.disabled=false; cb.checked=false; alert('Nepovedlo se: '+(d.error||'chyba')); return; }
     if(row){ row.style.transition='opacity .3s'; row.style.opacity='.35'; row.querySelector('span:nth-of-type(2) div').style.textDecoration='line-through'; setTimeout(function(){ row.remove(); const c=document.getElementById('ukcnt'); const n=document.querySelectorAll('#uklist .ukrow').length; if(c) c.textContent='('+n+')'; if(!n){ document.getElementById('uklist').innerHTML='<div class="empty">Žádné otevřené úkoly. 🎉</div>'; } }, 320); }
   }catch(e){ cb.disabled=false; cb.checked=false; alert('✗ síť'); }
+}
+// ── Inspirace Marti — sbírka rad (Šárka 21.8.2026), jen HR ──
+const INSP_KAT=[['firma','Fungování firmy'],['vztahy','Vztahy a lidé'],['vedeni','Vedení'],['hodnoty','Hodnoty'],['jine','Jiné']];
+function inspKatLbl(k){ const x=INSP_KAT.find(a=>a[0]===k); return x?x[1]:'Jiné'; }
+let INSP_DATA=[];
+async function loadInspirace(){
+  const box=document.getElementById('insplist'); if(!box) return;
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let d; try{ d=await j(API+'/app/hr/inspirace'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d||!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d&&d.error||'nedostupné')+'</div>'; return; }
+  INSP_DATA=d.rady||[]; renderInspirace();
+}
+function renderInspirace(){
+  const box=document.getElementById('insplist'); const cnt=document.getElementById('inspcnt'); if(!box) return;
+  const f=(document.getElementById('inspfilt')||{}).value||'';
+  let r=INSP_DATA; if(f) r=r.filter(x=>x.kategorie===f);
+  if(cnt) cnt.textContent='('+r.length+')';
+  if(!r.length){ box.innerHTML='<div class="empty">Zatím žádná rada. Přidej první tlačítkem ➕ Přidat.</div>'; return; }
+  box.innerHTML=r.map(function(x){
+    const link=x.odkaz?('<div style="margin-top:4px"><a href="'+esc(x.odkaz)+'" target="_blank" rel="noopener" style="color:#7fb2e8;font-size:12px">🔗 '+esc(x.odkaz)+'</a></div>'):'';
+    return '<div style="border:1px solid #233040;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#12181f">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'+
+        '<div style="min-width:0;flex:1">'+
+          '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:#1b2c44;color:#7fb2e8">'+esc(inspKatLbl(x.kategorie))+'</span>'+
+          (x.nadpis?(' <b style="color:#e8eef5;font-size:14px">'+esc(x.nadpis)+'</b>'):'')+
+          '<div style="color:#cdd6e2;font-size:13px;margin-top:6px;white-space:pre-wrap">'+esc(x.text)+'</div>'+link+
+          '<div style="color:#7f8ea0;font-size:11px;margin-top:5px">'+esc(x.autor||'Marti')+(x.datum?(' · '+esc(x.datum)):'')+'</div>'+
+        '</span>'+
+        '<span style="white-space:nowrap"><a href="#" onclick="inspEdit('+x.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️</a> &nbsp; <a href="#" onclick="inspDel('+x.id+');return false;" style="color:#ff8a7a;text-decoration:none;font-size:12px">🗑</a></span>'+
+      '</div></div>';
+  }).join('');
+}
+function inspNovy(){ inspForm({id:0,kategorie:'firma',nadpis:'',text:'',odkaz:'',datum:new Date().toISOString().slice(0,10),autor:'Marti'}); }
+function inspEdit(id){ const x=INSP_DATA.find(a=>a.id===id); if(x) inspForm(x); }
+function inspForm(x){
+  const box=document.getElementById('inspform'); if(!box) return;
+  const inp='background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit;box-sizing:border-box';
+  const dt=(x.datum&&x.datum.indexOf('.')>0)?x.datum.split('.').reverse().map(p=>p.padStart(2,'0')).join('-'):(x.datum||'');
+  box.innerHTML='<div style="border:1px solid #2a3a52;border-radius:10px;padding:12px 14px;background:#0f151d">'+
+    '<div style="font-weight:800;color:#e8eef5;margin-bottom:8px">'+(x.id?'Upravit radu':'Nová rada')+'</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+      '<label style="font-size:12px;color:#9aa7b4">Kategorie<br><select id="if_kat" style="'+inp+';width:100%">'+INSP_KAT.map(a=>'<option value="'+a[0]+'"'+(x.kategorie===a[0]?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Datum<br><input id="if_dat" type="date" value="'+esc(dt)+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4;grid-column:1/3">Nadpis<br><input id="if_nadpis" type="text" value="'+esc(x.nadpis||'')+'" placeholder="krátký výstižný nadpis" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4;grid-column:1/3">Text rady<br><textarea id="if_text" rows="5" style="'+inp+';width:100%;resize:vertical">'+esc(x.text||'')+'</textarea></label>'+
+      '<label style="font-size:12px;color:#9aa7b4;grid-column:1/3">Odkaz (nepovinné)<br><input id="if_odkaz" type="text" value="'+esc(x.odkaz||'')+'" placeholder="https://…" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:12px;color:#9aa7b4">Autor<br><input id="if_autor" type="text" value="'+esc(x.autor||'Marti')+'" style="'+inp+';width:100%"></label>'+
+    '</div>'+
+    '<div style="margin-top:10px;display:flex;gap:14px;align-items:center">'+
+      '<a href="#" onclick="inspSave('+x.id+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a>'+
+      '<a href="#" onclick="document.getElementById(\'inspform\').innerHTML=\'\';return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+      '<span id="if_msg" style="font-size:12px;color:#7f8ea0"></span>'+
+    '</div></div>';
+}
+async function inspSave(id){
+  const g=x=>{const e=document.getElementById(x);return e?e.value:'';};
+  const msg=document.getElementById('if_msg'); if(msg){ msg.style.color='#9aa7b4'; msg.textContent='Ukládám…'; }
+  const telo={id:id,kategorie:g('if_kat'),nadpis:g('if_nadpis'),text:g('if_text'),odkaz:g('if_odkaz'),datum:g('if_dat'),autor:g('if_autor')};
+  if(!telo.text.trim()){ if(msg){ msg.style.color='#E0A94A'; msg.textContent='Napiš text rady.'; } return; }
+  let d; try{ const r=await fetch(API+'/app/hr/inspirace/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(telo)}); d=await r.json(); }
+  catch(e){ d={ok:false,error:'síť'}; }
+  if(!d.ok){ if(msg){ msg.style.color='#ff8a7a'; msg.textContent='✗ '+(d.error||'chyba'); } return; }
+  document.getElementById('inspform').innerHTML=''; loadInspirace();
+}
+async function inspDel(id){
+  if(!confirm('Opravdu smazat tuto radu?')) return;
+  let d; try{ const r=await fetch(API+'/app/hr/inspirace/'+id+'/smazat',{method:'POST',credentials:'same-origin'}); d=await r.json(); }
+  catch(e){ d={ok:false,error:'síť'}; }
+  if(d.ok) loadInspirace(); else alert('Nepovedlo se: '+(d.error||''));
 }
 // ── Agenturní / dodavatelské smlouvy + hlídání provize (Šárka 21.8.2026) ──
 let DOD_DATA=[];
@@ -2732,7 +2817,7 @@ load();
 // proměnných, které si jednotlivé obrazovky drží (PODMINKY, TABULE, KALENDAR…).
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace'){ setView(v); }
 }catch(e){} })();
 </script>
 </body>

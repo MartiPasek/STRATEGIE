@@ -77,6 +77,13 @@
       // Pozn.: „Docházka po zakázkách" (dochazka.centrala / dochazka.zakazky_budoucnost)
       // se řeší iframe hookem na začátku dispatchPageRender (jádro má data_source grid,
       // sem do drafted-placeholder cesty by se nedostalo).
+      // Inspirace Marti (Šárka 21.8.2026): jádro hr.inspirace = iframe karty v pohledu
+      // sbírky rad (firemní kultura a hodnoty). Jen HR.
+      if (String(coreCode) === 'hr.inspirace') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=inspirace" title="Inspirace Marti" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Agenturní / dodavatelské smlouvy (Šárka 21.8.2026): jádro hr.dodavatele = iframe
       // karty v pohledu dodavatelských smluv + hlídání provize.
       if (String(coreCode) === 'hr.dodavatele') {

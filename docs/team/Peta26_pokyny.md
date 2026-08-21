@@ -204,6 +204,14 @@ kurz · **celková cena**.
 2. **Když je všechno v pořádku, NEROZEPISOVAT.** Stačí napsat **„vše OK"** — žádná
    tabulka, žádný výčet položek. Rozepisuje se **jen to, co nesedí**.
 
+3. **⚠️ STARÁ FAKTURA → DUZP SE ZÁMĚRNĚ DÁVÁ AKTUÁLNÍ, NENÍ TO CHYBA** (Peťa 21. 8. 2026).
+   Když přijde faktura za starší období, **předchozí období jsou už uzavřená**, takže se
+   do Centrály zadá **DUZP aktuálního otevřeného období**, ne datum z dokladu.
+   **Rozdíl mezi DUZP na PDF a v Centrále u starých faktur tedy NEHLÁSIT.**
+   Poznávací znamení: víc faktur naráz má v Centrále **stejné DUZP**, zatímco na dokladech
+   mají různá data (příklad 21. 8. 2026: faktury 2089–2094 od Siemens AG, doklady z 5.–6. 2026,
+   v Centrále všechny DUZP 1. 8. 2026).
+
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 
 - bez nabídky: `2065 - faktura ok`

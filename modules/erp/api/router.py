@@ -11445,6 +11445,144 @@ async def app_hr_dodavatele_denik(req: Request):
         cm.__exit__(None, None, None)
 
 
+# ── Nábor (mini-ATS) — Šárka 21.8.2026 ──────────────────────────────────────
+_NABOR_STAVY = ["novy", "osloveni", "pohovor", "nabidka", "prijat", "zamitnut"]
+
+
+@api_router.get("/app/hr/nabor")
+async def app_hr_nabor(req: Request):
+    """Seznam uchazečů (nábor). Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT n.id, n.jmeno, COALESCE(n.pozice,''), n.company_id, COALESCE(n.zdroj,'vlastni'), "
+            " n.agentura_smlouva_id, COALESCE(n.stav,'novy'), COALESCE(n.kontakt_email,''), "
+            " COALESCE(n.kontakt_tel,''), COALESCE(n.odkaz_cv,''), COALESCE(n.poznamka,''), "
+            " to_char(n.datum_prihlaseni,'DD.MM.YYYY'), COALESCE(ds.dodavatel,''), n.prijat_user_id "
+            "FROM tenant.nabor_kandidat n "
+            "LEFT JOIN tenant.dodavatel_smlouva ds ON ds.id=n.agentura_smlouva_id AND ds.tenant_id=2 "
+            "WHERE n.tenant_id=2 ORDER BY "
+            " CASE COALESCE(n.stav,'novy') WHEN 'novy' THEN 0 WHEN 'osloveni' THEN 1 "
+            "   WHEN 'pohovor' THEN 2 WHEN 'nabidka' THEN 3 WHEN 'prijat' THEN 4 ELSE 5 END, "
+            " n.datum_prihlaseni DESC NULLS LAST, n.id DESC")).fetchall()
+        _FIRMA = {1: "EUROSOFT - Control", 2: "EUROSOFT - System"}
+        out = [{"id": int(r[0]), "jmeno": r[1] or "", "pozice": r[2] or "",
+                "company_id": (int(r[3]) if r[3] is not None else None),
+                "firma": (_FIRMA.get(r[3], "") if r[3] is not None else ""),
+                "zdroj": r[4] or "vlastni", "agentura_smlouva_id": (int(r[5]) if r[5] is not None else None),
+                "stav": r[6] or "novy", "kontakt_email": r[7] or "", "kontakt_tel": r[8] or "",
+                "odkaz_cv": r[9] or "", "poznamka": r[10] or "", "datum": r[11] or "",
+                "agentura": r[12] or "", "prijat_user_id": (int(r[13]) if r[13] is not None else None)}
+               for r in rows]
+        # nabídka agenturních smluv pro napojení zdroje
+        smlouvy = [{"id": int(x[0]), "nazev": x[1] or ""} for x in s.execute(_t(
+            "SELECT id, dodavatel FROM tenant.dodavatel_smlouva WHERE tenant_id=2 AND stav='aktivní' ORDER BY id")).fetchall()]
+        return JSONResponse({"ok": True, "kandidati": out, "smlouvy": smlouvy})
+    except Exception as exc:
+        logger.exception("[hr_nabor] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/nabor/save")
+async def app_hr_nabor_save(req: Request):
+    """Přidání / úprava uchazeče. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    nid = int((b or {}).get("id") or 0)
+    jmeno = (str((b or {}).get("jmeno") or "")).strip()
+    if not jmeno:
+        return JSONResponse({"ok": False, "error": "Chybí jméno uchazeče."}, status_code=400)
+    pozice = (str((b or {}).get("pozice") or "")).strip() or None
+    try:
+        company_id = int((b or {}).get("company_id") or 0) or None
+    except Exception:
+        company_id = None
+    zdroj = (str((b or {}).get("zdroj") or "vlastni")).strip().lower()
+    if zdroj not in ("agentura", "inzerat", "doporuceni", "vlastni", "jine"):
+        zdroj = "vlastni"
+    try:
+        asid = int((b or {}).get("agentura_smlouva_id") or 0) or None
+    except Exception:
+        asid = None
+    stav = (str((b or {}).get("stav") or "novy")).strip().lower()
+    if stav not in _NABOR_STAVY:
+        stav = "novy"
+    email = (str((b or {}).get("kontakt_email") or "")).strip() or None
+    tel = (str((b or {}).get("kontakt_tel") or "")).strip() or None
+    cv = (str((b or {}).get("odkaz_cv") or "")).strip() or None
+    pozn = (str((b or {}).get("poznamka") or "")).strip() or None
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if nid:
+            s.execute(_t(
+                "UPDATE tenant.nabor_kandidat SET jmeno=:j, pozice=:p, company_id=:c, zdroj=:z, "
+                " agentura_smlouva_id=:a, stav=:st, kontakt_email=:e, kontakt_tel=:t, odkaz_cv=:cv, "
+                " poznamka=:pz, updated_at=now() WHERE id=:id AND tenant_id=2"),
+                {"j": jmeno, "p": pozice, "c": company_id, "z": zdroj, "a": asid, "st": stav,
+                 "e": email, "t": tel, "cv": cv, "pz": pozn, "id": nid})
+        else:
+            s.execute(_t(
+                "INSERT INTO tenant.nabor_kandidat "
+                " (tenant_id, jmeno, pozice, company_id, zdroj, agentura_smlouva_id, stav, "
+                "  kontakt_email, kontakt_tel, odkaz_cv, poznamka, created_by) "
+                "VALUES (2, :j, :p, :c, :z, :a, :st, :e, :t, :cv, :pz, :by)"),
+                {"j": jmeno, "p": pozice, "c": company_id, "z": zdroj, "a": asid, "st": stav,
+                 "e": email, "t": tel, "cv": cv, "pz": pozn, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_nabor_save] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/nabor/smazat")
+async def app_hr_nabor_smazat(req: Request):
+    """Smazání uchazeče. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    nid = int((b or {}).get("id") or 0)
+    if not nid:
+        return JSONResponse({"ok": False, "error": "chybí uchazeč"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.nabor_kandidat WHERE id=:id AND tenant_id=2"), {"id": nid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_nabor_smazat] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/med-exams")
 async def app_hr_med_exams(req: Request):
     """Lékařské prohlídky člověka — READ-ONLY z Centrály (EC_TerminyPripomenuti, Typ=1).

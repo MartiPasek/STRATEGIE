@@ -91,6 +91,12 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Nábor (Šárka 21.8.2026): jádro hr.nabor = iframe karty v pohledu náboru (mini-ATS). Jen HR.
+      if (String(coreCode) === 'hr.nabor') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=nabor" title="Nábor" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Karta zaměstnance (Šárka 8.7.2026): jádro hr.karta = iframe stránky
       // /karta-zamestnance (seznam lidí HR-gated + sekce Pinya×Centrála). Tmavý ERP.
       if (String(coreCode) === 'hr.karta') {

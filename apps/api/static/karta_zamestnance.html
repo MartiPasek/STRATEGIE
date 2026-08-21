@@ -339,6 +339,19 @@
     <div id="dodlist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="naborcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">🧲 Nábor</b>
+      <span id="nabcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <button onclick="nabForm(0)" style="margin-left:auto;border:1px solid #2f6a44;background:#1c5233;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">➕ Nový uchazeč</button>
+      <button onclick="loadNabor()" style="margin-left:8px;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">↻ Obnovit</button>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Uchazeči a fáze náboru — od oslovení po přijetí. Jen HR.</div>
+    <div id="nabform" style="padding:0 14px"></div>
+    <div id="nablist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <div class="wrapfull" id="organigramcard" style="display:none">
   <div class="card">
     <div class="tbar">
@@ -504,8 +517,10 @@ function setView(v){
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
   const ddc=document.getElementById('dodavatelecard'); if(ddc) ddc.style.display=(v==='dodavatele')?'':'none';
   const inc=document.getElementById('inspiracecard'); if(inc) inc.style.display=(v==='inspirace')?'':'none';
+  const nbc=document.getElementById('naborcard'); if(nbc) nbc.style.display=(v==='nabor')?'':'none';
   if(v==='inspirace'){ loadInspirace(); return; }
   if(v==='dodavatele'){ loadDodavatele(); return; }
+  if(v==='nabor'){ loadNabor(); return; }
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
   if(v==='orgman'){ loadOrgman(); return; }
@@ -939,6 +954,93 @@ async function fakDel(fid){
   if(!confirm('Smazat tuto fakturu z evidence?')) return;
   try{ await fetch(API+'/app/hr/dodavatele/faktura/smazat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:fid})}); }catch(e){}
   loadDodavatele();
+}
+// ── Nábor (mini-ATS) ──
+let NABOR_DATA=null, NABOR_SML=[];
+const NAB_STAV={novy:['Nový','#7f8ea0'],osloveni:['Osloven','#5aa9d6'],pohovor:['Pohovor','#E0A94A'],nabidka:['Nabídka','#c58af0'],prijat:['Přijat','#7fe0a0'],zamitnut:['Zamítnut','#c98a8a']};
+const NAB_ZDROJ={agentura:'Agentura',inzerat:'Inzerát',doporuceni:'Doporučení',vlastni:'Vlastní zdroj',jine:'Jiné'};
+async function loadNabor(){
+  const box=document.getElementById('nablist'), cnt=document.getElementById('nabcnt');
+  if(!box) return; box.innerHTML='<div class="empty">Načítám…</div>';
+  let d; try{ d=await j(API+'/app/hr/nabor'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d||!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d&&d.error||'nedostupné')+'</div>'; return; }
+  NABOR_DATA=d.kandidati||[]; NABOR_SML=d.smlouvy||[]; if(cnt) cnt.textContent='('+NABOR_DATA.length+')';
+  renderNabor();
+}
+function renderNabor(){
+  const box=document.getElementById('nablist'); if(!box) return;
+  if(!NABOR_DATA.length){ box.innerHTML='<div class="empty">Zatím žádný uchazeč. Přidej přes „➕ Nový uchazeč".</div>'; return; }
+  box.innerHTML=NABOR_DATA.map(function(k){
+    const st=NAB_STAV[k.stav]||['?','#7f8ea0'];
+    return '<div style="border:1px solid #233040;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#12181f">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'+
+        '<div><span style="font-weight:800;color:#e8eef5;font-size:14.5px">'+esc(k.jmeno)+'</span>'+
+          (k.pozice?(' <span style="color:#9fb4d0;font-size:13px">· '+esc(k.pozice)+'</span>'):'')+'</div>'+
+        '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:#0f141a;color:'+st[1]+';border:1px solid '+st[1]+'44">'+st[0]+'</span>'+
+      '</div>'+
+      '<div style="color:#9aa7b4;font-size:12px;margin-top:4px">'+
+        (k.firma?('🏢 '+esc(k.firma)+' · '):'')+'🔗 '+esc(NAB_ZDROJ[k.zdroj]||k.zdroj)+(k.agentura?(' ('+esc(k.agentura)+')'):'')+
+        (k.datum?(' · 🗓️ '+esc(k.datum)):'')+
+      '</div>'+
+      ((k.kontakt_email||k.kontakt_tel)?('<div style="color:#cdd6e2;font-size:12px;margin-top:3px">'+(k.kontakt_email?('✉️ '+esc(k.kontakt_email)):'')+(k.kontakt_tel?('   📞 '+esc(k.kontakt_tel)):'')+(k.odkaz_cv?('   <a href="'+esc(k.odkaz_cv)+'" target="_blank" style="color:#aac8ec;text-decoration:none">📄 CV</a>'):'')+'</div>'):(k.odkaz_cv?('<div style="margin-top:3px"><a href="'+esc(k.odkaz_cv)+'" target="_blank" style="color:#aac8ec;text-decoration:none;font-size:12px">📄 CV</a></div>'):''))+
+      (k.poznamka?('<div style="color:#9aa7b4;font-size:12px;margin-top:3px;white-space:pre-wrap">'+esc(k.poznamka)+'</div>'):'')+
+      '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+        Object.keys(NAB_STAV).map(function(sv){ return '<a href="#" onclick="nabStav('+k.id+',\''+sv+'\');return false;" style="font-size:11px;text-decoration:none;padding:2px 8px;border-radius:12px;border:1px solid '+(k.stav===sv?NAB_STAV[sv][1]:'#233040')+';color:'+(k.stav===sv?NAB_STAV[sv][1]:'#7f8ea0')+'">'+NAB_STAV[sv][0]+'</a>'; }).join('')+
+        '<span style="margin-left:auto"></span>'+
+        '<a href="#" onclick="nabForm('+k.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Upravit</a>'+
+        '<a href="#" onclick="nabDel('+k.id+');return false;" style="color:#c98a8a;text-decoration:none;font-size:12px">🗑</a>'+
+      '</div>'+
+      '<div id="nabform'+k.id+'"></div>'+
+    '</div>';
+  }).join('');
+}
+function nabForm(id){
+  const k=(NABOR_DATA||[]).find(x=>x.id===id)||{};
+  const box=id?document.getElementById('nabform'+id):document.getElementById('nabform');
+  if(!box) return;
+  const inp='background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit;box-sizing:border-box';
+  const smlOpts='<option value="">—</option>'+NABOR_SML.map(sm=>'<option value="'+sm.id+'"'+(sm.id===k.agentura_smlouva_id?' selected':'')+'>'+esc(sm.nazev)+'</option>').join('');
+  const zdrOpts=Object.keys(NAB_ZDROJ).map(z=>'<option value="'+z+'"'+((k.zdroj||'vlastni')===z?' selected':'')+'>'+NAB_ZDROJ[z]+'</option>').join('');
+  const firOpts='<option value="">—</option><option value="1"'+(k.company_id===1?' selected':'')+'>EUROSOFT - Control</option><option value="2"'+(k.company_id===2?' selected':'')+'>EUROSOFT - System</option>';
+  box.innerHTML='<div style="margin:'+(id?'8px 0':'4px 0 12px')+';padding:12px;border:1px solid #233040;border-radius:8px;background:#0f141a">'+
+    '<div style="font-weight:700;color:#e8eef5;font-size:13px;margin-bottom:8px">'+(id?'Úprava uchazeče':'Nový uchazeč')+'</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">'+
+      '<label style="font-size:11px;color:#9aa7b4">Jméno *<br><input id="nb_j" value="'+esc(k.jmeno||'')+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">Pozice<br><input id="nb_p" value="'+esc(k.pozice||'')+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">Firma<br><select id="nb_c" style="'+inp+';width:100%">'+firOpts+'</select></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">Zdroj<br><select id="nb_z" style="'+inp+';width:100%">'+zdrOpts+'</select></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">Agenturní smlouva<br><select id="nb_a" style="'+inp+';width:100%">'+smlOpts+'</select></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">E-mail<br><input id="nb_e" value="'+esc(k.kontakt_email||'')+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">Telefon<br><input id="nb_t" value="'+esc(k.kontakt_tel||'')+'" style="'+inp+';width:100%"></label>'+
+      '<label style="font-size:11px;color:#9aa7b4">Odkaz na CV<br><input id="nb_cv" value="'+esc(k.odkaz_cv||'')+'" style="'+inp+';width:100%"></label>'+
+    '</div>'+
+    '<label style="font-size:11px;color:#9aa7b4;display:block;margin-top:8px">Poznámka / zápis z pohovoru<br><textarea id="nb_pz" rows="3" style="'+inp+';width:100%;resize:vertical">'+esc(k.poznamka||'')+'</textarea></label>'+
+    '<div style="margin-top:10px;display:flex;gap:14px;align-items:center">'+
+      '<a href="#" onclick="nabSave('+(id||0)+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none">Uložit</a>'+
+      '<a href="#" onclick="'+(id?('document.getElementById(\'nabform'+id+'\').innerHTML=\'\''):('document.getElementById(\'nabform\').innerHTML=\'\''))+';return false;" style="color:#7f8ea0;text-decoration:none">Zrušit</a>'+
+      '<span id="nb_msg" style="font-size:12px"></span>'+
+    '</div></div>';
+}
+async function nabSave(id){
+  const g=i=>(document.getElementById(i)||{}).value||'';
+  const k=id?((NABOR_DATA||[]).find(x=>x.id===id)||{}):{};
+  const body={id:id||0,jmeno:g('nb_j'),pozice:g('nb_p'),company_id:g('nb_c'),zdroj:g('nb_z'),agentura_smlouva_id:g('nb_a'),kontakt_email:g('nb_e'),kontakt_tel:g('nb_t'),odkaz_cv:g('nb_cv'),poznamka:g('nb_pz'),stav:(id?(k.stav||'novy'):'novy')};
+  const msg=document.getElementById('nb_msg');
+  if(!body.jmeno.trim()){ if(msg){msg.style.color='#ff8a7a';msg.textContent='Vyplň jméno';} return; }
+  let d; try{ const r=await fetch(API+'/app/hr/nabor/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); d=await r.json(); }
+  catch(e){ d={ok:false,error:'síť'}; }
+  if(!d.ok){ if(msg){msg.style.color='#ff8a7a';msg.textContent='✗ '+(d.error||'chyba');} return; }
+  loadNabor();
+}
+async function nabStav(id,stav){
+  const k=(NABOR_DATA||[]).find(x=>x.id===id); if(!k) return;
+  try{ await fetch(API+'/app/hr/nabor/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,jmeno:k.jmeno,pozice:k.pozice,company_id:k.company_id||'',zdroj:k.zdroj,agentura_smlouva_id:k.agentura_smlouva_id||'',kontakt_email:k.kontakt_email,kontakt_tel:k.kontakt_tel,odkaz_cv:k.odkaz_cv,poznamka:k.poznamka,stav:stav})}); }catch(e){}
+  loadNabor();
+}
+async function nabDel(id){
+  if(!confirm('Smazat tohoto uchazeče?')) return;
+  try{ await fetch(API+'/app/hr/nabor/smazat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}); }catch(e){}
+  loadNabor();
 }
 let ORG_POSTY=null;
 async function loadOrganigram(){
@@ -1921,7 +2023,7 @@ async function pracUdaje(){
   const uid=CUR_UID; if(!uid) return; PU_UID=uid;
   const det=document.getElementById('det');
   det.innerHTML='<div class="empty">Načítám…</div>';
-  const d=await j(API+'/app/hr/person-work?uid='+uid);
+  const d=await j(API+'/app/hr/person-work?uid='+uid+'&_='+Date.now());
   if(!d.ok){ det.innerHTML='<div style="padding:12px 16px"><a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div><div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
   PU_DATA=d; renderPU(false);
 }
@@ -2902,7 +3004,7 @@ load();
 // proměnných, které si jednotlivé obrazovky drží (PODMINKY, TABULE, KALENDAR…).
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor'){ setView(v); }
 }catch(e){} })();
 </script>
 </body>

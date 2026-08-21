@@ -4982,6 +4982,8 @@
               if (_ty === "number" || _ty === "time" || _ty === "date" || _ty === "datetime-local") {
                 val = null;
               }
+              // Prazdna volba ve vyberu = zadna hodnota (dedi se), ne prazdny retezec.
+              if (wrap.classList && wrap.classList.contains("erp-dropdown")) val = null;
             }
           } catch (e) {}
           fieldChanges[fieldName] = val;

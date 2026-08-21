@@ -39711,6 +39711,13 @@ async def diag_sql(req: Request) -> JSONResponse:
     db = (str(body.get("db") or "pg")).strip().lower()
     # Atribuce (Marti 2.6.): token auth -> ktera instance Claude (23/24)
     _inst = str(body.get("instance_id") or "").strip()
+    # Rozliseni DVOU OKEN TEZE INSTANCE u mekkych zamku (C-28/Jirka 21.8.2026,
+    # schvalila Marti-AI msg 13178+13211). Runner posila, ze ktere lane dotaz jde
+    # (claude_sql_runner.py: CURRENT_LANE -> payload "lane"); dve Cowork okna maji
+    # totez instance_id (napr. obe C-28), takze bez lane dostane druhe okno
+    # "uz drzim" misto "obsazeno". Stary runner pole neposila -> _lane = "" ->
+    # chovani presne jako pred zmenou (zpetna kompatibilita).
+    _lane = str(body.get("lane") or "").strip()
     if actor == "token" and _inst and _inst != "?":
         actor = "Claude-%s" % _inst
     # Presence board (Marti 3.6.): instance prave bezi SQL pres bridge.
@@ -39770,19 +39777,30 @@ async def diag_sql(req: Request) -> JSONResponse:
                 if len(_a) < 2:
                     return JSONResponse({"ok": False, "error": "@@LOCKBEAT <scope> <key>"})
                 with _pgswl() as _s:
-                    _s.execute(_twl("UPDATE fw.work_lock SET expires_at=NOW()+INTERVAL '15 min' "
-                                    "WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
-                               {"i": _inst, "s": _a[0], "k": _a[1]})
+                    # session_lane podminka: neprodluzuj zamek DRUHEHO okna teze instance.
+                    # Prazdne :l (stary runner) nebo NULL v DB (stary zamek) = podminka vypnuta.
+                    _r = _s.execute(_twl("UPDATE fw.work_lock SET expires_at=NOW()+INTERVAL '15 min' "
+                                    "WHERE instance_id=:i AND scope=:s AND lock_key=:k "
+                                    "AND (session_lane IS NULL OR :l = '' OR session_lane = :l)"),
+                               {"i": _inst, "s": _a[0], "k": _a[1], "l": _lane})
                     _s.commit()
+                if not _r.rowcount:
+                    return JSONResponse({"ok": True, "neni_tvuj": True,
+                        "zprava": "%s/%s neprodlouzeno - neni tvuj zamek (drzi ho jina lane nebo neexistuje)." % (_a[0], _a[1])})
                 return JSONResponse({"ok": True, "zprava": "TTL+15min %s/%s (C-%s)" % (_a[0], _a[1], _inst)})
             if _uwl.startswith("@@UNLOCK"):
                 _a = sql[len("@@UNLOCK"):].strip().split("|", 1)[0].split()
                 if len(_a) < 2:
                     return JSONResponse({"ok": False, "error": "@@UNLOCK <scope> <key>"})
                 with _pgswl() as _s:
-                    _s.execute(_twl("DELETE FROM fw.work_lock WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
-                               {"i": _inst, "s": _a[0], "k": _a[1]})
+                    # Stejna pojistka jako u LOCKBEAT: neuvolnuj zamek DRUHEHO okna teze instance.
+                    _r = _s.execute(_twl("DELETE FROM fw.work_lock WHERE instance_id=:i AND scope=:s AND lock_key=:k "
+                                    "AND (session_lane IS NULL OR :l = '' OR session_lane = :l)"),
+                               {"i": _inst, "s": _a[0], "k": _a[1], "l": _lane})
                     _s.commit()
+                if not _r.rowcount:
+                    return JSONResponse({"ok": True, "neni_tvuj": True,
+                        "zprava": "%s/%s neuvolneno - neni tvuj zamek (drzi ho jina lane nebo neexistuje)." % (_a[0], _a[1])})
                 return JSONResponse({"ok": True, "zprava": "uvolneno %s/%s (C-%s)" % (_a[0], _a[1], _inst)})
             if _uwl.startswith("@@LOCK"):
                 _hh = [x.strip() for x in sql[len("@@LOCK"):].strip().split("|", 1)]
@@ -39793,22 +39811,29 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _scope, _key = _a[0], _a[1]
                 with _pgswl() as _s:
                     _s.execute(_twl("DELETE FROM fw.work_lock WHERE expires_at < NOW()"))
-                    _held = _s.execute(_twl("SELECT instance_id, COALESCE(note,'') FROM fw.work_lock "
+                    _held = _s.execute(_twl("SELECT instance_id, COALESCE(note,''), COALESCE(session_lane,'') "
+                                            "FROM fw.work_lock "
                                             "WHERE scope=:s AND lock_key=:k"), {"s": _scope, "k": _key}).first()
-                    if _held and str(_held[0]) != _inst:
+                    # Cizi zamek = jina instance, NEBO tataz instance z JINE lane (dve okna).
+                    # Druha podminka plati jen kdyz lane znaji obe strany (stary runner/zamek -> vypnuta).
+                    _cizi_okno = bool(_held) and str(_held[0]) == _inst and bool(_lane) and bool(_held[2]) and _held[2] != _lane
+                    if _held and (str(_held[0]) != _inst or _cizi_okno):
                         _s.commit()
                         return JSONResponse({"ok": True, "obsazeno": True,
-                            "zprava": "POZOR: %s/%s uz drzi C-%s (%s). Zamek je MEKKY - akci NEblokuje, jen koordinuj." % (
-                                _scope, _key, _held[0], (_held[1] or "")[:60])})
+                            "zprava": "POZOR: %s/%s uz drzi C-%s%s (%s). Zamek je MEKKY - akci NEblokuje, jen koordinuj." % (
+                                _scope, _key, _held[0],
+                                (" z lane %s" % _held[2]) if _held[2] else "",
+                                (_held[1] or "")[:60])})
                     if _held:
                         _s.execute(_twl("UPDATE fw.work_lock SET expires_at=NOW()+INTERVAL '15 min', "
-                                        "note=COALESCE(:n,note) WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
-                                   {"n": _note, "i": _inst, "s": _scope, "k": _key})
+                                        "note=COALESCE(:n,note), session_lane=COALESCE(NULLIF(:l,''), session_lane) "
+                                        "WHERE instance_id=:i AND scope=:s AND lock_key=:k"),
+                                   {"n": _note, "i": _inst, "s": _scope, "k": _key, "l": _lane})
                         _s.commit()
                         return JSONResponse({"ok": True, "zprava": "uz drzim, TTL+15min %s/%s" % (_scope, _key)})
-                    _s.execute(_twl("INSERT INTO fw.work_lock (instance_id, scope, lock_key, expires_at, note) "
-                                    "VALUES (:i, :s, :k, NOW()+INTERVAL '15 min', :n)"),
-                               {"i": _inst, "s": _scope, "k": _key, "n": _note})
+                    _s.execute(_twl("INSERT INTO fw.work_lock (instance_id, scope, lock_key, expires_at, note, session_lane) "
+                                    "VALUES (:i, :s, :k, NOW()+INTERVAL '15 min', :n, NULLIF(:l,''))"),
+                               {"i": _inst, "s": _scope, "k": _key, "n": _note, "l": _lane})
                     _s.commit()
                 return JSONResponse({"ok": True, "zprava": "zamek vzat %s/%s (C-%s, TTL 15 min)" % (_scope, _key, _inst)})
         except Exception as _ewl:

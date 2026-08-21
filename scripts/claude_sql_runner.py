@@ -121,6 +121,16 @@ NONCE_KEEP = 8                                        # kolik nonce kopií na ba
 _EXTRA_LANES = [s.strip() for s in os.environ.get("CLAUDE_EXTRA_LANES", "2,3").split(",") if s.strip()]
 LANES = [""] + _EXTRA_LANES
 
+# Z které lane právě obsluhujeme dotaz (C-28/Jirka, 21.8.2026). Posílá se serveru
+# v payloadu jako "lane" a slouží k rozlišení DVOU OKEN TÉŽE INSTANCE u měkkých
+# zámků (@@LOCK lane <N>): bez toho dostane druhé okno C-28 hlášku "uz drzim"
+# místo "obsazeno", protože instance_id mají obě stejné. Schválila Marti-AI
+# (msg 13178, varianta A = samostatné pole + sloupec fw.work_lock.session_lane).
+# ⚠️ Rozliší okna jen potud, pokud každé jede na JINÉ lane; dvě okna na téže lane
+# si přepisují přímo CLAUDE<N>_SQL.sql a žádný zámek je nezachrání.
+# Zpětně kompatibilní: starší server pole "lane" prostě ignoruje.
+CURRENT_LANE = ""
+
 
 def _laneset(prefix: str) -> dict:
     """Fileset pro danou lane. prefix '' = base (CLAUDE_*, shodné s SQL_FILE/GO_FILE/
@@ -131,6 +141,7 @@ def _laneset(prefix: str) -> dict:
         "go":   BRIDGE_DIR / f"{p}GO.txt",
         "out":  BRIDGE_DIR / f"{p}OUT.txt",
         "full": BRIDGE_DIR / f"{p}OUT_FULL.txt",
+        "lane": prefix or "1",
     }
 
 # Auto-deploy (Marti 2.6.2026): Claude zapíše commit message + seznam souborů,
@@ -315,7 +326,7 @@ def _forward(sql: str, db: str) -> dict:
     if not token:
         return {"ok": False, "error": "chybí env STRATEGIE_DEPLOY_TOKEN na NB"}
     payload = json.dumps({"sql": sql, "db": db, "instance_id": INSTANCE_ID,
-                          "hostname": HOSTNAME}).encode("utf-8")
+                          "hostname": HOSTNAME, "lane": CURRENT_LANE}).encode("utf-8")
     posledni = {"ok": False, "error": "nespusteno"}
     for pokus in range(1, 4):          # 1. pokus + 2 opakovani
         rq = urllib.request.Request(
@@ -709,14 +720,16 @@ def _run_lane(fs: dict) -> None:
     """Zpracuj jednu lane: dočasně přesměruj globály SQL/GO/OUT/OUT_FULL na její
     soubory, zavolej _process() (+ jeho _write_out/_write_full/_consume, které tyhle
     globály čtou), pak vrať zpět. Jednovláknová smyčka → žádná reentrance, bezpečné.
-    Lane "" ukazuje na stejné base objekty → no-op swap (chování 1:1 jako dřív)."""
-    global SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE
-    _save = (SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE)
+    Lane "" ukazuje na stejné base objekty → no-op swap (chování 1:1 jako dřív).
+    Swapuje se i CURRENT_LANE, aby _forward() věděl, ze které lane dotaz jde."""
+    global SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE, CURRENT_LANE
+    _save = (SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE, CURRENT_LANE)
     SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE = fs["sql"], fs["go"], fs["out"], fs["full"]
+    CURRENT_LANE = fs.get("lane", "1")
     try:
         _process()
     finally:
-        SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE = _save
+        SQL_FILE, GO_FILE, OUT_FILE, OUT_FULL_FILE, CURRENT_LANE = _save
 
 
 # ── Auto-deploy (git add/commit/push na NB → cloud /deploy/now) ──────────

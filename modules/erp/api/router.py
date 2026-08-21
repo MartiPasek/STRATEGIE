@@ -24698,43 +24698,22 @@ async def app_skupiny_archive(gid: int, req: Request) -> JSONResponse:
 
 @api_router.post("/app/skupiny/{gid}/clen")
 async def app_skupiny_clen(gid: int, req: Request) -> JSONResponse:
-    """Přidat/odebrat člena skupiny. body: {user_id, action:'add'|'remove'}. Jen rodiče."""
+    """DB-driven delegate (g2007.python kod=skupiny_clen). Puvodni telo migrovano do DB
+    21.8.2026 (Claude-28 / Jirka, schvalila Marti-AI) pri zavedeni historie zarazeni do
+    podminkove skupiny - zmigrovana verze navic preda aktera, aby trigger vedel, KDO
+    vyrazeni provedl."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     try:
-        body = await req.json()
+        b = await req.json()
     except Exception:
-        body = {}
-    try:
-        tu = int((body or {}).get("user_id") or 0)
-    except Exception:
-        tu = 0
-    action = str((body or {}).get("action") or "add").strip()
-    if not tu:
-        return JSONResponse({"ok": False, "error": "chybí user_id"})
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if action == "remove":
-            s.execute(_t("DELETE FROM tenant.staff_group_member WHERE group_id=:g AND user_id=:u AND tenant_id=2"),
-                      {"g": gid, "u": tu})
-            # když odebíraný byl vedoucí/zástupce, vynuluj
-            s.execute(_t("UPDATE tenant.staff_group SET leader_user_id=NULL WHERE id=:g AND leader_user_id=:u"),
-                      {"g": gid, "u": tu})
-            s.execute(_t("UPDATE tenant.staff_group SET deputy_user_id=NULL WHERE id=:g AND deputy_user_id=:u"),
-                      {"g": gid, "u": tu})
-        else:
-            s.execute(_t("INSERT INTO tenant.staff_group_member (tenant_id, group_id, user_id, created_by) "
-                         "VALUES (2, :g, :u, :by) ON CONFLICT (group_id, user_id) DO NOTHING"),
-                      {"g": gid, "u": tu, "by": uid})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+        b = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("skupiny_clen", uid, gid,
+                        (b or {}).get("user_id"), (b or {}).get("action"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/skupiny/{gid}/clen/skore")

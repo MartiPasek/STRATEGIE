@@ -204,6 +204,33 @@ kurz · **celková cena**.
 2. **Když je všechno v pořádku, NEROZEPISOVAT.** Stačí napsat **„vše OK"** — žádná
    tabulka, žádný výčet položek. Rozepisuje se **jen to, co nesedí**.
 
+**Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
+
+- bez nabídky: `2065 - faktura ok`
+- s nabídkou, ceny sedí: `2065 - faktura ok, ceny sedí s nabídkou`
+- s nabídkou, ceny nesedí: `2065 - faktura ok, ceny nesedí s nabídkou` + rozepsat, co nesedí
+- nabídka existuje, ale fakturovaný díl v ní není:
+  `2065 - faktura ok, je tam nabídka, ale díl v nabídce není`
+
+### Nabídka k faktuře — jak se k ní dostat (ověřeno 21. 8. 2026)
+
+**Řetěz:** faktura → `TabDokladyZbozi.NavaznaObjednavka` → objednávka (**řada 800**,
+`PoradoveCislo` = číslo objednávky) → `TabDokladyZbozi_EXT._CisloNabidkyDodavatele`
+→ poptávka (**řada 940**, přehled **240 „Vydané poptávky"**) se stejným číslem nabídky
+→ doklad `EVP<číslo>` (`dbo.EC_GetDoklad(ID)`) → **složka `Z:\Poptavky_V\EVP<číslo>`**
+(= `\\192.168.30.11\data\poptavky_V`), kde leží PDF nabídky. Čte se Read tool-em.
+
+- Přehled 240 nese i `_Kcen_Cena` (cena), `_Sleva`, `_PlatnostDoNabDod` (platnost),
+  `_OrgNazevNabDod`, `_PoznamkaVyvojar` (umístění souboru) — často jsou ale **prázdné**,
+  pak je jediný zdroj ceny samo PDF nabídky.
+- **Přijaté nabídky jako doklady (řada 960, přehled 590) jsou v praxi prázdné** —
+  nehledat cenu tam.
+- **Objednávka a faktura nemusí mít stejnou cenu** a není to samo o sobě chyba
+  (2065: objednávka 59,50 + 19,60 EUR, faktura 52,40 + 17,36 EUR — dodavatel dal
+  na faktuře větší slevu). Porovnává se **faktura proti nabídce**, ne proti objednávce.
+- **Stává se, že fakturovaný díl v nabídce vůbec není** (Peťa: *„i to se bohužel stává"*)
+  — pak platí čtvrtá varianta výstupu výše, není to potřeba dál rozebírat.
+
 **Kde to je (ověřeno 21. 8. 2026, DB_EC přes most `db=mssql`):**
 
 - Přehled Centrály **2300 „Přijaté faktury – vše"** — menu `EC_CentralaMenu` id 181,

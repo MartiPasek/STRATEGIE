@@ -1955,6 +1955,12 @@ function renderPU(edit){
       d.posty.map(pp=>esc(pp.nazev)+(pp.zastupce?' <span style="color:#E0A94A">(zástupce)</span>':'')).join(', ')+'</div>';
   }
   h+='<div id="puPodriz" style="padding:0 16px 6px"></div>';
+  if(d.agentura){
+    h+='<div style="margin:8px 16px;padding:8px 12px;border:1px solid #3a4a2a;border-radius:8px;background:#161f14;display:flex;justify-content:space-between;align-items:center;gap:10px">'+
+      '<span style="color:#cfe0b8;font-size:12.5px">🤝 <b>Nábor přes agenturu:</b> '+esc(d.agentura.dodavatel)+(d.agentura.provize_pct?(' · provize '+d.agentura.provize_pct+' %'):'')+'</span>'+
+      '<a href="#" onclick="setView(\'dodavatele\');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px;white-space:nowrap">Agenturní smlouvy ›</a>'+
+    '</div>';
+  }
   for(const po of (d.pomery||[])){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
     const nadrOpts='<option value="">—</option>'+(d.zamestnanci||[]).map(z=>'<option value="'+z.id+'"'+(z.id===po.nadrizeny_id?' selected':'')+'>'+esc(z.jmeno)+'</option>').join('');

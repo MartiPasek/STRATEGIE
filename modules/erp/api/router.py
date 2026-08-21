@@ -10524,8 +10524,31 @@ async def app_hr_person_work(req: Request):
             zamest = [{"id": int(z[0]), "jmeno": (z[1] or "").strip()} for z in zr if (z[1] or "").strip()]
         except Exception as exc:
             logger.warning("[person_work zamest] %s", exc)
+        # Agenturní původ (Šárka 21.8.2026): pokud je člověk veden jako kandidát na aktivní
+        # dodavatelské/agenturní smlouvě (párování přes IČO, fallback jméno) → štítek na kartě.
+        agentura = None
+        try:
+            ar = s.execute(_t(
+                "SELECT ds.id, ds.dodavatel, COALESCE(ds.provize_pct,0) "
+                "FROM tenant.dodavatel_smlouva ds "
+                "WHERE ds.tenant_id=2 AND ds.stav='aktivní' AND ("
+                "  (ds.kandidat_ico IS NOT NULL AND ds.kandidat_ico = "
+                "     (SELECT usd.ico FROM tenant.user_self_data usd WHERE usd.user_id=:u AND usd.tenant_id=2 LIMIT 1)) "
+                "  OR (ds.kandidat IS NOT NULL AND lower(TRIM(ds.kandidat)) = "
+                "     (SELECT lower(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,''))) "
+                "        FROM public.users su WHERE su.id=:u)) "
+                "  OR (ds.kandidat IS NOT NULL AND lower(TRIM(ds.kandidat)) = "
+                "     (SELECT lower(TRIM(COALESCE(su.last_name,'')||' '||COALESCE(su.first_name,''))) "
+                "        FROM public.users su WHERE su.id=:u)) "
+                ") LIMIT 1"), {"u": tuid}).first()
+            if ar:
+                agentura = {"smlouva_id": int(ar[0]), "dodavatel": ar[1] or "",
+                            "provize_pct": float(ar[2] or 0)}
+        except Exception as exc:
+            logger.warning("[person_work agentura] %s", exc)
         return JSONResponse({"ok": True, "pomery": pomery, "historie": historie,
-                             "nadrizeny": nadrizeny, "posty": posty, "zamestnanci": zamest})
+                             "nadrizeny": nadrizeny, "posty": posty, "zamestnanci": zamest,
+                             "agentura": agentura})
     except Exception as exc:
         logger.exception("[hr_person_work] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

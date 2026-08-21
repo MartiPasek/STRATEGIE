@@ -11088,7 +11088,7 @@ async def app_hr_dodavatele(req: Request):
             "SELECT id, dodavatel, dodavatel_ico, typ, klient_firma, predmet, kandidat, kandidat_ico, "
             " provize_pct, strop_kc, okno_mesicu, pauza_mesicu, to_char(datum_podpisu,'DD.MM.YYYY'), stav, "
             " kontakt_fakturace, email_fakturace, soubor_nazev, poznamka, "
-            " COALESCE(dobehlo_kc,0), to_char(prvni_faktura_datum,'DD.MM.YYYY'), prvni_faktura_datum, okno_mesicu, "
+            " COALESCE(dobehlo_kc,0), to_char(prvni_faktura_datum,'DD.MM.YYYY'), prvni_faktura_datum, "
             " to_char(dobehlo_changed_at,'DD.MM.YYYY') "
             "FROM tenant.dodavatel_smlouva WHERE tenant_id=2 ORDER BY stav, id")).fetchall()
         # Evidence faktur kandidátů (základ pro automatický výpočet provize)
@@ -11121,12 +11121,12 @@ async def app_hr_dodavatele(req: Request):
             suma_faktur = sum(float(f[4] or 0) for f in faks)
             provize_auto = round(suma_faktur * provize_pct / 100.0, 2)
             # Doběhlo = automaticky z faktur (pokud nějaké jsou), jinak ruční hodnota
-            dobehlo = provize_auto if faks else float(r[19] or 0)
+            dobehlo = provize_auto if faks else float(r[18] or 0)
             zbyva = max(strop - dobehlo, 0)
             pct = (dobehlo / strop * 100.0) if strop else 0.0
             konec_okna = ""
-            prvni = min((f[6] for f in faks if f[6]), default=None) if faks else r[21]
-            okno = int(r[22] or 0)
+            prvni = min((f[6] for f in faks if f[6]), default=None) if faks else r[20]
+            okno = int(r[10] or 0)
             if prvni and okno:
                 m = prvni.month - 1 + okno
                 y = prvni.year + m // 12
@@ -11141,8 +11141,8 @@ async def app_hr_dodavatele(req: Request):
                         "kontakt_fakturace": r[14] or "", "email_fakturace": r[15] or "",
                         "soubor_nazev": r[16] or "", "poznamka": r[17] or "",
                         "dobehlo_kc": dobehlo, "zbyva_kc": zbyva, "pct": round(pct, 1),
-                        "prvni_faktura": (prvni.strftime("%d.%m.%Y") if faks and prvni else (r[20] or "")),
-                        "konec_okna": konec_okna, "dobehlo_zmeneno": r[23] or "",
+                        "prvni_faktura": (prvni.strftime("%d.%m.%Y") if faks and prvni else (r[19] or "")),
+                        "konec_okna": konec_okna, "dobehlo_zmeneno": r[21] or "",
                         "suma_faktur": round(suma_faktur, 2), "pocet_faktur": len(faks),
                         "auto": bool(faks),
                         "faktury": [{"id": int(f[0]), "cislo": f[2] or "", "obdobi": f[3] or "",

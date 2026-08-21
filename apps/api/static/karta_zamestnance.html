@@ -314,6 +314,17 @@
     <div id="uklist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="dodavatelecard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">📄 Agenturní / dodavatelské smlouvy</b>
+      <span id="dodcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <button onclick="loadDodavatele()" style="margin-left:auto;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">↻ Obnovit</button>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Smlouvy s agenturami/dodavateli a hlídání provize (kolik už doběhlo z limitu). Jen HR.</div>
+    <div id="dodlist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <div class="wrapfull" id="organigramcard" style="display:none">
   <div class="card">
     <div class="tbar">
@@ -477,6 +488,8 @@ function setView(v){
   const tbc=document.getElementById('tabulecard'); if(tbc) tbc.style.display=(v==='tabule')?'':'none';
   const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
+  const ddc=document.getElementById('dodavatelecard'); if(ddc) ddc.style.display=(v==='dodavatele')?'':'none';
+  if(v==='dodavatele'){ loadDodavatele(); return; }
   if(v==='ukoly'){ loadUkoly(); return; }
   if(v==='organigram'){ loadOrganigram(); return; }
   if(v==='orgman'){ loadOrgman(); return; }
@@ -693,6 +706,75 @@ async function ukolHotovo(id, cb){
     if(!d.ok){ cb.disabled=false; cb.checked=false; alert('Nepovedlo se: '+(d.error||'chyba')); return; }
     if(row){ row.style.transition='opacity .3s'; row.style.opacity='.35'; row.querySelector('span:nth-of-type(2) div').style.textDecoration='line-through'; setTimeout(function(){ row.remove(); const c=document.getElementById('ukcnt'); const n=document.querySelectorAll('#uklist .ukrow').length; if(c) c.textContent='('+n+')'; if(!n){ document.getElementById('uklist').innerHTML='<div class="empty">Žádné otevřené úkoly. 🎉</div>'; } }, 320); }
   }catch(e){ cb.disabled=false; cb.checked=false; alert('✗ síť'); }
+}
+// ── Agenturní / dodavatelské smlouvy + hlídání provize (Šárka 21.8.2026) ──
+let DOD_DATA=[];
+async function loadDodavatele(){
+  const box=document.getElementById('dodlist'); const cnt=document.getElementById('dodcnt');
+  if(!box) return;
+  box.innerHTML='<div class="empty">Načítám…</div>';
+  let d; try{ d=await j(API+'/app/hr/dodavatele'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d||!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d&&d.error||'nedostupné')+'</div>'; return; }
+  DOD_DATA=d.smlouvy||[]; if(cnt) cnt.textContent='('+DOD_DATA.length+')';
+  renderDodavatele();
+}
+function _kc(x){ return (Math.round(Number(x||0))).toLocaleString('cs-CZ')+' Kč'; }
+function renderDodavatele(){
+  const box=document.getElementById('dodlist'); if(!box) return;
+  if(!DOD_DATA.length){ box.innerHTML='<div class="empty">Žádná dodavatelská smlouva.</div>'; return; }
+  box.innerHTML=DOD_DATA.map(function(s){
+    const pct=Math.min(s.pct||0,100);
+    const barCol=(s.pct>=90)?'#ff8a7a':(s.pct>=70?'#E0A94A':'#7fe0a0');
+    const warn=(s.pct>=90)?'<div style="color:#ff8a7a;font-weight:700;font-size:12px;margin-top:4px">⚠️ Blíží se strop! Zbývá '+_kc(s.zbyva_kc)+'.</div>':
+               (s.pct>=70?'<div style="color:#E0A94A;font-size:12px;margin-top:4px">Pozor, přes 70 % limitu.</div>':'');
+    const row=function(k,v){ return v?('<div style="display:flex;gap:8px;font-size:12.5px;padding:1px 0"><span style="color:#7f8ea0;min-width:150px">'+k+'</span><span style="color:#cdd6e2">'+v+'</span></div>'):''; };
+    return '<div style="border:1px solid #233040;border-radius:10px;padding:14px 16px;margin-bottom:12px;background:#12181f">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'+
+        '<div><div style="font-weight:800;color:#e8eef5;font-size:15px">'+esc(s.dodavatel)+(s.dodavatel_ico?(' <span style="color:#7f8ea0;font-weight:500;font-size:12px">IČO '+esc(s.dodavatel_ico)+'</span>'):'')+'</div>'+
+          '<div style="color:#9fb4d0;font-size:13px;margin-top:2px">'+esc(s.predmet||s.typ)+' — kandidát <b>'+esc(s.kandidat)+'</b>'+(s.kandidat_ico?(' (IČO '+esc(s.kandidat_ico)+')'):'')+'</div></div>'+
+        '<span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+(s.stav==='aktivní'?'#122a1e':'#23262b')+';color:'+(s.stav==='aktivní'?'#7fe0a0':'#9aa7b4')+'">'+esc(s.stav)+'</span>'+
+      '</div>'+
+      '<div style="margin-top:10px">'+
+        row('Provize', (s.provize_pct||0)+' % z každé faktury kandidáta')+
+        row('Limit (strop)', _kc(s.strop_kc))+
+        row('Okno nároku', (s.okno_mesicu?(s.okno_mesicu+' měs. od 1. faktury'):'')+(s.pauza_mesicu?(' · zaniká po '+s.pauza_mesicu+' měs. bez faktury'):''))+
+        row('Fakturace', (s.kontakt_fakturace||'')+(s.email_fakturace?(' · '+s.email_fakturace):''))+
+        row('Podpis', s.datum_podpisu)+
+        row('Dokument', s.soubor_nazev?('📎 '+esc(s.soubor_nazev)):'')+
+      '</div>'+
+      '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2730">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+          '<b style="color:#e8eef5;font-size:13px">Hlídání provize</b>'+
+          '<a href="#" onclick="dodEdit('+s.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Zadat doběh / 1. fakturu</a>'+
+        '</div>'+
+        '<div style="height:16px;background:#0f141a;border-radius:8px;overflow:hidden;border:1px solid #233040"><div style="height:100%;width:'+pct+'%;background:'+barCol+'"></div></div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span style="color:#cdd6e2">Doběhlo: <b>'+_kc(s.dobehlo_kc)+'</b> ('+s.pct+' %)</span><span style="color:#9aa7b4">Zbývá do stropu: '+_kc(s.zbyva_kc)+'</span></div>'+
+        (s.prvni_faktura?('<div style="color:#7f8ea0;font-size:11.5px;margin-top:3px">1. faktura: '+esc(s.prvni_faktura)+(s.konec_okna?(' · okno končí '+esc(s.konec_okna)):'')+'</div>'):'<div style="color:#7f8ea0;font-size:11.5px;margin-top:3px">1. faktura zatím nezadaná — okno se počítá od ní.</div>')+
+        warn+
+        '<div id="dodform'+s.id+'"></div>'+
+        '<div style="color:#5d6b7c;font-size:11px;margin-top:6px">📌 Automatické napojení na faktury čeká na potvrzení zdroje s Petrou; zatím se doběh eviduje ručně.</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+function dodEdit(id){
+  const s=DOD_DATA.find(x=>x.id===id)||{}; const box=document.getElementById('dodform'+id); if(!box) return;
+  const inp='background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:6px 8px;font:inherit;box-sizing:border-box';
+  box.innerHTML='<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'+
+    '<label style="font-size:12px;color:#9aa7b4">Doběhlo celkem (Kč)<br><input id="dodf_kc'+id+'" type="text" value="'+(s.dobehlo_kc||0)+'" style="'+inp+';width:140px"></label>'+
+    '<label style="font-size:12px;color:#9aa7b4">Datum 1. faktury<br><input id="dodf_prv'+id+'" type="date" style="'+inp+'"></label>'+
+    '<a href="#" onclick="dodSave('+id+');return false;" style="color:#7fe0a0;font-weight:800;text-decoration:none;padding-bottom:6px">Uložit</a>'+
+    '<a href="#" onclick="document.getElementById(\'dodform'+id+'\').innerHTML=\'\';return false;" style="color:#7f8ea0;text-decoration:none;padding-bottom:6px">Zrušit</a>'+
+    '<span id="dodf_msg'+id+'" style="font-size:12px;padding-bottom:6px"></span></div>';
+}
+async function dodSave(id){
+  const kc=(document.getElementById('dodf_kc'+id)||{}).value||'';
+  const prv=(document.getElementById('dodf_prv'+id)||{}).value||'';
+  const msg=document.getElementById('dodf_msg'+id);
+  let d; try{ const r=await fetch(API+'/app/hr/dodavatele/dobehlo',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,dobehlo_kc:kc,prvni_faktura_datum:prv})}); d=await r.json(); }
+  catch(e){ d={ok:false,error:'síť'}; }
+  if(!d.ok){ if(msg){ msg.style.color='#ff8a7a'; msg.textContent='✗ '+(d.error||'chyba'); } return; }
+  loadDodavatele();
 }
 let ORG_POSTY=null;
 async function loadOrganigram(){
@@ -2650,7 +2732,7 @@ load();
 // proměnných, které si jednotlivé obrazovky drží (PODMINKY, TABULE, KALENDAR…).
 (function initView(){ try{
   const v=new URLSearchParams(location.search).get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele'){ setView(v); }
 }catch(e){} })();
 </script>
 </body>

@@ -10866,6 +10866,95 @@ async def app_hr_benefits_del(bid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/dodavatele")
+async def app_hr_dodavatele(req: Request):
+    """Agenturní / dodavatelské smlouvy + hlídání provize (kolik z limitu už doběhlo). Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, dodavatel, dodavatel_ico, typ, klient_firma, predmet, kandidat, kandidat_ico, "
+            " provize_pct, strop_kc, okno_mesicu, pauza_mesicu, to_char(datum_podpisu,'DD.MM.YYYY'), stav, "
+            " kontakt_fakturace, email_fakturace, soubor_nazev, poznamka, "
+            " COALESCE(dobehlo_kc,0), to_char(prvni_faktura_datum,'DD.MM.YYYY'), prvni_faktura_datum, okno_mesicu, "
+            " to_char(dobehlo_changed_at,'DD.MM.YYYY') "
+            "FROM tenant.dodavatel_smlouva WHERE tenant_id=2 ORDER BY stav, id")).fetchall()
+        import datetime as _dt
+        out = []
+        for r in rows:
+            strop = float(r[9] or 0)
+            dobehlo = float(r[19] or 0)
+            zbyva = max(strop - dobehlo, 0)
+            pct = (dobehlo / strop * 100.0) if strop else 0.0
+            konec_okna = ""
+            prvni = r[21]
+            okno = int(r[22] or 0)
+            if prvni and okno:
+                m = prvni.month - 1 + okno
+                y = prvni.year + m // 12
+                mm = m % 12 + 1
+                d = min(prvni.day, [31,29 if y%4==0 and (y%100!=0 or y%400==0) else 28,31,30,31,30,31,31,30,31,30,31][mm-1])
+                konec_okna = _dt.date(y, mm, d).strftime("%d.%m.%Y")
+            out.append({"id": int(r[0]), "dodavatel": r[1] or "", "dodavatel_ico": r[2] or "",
+                        "typ": r[3] or "", "klient": r[4] or "", "predmet": r[5] or "",
+                        "kandidat": r[6] or "", "kandidat_ico": r[7] or "",
+                        "provize_pct": float(r[8] or 0), "strop_kc": strop, "okno_mesicu": okno,
+                        "pauza_mesicu": int(r[11] or 0), "datum_podpisu": r[12] or "", "stav": r[13] or "",
+                        "kontakt_fakturace": r[14] or "", "email_fakturace": r[15] or "",
+                        "soubor_nazev": r[16] or "", "poznamka": r[17] or "",
+                        "dobehlo_kc": dobehlo, "zbyva_kc": zbyva, "pct": round(pct, 1),
+                        "prvni_faktura": r[20] or "", "konec_okna": konec_okna,
+                        "dobehlo_zmeneno": r[23] or ""})
+        return JSONResponse({"ok": True, "smlouvy": out})
+    except Exception as exc:
+        logger.exception("[hr_dodavatele] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/dodavatele/dobehlo")
+async def app_hr_dodavatele_dobehlo(req: Request):
+    """Uložení stavu hlídání provize (kolik už doběhlo + datum 1. faktury). Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    sid = int((b or {}).get("id") or 0)
+    _dk = (b or {}).get("dobehlo_kc")
+    try:
+        dobehlo = None if _dk in (None, "") else float(str(_dk).replace(",", ".").replace(" ", ""))
+    except Exception:
+        dobehlo = None
+    prvni = (str((b or {}).get("prvni_faktura_datum") or "")).strip() or None
+    if not sid:
+        return JSONResponse({"ok": False, "error": "chybí smlouva"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("UPDATE tenant.dodavatel_smlouva SET dobehlo_kc=COALESCE(:d,dobehlo_kc), "
+                     "prvni_faktura_datum=CAST(:p AS date), dobehlo_changed_by=:u, dobehlo_changed_at=now() "
+                     "WHERE id=:id AND tenant_id=2"), {"d": dobehlo, "p": prvni, "u": uid, "id": sid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_dodavatele_dobehlo] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/med-exams")
 async def app_hr_med_exams(req: Request):
     """Lékařské prohlídky člověka — READ-ONLY z Centrály (EC_TerminyPripomenuti, Typ=1).

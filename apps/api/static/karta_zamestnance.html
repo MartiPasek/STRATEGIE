@@ -196,7 +196,7 @@
   <div class="card">
     <div class="hd">➕ Přidat zaměstnance</div>
     <div class="fsec">
-      <div class="fh">🧑 Základní údaje</div>
+      <div class="fh">🧑 Obecné</div>
       <label class="chkline" style="margin-bottom:12px"><input type="checkbox" id="cr_org" checked> Zobrazit v organizační struktuře</label>
       <div class="fgrid">
         <div class="fld"><label>Křestní jméno <span class="req">*</span></label><input id="cr_first"></div>
@@ -471,7 +471,7 @@ function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).
 
 // Sekce karty (dle Pinya „Profil pracovníka" × Centrála). on=napojeno, go=cíl.
 const SEKCE=[
-  {ic:"🧾",t:"Základní údaje",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
+  {ic:"🧾",t:"Obecné",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
   {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true,key:'pracovni'},
   {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
@@ -2001,7 +2001,7 @@ function renderZU(edit){
   const legenda = edit ? '' : '<span style="font-size:10.5px;color:#7f8ea0;margin:0 auto 0 14px">Zdroj: <span style="color:#5d6b7c">Import</span> · <span style="color:#7fb2e8">zaměstnanec</span> · <span style="color:#E0A94A">HR</span></span>';
   let h=pheadHTML(p)+
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #1e2730">'+
-    '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">🧾 Základní údaje</span>'+legenda+
+    '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">🧾 Obecné</span>'+legenda+
     '<span style="display:flex;gap:14px;white-space:nowrap">'+back+btn+'</span></div>';
   // Filtr sekcí (OSVČ podnikání jen u OSVČ) + rozdělení na adresy vs. ostatní.
   const secs=(d.sections||[]).filter(function(sec){

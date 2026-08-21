@@ -86,6 +86,11 @@
   .btnp{border:1px solid #2e6f3e;background:#2e6f3e;color:#eafff0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:800;cursor:pointer}
   .btns{border:1px solid var(--line);background:var(--panel2);color:var(--txt);border-radius:8px;padding:9px 16px;font:inherit;cursor:pointer}
   .chkline{display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13px}
+  /* Embed režim: jedna sekce vložená jako izolované okno (bez lišty a seznamu) */
+  body.emb .top{display:none!important}
+  body.emb #mdwrap>.card:first-child{display:none!important}
+  body.emb #mdwrap{display:block!important;padding:0!important;margin:0!important;height:auto!important}
+  body.emb #mdwrap>.card{width:100%!important;max-width:100%!important;margin:0!important;border:0!important;background:transparent!important}
 </style>
 </head>
 <body>
@@ -472,11 +477,9 @@ function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).
 // Sekce karty (dle Pinya „Profil pracovníka" × Centrála). on=napojeno, go=cíl.
 const SEKCE=[
   {ic:"🧾",t:"Obecné",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
-  {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true,key:'pracovni'},
-  {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,key:'finance'},
+  {ic:"💼",t:"Personální a finanční podmínky",d:"Poměr, smlouva, úvazek, mzdové podmínky, dovolená, sick days, bonusy a srážky — vše na jednom místě (jako v Centrále).",on:true,key:'pmf'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, docházka po dnech, absence.",on:true,key:'absence'},
-  {ic:"📋",t:"Podmínky a bonusy",d:"Úvazek, nástup, dovolená, sick days, stravenka + bonusy a srážky (mobilní tarif, služební auto…).",on:true,key:'podminky'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
   {ic:"🗒️",t:"Personální zápisy",d:"Pohovory, události, poznámky HR (jen HR).",on:true,key:'zapisy'},
   {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti prohlídek + upomínka před vypršením (z Centrály).",on:true,key:'lekar'},
@@ -1718,7 +1721,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
+    const ACT={zakladni:'zakUdaje',pmf:'pmfUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -2811,6 +2814,26 @@ function finUdaje(){
   det.innerHTML=h;
 }
 
+// Šárka 21.8.2026: sloučená dlaždice „Personální a finanční podmínky" (jako v Centrále).
+// Tři části pod sebou, každá v izolovaném okně přes SVŮJ stávající endpoint —
+// nesaháme do cizí logiky ani ukládání (Poměr = HR, Mzdové = Petra, Podmínky = Marti).
+function pmfUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const det=document.getElementById('det');
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  const blok=(title,src,h)=>'<div style="margin:0 0 4px">'+
+    '<div style="font-weight:800;color:#aac8ec;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 16px 4px">'+esc(title)+'</div>'+
+    '<iframe src="'+src+'" style="width:100%;height:'+h+';border:0;border-top:1px solid #1e2730;background:#0f141a;display:block" title="'+esc(title)+'"></iframe></div>';
+  let html=pheadHTML(p)+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5">💼 Personální a finanční podmínky</span>'+back+'</div>'+
+    blok('Poměr a smlouva','/karta-zamestnance?embedsec=pracovni&uid='+uid,'380px')+
+    blok('Mzdové podmínky (Petra)','/finance-podminky?uid='+uid+'&embed=1','540px')+
+    blok('Podmínky a bonusy (Marti)','/karta-zamestnance?embedsec=podminky&uid='+uid,'540px');
+  det.innerHTML=html;
+}
+
 // Šárka 21.7.2026: Dokumenty = digitální šanon (nahrát/stáhnout/smazat, uloženo v DB mimo git).
 const DOK_KAT={smlouva:'Pracovní smlouvy',dodatek:'Dodatky',generovana:'Generovaná dokumentace',zapoctovy:'Zápočtové listy',posudek:'Lékařské posudky',diplom:'Diplomy / certifikáty',mzda:'Mzdové dokumenty',gratulace:'Přání a gratulace',ostatni:'Ostatní'};
 function dokKatOpts(sel){return Object.keys(DOK_KAT).map(k=>'<option value="'+k+'"'+(k===sel?' selected':'')+'>'+esc(DOK_KAT[k])+'</option>').join('');}
@@ -3028,12 +3051,22 @@ async function dokAudit(uid){
   }
   det.innerHTML=h;
 }
-load();
-// Deep-link: ?view=table → Seznam zaměstnanců, ?view=contracts → Pracovní smlouvy,
-// ?view=podminky → Podmínky zaměstnanců atd. Musí být až tady, po deklaraci všech
-// proměnných, které si jednotlivé obrazovky drží (PODMINKY, TABULE, KALENDAR…).
-(function initView(){ try{
-  const v=new URLSearchParams(location.search).get('view');
+// Deep-link + embed režim. embedsec=pracovni|finance|podminky + uid → vloží JEN tu sekci
+// jako izolované okno (pro sloučenou dlaždici „Personální a finanční podmínky").
+(async function initBoot(){ try{
+  const qs=new URLSearchParams(location.search);
+  const sec=qs.get('embedsec'), euid=parseInt(qs.get('uid')||'0');
+  await load();
+  if(sec && euid){
+    document.body.classList.add('emb');
+    CUR_UID=euid;
+    const fn={pracovni:pracUdaje, finance:finUdaje, podminky:podmUdaje}[sec];
+    if(fn){ await fn(); }
+    document.querySelectorAll('.phead').forEach(function(e){ e.style.display='none'; });
+    [].slice.call(document.querySelectorAll('a')).forEach(function(a){ if((a.textContent||'').indexOf('Zpět na kartu')>=0) a.style.display='none'; });
+    return;
+  }
+  const v=qs.get('view');
   if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor'){ setView(v); }
 }catch(e){} })();
 </script>

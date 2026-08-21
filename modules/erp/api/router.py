@@ -9465,8 +9465,8 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "nadrizeny": (r[16] or ""),
                         "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[17], r[17]) if r[17] else ""),
                         "post": (r[18] or ""),
-                        "osobni_cislo": (str(r[19]) if r[19] not in (None, "") else ""),
-                        "datum_odchodu": (r[20].strftime("%d.%m.%Y") if r[20] else "")})
+                        "osobni_cislo": (str(r[-2]) if r[-2] not in (None, "") else ""),
+                        "datum_odchodu": (r[-1].strftime("%d.%m.%Y") if r[-1] else "")})
         # Šárka 5.8.2026: v režimu „i bývalé" doplnit i bývalé BEZ účtu — existují jen
         # jako docházkový záznam (att_employee, import z Centrály), stejně jako je vidí
         # Petra/Dušan. Bez účtu = jen přehledový řádek (karta se plně neotevře).

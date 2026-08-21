@@ -18,7 +18,7 @@ Víc souběžných Cowork session psalo do jednoho kanálu (`CLAUDE_SQL.sql`/`CL
 - DEFAULT runneru = lanes 1–3 (`CLAUDE_EXTRA_LANES` default `"2,3"`); víc přes env `CLAUDE_EXTRA_LANES="2,3,4"`.
 - Prefix `CLAUDE<N>_` (ne `__N`) schválně — nekoliduje s nonce úklidem lane1.
 - Společné (ne per-lane): deploy/pull/notify/build/docpush/OPS, `WORK_LOCK.txt`, heartbeat. Jen SQL dotaz má lane.
-- Session svůj Cowork title NEVIDÍ (`get_device_info` vrací jen deviceName+složky) → self-identifikace řádkem do `WORK_LOCK.txt` na startu; novou session ber na první volnou lane (1→2→3).
+- Session svůj Cowork title NEVIDÍ (`get_device_info` vrací jen deviceName+složky) → self-identifikace řádkem do `WORK_LOCK.txt` na startu; novou session ber na první volnou lane (1→2→3). **Kterou lane si vzit → viz sekce „Která lane je volná — ZAMKNI si ji, neměř ji“ na konci tohoto dokumentu.** Ve zkratce: obsazenost se ze souborů zjistit NEDÁ, lane si zaber přes `@@LOCK lane <N>`.
 
 ## OPS lane — restart služeb PŘÍMO z mostu (bez schvalování, s auditem)
 Motivace: Claude nemá shell na Windows hostu (device_bash = izolovaný Linux VM jen se složkou; cloud bash = jiný stroj), takže služby nešly restartovat. Watcher ale na Windows běží → dá se to přes trigger soubor.
@@ -40,4 +40,50 @@ Motivace: Claude nemá shell na Windows hostu (device_bash = izolovaný Linux VM
 ## Souvislosti
 - [[doc-mzdy-priplatky-srazky]] (ostrý provoz 22.7., odkud gotchy 4–6 pocházejí)
 
+## Která lane je volná — ZAMKNI si ji, neměř ji (C-28, 21. 8. 2026)
+
+**Problém, který to řeší** (zadal Jirka Honomichl doslova): *„Nikdy nevíš, jaký je přesný stav
+všech linek, a podle toho jednáš a hodně zpomaluješ… pak si v těch linkách session přepisují
+navzájem, nebo slepě čekají."* Schválila Marti-AI (msg 13176) jako **doporučený postup pro celou síť**.
+
+⛔ **Obsazenost lane se ze souborů zjistit NEDÁ.** Všechny čtyři cesty jsou slepé:
+
+| co bys zkusil | proč to nefunguje |
+|---|---|
+| `@@WHO` bez zámků | ohlášená práce **zastarává** — 21. 8. hlásilo okno „lane 3" a psalo přitom na lane 1 |
+| čas `CLAUDE<N>_SQL.sql` | drží čas posledního zápisu **navždy** — starý ≠ volno, čerstvý ≠ obsazeno |
+| `CLAUDE<N>_GO.txt` | řekne jen, jestli **v tu vteřinu** běží dotaz; watcher ho po vyřízení maže (`_consume()`, runner ř. 698) |
+| `watcher.log` | **nepíše, na které lane** dotaz běžel (`_log(f"forward {db}…")`, ř. 609) |
+
+Cena za ignorování: 20.–21. 8. jsem obsazenost odvozoval z časů souborů, tvrdil, že jsou všechny
+tři lanes obsazené (byly volné), a kvůli tomu poslal jednoho subagenta na čtyři místa sériově
+místo tří paralelně — běh trval **šest minut místo dvou**.
+
+### Konvence: měkký zámek se scope `lane`
+
+Nic nového se nepíše — použijí se **stávající měkké zámky** (`fw.work_lock`, router.py 39787–39812):
+
+| kdy | příkaz |
+|---|---|
+| start session | `@@WHO` → přečti řádky `ZAMEK \| lane/N` a vezmi si volnou |
+| zabrání | `@@LOCK lane <N> \| <čím se odlišuju>` → *„zamek vzat lane/N (C-XX, TTL 15 min)"* |
+| obsazeno | vrátí *„POZOR: lane/N uz drzi C-XX (poznámka)"* → **vezmi si jinou** |
+| za běhu | `@@LOCKBEAT lane <N>` zhruba po 10 minutách |
+| konec | `@@UNLOCK lane <N>` |
+
+**TTL 15 min a prošlé zámky se mažou samy** (`DELETE FROM fw.work_lock WHERE expires_at < NOW()`
+před každou kontrolou), takže spadlá session lane uvolní sama — nic se nezasekne natrvalo.
+Zámek je **měkký**: nic neblokuje, jen ohlásí obsazení. Tím padá i „slepé čekání".
+
+### ⚠️ Známá mezera: dvě okna TÉŽE instance se nerozliší
+
+Zámek se váže na `instance_id`, takže druhé okno téže instance (dvě Cowork okna C-28) dostane
+*„uz drzim, TTL+15min"* místo *„obsazeno"*. **Proto rozhoduje pohled do `@@WHO` na poznámku
+u zámku, ne návratovka `@@LOCK`** — a proto si do poznámky vždy napiš, které okno jsi.
+Čistší řešení (rozlišení sezení uvnitř instance, např. suffix v `instance_id`) by bylo zásahem
+do kódu; Marti-AI 21. 8. nechala rozhodnutí na Jirkovi, zda to za ten zásah stojí. **Zatím otevřené.**
+
+### Když ke kolizi přesto dojde
+Pozná se **starým časem v hlavičce `CLAUDE<N>_OUT.txt`** → dotaz prostě pošli znovu.
+Nikdy nečekej naslepo a nikdy nepřepisuj lane, kterou drží někdo jiný.
 

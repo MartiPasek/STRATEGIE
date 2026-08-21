@@ -6,7 +6,12 @@
 > ⚠️ **DOPLNĚNO 19. 8. 2026 (Claude-28, schválila Marti-AI). Obsah pod tímto rámečkem jsem needitoval.**
 > Od 19. 8. 2026 večer **`tenant.staff_cond` už není tabulka, ale POHLED.** Osobní hodnoty podmínek
 > fyzicky žijí ve smlouvě (`tenant.engagement`, sloupce `pod_*` + `pod_meta`) a verzují se s ní.
-> Skupinové a systémové výchozí hodnoty zůstaly v `tenant.staff_cond_zaklad`.
+> Skupinové a systémové výchozí hodnoty se **20. 8. 2026 přejmenovaly na `tenant.podminky_vychozi`**
+> (dřív `staff_cond_zaklad`) a slouží už jen jako číselník výchozích hodnot — osobní řádky tam nepatří.
+> **Doplněno 20. 8. 2026 (Claude-28, schválila Marti-AI):** od kroku 3a má každý člověk všechny hodnoty
+> zapsané u sebe ve smlouvě, takže pohled `staff_cond` vrací **jen osobní řádky**, a spouštěč
+> `trg_staff_cond_default_dovolena` na `att_employee` byl **ZRUŠEN** — nahradil ho `engagement_pod_defaults`
+> na smlouvě.
 > **Čtení i zápis přes `tenant.staff_cond` funguje dál úplně stejně** — ověřeno porovnáním otisků
 > před a po (294 řádků i 1248 vyřešených hodnot bez rozdílu), takže **text níže platí dál**;
 > změnilo se jen to, kde data fyzicky leží. Kdo bude sahat na strukturu nebo na spouštěče,
@@ -61,14 +66,17 @@ ze s nim nikde v projektu nikdo nepracoval (dochazka zna jediny typ Sickday).
 CTOU - att_narok_cerpani (prehled Narok a cerpani), hr_podminky_prehled (prehled
 Podminky zamestnancu), karta zamestnance, /app/my-conditions (Moje podminky v mobilu).
 ZAPISUJI - zakladani noveho zamestnance v HR, att_vernost_dovolena, trigger
-trg_staff_cond_default_dovolena.
+trg_staff_cond_default_dovolena *(ZRUSENO 20.8.2026 - nahrazen engagement_pod_defaults
+na smlouve)*.
 
 ## Zmeny v jednotlivych mistech
 - att_narok_cerpani (verze 7) - rozpad D/DN uz NEPOCITA pravidlem, cte ho z novych
   kodu. Puvodni pravidlo zustalo jen jako zachrana, kdyz kody chybi.
 - att_vernost_dovolena (verze 3) - vernostni den se pricita do dovolena_navic_dni,
   ne do celkoveho cisla. Kdyby psal do celkoveho, trigger by mu to prepsal.
-- trg_staff_cond_default_dovolena - novemu zamestnanci zaklada nuly u VSECH TRECH kodu.
+- trg_staff_cond_default_dovolena *(ZRUSENO 20.8.2026 - nahrazen engagement_pod_defaults
+  na smlouve, ktery nove smlouve doplni vychozi hodnoty z ciselniku)* - novemu zamestnanci
+  zakladal nuly u VSECH TRECH kodu.
   Celkovy radek se musi zakladat dal - trigger souctu umi jen prepocitat existujici radek.
 - Zakladani zamestnance v HR - formular dal zadava JEDNO cislo, backend ho rozdeli
   stejnym pravidlem a zapise vsechny tri hodnoty.

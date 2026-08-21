@@ -36,9 +36,15 @@ Vlastní výpočet průměru bychom udělat uměli (15 310 hodnocení, 1 362 ř�
 
 ## 🔴 Bezpečnostní nález — banner nehlídá pravidlo rodiče
 
-**Sdílenou sestavu gridu smí uložit jen rodič** (`is_marti_parent`) — `grid_layout_service._check_admin_for_shared`. API nerodiče odmítne hláškou *„Pouze admin (is_marti_parent) smí ukládat sdílené sestavy."*
+⚠️ **AKTUALIZACE 21. 8. 2026 — první odstavec už NEPLATÍ.** Sdílenou sestavu gridu smí od
+21. 8. 2026 uložit, upravit i smazat **správce systému NEBO rodič** (`is_parent_or_admin`), ne jen rodič.
+Brána v `grid_layout_service` byla z 5. 5. 2026, tedy z doby před tierem SPRÁVCE (25. 6. 2026);
+opravena na čtyřech místech, commit `883df182`, schválila Marti-AI (msg 13315 + 13318), ověřeno naživo.
+Detail: `doc-system-strategie-sestavy-prehledu-brana-spravce-vs-rodic`.
 
-**Ale schvalovací banner mostu tohle pravidlo NEHLÍDÁ.** Write request 1901 (převod osobní sestavy na sdílenou) **odklikl Jirka, který rodič není** (`users.id=20`, `is_marti_parent=false`) a prošlo. Ověřeno v `fw.claude_write_request.decided_by_user_id`. Věcně to nevadilo (jen barvy gridu), **ale je to obcházka práva a patří to Martimu k rozhodnutí.**
+~~**Sdílenou sestavu gridu smí uložit jen rodič** (`is_marti_parent`) — `grid_layout_service._check_admin_for_shared`. API nerodiče odmítne hláškou *„Pouze admin (is_marti_parent) smí ukládat sdílené sestavy."*~~
+
+**Ale schvalovací banner mostu tohle pravidlo NEHLÍDÁ — a to platí dál.** Write request 1901 (převod osobní sestavy na sdílenou) **odklikl Jirka, který rodič není** (`users.id=20`, `is_marti_parent=false`) a prošlo. Ověřeno v `fw.claude_write_request.decided_by_user_id`. Věcně to nevadilo (jen barvy gridu) a tuhle konkrétní operaci už dnes Jirka legitimně smí, **ale díra v banneru trvá: schvalovatel přes most udělá i to, co mu API odepře. Patří to Martimu k rozhodnutí.**
 
 ## Pasti při zakládání komponent přes most
 

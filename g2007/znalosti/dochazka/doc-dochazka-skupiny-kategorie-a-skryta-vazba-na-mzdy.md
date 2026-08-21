@@ -79,7 +79,7 @@ a nositel by navíc kvůli `dopichavat_fond=true` přišel i o prémii 651.
 | Mechanismus | K čemu | Kdo čte |
 |---|---|---|
 | `tenant.staff_group` + `staff_group_member` + `staff_cond` | **nároky — dovolená, sick days** (3vrstvý resolver user → group → system) | `att_narok_cerpani`, `att_sick_balance_h`, `hr_podminky_prehled`, `sickday_lekar_apply` |
-| `att_employee.cond_group` (varchar) | historický zbytek | **nic to nečte** (viz níže) |
+| `att_employee.cond_group` (varchar) | historický zbytek | **nic to nečetlo** *(ZRUŠENO 20. 8. 2026 — sloupec i endpoint smazány, zařazení do podmínkové skupiny řeší členství ve `staff_group_member`; obsah 8 řádků v záloze `tenant.att_employee_cond_group__zaloha_20260820`)* |
 | `engagement.plny_fond_bez_dochazky` (boolean na smlouvě) | „bez docházky, vždy plný fond" | `att_day_summary_recompute`, `dochazka_kontrola_data` |
 
 **Požadavek „bez docházky – plný fond" NENÍ skupina** — je to flag na engagementu,
@@ -88,7 +88,7 @@ nastavený u Marti Pašek, Vlková, Senft, Mózer. Rozhodnutí Kristý 17.8.2026
 
 ## ⚠️ Podezření k ověření: přiřazení do podmínkové skupiny se nikam nepropíše
 
-- **Zápis:** `POST /app/hr/conditions/assign` (`router.py` ~ř. 19981) dělá
+- **Zápis:** `POST /app/hr/conditions/assign` (`router.py` ~ř. 19981) *(ZRUŠENO 20. 8. 2026 — sloupec i endpoint smazány, zařazení do podmínkové skupiny řeší členství ve `staff_group_member`; obsah 8 řádků v záloze `tenant.att_employee_cond_group__zaloha_20260820`)* dělal
   `UPDATE tenant.att_employee SET cond_group = :g` — jen do sloupce, do
   `staff_group_member` nezapisuje nic.
 - **Čtení:** `_cond_group_of`, `att_narok_cerpani`, `att_sick_balance_h` berou skupinu

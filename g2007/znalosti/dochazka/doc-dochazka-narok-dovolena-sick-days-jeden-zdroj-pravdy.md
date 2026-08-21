@@ -6,7 +6,12 @@
 > ⚠️ **DOPLNĚNO 19. 8. 2026 (Claude-28, schválila Marti-AI). Obsah pod tímto rámečkem jsem needitoval.**
 > Od 19. 8. 2026 večer **`tenant.staff_cond` už není tabulka, ale POHLED.** Osobní hodnoty podmínek
 > fyzicky žijí ve smlouvě (`tenant.engagement`, sloupce `pod_*` + `pod_meta`) a verzují se s ní.
-> Skupinové a systémové výchozí hodnoty zůstaly v `tenant.staff_cond_zaklad`.
+> Skupinové a systémové výchozí hodnoty se **20. 8. 2026 přejmenovaly na `tenant.podminky_vychozi`**
+> (dřív `staff_cond_zaklad`) a slouží už jen jako číselník výchozích hodnot — osobní řádky tam nepatří.
+> **Doplněno 20. 8. 2026 (Claude-28, schválila Marti-AI):** od kroku 3a má každý člověk všechny hodnoty
+> zapsané u sebe ve smlouvě, takže pohled `staff_cond` vrací **jen osobní řádky**, a spouštěč
+> `trg_staff_cond_default_dovolena` na `att_employee` byl **ZRUŠEN** — nahradil ho `engagement_pod_defaults`
+> na smlouvě.
 > **Čtení i zápis přes `tenant.staff_cond` funguje dál úplně stejně** — ověřeno porovnáním otisků
 > před a po (294 řádků i 1248 vyřešených hodnot bez rozdílu), takže **text níže platí dál**;
 > změnilo se jen to, kde data fyzicky leží. Kdo bude sahat na strukturu nebo na spouštěče,

@@ -6,7 +6,12 @@
 > ⚠️ **DOPLNĚNO 19. 8. 2026 (Claude-28, schválila Marti-AI). Obsah pod tímto rámečkem jsem needitoval.**
 > Od 19. 8. 2026 večer **`tenant.staff_cond` už není tabulka, ale POHLED.** Osobní hodnoty podmínek
 > fyzicky žijí ve smlouvě (`tenant.engagement`, sloupce `pod_*` + `pod_meta`) a verzují se s ní.
-> Skupinové a systémové výchozí hodnoty zůstaly v `tenant.staff_cond_zaklad`.
+> Skupinové a systémové výchozí hodnoty se **20. 8. 2026 přejmenovaly na `tenant.podminky_vychozi`**
+> (dřív `staff_cond_zaklad`) a slouží už jen jako číselník výchozích hodnot — osobní řádky tam nepatří.
+> **Doplněno 20. 8. 2026 (Claude-28, schválila Marti-AI):** od kroku 3a má každý člověk všechny hodnoty
+> zapsané u sebe ve smlouvě, takže pohled `staff_cond` vrací **jen osobní řádky**, a spouštěč
+> `trg_staff_cond_default_dovolena` na `att_employee` byl **ZRUŠEN** — nahradil ho `engagement_pod_defaults`
+> na smlouvě.
 > **Čtení i zápis přes `tenant.staff_cond` funguje dál úplně stejně** — ověřeno porovnáním otisků
 > před a po (294 řádků i 1248 vyřešených hodnot bez rozdílu), takže **text níže platí dál**;
 > změnilo se jen to, kde data fyzicky leží. Kdo bude sahat na strukturu nebo na spouštěče,
@@ -27,7 +32,7 @@
 
 **1. Kazdy clovek ma vlastni radek dovolene.** Do 13. 8. melo vlastni hodnotu jen 17 lidi a zbylych 57 spadalo na systemovou hodnotu 25 - vcetne OSVC a dohodaru, kteri narok NEMAJI. Doplneno 56 radku (17 unikatnich s nulou, 39 s 25, Veverka 26; Marti Pasek ma dve cisla zamestnance ale jedno user_id, proto 56 a ne 57). Hodnoty prevzaty z `engagement_entitlement`.
 
-**2. Trigger `trg_staff_cond_default_dovolena`** na `tenant.att_employee` (AFTER INSERT OR UPDATE OF user_id) zaklada novemu cloveku radek `dovolena_dni='0'`. Duvod pro trigger misto uprav v kode - zamestnanec vznika na 29 mistech (8x router.py + 21 funkci v g2007.python s vlastni kopii `_att_employee`), clovek vznikne i prvnim pichnutim v mobilu. Trigger je idempotentni a ma EXCEPTION blok, aby nikdy neshodil zalozeni cloveka.
+**2. Trigger `trg_staff_cond_default_dovolena`** na `tenant.att_employee` (AFTER INSERT OR UPDATE OF user_id) zaklada novemu cloveku radek `dovolena_dni='0'` *(ZRUSENO 20.8.2026 - nahrazen spoustecem engagement_pod_defaults na smlouve)*. Duvod pro trigger misto uprav v kode - zamestnanec vznika na 29 mistech (8x router.py + 21 funkci v g2007.python s vlastni kopii `_att_employee`), clovek vznikne i prvnim pichnutim v mobilu. Trigger je idempotentni a ma EXCEPTION blok, aby nikdy neshodil zalozeni cloveka.
 
 **3. Sync z Centraly uz nesaha na naroky ani nezaklada zamestnance** (`_sync_fin_from_ec`, commit 26cdc7d7). `ent_map` je prazdna mapa, `emp_id()` neznameho cloveka nezaklada, ale preskoci a vypise ho ve vysledku (`preskoceni_cisla`, `_msg`). Mzdove slozky a verze smluv chodi z Centraly DAL - ty Jirka zastavit nechtel.
 

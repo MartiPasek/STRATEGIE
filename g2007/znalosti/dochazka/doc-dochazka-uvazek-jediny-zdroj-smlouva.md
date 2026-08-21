@@ -2,6 +2,26 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **POZOR — STAV K 20. 8. 2026 ZMĚNĚN (Jiří Honomichl, 20. 8. 2026, schválila Marti-AI).**
+> Tři tvrzení v textu níže od 20. 8. 2026 **NEPLATÍ**:
+>
+> 1. *„Z Podmínek byl vyřazen a smazán"* — osobní hodnoty ano, ty tam nejsou a zapsat nejdou.
+>    Do číselníku výchozích hodnot (`tenant.podminky_vychozi`) se ale 20. 8. **záměrně vrátila
+>    jedna systémová hodnota 40**. Není to úvazek žádného člověka — čte ji **jedině** mechanismus
+>    zakládání smlouvy, aby nová smlouva měla co předvyplnit.
+> 2. *„Systémový default 40 v Podmínkách lhal"* — tehdy ano, protože se četl při každém zobrazení.
+>    Dnešní hodnota se čte **jen jednou, při vzniku smlouvy**; potom platí výhradně smlouva.
+> 3. *„U systémového a skupinového pohledu se úvazek nenabízí vůbec"* — od 20. 8. se **nabízí**
+>    (`hr_conditions` v5, `hr_conditions_save` v6), aby personální mohlo nastavit jiný výchozí
+>    úvazek pro Výrobu a jiný pro Nákup. **Osobní úroveň se nezměnila** — úvazek konkrétního
+>    člověka jde dál výhradně do smlouvy přes `uvazek_zapis`.
+>
+> Navíc `tenant.engagement_doplneni_pri_zarazeni` (spouštěč při prvním zařazení do skupiny) je
+> od 20. 8. kromě `uvazek_zapis` druhé místo, které zapisuje do `uvazek_tyden_h` — vždy jen do
+> **prázdného** pole u nové smlouvy, nikdy nepřepisuje existující hodnotu. Vědomá výjimka.
+>
+> Detail: `doc-dochazka-vychozi-podminky-spoustec-a-pevne-defaulty`.
+> **Text níže popisuje stav platný do 19. 8. 2026 a jinak platí dál.**
 
 
 ## Rozhodnutí (Jirka Honomichl, 18. 8. 2026, schválila Marti-AI)
@@ -69,11 +89,17 @@ jen uložené hodnoty. U systémového a skupinového pohledu se úvazek nenabí
   novou verzi smlouvy s datem „platí od". Viz sekci „Historie úvazku — hotovo 19. 8. 2026" níže.
   *(Původní znění: 939 verzí je z migrace, změna přepisovala aktuální řádek a stopa zůstávala
   jen jako text v `note`.)* Tenhle bod tu zůstává přeškrtnutý schválně, ať je dohledatelný.
-- **Pět lidí nemá úvazek ve smlouvě** — Saxana (brigádnice), Martin Konicar,
-  Světlana Herejtová (má poměr, ale bez úvazku), demo účet a Marti-AI. Do doby doplnění
-  jim denní fond padá na výchozích 8 h. Doplnění je práce personalistiky (Šárka).
-  ✅ **Přeověřeno v DB 19. 8. 2026 večer — platí dál:** poměr s nevyplněným úvazkem má
-  1 člověk (Herejtová), zbylí 4 nemají poměr vůbec.
+- ~~**Pět lidí nemá úvazek ve smlouvě**~~ ✅ **VYŘEŠENO 20. 8. 2026** (zadala Peťa,
+  potvrdil Jirka Honomichl, schválila Marti-AI). U **čtyř** z nich se úvazek **NEVYPLŇUJE**
+  a je to zapsané v datech — Herejtová = dohoda (DPP), Saxana = brigáda, demo účet
+  a Marti-AI = systémové účty. Karta jim ukazuje šedé „neuvádí se — <důvod>" místo
+  červeného „chybí ve smlouvě" a **osmička ani čtyřicítka se jim už nedosazuje**.
+  Pátý, **Martin Konicar**, mezi ně nepatřil: smlouvu tu měl od migrace 7. 6. 2026,
+  jen nebyla označená jako platná — 20. 8. oživena a doplněna podle Centrály.
+  Hlídá to pojistka `uvazek-bud-ve-smlouve-nebo-s-duvodem`.
+  Detail: **`doc-dochazka-uvazek-se-neuvadi-vyjimky`**.
+  *(Původní znění tvrdilo, že jim „denní fond padá na výchozích 8 h" a že doplnění je
+  práce personalistiky — obojí už neplatí. Nechávám to tu přeškrtnuté schválně.)*
 
 ## Dokončeno 19. 8. 2026 (druhý den)
 

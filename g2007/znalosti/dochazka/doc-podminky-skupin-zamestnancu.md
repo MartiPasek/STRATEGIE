@@ -75,7 +75,7 @@ neplaceny_prescas_h_den=**0.5** · danova_obleceni=ANO · danova_ho=ANO · home_
 ## Tabulky
 - `tenant.staff_cond_def` — katalog (code/label/kind/unit/sort/active).
 - `tenant.staff_cond` — hodnoty po vrstvách (scope_kind system/group/user, group_code, user_id, cond_code, value, note).
-- Členství: `att_employee.cond_group` (elektromontri/kancelare) — zatím seed individuálních + skupiny; plné rozřazení 67 lidí přes UI.
+- Členství: `att_employee.cond_group` *(ZRUŠENO 20. 8. 2026 — sloupec i endpoint `conditions/assign` smazány, zařazení řeší členství ve `staff_group_member`; obsah 8 řádků v záloze `tenant.att_employee_cond_group__zaloha_20260820`)* (elektromontri/kancelare) — zatím seed individuálních + skupiny; plné rozřazení 67 lidí přes UI.
 
 ## TODO
 - Napojit Vlková + Mózer na user_id (chybí/placeholder).

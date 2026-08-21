@@ -9406,7 +9406,13 @@ async def app_hr_people(req: Request) -> JSONResponse:
             " (SELECT string_agg(DISTINCT p.nazev, ', ') FROM tenant.att_employee ae "
             "    JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
             "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 AND p.aktivni=true "
-            "   WHERE ae.user_id=u.id AND ae.tenant_id=2) AS post "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2) AS post, "
+            " (SELECT ae.cislo_zam FROM tenant.att_employee ae "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2 AND COALESCE(ae.cislo_zam,'')<>'' "
+            "   ORDER BY ae.id LIMIT 1) AS cislo_zam, "
+            " (SELECT max(e.smlouva_do) FROM tenant.engagement e "
+            "    JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "   WHERE ae.user_id=u.id AND e.tenant_id=2 AND e.is_current=true) AS datum_odchodu "
             + _ZAKLAD + ("" if vse else (" AND" + _POMER)) +
             " ORDER BY jmeno")).fetchall()
         skryto = 0
@@ -9458,7 +9464,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "prac_email": (r[14] or ""), "prac_telefon": (r[15] or ""),
                         "nadrizeny": (r[16] or ""),
                         "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[17], r[17]) if r[17] else ""),
-                        "post": (r[18] or "")})
+                        "post": (r[18] or ""),
+                        "osobni_cislo": (str(r[19]) if r[19] not in (None, "") else ""),
+                        "datum_odchodu": (r[20].strftime("%d.%m.%Y") if r[20] else "")})
         # Šárka 5.8.2026: v režimu „i bývalé" doplnit i bývalé BEZ účtu — existují jen
         # jako docházkový záznam (att_employee, import z Centrály), stejně jako je vidí
         # Petra/Dušan. Bez účtu = jen přehledový řádek (karta se plně neotevře).

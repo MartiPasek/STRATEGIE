@@ -2072,7 +2072,7 @@ function renderPU(edit){
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #1e2730">'+
     '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">💼 Pracovní údaje</span>'+legenda+
     '<span style="display:flex;gap:14px;white-space:nowrap">'+(edit?'':'<a href="#" onclick="termOpen('+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🚫 Ukončit poměr</a>')+back+btn+'</span></div>';
-  const rRO=(lab,val)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 10px"><span style="color:#7f8ea0;white-space:nowrap">'+lab+'</span><span style="color:#e8eef5;text-align:right">'+(val?esc(val):'<span style="color:#5d6b7c">—</span>')+'</span></div>';
+  const rRO=(lab,val)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 10px;border-bottom:1px solid #1b2430"><span style="color:#8595a8;white-space:nowrap;font-size:12px">'+lab+'</span><span style="color:#e8eef5;text-align:right;font-size:13.5px">'+(val?esc(val):'<span style="color:#5d6b7c">—</span>')+'</span></div>';
   const rIN=(lab,k,val,eid)=>'<div style="padding:3px 10px"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lab+'</div><input data-eid="'+eid+'" data-k="'+k+'" value="'+esc(val||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit"></div>';
   const grp=(t)=>'<div style="padding:10px 16px 3px;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">'+t+'</div>';
   const tbl=(rows)=>'<table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table>';
@@ -2100,7 +2100,7 @@ function renderPU(edit){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
     const nadrOpts='<option value="">—</option>'+(d.zamestnanci||[]).map(z=>'<option value="'+z.id+'"'+(z.id===po.nadrizeny_id?' selected':'')+'>'+esc(z.jmeno)+'</option>').join('');
     const rSEL=(lab,k,eid,opts)=>'<div style="padding:3px 10px"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lab+'</div><select data-eid="'+eid+'" data-k="'+k+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'+opts+'</select></div>';
-    const rRAW=(lab,html)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 10px"><span style="color:#7f8ea0;white-space:nowrap">'+lab+'</span><span style="text-align:right">'+(html||'<span style="color:#5d6b7c">—</span>')+'</span></div>';
+    const rRAW=(lab,html)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 10px;border-bottom:1px solid #1b2430"><span style="color:#8595a8;white-space:nowrap;font-size:12px">'+lab+'</span><span style="text-align:right;font-size:13.5px">'+(html||'<span style="color:#5d6b7c">—</span>')+'</span></div>';
     const stavRO = po.narovnat ? ('<span style="color:#E0A94A">⚠ Nutno narovnat</span>'+(po.pozice_poznamka?'<div style="color:#9aa7b4;font-size:11px">'+esc(po.pozice_poznamka)+'</div>':'')) : (po.isco?'<span style="color:#7fe0a0">✅ V souladu</span>':'<span style="color:#5d6b7c">—</span>');
     const zar = rRO('Osobní číslo', po.osobni_cislo)
       + (edit?rIN('Pozice (dle smlouvy)','pozice',po.pozice,po.id):rRO('Pozice (smlouva)',po.pozice))
@@ -2118,7 +2118,7 @@ function renderPU(edit){
         '<span style="font-weight:800;color:#e8eef5">'+esc(po.firma)+' · '+esc(po.typ)+' '+puZdroj(po)+'</span>'+
         (edit?'':'<a href="#" onclick="pomerOpen('+po.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Změna / prodloužení</a>')+
       '</div>'+
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;padding:0 12px 8px;font-size:12.5px;align-items:start">'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;padding:0 12px 8px;font-size:13px;align-items:start">'+
         cardW('Zařazení',zar)+cardW('Smlouva',sml)+cardW('Úvazek',uva)+cardW('Poznámka',pozn)+
       '</div></div>';
   }

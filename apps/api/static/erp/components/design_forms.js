@@ -11858,6 +11858,21 @@
             mono: !!fieldLayout.mono,
           }));
 
+        case "timeedit": {
+          // Hodinove pole - stejny trik jako u cisla: obycejny input prepnuty na type=time.
+          // Doplneno 21.8.2026 (Claude-28 / Jirka) pro prehled Vychozi podminky skupin;
+          // bez toho se u pole ukazovalo "(?timeedit)" a neslo editovat.
+          const elT = _field(label, value, _fieldOptsBase);
+          try {
+            const inputT = elT.querySelector("input");
+            if (inputT) {
+              inputT.type = "time";
+              if (inputT.value && inputT.value.length > 5) inputT.value = inputT.value.slice(0, 5);
+            }
+          } catch (e) {}
+          return elT;
+        }
+
         case "number": {
           // _field s type=number — ErpInput podporuje type via opts
           const el = _field(label, value, _fieldOptsBase);

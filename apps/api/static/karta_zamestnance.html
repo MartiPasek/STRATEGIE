@@ -2011,18 +2011,24 @@ function renderZU(edit){
   });
   const isAddr=sec=>/adres/i.test(sec.key||'')||/adres/i.test(sec.label||'');
   const addrSecs=secs.filter(isAddr);
-  const otherSecs=secs.filter(s=>!isAddr(s));
-  // Jeden zarovnaný formulář: nadpis sekce přes celou šířku + pole ve sloupcích.
-  let body='';
-  otherSecs.forEach(function(sec,idx){ body+=zuHdr(sec.label, idx===0)+zuCells(sec, edit, d); });
-  // Adresy: nadpis + pod-záložky (Trvalé bydliště / Kontaktní adresa) — Centrála styl.
-  if(addrSecs.length){
-    const tabs=addrSecs.map((sec,i)=>'<a href="#" onclick="zuAddrTab('+i+');return false;" id="zuatab'+i+'" style="padding:5px 12px;font-size:12px;text-decoration:none;border-bottom:2px solid '+(i===0?'#3a7bd5':'transparent')+';color:'+(i===0?'#aac8ec':'#7f8ea0')+'">'+esc(sec.label)+'</a>').join('');
-    const panels=addrSecs.map((sec,i)=>'<div id="zuapan'+i+'" style="display:'+(i===0?'grid':'none')+';grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 14px;padding:4px 0">'+zuCells(sec, edit, d)+'</div>').join('');
-    body+=zuHdr('Adresa', otherSecs.length===0)+
-      '<div style="grid-column:1/-1">'+
-        '<div style="display:flex;gap:4px;border-bottom:1px solid #1e2730;margin-bottom:2px">'+tabs+'</div>'+panels+
-      '</div>';
+  // Jeden zarovnaný formulář v přirozeném pořadí; Adresa se vloží na svém místě
+  // (jako pod-záložky Trvalé bydliště / Kontaktní adresa — Centrála styl).
+  let body='', first=true, addrDone=false;
+  for(const sec of secs){
+    if(isAddr(sec)){
+      if(addrDone) continue;
+      addrDone=true;
+      const tabs=addrSecs.map((s2,i)=>'<a href="#" onclick="zuAddrTab('+i+');return false;" id="zuatab'+i+'" style="padding:5px 12px;font-size:12px;text-decoration:none;border-bottom:2px solid '+(i===0?'#3a7bd5':'transparent')+';color:'+(i===0?'#aac8ec':'#7f8ea0')+'">'+esc(s2.label)+'</a>').join('');
+      const panels=addrSecs.map((s2,i)=>'<div id="zuapan'+i+'" style="display:'+(i===0?'grid':'none')+';grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 14px;padding:4px 0">'+zuCells(s2, edit, d)+'</div>').join('');
+      body+=zuHdr('Adresa', first)+
+        '<div style="grid-column:1/-1">'+
+          '<div style="display:flex;gap:4px;border-bottom:1px solid #1e2730;margin-bottom:2px">'+tabs+'</div>'+panels+
+        '</div>';
+      first=false;
+      continue;
+    }
+    body+=zuHdr(sec.label, first)+zuCells(sec, edit, d);
+    first=false;
   }
   if(!body) body='<div class="empty" style="grid-column:1/-1">Zaměstnanec zatím nemá vyplněné žádné údaje.</div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 14px;padding:4px 18px 18px;font-size:12.5px;align-items:start">'+body+'</div>';

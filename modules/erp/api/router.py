@@ -8282,11 +8282,13 @@ async def app_cil_splnit(req: Request, cid: int) -> JSONResponse:
 # Clovek si je sam zadava/aktualizuje (mobil). Kazda zmena -> log + upozorneni
 # HR skupine. STRATEGIE si je odtud tahne dal (projekce resime zvlast).
 # LITERALNI routy -> MUSI byt PRED /app/{app_key}/latest (route ordering).
+# Pořadí = přirozený („chronologický") sled na kartě: kdo to je → doklady →
+# kde bydlí → jak ho zastihnout → nouzový kontakt → vzdělání/praxe → výplata → OSVČ.
 _SELF_SECTIONS = [
     ("identita", "🪪 Osobní identita",
      "Slouží pro pracovní smlouvy, mzdové výměry a evidenci u úřadů."),
-    ("podnikani", "💼 Podnikání (OSVČ)",
-     "Vyplň jen pokud jsi OSVČ — pro fakturaci a smlouvy."),
+    ("citlive", "🔒 Doklady (citlivé)",
+     "Vidíš jen ty a personální oddělení (HR). Nutné pro smlouvu a odvody."),
     ("adresa_trvala", "🏠 Trvalá adresa",
      "Povinný údaj pro smlouvu, mzdovou agendu a hlášení na úřady."),
     ("adresa_kontaktni", "✉️ Doručovací adresa",
@@ -8295,14 +8297,14 @@ _SELF_SECTIONS = [
      "Abychom tě zastihli — osobní e-mail a telefon."),
     ("kontakt_prac", "📇 Pracovní kontakt",
      "Firemní e-mail a telefon (pokud má). Vyplňuje HR."),
-    ("vzdelani", "🎓 Vzdělání a praxe",
-     "Nejvyšší dosažené vzdělání a předchozí zaměstnání."),
     ("nouzovy", "🆘 Nouzový kontakt",
      "Koho oslovit, kdyby se ti něco stalo v práci. Dobrovolné, ale doporučené."),
+    ("vzdelani", "🎓 Vzdělání a praxe",
+     "Nejvyšší dosažené vzdělání a předchozí zaměstnání."),
     ("vyplaty", "💳 Pro výplatu",
      "Číslo účtu pro mzdu a zdravotní pojišťovna pro odvody."),
-    ("citlive", "🔒 Citlivé údaje",
-     "Vidíš jen ty a personální oddělení (HR). Nutné pro smlouvu a odvody."),
+    ("podnikani", "💼 Podnikání (OSVČ)",
+     "Vyplň jen pokud jsi OSVČ — pro fakturaci a smlouvy."),
     ("pamet", "📝 Moje paměť / poznámky",
      "Jen pro tebe. Co si chceš zapamatovat — nikdo jiný to nevidí."),
 ]

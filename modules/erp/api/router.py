@@ -39747,11 +39747,18 @@ async def diag_sql(req: Request) -> JSONResponse:
                         "SELECT instance_id, COALESCE(current_work,''), COALESCE(work_status,'') "
                         "FROM fw.claude_instance WHERE last_seen_at > NOW() - INTERVAL '15 min' "
                         "ORDER BY instance_id")).fetchall()
+                    # session_lane (C-28/Jirka 21.8.2026): na nastence musi byt videt,
+                    # KTERE OKNO tehoz Clauda zamek drzi - dve Cowork okna maji totez
+                    # instance_id, takze "C-28" samo o sobe nerozlisi. Stare zamky maji
+                    # NULL -> zobrazi se jako drive, bez pripony.
                     _lk = _s.execute(_twl(
-                        "SELECT scope, lock_key, instance_id, COALESCE(note,'') FROM fw.work_lock "
+                        "SELECT scope, lock_key, instance_id, COALESCE(note,''), COALESCE(session_lane,'') "
+                        "FROM fw.work_lock "
                         "WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY scope, lock_key")).fetchall()
                 _rows = [["prace", "C-%s" % r[0], (r[1] or "")[:90], r[2] or ""] for r in _w]
-                _rows += [["ZAMEK", "%s/%s" % (r[0], r[1]), "C-%s" % r[2], (r[3] or "")[:70]] for r in _lk]
+                _rows += [["ZAMEK", "%s/%s" % (r[0], r[1]),
+                           "C-%s%s" % (r[2], (" (lane %s)" % r[4]) if r[4] else ""),
+                           (r[3] or "")[:70]] for r in _lk]
                 return JSONResponse({"ok": True, "columns": ["typ", "kdo/co", "detail", "stav/pozn"], "rows": _rows})
             if _uwl.startswith("@@WORKDONE"):
                 with _pgswl() as _s:

@@ -1652,6 +1652,7 @@ function pheadHTML(p){
           :('<span style="color:#cdd6e2;word-break:break-word">'+esc(val)+'</span>'))+'</div>');
   const nastupVal=[p.nastup?('Nástup '+p.nastup):'', p.firma].filter(Boolean).join(' · ');
   const narozVal=(p.vek!=null?(p.vek+' '+_rs(p.vek)):'')+(p.narozeniny?((p.vek!=null?' · ':'')+'nar. '+p.narozeniny):'');
+  const posty=(p.post?String(p.post).split(', ').filter(Boolean):[]); const postN=posty.length;
   const idVal=[p.osobni_cislo?('Č. zam. '+p.osobni_cislo):'', p.datum_odchodu?('odchod '+p.datum_odchodu):''].filter(Boolean).join(' · ');
   const telHref = p.telefon?('tel:'+String(p.telefon).replace(/\s+/g,'')):'';
   const colFacts=[cell('🆔',idVal), cell('📅',nastupVal), cell('🎂',narozVal)].filter(Boolean).join('');
@@ -1670,8 +1671,10 @@ function pheadHTML(p){
     '<div style="margin-top:9px">'+
       (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
       (roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):'')+
+      '<span onclick="var e=document.getElementById(\'pheadPosty\');if(e)e.style.display=(e.style.display===\'none\'?\'block\':\'none\');" title="Posty zaměstnance v organizaci" style="cursor:pointer;font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:#231c2e;color:#c58af0;white-space:nowrap">🏷️ Posty ('+postN+')</span>'+
     '</div>'+
-    '<div id="leaveBox" style="margin-top:11px"></div>'+
+    '<div id="pheadPosty" style="display:none;margin-top:6px;font-size:12px">'+(postN?posty.map(function(x){return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:6px;background:#12181f;border:1px solid #233040;color:#cdd6e2">'+esc(x)+'</span>';}).join(''):'<span style="color:#7f8ea0">Žádné posty v organizaci.</span>')+'</div>'+
+    '<div id="leaveBox" style="margin-top:9px"></div>'+
     '</div></div>';
 }
 // Šárka 5.8.2026: dovolená + sick days v hlavičce (Pinya-styl), data z docházky (Péťa).

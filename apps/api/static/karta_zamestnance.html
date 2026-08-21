@@ -840,7 +840,7 @@ function renderDodavatele(){
         (s.faktury&&s.faktury.length?('<div style="margin-top:10px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
           '<tr style="color:#7f8ea0;text-align:left"><th style="padding:3px 6px;font-weight:600">Faktura</th><th style="padding:3px 6px;font-weight:600">Období</th><th style="padding:3px 6px;font-weight:600;text-align:right">Fakturováno</th><th style="padding:3px 6px;font-weight:600;text-align:right">Provize '+(s.provize_pct||0)+' %</th><th style="padding:3px 6px;font-weight:600">Vystaveno</th><th></th></tr>'+
           s.faktury.map(function(f){ return '<tr style="border-top:1px solid #1a2330">'+
-            '<td style="padding:4px 6px;color:#cdd6e2">'+esc(f.cislo||'—')+(f.soubor?(' <span title="'+esc(f.soubor)+'">📎</span>'):'')+'</td>'+
+            '<td style="padding:4px 6px;color:#cdd6e2">'+esc(f.cislo||'—')+((f.prilohy&&f.prilohy.length)?(' <a href="'+API+'/app/hr/dodavatele/soubor/'+f.prilohy[0].id+'" target="_blank" title="Otevřít PDF faktury" style="text-decoration:none">📎</a>'):(' <a href="#" onclick="sbPick('+s.id+','+f.id+',\'faktura\');return false;" title="Připojit PDF faktury" style="text-decoration:none;color:#5d6b7c">📎+</a>'))+'</td>'+
             '<td style="padding:4px 6px;color:#9aa7b4">'+esc(f.obdobi||'')+'</td>'+
             '<td style="padding:4px 6px;color:#e8eef5;text-align:right">'+_kc(f.castka)+'</td>'+
             '<td style="padding:4px 6px;color:#7fe0a0;text-align:right">'+_kc(f.castka*(s.provize_pct||0)/100)+'</td>'+
@@ -850,8 +850,60 @@ function renderDodavatele(){
           '</table></div>'):'')+
         '<div id="dodform'+s.id+'"></div>'+
       '</div>'+
+      '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2730">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+          '<b style="color:#e8eef5;font-size:13px">Dokumenty</b>'+
+          '<label style="color:#7fe0a0;font-size:12px;cursor:pointer">➕ Nahrát<input type="file" style="display:none" onchange="sbUpload('+s.id+',0,\'ostatni\',this)"></label>'+
+        '</div>'+
+        ((s.soubory&&s.soubory.length)?s.soubory.map(function(b){ return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;padding:3px 0">'+
+           '<a href="'+API+'/app/hr/dodavatele/soubor/'+b.id+'" target="_blank" style="color:#aac8ec;text-decoration:none">📎 '+esc(b.nazev)+(b.druh&&b.druh!=='ostatni'?(' <span style="color:#7f8ea0">('+esc(b.druh)+')</span>'):'')+'</a>'+
+           '<a href="#" onclick="sbDel('+b.id+');return false;" style="color:#c98a8a;text-decoration:none">🗑</a></div>'; }).join(''):'<div style="color:#7f8ea0;font-size:11.5px">Zatím žádný dokument. Nahraj objednávku, smlouvu nebo fakturu přes „➕ Nahrát" — pak ji tu půjde otevřít.</div>')+
+      '</div>'+
+      '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #1e2730">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+          '<b style="color:#e8eef5;font-size:13px">Účetní deník kandidáta</b>'+
+          '<a href="#" onclick="denikLoad('+s.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">↻ Načíst z účetnictví</a>'+
+        '</div>'+
+        '<div style="color:#7f8ea0;font-size:11.5px">Zaúčtované faktury z Helios podle čísla organizace kandidáta. Načti tlačítkem vpravo.</div>'+
+        '<div id="denik'+s.id+'"></div>'+
+      '</div>'+
     '</div>';
   }).join('');
+}
+function sbUpload(sid,fid,druh,inp){
+  const f=inp&&inp.files&&inp.files[0]; if(!f) return;
+  const fd=new FormData(); fd.append('file',f); fd.append('smlouva_id',sid); fd.append('faktura_id',fid||0); fd.append('druh',druh||'ostatni');
+  fetch(API+'/app/hr/dodavatele/soubor-upload',{method:'POST',credentials:'same-origin',body:fd})
+    .then(r=>r.json()).then(d=>{ if(inp) inp.value=''; if(!d.ok){ alert('✗ '+(d.error||'chyba')); return; } loadDodavatele(); })
+    .catch(e=>{ alert('✗ síť'); });
+}
+function sbPick(sid,fid,druh){
+  const inp=document.createElement('input'); inp.type='file';
+  inp.onchange=function(){ sbUpload(sid,fid,druh,inp); };
+  inp.click();
+}
+async function sbDel(id){
+  if(!confirm('Smazat tento dokument?')) return;
+  try{ await fetch(API+'/app/hr/dodavatele/soubor-smazat',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}); }catch(e){}
+  loadDodavatele();
+}
+async function denikLoad(sid){
+  const box=document.getElementById('denik'+sid); if(!box) return;
+  box.innerHTML='<div style="color:#7f8ea0;font-size:12px;margin-top:6px">Načítám z účetnictví…</div>';
+  let d; try{ d=await j(API+'/app/hr/dodavatele/denik?smlouva_id='+sid); }catch(e){ box.innerHTML='<div style="color:#ff8a7a;font-size:12px">✗ síť</div>'; return; }
+  if(!d||!d.ok){ box.innerHTML='<div style="color:#ff8a7a;font-size:12px">'+esc((d&&d.error)||'nedostupné')+'</div>'; return; }
+  if(!d.cislo_org){ box.innerHTML='<div style="color:#7f8ea0;font-size:12px;margin-top:6px">'+esc(d.info||'Kandidát nemá číslo organizace.')+'</div>'; return; }
+  if(!d.radky||!d.radky.length){ box.innerHTML='<div style="color:#7f8ea0;font-size:12px;margin-top:6px">Zatím žádná zaúčtovaná položka (číslo org '+d.cislo_org+'). Faktury se objeví po zaúčtování v Helios.</div>'; return; }
+  box.innerHTML='<div style="margin-top:8px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<tr style="color:#7f8ea0;text-align:left"><th style="padding:3px 6px">Sborník</th><th style="padding:3px 6px">Doklad</th><th style="padding:3px 6px">Datum</th><th style="padding:3px 6px;text-align:right">Částka</th><th style="padding:3px 6px">Zakázka</th></tr>'+
+    d.radky.map(function(r){ return '<tr style="border-top:1px solid #1a2330">'+
+      '<td style="padding:4px 6px;color:#9aa7b4">'+esc(r.sbornik)+'</td>'+
+      '<td style="padding:4px 6px;color:#cdd6e2">'+esc(r.doklad)+'</td>'+
+      '<td style="padding:4px 6px;color:#9aa7b4">'+esc(r.datum)+'</td>'+
+      '<td style="padding:4px 6px;color:#e8eef5;text-align:right">'+_kc(r.castka)+'</td>'+
+      '<td style="padding:4px 6px;color:#9aa7b4">'+esc(r.zakazka)+'</td>'+
+    '</tr>'; }).join('')+'</table>'+
+    '<div style="color:#5d6b7c;font-size:11px;margin-top:4px">Číslo organizace '+d.cislo_org+' · '+d.pocet+' položek (read-only z účetnictví).</div></div>';
 }
 function fakForm(sid,f){
   f=f||{}; const box=document.getElementById('dodform'+sid); if(!box) return;

@@ -11099,6 +11099,19 @@ async def app_hr_dodavatele(req: Request):
         fak_by_s = {}
         for f in fak_rows:
             fak_by_s.setdefault(int(f[1]), []).append(f)
+        # Přílohy (objednávka / faktura / smlouva) uložené v aplikaci — odolné, kdyby tabulka ještě nebyla
+        sb_by_s = {}
+        sb_by_f = {}
+        try:
+            sb_rows = s.execute(_t(
+                "SELECT id, smlouva_id, faktura_id, druh, nazev, mime, COALESCE(velikost,0) "
+                "FROM tenant.dodavatel_soubor WHERE tenant_id=2 ORDER BY id")).fetchall()
+            for b in sb_rows:
+                sb_by_s.setdefault(int(b[1]), []).append(b)
+                if b[2]:
+                    sb_by_f.setdefault(int(b[2]), []).append(b)
+        except Exception:
+            s.rollback()
         import datetime as _dt
         out = []
         for r in rows:
@@ -11135,7 +11148,12 @@ async def app_hr_dodavatele(req: Request):
                         "faktury": [{"id": int(f[0]), "cislo": f[2] or "", "obdobi": f[3] or "",
                                      "castka": float(f[4] or 0), "datum": f[5] or "",
                                      "zdroj": f[7] or "rucni", "soubor": f[8] or "",
-                                     "poznamka": f[9] or ""} for f in faks]})
+                                     "poznamka": f[9] or "",
+                                     "prilohy": [{"id": int(b[0]), "nazev": b[4] or "soubor", "mime": b[5] or ""}
+                                                 for b in sb_by_f.get(int(f[0]), [])]} for f in faks],
+                        "soubory": [{"id": int(b[0]), "druh": b[3] or "ostatni", "nazev": b[4] or "soubor",
+                                     "mime": b[5] or "", "velikost": int(b[6] or 0)}
+                                    for b in sb_by_s.get(int(r[0]), []) if not b[2]]})
         return JSONResponse({"ok": True, "smlouvy": out})
     except Exception as exc:
         logger.exception("[hr_dodavatele] %s", exc)
@@ -11264,6 +11282,141 @@ async def app_hr_dodavatele_faktura_smazat(req: Request):
     except Exception as exc:
         s.rollback()
         logger.exception("[hr_dodavatele_faktura_smazat] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/dodavatele/soubor-upload")
+async def app_hr_dodavatele_soubor_upload(req: Request, file: UploadFile = File(...),
+                                          smlouva_id: int = Form(0), faktura_id: int = Form(0),
+                                          druh: str = Form("ostatni")):
+    """Nahrání přílohy (objednávka / faktura / smlouva) k agenturní smlouvě. Jen HR."""
+    from sqlalchemy import text as _t
+    me = _uid_from_token_or_cookie(req)
+    if not me:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, me):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        sid = int(smlouva_id or 0)
+        if not sid:
+            return JSONResponse({"ok": False, "error": "chybí smlouva"}, status_code=400)
+        raw = await file.read()
+        if not raw:
+            return JSONResponse({"ok": False, "error": "Prázdný soubor."}, status_code=400)
+        if len(raw) > 20 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "Příliš velký soubor (max 20 MB)."}, status_code=400)
+        nazev = (getattr(file, "filename", None) or "dokument").strip()[:255]
+        mime = (getattr(file, "content_type", None) or "application/octet-stream")[:120]
+        d = (druh or "ostatni").strip().lower()
+        if d not in ("objednavka", "faktura", "smlouva", "ostatni"):
+            d = "ostatni"
+        s.execute(_t(
+            "INSERT INTO tenant.dodavatel_soubor "
+            " (tenant_id, smlouva_id, faktura_id, druh, nazev, mime, obsah, velikost, uploaded_by) "
+            "VALUES (2, :s, :f, :d, :n, :m, :o, :v, :by)"),
+            {"s": sid, "f": (int(faktura_id) or None), "d": d, "n": nazev, "m": mime,
+             "o": raw, "v": len(raw), "by": me})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_dodavatele_soubor_upload] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/dodavatele/soubor/{sid}")
+async def app_hr_dodavatele_soubor_get(req: Request, sid: int):
+    """Otevření přílohy agenturní smlouvy (inline). Jen HR."""
+    from urllib.parse import quote as _q
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT obsah, mime, nazev FROM tenant.dodavatel_soubor WHERE tenant_id=2 AND id=:i"),
+            {"i": int(sid)}).first()
+        if not row or not row[0]:
+            return Response(status_code=404)
+        nazev = row[2] or "dokument"
+        return Response(content=bytes(row[0]), media_type=(row[1] or "application/octet-stream"),
+                        headers={"Content-Disposition": "inline; filename*=UTF-8''" + _q(nazev),
+                                 "Cache-Control": "private, max-age=60"})
+    except Exception as exc:
+        logger.exception("[hr_dodavatele_soubor_get] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/dodavatele/soubor-smazat")
+async def app_hr_dodavatele_soubor_smazat(req: Request):
+    """Smazání přílohy agenturní smlouvy. Jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    fid = int((b or {}).get("id") or 0)
+    if not fid:
+        return JSONResponse({"ok": False, "error": "chybí soubor"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.dodavatel_soubor WHERE id=:id AND tenant_id=2"), {"id": fid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[hr_dodavatele_soubor_smazat] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/dodavatele/denik")
+async def app_hr_dodavatele_denik(req: Request):
+    """Náhled do účetního deníku pro kandidáta smlouvy (dle čísla organizace). Read-only, jen HR."""
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        sid = int(req.query_params.get("smlouva_id") or 0)
+    except Exception:
+        sid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        org = s.execute(_t("SELECT cislo_org_kandidat FROM tenant.dodavatel_smlouva "
+                           "WHERE id=:i AND tenant_id=2"), {"i": sid}).scalar()
+        if not org:
+            return JSONResponse({"ok": True, "cislo_org": None, "radky": [],
+                                 "info": "Kandidát nemá přiřazené číslo organizace v účetnictví."})
+        rows = s.execute(_t(
+            "SELECT sbornik, cislo_dokladu, to_char(datum_pripad,'DD.MM.YYYY'), "
+            " COALESCE(castka, castka_md, castka_dal, 0), cislo_zakazky, popis "
+            "FROM tenant.ec_denik WHERE tenant_id=2 AND cislo_org=:o AND COALESCE(storno,false)=false "
+            "ORDER BY datum_pripad DESC, cele_cislo DESC LIMIT 200"), {"o": int(org)}).fetchall()
+        radky = [{"sbornik": r[0] or "", "doklad": r[1] or "", "datum": r[2] or "",
+                  "castka": float(r[3] or 0), "zakazka": r[4] or "", "popis": (r[5] or "")[:120]}
+                 for r in rows]
+        return JSONResponse({"ok": True, "cislo_org": int(org), "pocet": len(radky), "radky": radky})
+    except Exception as exc:
+        logger.exception("[hr_dodavatele_denik] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

@@ -2730,7 +2730,7 @@ async function podmSave(){
   });
   if(!zmeny.length){ renderPodm(false); return; }
   if(st){ st.style.color='#9aa7b4'; st.textContent='Ukládám…'; }
-  const chyby=[];
+  const chyby=[]; let zrus=0;
   for(const z of zmeny){
     let d={};
     try{
@@ -2744,18 +2744,34 @@ async function podmSave(){
         const pm=document.getElementById('podmUvazekPomer');
         if(pm && pm.value) telo.pomer_id=pm.value;
       }
-      const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(telo)});
-      d=await r.json();
+      const posli=async()=>{
+        const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(telo)});
+        return await r.json();
+      };
+      d=await posli();
+      // Změna úvazku zakládá NOVOU VERZI smlouvy (nový záznam podmínek, úvazku a smlouvy),
+      // takže se na to server ptá a my se zeptáme člověka. Kdo řekne Ne, ten nic nezmění.
+      // Otázku formuluje server, ať je stejná i v mobilu (Jirka 22. 8. 2026, schválila Marti-AI).
+      if(d && d.potvrdit){
+        if(confirm(d.otazka||'Změnou se založí nový záznam podmínek, úvazku a smlouvy. Pokračovat?')){
+          telo.potvrzeno=true;
+          d=await posli();
+        }else{
+          d={ok:true,zruseno:true}; zrus++;
+        }
+      }
     }catch(e){ d={ok:false,error:'nedostupná síť'}; }
     if(!d.ok) chyby.push(z.code+' — '+(d.error||'chyba'));
   }
   await podmUdaje();
   const st2=document.getElementById('podmstat');
   if(st2){
-    if(chyby.length){ st2.style.color='#ff8a7a'; st2.textContent='✗ Neuložilo se: '+chyby.join(' · '); }
-    else { st2.style.color='#7fe0a0'; st2.textContent='✓ Uloženo ('+zmeny.length+').'; }
+    const zrusText=zrus?(' · zrušeno: '+zrus):'';
+    if(chyby.length){ st2.style.color='#ff8a7a'; st2.textContent='✗ Neuložilo se: '+chyby.join(' · ')+zrusText; }
+    else if(zrus>=zmeny.length){ st2.style.color='#9aa7b4'; st2.textContent='Nic se nezměnilo — změnu jsi zrušil.'; }
+    else { st2.style.color='#7fe0a0'; st2.textContent='✓ Uloženo ('+(zmeny.length-zrus)+').'+zrusText; }
   }
 }
 

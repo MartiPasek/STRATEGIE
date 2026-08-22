@@ -11296,6 +11296,10 @@
               "text-transform:uppercase;" +
               "letter-spacing:0.5px;" +
               "padding:0;" +
+              // 22.8.2026 (Claude-28 / Jirka, schvalila Marti-AI): kdyz panel sam
+              // sklada pole do mrizky, nadpis musi zabrat cely radek - jinak sedi
+              // v prvni bunce a pole se kolem nej rozsypou.
+              (useImplicitGrid ? "grid-column:1 / -1;" : "") +
               "margin:0 0 8px 0;";
             wrap.appendChild(prodLbl);
           }
@@ -11365,6 +11369,10 @@
               "text-transform:uppercase;" +
               "letter-spacing:0.5px;" +
               "padding:0;" +
+              // 22.8.2026 (Claude-28 / Jirka, schvalila Marti-AI): kdyz panel sam
+              // sklada pole do mrizky, nadpis musi zabrat cely radek - jinak sedi
+              // v prvni bunce a pole se kolem nej rozsypou.
+              (useImplicitGrid ? "grid-column:1 / -1;" : "") +
               "margin:0 0 8px 0;";
             wrap.appendChild(prodLbl);
           }

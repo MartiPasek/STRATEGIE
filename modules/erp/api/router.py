@@ -50793,6 +50793,40 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
         if "updated_at" in _table_cols and "updated_at" not in field_changes:
             field_changes["updated_at"] = _dt_patch.now().astimezone().isoformat()
 
+        # 22.8.2026 (Claude-28 / Jirka Honomichl, schvalila Marti-AI):
+        # prazdna volba ve vyberu (napr. "— dedi se ze systemu —") posilala
+        # do DB prazdny retezec. Do sloupce boolean/numeric/date/time se ""
+        # ulozit neda -> UPDATE padal na 500 (invalid input syntax for type
+        # boolean ""). Reseni u korene, ne na jedne obrazovce: prazdny retezec
+        # znamena "zadna hodnota" = NULL u vsech NEtextovych sloupcu.
+        # U textovych sloupcu se chovani NEMENI (tam "" zustava "").
+        _TEXTOVE_TYPY = {
+            "text", "character varying", "character", "citext",
+        }
+        try:
+            _typy_sloupcu = {
+                r[0]: r[1]
+                for r in ds.execute(_sql_text_patch(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = :s AND table_name = :t"
+                ), {"s": schema_name, "t": table_name}).fetchall()
+            }
+        except Exception as _typy_exc:
+            logger.warning(
+                "[design_patch_entity] typy sloupcu %s.%s nezjisteny (%s) — "
+                "prazdne hodnoty jdou do DB beze zmeny",
+                schema_name, table_name, _typy_exc,
+            )
+            _typy_sloupcu = {}
+        for _fc_col, _fc_val in list(field_changes.items()):
+            if (
+                isinstance(_fc_val, str)
+                and _fc_val == ""
+                and _fc_col in _typy_sloupcu
+                and _typy_sloupcu[_fc_col] not in _TEXTOVE_TYPY
+            ):
+                field_changes[_fc_col] = None
+
         # 2. Build UPDATE — explicit sloupce z field_changes + audit fields
         # Phase 38.4 Krok 14g-H+19 (15.5.2026 ~15:00, Marti's "permission
         # denied for table menu_node"): schema dispatch. Strategie session

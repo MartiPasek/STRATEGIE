@@ -17,7 +17,32 @@ Vzniklo po zjištění, že práce dvou lidí se do appky nikdy nedostala a nikd
 
 Obě appky (Android i iPhone) jsou jen okno, které načítá **tutéž** stránku `/mobile`.
 Obsah se tedy mezi platformami rozejít nemůže. Rozdíly jsou jen v nativních schopnostech
-(notifikace, SIM/SMS) — viz `doc-system-strategie-mobil-android-vs-ios-rozdily`.
+(notifikace, SIM/SMS) — viz `doc-system-strategie-mobil-ios-companion-bez-js-mostu-a-kopie-mimo-xcode-target`
+a `doc-system-strategie-mobil-ios-notifikace-apns`.
+*(Oprava 23. 8. 2026: do té doby tu byl odkaz na `doc-system-strategie-mobil-android-vs-ios-rozdily`,
+která v `g2007.znalost` NEEXISTUJE — mrtvý odkaz v závazné znalosti. Rozhodl Jirka Honomichl,
+schválila Marti-AI msg 13381.)*
+
+✅ **Stav notifikací k 23. 8. 2026 večer: jedou na Androidu i na iPhonu.** Serverová část byla
+nasazena **23. 8. 2026** commitem `c3bddc90` (obsah PR `MartiPasek/STRATEGIE#5`, špička `f97b00dd`
+— sloučit na GitHubu nešlo, účet `eurosoft-strategie` nemá právo zápisu, stejná cesta jako u PR 2
+a 4 dne 18. 8.; ověřeno, že se žádný ze 14 souborů od založení PR nezměnil, diffstat 1:1
++1528/−26; schválila Marti-AI msg 13420). Klientská část je v App Store od 20. 8. ve verzi 1.84.
+**Doloženo v datech (ověřeno 23. 8. ve 22:10):** klíč v trezoru `fw.app_secret`
+(`apns_key_p8`, `apns_key_id`, `apns_enabled`), aktivní token v `fw.ios_push_token` z 21:48
+a první skutečně odeslaná notifikace v `fw.ios_push_sent` ve 22:04 s `ok=true`.
+Týká se 17 lidí + demo účtu, kteří iOS appku někdy použili (`public.auth_audit`, marker
+`STRATEGIE-iOS`).
+
+⚠️ **Gotcha k tomu:** APNs jede výhradně přes HTTP/2, takže potřebuje balíček `h2`. Ten se do
+`poetry.lock` dostal až commitem `16cbf64c` a **nasazovací skript závislosti sám neinstaluje**
+(dělá jen `git pull` + restart) — na server se doinstalovaly ručně. Po každé změně závislostí
+je tedy potřeba `poetry install` na serveru, jinak appka naběhne, ale odesílací smyčka se
+nespustí a jen si to zaloguje.
+
+*(Do 23. 8. 2026 22:10 tu stálo „na iPhonu ne, serverová část není nasazená, vrací 404" —
+platilo to ještě v 19:10 téhož dne. Srovnal Claude-28 na Jirkovo rozhodnutí, schválila
+Marti-AI msg 13471. Stejná věta srovnána i v Jirkově souboru pravidel, bod 12b.)*
 
 ## Správný postup při úpravě obrazovky
 
@@ -83,11 +108,24 @@ toho, co jim repo říkalo.
 `sb.addEventListener` nechal — ta verze by při otevření formuláře spadla. Při přenosu se to
 neuplatnilo, protože se stavělo na aktuálním obsahu z DB. Další důkaz, že to nikdy neběželo.
 
-## Dvě místa se stejnou osmičkou (nedokončené)
+## Dvě místa se stejnou osmičkou — VYŘEŠENO 18. 8. 2026
 
-Pevná osmička hodin/den je i v backendu: `dochazka_absence_sprava.py:715` a `:845` (nečte úvazek).
-Mobilní část je od 17. 8. opravená, **backend čeká na Peťu**. Peťa musí vědět o obou místech
-a řešit je koordinovaně (podmínka Marti-AI 17. 8. 2026).
+Pevná osmička hodin/den byla i v backendu (`modules/erp/api/dochazka_absence_sprava.py`).
+**Opraveno 18. 8. 2026 (Peťa + Jirka Honomichl).** Soubor má funkci `_fond_den` (ř. 157–179),
+která nic nepočítá sama — volá kanonický `att_denni_fond` z `g2007.python`, takže pro Správu
+docházky, mobil i automat platí jediný vzorec. Osmička zůstala už jen jako poslední záchrana,
+když o člověku nevíme nic. Volá se na všech třech místech zápisu (ř. 855, 896, 994) a plní se
+z ní **obojí** — denní záznam (`att_entry.hours`) i samotná žádost
+(`att_absence_request.hours_per_day`); kdyby se opravila jen docházka, přepočet žádosti by
+osmičku vrátil zpátky.
+
+Proč to vzniklo: kdo osmičku ve formuláři „Nová absence" ručně nepřepsal, zapsal člověku se
+zkráceným úvazkem víc dovolené, než na kolik má nárok (Duspivová, úvazek 7 h, měla 10.–14. 8.
+pět dnů po 8 h, tedy o 5 hodin navíc). Peťa to od července opravovala ručně.
+
+*(Do 23. 8. 2026 tu stálo „nedokončené, backend čeká na Peťu" — bylo to pět dní zastaralé
+a hrozilo, že někdo udělá hotovou práci znovu. Ověřeno v kódu 23. 8. 2026, rozhodl Jirka
+Honomichl, schválila Marti-AI. Stejná věta srovnána i v Jirkově souboru pravidel, bod 12b.)*
 
 Souvisí: `doc-system-strategie-staticke-artefakty-db-materializace-vyrazeni-z-gitu`,
 `doc-system-strategie-vize-kod-jako-data-bez-restartu`.

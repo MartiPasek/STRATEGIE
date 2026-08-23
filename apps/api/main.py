@@ -1353,7 +1353,76 @@ INDEX = _resolve_static("index.html")  # fallback konstanta; servirovani jde pre
 # B+4 PoC (5.5.2026): mount /static -> apps/api/static/ pro reusable komponenty
 # (ErpDataGrid, fonts, atd.). Caddy file_server na cloud APP řeší rovněž; tento
 # mount je pojistka pro lokální dev + pokud Caddy /static/* neproxuje k FastAPI.
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+#
+# --- Ochrana zbytkových souborů (Jirka 23.8.2026, schválila Marti-AI) ---------
+# /static je veřejné BEZ přihlášení (ověřeno 23.8.2026: `Server: uvicorn` na
+# produkci, Caddyfile o /static nic nemá -> servíruje to tenhle mount).
+# Cokoli, co ve složce zůstane ležet, je tím pádem okamžitě čitelné z internetu.
+# 23.8.2026 tam ležely zbytky po přesunu do DB (5.8.) a šly stáhnout: mimo jiné
+# `mobile2.html.bak_removed_*` (932 kB stará stránka mobilu s 285 adresami systému)
+# a čtyři `*.DISK-BACKUP-2026-08-05`. Hesla ani klíče v nich nebyly, ale vnitřní
+# struktura aplikace a dvě pracovní e-mailové adresy ano.
+#
+# Tohle je POJISTKA, ne náhrada úklidu — soubor smazat stejně patří.
+# Ověřeno proti 261 skutečným souborům ve static: žádný z nich se neblokuje.
+_STATIC_ZAKAZANE_CASTI = (
+    "disk-backup", "bak_removed",
+    ".bak", ".old", ".orig", ".save", ".swp", ".swo", ".tmp", ".rej",
+    "~",
+)
+
+
+def _static_je_zbytek(cesta: str) -> bool:
+    """Je to záloha / dočasný soubor, který se nemá servírovat ven?"""
+    zaklad = os.path.basename(str(cesta).replace("\\", "/")).lower()
+    if zaklad.startswith("_tmp"):
+        return True
+    return any(cast in zaklad for cast in _STATIC_ZAKAZANE_CASTI)
+
+
+class _StaticBezZbytku(StaticFiles):
+    """StaticFiles, které odmítne vydat zálohu nebo dočasný soubor.
+
+    Vrací 404 (ne 403) schválně — 403 by potvrdilo, že soubor existuje."""
+
+    async def get_response(self, path, scope):
+        if _static_je_zbytek(path):
+            logging.getLogger(__name__).warning(
+                "[static] ODEPRENO, zbytkovy soubor je verejne dostupny a patri smazat: %s",
+                path,
+            )
+            from starlette.exceptions import HTTPException as _StarletteHTTPException
+            raise _StarletteHTTPException(status_code=404)
+        return await super().get_response(path, scope)
+
+
+app.mount("/static", _StaticBezZbytku(directory=static_dir), name="static")
+
+
+def _static_hlidac_zbytku() -> None:
+    """Při startu nahlásí zbytky ležící ve /static. Nikdy nesmí shodit boot."""
+    try:
+        nalezene = []
+        for koren, _, soubory in os.walk(static_dir):
+            for jmeno in soubory:
+                if _static_je_zbytek(jmeno):
+                    nalezene.append(os.path.relpath(os.path.join(koren, jmeno), static_dir))
+                    if len(nalezene) >= 50:
+                        break
+            if len(nalezene) >= 50:
+                break
+        if nalezene:
+            logging.getLogger(__name__).warning(
+                "[static] ve verejne slozce lezi %d zbytkovych souboru (servirovani je "
+                "blokovane, ale SMAZAT je stejne patri): %s",
+                len(nalezene), ", ".join(sorted(nalezene)),
+            )
+    except Exception as exc:  # pojistka: hlidac nesmi nikdy shodit start
+        logging.getLogger(__name__).warning("[static] hlidac zbytku selhal: %s", exc)
+
+
+_static_hlidac_zbytku()
+# --- /Ochrana zbytkových souborů ---------------------------------------------
 
 
 WEB_LANDING = os.path.join(static_dir, "web.html")

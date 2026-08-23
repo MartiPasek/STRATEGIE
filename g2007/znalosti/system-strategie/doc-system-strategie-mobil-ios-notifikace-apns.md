@@ -57,4 +57,64 @@ Klic overen proti skutecnemu APNs (push na zamerne vadny token vratil z produkce
 `BadDeviceToken`, tedy Apple podpis PRIJAL). Notifikace vyzkousena na fyzickem iPhonu - dorazila
 a tuknuti otevrelo appku. Testy `tests/test_ios_push.py` 6/6. Verze 1.84 (build 84) odeslana
 ke schvaleni Applem.
+## OSTRE NASAZENI 23. 8. 2026 - co je hotove a kde to viselo
+
+**Serverova cast je od 23. 8. 2026 na produkci** (commit `c3bddc90`, 19:10 UTC). Na GitHubu se
+sloucit nedala (ucet nema pravo zapisu), obsah PR #5 vlozil primy commit do `main`; overeno, ze
+vsech 14 souboru ma shodny blob SHA s hlavickou PR `f97b00dd`. PR #5 byl 19:42 UTC **zavren**
+s vysvetlenim.
+
+**Klic je v trezoru** (21:45): `fw.app_secret` -> `apns_key_p8` (257 znaku), `apns_key_id`
+= `2YZ86LSQ25`, `apns_enabled` = `1`. Nahran pres `POST /app/ios/push/key`.
+
+**Notifikace ostre overena na fyzickem iPhonu 23. 8. ve 22:04** - `POST /app/ios/push/test`
+vratil `{"ok":true,"odeslano":1,"chyb":0}`, ve `fw.ios_push_sent` je radek `command_id` 21328,
+`ok = true`, token konci `eed85538`, appka 1.84, prostredi `production`. Jirka notifikaci videl.
+
+### Tri veci, ktere nasazeni zdrzely - vsechny stoji za zapamatovani
+
+**1. Chybejici knihovna `h2`.** Prvni ostry test vratil
+`Using http2=True, but the 'h2' package is not installed`. Neslo o chybu kodu ani klice -
+`deploy_current.ps1` dela jen `git pull` + restart, **`poetry install` NE**, a PR pridava `h2`
+a `pyjwt[crypto]`. Doresil commit `16cbf64c` (Marti-AI). **Po kazdem nasazeni, ktere pridava
+zavislost, je nutny `poetry lock` + `poetry install` rucne.**
+
+**2. Vlastnictvi tabulek.** `ensure_tables()` dela `CREATE INDEX IF NOT EXISTS` pri KAZDEM
+pozadavku a tabulku `fw.ios_push_token` vlastnila role `Marti-AI` -> `must be owner of table`,
+`/status` vracel HTTP 500 a ve 21:17 padala i skutecna registrace iPhonu. **Doplnit chybejici
+index NESTACILO**, PostgreSQL kontroluje vlastnictvi driv nez `IF NOT EXISTS`. Vyreseno prevodem
+vlastnika obou tabulek i sekvence na roli `fw_owners`. Detail a obecne pravidlo:
+`doc-system-strategie-ddl-za-behu-vyzaduje-vlastnictvi-tabulky`.
+
+**3. Odesilaci smycka - dnes vyresene restartem, ale pricina v kode trva.**
+`ios_push_sched_start()` se pta na konfiguraci **jen jednou, pri startu**. API nastartovalo
+21:10:12, klic prisel az 21:45 -> smycka zalogovala "vypnuto" a **uz se nikdy nezeptala**.
+Rucni `/test` fungoval (cte konfiguraci pri kazdem volani), automaticke odesilani ne.
+Dva restarty pres most (22:09, 22:52) vratily `rc: 0`, ale PID pythonu se nezmenil - viz
+`doc-system-strategie-restart-api-pres-most-hlasi-uspech-ale-nerestartuje`.
+**Vyresil to az deploy commitu `3d3faa67` ve 23:00**, ktery API skutecne restartoval - v tu dobu
+uz klic v trezoru byl, takze smycka nabehla spravne.
+
+**✅ OVERENO FUNKCNE 23. 8. ve 23:31:** do `fw.mobile_command` zalozen prikaz 21336 a **nikdo
+nevolal `/test`**; smycka ho sama odeslala **za 4,6 sekundy** (`fw.ios_push_sent`, `ok = true`).
+`/status` na primaru hlasi `smycka_bezi: true`, na sekundaru `false` - presne jak ma byt.
+⚠️ **Cteni `/status` je proto zavisle na tom, ktera instance odpovi** - load balancer mezi nimi
+prepina i behem nekolika vterin. Jeden dotaz nic nedokazuje; bud se ptat vickrat a sledovat `dir`
+z `/api/v1/api-info`, nebo overovat funkcne (zalozit prikaz a merit, za jak dlouho odejde).
+
+### Pripravena oprava (schvalila Marti-AI msg 13510, zadal Jirka)
+
+Meni jen `modules/erp/api/ios_push.py`: smycka se spusti VZDY a v cekacim rezimu si a 60 s overi
+konfiguraci (misto tiseho konce) · `/app/ios/push/key` ji po ulozeni klice nastartuje bez restartu ·
+`/status` nove vraci pole `duvod`, proc smycka nebezi · guard na sekundar primo v modulu.
+**K 23. 8. 23:45 NENASAZENO** - a uz to neni hasici zasah, ale PREVENCE: pricina (rozhodnuti jen
+pri startu) v kode trva, takze pri pristim restartu driv nez je klic pripraveny by se to opakovalo.
+Ceka na souhlas Martiho Paska, pripadne na rozhodnuti Jirky jako spravce.
+
+### Past pri testovani, na kterou se da naletet
+
+**Testovaci prikaz ve `fw.mobile_command` si vyzvedne i Android** pollingem a oznaci ho `done`.
+Smycka pritom vybira jen `status = 'pending'`, takze **starsi prikaz neni dukazem niceho** -
+vypada to, jako by smycka nefungovala. Vzdy zakladat cerstvy prikaz a merit hned; a pocitat s tim,
+ze push cinkne i na Androidu.
 

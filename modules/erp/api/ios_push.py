@@ -393,6 +393,9 @@ async def push_tick() -> dict:
                 if klic_odznaku not in odznaky:
                     odznaky[klic_odznaku] = _pocet_cekajicich(
                         s, u.get("app_key") or "mobile", u.get("target_user_id"))
+                    logger.info("[ios_push] odznak = %s (uzivatel %s, appka %s)",
+                                odznaky[klic_odznaku], u.get("target_user_id"),
+                                u.get("app_key"))
                 payload, tichy = _payload(u, odznaky[klic_odznaku])
                 dt = u["device_token"]
                 # Vývojové buildy (Xcode/TestFlight) mají token ze sandboxu,
@@ -421,7 +424,13 @@ async def push_tick() -> dict:
 
                 if kod == 200:
                     odeslano += 1
-                    _zapsat_vysledek(s, u["id"], dt, True, "")
+                    # Číslo odznaku si POZNAMENÁVÁME k odeslané notifikaci.
+                    # Proč: 24.8.2026 se ladilo, proč Jirkovi na ikoně zůstalo
+                    # jiné číslo, než jsme čekali — a zpětně to nešlo zjistit,
+                    # protože se nikam neukládalo. Hádalo se místo čtení.
+                    _odz = odznaky.get(klic_odznaku)
+                    _zapsat_vysledek(s, u["id"], dt, True,
+                                     "" if _odz is None or _odz < 0 else f"badge={_odz}")
                     s.execute(_t("UPDATE fw.ios_push_token SET last_sent_at = now(), "
                                  "apns_env = :env, last_error = NULL, updated_at = now() "
                                  "WHERE device_token = :d"),

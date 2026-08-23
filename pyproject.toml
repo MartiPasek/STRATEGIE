@@ -48,6 +48,14 @@ mutagen = "^1.47.0"
 # Anthropic SDK ho uz transitivne tahá; deklarujem ho explicitne ze ho
 # pouzivame primo v whisper_provider.py.
 httpx = "^0.27.0"
+# APNs push pro nativni iOS appku (19.8.2026, Jirka). Apple prijima notifikace
+# VYHRADNE pres HTTP/2 -- httpx to umi jen s balickem h2, a ten se sam netahne.
+# Provider token je JWT podepsany ES256 klicem .p8 -> pyjwt s crypto extras.
+# Obe knihovny uz v poetry.lock byly tranzitivne; deklarujeme je explicitne
+# ze stejneho duvodu jako markdown / openpyxl vyse (gotcha #21 -- tranzitivni
+# zavislost po rebuildu venv zmizela).
+h2 = "^4.1.0"
+pyjwt = {extras = ["crypto"], version = "^2.8.0"}
 # Phase 27a (1.5.2026): Excel reader pro Marti-AI's feature request
 # (rozvrh Klárka). markitdown[all] uz openpyxl tranzitivne tahá, ale
 # explicit deklarace je defense-in-depth (gotcha #21 28.4.2026 -- markdown

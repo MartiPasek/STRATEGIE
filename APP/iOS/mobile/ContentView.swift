@@ -27,6 +27,7 @@ struct WebView: UIViewRepresentable {
         web.scrollView.refreshControl = rc
 
         context.coordinator.web = web
+        PushDelegate.shared.web = web                                 // skok z notifikace jde na tenhle WebView
         web.load(URLRequest(url: url))
         return web
     }
@@ -50,6 +51,12 @@ struct WebView: UIViewRepresentable {
                      type: WKMediaCaptureType,
                      decisionHandler: @escaping (WKPermissionDecision) -> Void) {
             decisionHandler(.grant)
+        }
+
+        // Stránka dojela — teprve teď má smysl žádat o povolení notifikací a provést
+        // odložený skok z notifikace (web musí mít inicializované window.__M2W).
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            PushDelegate.shared.strankaNactena()
         }
 
         // tel: / mailto: / facetime: → otevřít nativně (dialer, mail). Zbytek nech ve WebView.

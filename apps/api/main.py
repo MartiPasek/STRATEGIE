@@ -78,6 +78,7 @@ import modules.erp.api.dochazka_absence_sprava  # noqa: F401 — Správa docház
 from modules.erp.api.foto import foto_router  # Fotky pro výrobu — univerzální fotodokumentace (29.7.2026)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.landmark_report import landmark_router  # Landmark měsíční podklad mezd → mail (22.7.2026, Peta)
+from modules.erp.api.ios_push import ios_push_router  # APNs notifikace pro nativní iOS appku (19.8.2026, Jirka)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
 from modules.erp.api.oci_probe import oci_router  # Siemens OCI5 sonda (C23 26.7.2026)
 from modules.erp.api.hr_spis import hr_spis_router  # Osobní spis zaměstnance — HR pohled + self-service (1.7.2026)
@@ -371,6 +372,15 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logging.getLogger(__name__).warning(f"[lifespan] landmark_sched start failed: {exc}")
 
+        # Jirka 19.8.2026: odesílání APNs notifikací do nativní iOS appky.
+        # Jen primár — na sekundáru by uživatel dostal každou notifikaci dvakrát.
+        # Bez APNS_* v .env se smyčka sama nespustí (jen si to zaloguje).
+        try:
+            from modules.erp.api.ios_push import ios_push_sched_start
+            ios_push_sched_start()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"[lifespan] ios_push_sched start failed: {exc}")
+
     # Marti 20.6.2026: vault klic samobootstrap uz pri startu (nesmi cekat na klik).
     try:
         from modules.erp.api.router import _vault_fernet as _vf_boot
@@ -465,6 +475,11 @@ async def lifespan(app: FastAPI):
     try:
         from modules.erp.api.landmark_report import landmark_sched_stop_now as _lm_stop
         _lm_stop()
+    except Exception:
+        pass
+    try:
+        from modules.erp.api.ios_push import ios_push_sched_stop_now as _push_stop
+        _push_stop()
     except Exception:
         pass
 
@@ -1296,6 +1311,7 @@ app.include_router(md_pyramid_router)  # Phase 24-F UI Pyramida Browser
 app.include_router(erp_router)
 app.include_router(erp_api_router)
 app.include_router(landmark_router)  # Landmark měsíční podklad mezd (22.7.2026, Peta)
+app.include_router(ios_push_router)  # APNs notifikace iOS appky (19.8.2026, Jirka)
 app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)

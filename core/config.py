@@ -278,6 +278,26 @@ class Settings(BaseSettings):
         """True pokud OBA EUROSOFT MCP env vars nastaveny."""
         return bool(self.eurosoft_mcp_url and self.eurosoft_mcp_api_key)
 
+    # APNs push notifikace pro nativni iOS appku (STRATEGIE Mobil 1.84,
+    # Jirka 19.8.2026). Android ma foreground sluzbu s pollingem, iOS trvaly
+    # background polling nedovoli -- jedina cesta k notifikaci do listy je push.
+    # Odesila modules/erp/api/ios_push.py (smycka bezi jen na primaru).
+    #
+    # apns_key_p8 = bud rovnou obsah .p8 klice (vcetne -----BEGIN...), nebo
+    # cesta k souboru. Klic se stahuje z developer.apple.com > Keys, JEN JEDNOU
+    # -- po zavreni dialogu uz ho Apple znovu nevyda.
+    apns_enabled: bool = False
+    apns_key_p8: str = ""
+    apns_key_id: str = ""              # Key ID z developer.apple.com
+    apns_team_id: str = "D3Y6Y63UMA"   # tym STRATEGIE
+    apns_topic: str = "cz.strategie.mobile"   # = bundle ID appky
+
+    @property
+    def apns_ready(self) -> bool:
+        """True pokud je APNs zapnute a ma vsechny udaje."""
+        return bool(self.apns_enabled and self.apns_key_p8 and self.apns_key_id
+                    and self.apns_team_id and self.apns_topic)
+
 settings = Settings()
 
 

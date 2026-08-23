@@ -189,11 +189,15 @@ def _jwt(p8: str, key_id: str, team_id: str) -> str:
 
 # ───────────────────────────── odeslání jedné notifikace ─────────────────────────────
 
-def _payload(cmd: dict) -> tuple[dict, bool]:
+def _payload(cmd: dict, odznak: int | None = None) -> tuple[dict, bool]:
     """Z řádku fw.mobile_command složí APNs payload. Vrací (payload, tichy).
 
     Mapa na Android `notifyCommand`: titulek, tělo, a z payloadu klíče
-    `screen` / `label` / `url`. `claude_ok` = tichá notifikace."""
+    `screen` / `label` / `url`. `claude_ok` = tichá notifikace.
+
+    `odznak` = číslo na ikonu appky (viz `_pocet_cekajicich`). Když je None
+    nebo záporné, klíč `badge` se do payloadu vůbec nedá a iPhone si odznak
+    nechá, jak byl — parametr je proto bezpečně volitelný."""
     ctype = (cmd.get("command_type") or "").strip()
     title = (cmd.get("title") or "Doporučení")[:120]
     body = (cmd.get("message") or "").strip() or "Klepni pro zobrazení"
@@ -208,6 +212,10 @@ def _payload(cmd: dict) -> tuple[dict, bool]:
     }
     if not tichy:
         aps["sound"] = "default"
+    # Odznak posíláme i u tiché notifikace — číslo na ikoně má sedět vždy.
+    # 0 je platná hodnota (= odznak zmizí), proto se testuje na None a záporné.
+    if odznak is not None and odznak >= 0:
+        aps["badge"] = int(odznak)
 
     out: dict = {"aps": aps, "cmd_id": cmd.get("id"), "type": ctype}
 
@@ -298,6 +306,7 @@ def _neodeslane(s, limit: int) -> list[dict]:
     nebyly na to zařízení odeslány. Jeden dotaz = jeden pár (příkaz, token)."""
     rows = s.execute(_t("""
         SELECT c.id, c.command_type, c.title, c.message, c.payload::text AS payload,
+               c.target_user_id, c.app_key,
                t.device_token, t.apns_env
         FROM fw.mobile_command c
         JOIN fw.ios_push_token t
@@ -310,6 +319,30 @@ def _neodeslane(s, limit: int) -> list[dict]:
         LIMIT :lim
     """), {"stari": MAX_STARI_MIN, "lim": limit}).mappings().all()
     return [dict(r) for r in rows]
+
+
+def _pocet_cekajicich(s, app_key: str, user_id) -> int:
+    """Kolik příkazů na uživatele ještě čeká = číslo, které patří na odznak appky.
+
+    PROČ: iOS si odznak sám nespočítá. Appka ho přepočítává jen při přechodu do
+    popředí a při ťuknutí na notifikaci — kdo notifikaci jen odklikne a appku
+    neotevře, kouká na staré číslo (Jirka 23.8.2026). Když číslo pošleme rovnou
+    v notifikaci, iPhone si ho srovná sám při doručení a na chování appky
+    nezáleží.
+
+    Počítá se TOTÉŽ, co appce vrací `/app/{app_key}/commands/pending` — tedy
+    `status='pending'` pro tu dvojici (app_key, uživatel). Kdyby se to rozešlo,
+    odznak by ukazoval jiné číslo než seznam v appce."""
+    try:
+        row = s.execute(_t(
+            "SELECT count(*) FROM fw.mobile_command "
+            "WHERE app_key = :app AND target_user_id = :uid AND status = 'pending'"
+        ), {"app": app_key, "uid": user_id}).first()
+        return int(row[0]) if row else 0
+    except Exception as exc:
+        # Odznak je kosmetika — jeho selhání nesmí zabránit odeslání notifikace.
+        logger.warning("[ios_push] pocet cekajicich pro odznak selhal: %s", exc)
+        return -1
 
 
 def _zapsat_vysledek(s, command_id, device_token: str, ok: bool, detail: str) -> None:
@@ -351,9 +384,16 @@ async def push_tick() -> dict:
     jwt_tok = _jwt(p8, key_id, team_id)
     odeslano = chyb = 0
     try:
+        # Odznak se v jednom kole počítá jednou na dvojici (appka, uživatel) —
+        # ne na každý push zvlášť, ať z toho nejsou zbytečné dotazy.
+        odznaky: dict = {}
         async with httpx.AsyncClient(http2=True, timeout=10.0) as klient:
             for u in ukoly:
-                payload, tichy = _payload(u)
+                klic_odznaku = (u.get("app_key"), u.get("target_user_id"))
+                if klic_odznaku not in odznaky:
+                    odznaky[klic_odznaku] = _pocet_cekajicich(
+                        s, u.get("app_key") or "mobile", u.get("target_user_id"))
+                payload, tichy = _payload(u, odznaky[klic_odznaku])
                 dt = u["device_token"]
                 # Vývojové buildy (Xcode/TestFlight) mají token ze sandboxu,
                 # App Store z produkce. Rozlišit se to z tokenu nedá — zkusíme

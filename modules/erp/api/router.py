@@ -11844,7 +11844,45 @@ async def app_hr_pomer_zmena(req: Request):
         if uvazek is not None:
             sets = "uvazek_tyden_h=:uv, " + sets
             params["uv"] = uvazek
+        # 23.8.2026 (Claude-28 / Jirka, schvalila Marti-AI): zmena uvazku se i TADY musi
+        # zeptat a zalozit NOVOU VERZI smlouvy - stejne jako v karte a v planu prace.
+        # Do teto chvile se uvazek prepisoval rovnou v platnem radku, takze mzdy za
+        # drivejsi mesice ztratily puvodni hodnotu a nikdo se na nic nezeptal.
+        # Poradi je zamerne: nejdriv se do platneho radku zapise doba trvani, teprve
+        # pak uvazek_zapis udela kopii - nova verze tak nese oboji.
+        _uv_stary = s.execute(_t(
+            "SELECT uvazek_tyden_h FROM tenant.engagement WHERE id=:id AND tenant_id=2"),
+            {"id": eid}).scalar()
+        try:
+            _uv_stary_f = float(_uv_stary) if _uv_stary is not None else None
+        except Exception:
+            _uv_stary_f = None
+        _uv_meni = (uvazek is not None
+                    and (_uv_stary_f is None or abs(_uv_stary_f - float(uvazek)) >= 0.005))
+        if _uv_meni:
+            from modules.erp.api import erp_registry as _ereg_pz
+            if not (b or {}).get("potvrzeno"):
+                _dotaz = _ereg_pz.call("uvazek_zapis", s, tuid, uvazek, uid,
+                                       None, eid, False) or {}
+                s.rollback()
+                if _dotaz.get("potvrdit"):
+                    return JSONResponse({"ok": False, "potvrdit": True,
+                                         "otazka": _dotaz.get("otazka")})
+                if not _dotaz.get("ok"):
+                    return JSONResponse({"ok": False,
+                                         "error": _dotaz.get("error") or "Úvazek nelze změnit."},
+                                        status_code=400)
+            # potvrzeno - uvazek pujde pres novou verzi, do platneho radku ho nezapisujeme
+            sets = sets.replace("uvazek_tyden_h=:uv, ", "")
+            params.pop("uv", None)
         s.execute(_t("UPDATE tenant.engagement SET " + sets + " WHERE id=:id AND tenant_id=2 AND is_current=true"), params)
+        if _uv_meni:
+            _zapis = _ereg_pz.call("uvazek_zapis", s, tuid, uvazek, uid, None, eid, True) or {}
+            if not _zapis.get("ok"):
+                s.rollback()
+                return JSONResponse({"ok": False,
+                                     "error": _zapis.get("error") or "Úvazek se nepodařilo uložit."},
+                                    status_code=400)
         s.commit()
         try:
             prijemci = set(_self_hr_recipients(s))

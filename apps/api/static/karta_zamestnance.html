@@ -2327,8 +2327,22 @@ async function pomerSubmit(eid){
   if(doba==='urcita' && !smlouva_do){ msg.style.color='#E0A94A'; msg.textContent='Zadej datum konce.'; return; }
   const body={id:eid,doba:doba,smlouva_do:smlouva_do,uvazek:document.getElementById('pz_uv').value,duvod:document.getElementById('pz_duvod').value.trim()};
   msg.style.color='#7f8ea0'; msg.textContent='Ukládám…';
-  const r=await fetch(API+'/app/hr/pomer-zmena',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const d=await r.json().catch(()=>({ok:false,error:'server'}));
+  const posli=async()=>{
+    const r=await fetch(API+'/app/hr/pomer-zmena',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    return await r.json().catch(()=>({ok:false,error:'server'}));
+  };
+  let d=await posli();
+  // Změna úvazku i tudy zakládá NOVOU VERZI smlouvy, takže se server zeptá stejnou
+  // otázkou jako v Podmínkách. Kdo řekne Ne, ten nic nezmění (Jirka 23. 8. 2026,
+  // schválila Marti-AI).
+  if(d && d.potvrdit){
+    if(confirm(d.otazka||'Změnou se založí nový záznam podmínek, úvazku a smlouvy. Pokračovat?')){
+      body.potvrzeno=true;
+      d=await posli();
+    }else{
+      msg.style.color='#9aa7b4'; msg.textContent='Nic se nezměnilo — změnu jsi zrušil.'; return;
+    }
+  }
   if(!d.ok){ msg.style.color='#ff8a7a'; msg.textContent='Chyba: '+(d.error||''); return; }
   const o=document.getElementById('pzOv'); if(o)o.remove();
   alert('Poměr upraven: '+(d.doba==='neurcita'?'na dobu neurčitou':'na dobu určitou do '+(d.smlouva_do||''))+'. Cinklo účetní i HR.');

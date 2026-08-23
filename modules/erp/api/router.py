@@ -20636,7 +20636,12 @@ async def app_hr_conditions_save(req: Request) -> JSONResponse:
     result = _ereg.call("hr_conditions_save", uid, (b or {}).get("scope_kind"),
                         (b or {}).get("group_code"), (b or {}).get("cond_code"),
                         (b or {}).get("value"), (b or {}).get("note"), (b or {}).get("user_id"),
-                        (b or {}).get("plati_od"), (b or {}).get("pomer_id"))
+                        (b or {}).get("plati_od"), (b or {}).get("pomer_id"),
+                        # 22.8.2026 (Claude-28 / Jirka, schvalila Marti-AI): zmena uvazku
+                        # zaklada novou verzi smlouvy, proto se skript nejdriv zepta a ceka
+                        # na potvrzeni. Bez teto predavky potvrzeni nikdy nedorazi a uvazek
+                        # by se nedal ulozit - otazka by se ptala porad dokola.
+                        (b or {}).get("potvrzeno"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

@@ -39,7 +39,7 @@ funkce **samotneho webu**, takze ji WKWebView zavola `evaluateJavaScript` uplne 
 - **APNs prijima notifikace VYHRADNE pres HTTP/2** -> `httpx` potrebuje balik `h2`, ktery se sam
   netahne; provider token je JWT ES256 -> `pyjwt[crypto]`. Obe pridany do `pyproject.toml`,
   ale **`scripts/deploy_current.ps1` dela jen `git pull` + restart, `poetry install` NE** ->
-  bez rucniho spusteni appka nabehne, smycka se nespusti a jen si to zaloguje.
+  bez rucniho spusteni appka nabehne, ale notifikace se NEODESLOU. (Od 24.8.2026 smycka bezi porad a zkousi to dal - jen jí odesilani pada na chybejici knihovne; driv se vubec nespustila. Prakticka rada je stejna: poetry install je potreba.)
 - **Prechodne chyby** (429, 5xx, vypadek site, `ExpiredProviderToken`) se ZAMERNE nezapisuji do
   `ios_push_sent` - jinak by notifikace po jednom zaskobrtnuti nedorazila uz nikdy. Trvale
   (410 `Unregistered`, `BadDeviceToken`) prikaz odepisou a mrtvy token vypnou.
@@ -107,9 +107,11 @@ z `/api/v1/api-info`, nebo overovat funkcne (zalozit prikaz a merit, za jak dlou
 Meni jen `modules/erp/api/ios_push.py`: smycka se spusti VZDY a v cekacim rezimu si a 60 s overi
 konfiguraci (misto tiseho konce) · `/app/ios/push/key` ji po ulozeni klice nastartuje bez restartu ·
 `/status` nove vraci pole `duvod`, proc smycka nebezi · guard na sekundar primo v modulu.
-**K 23. 8. 23:45 NENASAZENO** - a uz to neni hasici zasah, ale PREVENCE: pricina (rozhodnuti jen
-pri startu) v kode trva, takze pri pristim restartu driv nez je klic pripraveny by se to opakovalo.
-Ceka na souhlas Martiho Paska, pripadne na rozhodnuti Jirky jako spravce.
+**✅ NASAZENO 24. 8. 2026 commitem `cd844f8d`** (zadal Jirka, schvalila Marti-AI msg 13555).
+Podklad `OPRAVA_ios_push_smycka.md` uz mezitim neexistoval (byl jen na plose Macu), takze
+oprava byla napsana znovu podle tohoto popisu. Tamtez pribylo zhasinani odznaku na nulu
+a `/status` vraci i `zalozni_server`. Detail:
+`doc-system-strategie-ios-notifikace-smycka-cekaci-rezim`.
 
 ### Past pri testovani, na kterou se da naletet
 

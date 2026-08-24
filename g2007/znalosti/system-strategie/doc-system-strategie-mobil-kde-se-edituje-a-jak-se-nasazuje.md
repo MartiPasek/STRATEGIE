@@ -37,8 +37,7 @@ Týká se 17 lidí + demo účtu, kteří iOS appku někdy použili (`public.aut
 ⚠️ **Gotcha k tomu:** APNs jede výhradně přes HTTP/2, takže potřebuje balíček `h2`. Ten se do
 `poetry.lock` dostal až commitem `16cbf64c` a **nasazovací skript závislosti sám neinstaluje**
 (dělá jen `git pull` + restart) — na server se doinstalovaly ručně. Po každé změně závislostí
-je tedy potřeba `poetry install` na serveru, jinak appka naběhne, ale odesílací smyčka se
-nespustí a jen si to zaloguje.
+je tedy potřeba `poetry install` na serveru, jinak appka nabehne, ale notifikace se NEODESLOU. (Od 24. 8. 2026 smycka bezi porad a zkousi to dal - jen ji odesilani pada na chybejici knihovne; driv se vubec nespustila. Prakticka rada je stejna: poetry install je potreba.)
 
 *(Do 23. 8. 2026 22:10 tu stálo „na iPhonu ne, serverová část není nasazená, vrací 404" —
 platilo to ještě v 19:10 téhož dne. Srovnal Claude-28 na Jirkovo rozhodnutí, schválila

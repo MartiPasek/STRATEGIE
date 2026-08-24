@@ -452,9 +452,9 @@
     <div class="tblscroll">
       <table class="ptbl" id="podmtbl">
         <thead><tr>
-          <th>Jméno</th><th>Firma</th><th>Typ</th><th style="text-align:center">Úvazek</th><th>Doba</th><th>Nástup</th><th style="text-align:center">Dovolená celkem</th><th style="text-align:center">Dovolená</th><th style="text-align:center">Navíc</th><th style="text-align:center">Sick days</th>
+          <th>Jméno</th><th>Firma</th><th>Typ</th><th style="text-align:center">Úvazek</th><th>Doba</th><th>Nástup</th><th style="text-align:center">Dovolená celkem</th><th style="text-align:center">Dovolená</th><th style="text-align:center">Navíc</th><th style="text-align:center">Sick days</th><th style="text-align:center">Sick navíc</th><th style="text-align:center">Nepl. přesčas</th><th style="text-align:center">Stravenka</th><th style="text-align:center">Home off.</th><th style="text-align:center">Lékař</th><th style="text-align:center">Limit přesč.</th><th style="text-align:center">Daň. HO</th>
         </tr></thead>
-        <tbody id="podmbody"><tr><td colspan="10" class="empty">Načítám…</td></tr></tbody>
+        <tbody id="podmbody"><tr><td colspan="17" class="empty">Načítám…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1286,11 +1286,11 @@ function _pjmeno(s){ s=(s||'').trim(); const p=s.split(/\s+/); return p.length<2
 async function loadPodminky(){
   const body=document.getElementById('podmbody'); if(!body) return;
   if(PODMINKY){ podminkyFilter(); return; }
-  body.innerHTML='<tr><td colspan="10" class="empty">Načítám…</td></tr>';
-  let r; try{ r=await fetch(API+'/app/hr/podminky-prehled',{credentials:'same-origin'}); }catch(e){ body.innerHTML='<tr><td colspan="10" class="empty" style="color:#ff8a7a">✗ síť. Ctrl+Shift+R.</td></tr>'; return; }
-  if(!r.ok){ body.innerHTML='<tr><td colspan="10" class="empty" style="color:#ff8a7a">✗ Server '+r.status+'</td></tr>'; return; }
-  let d; try{ d=await r.json(); }catch(e){ body.innerHTML='<tr><td colspan="10" class="empty" style="color:#ff8a7a">✗ Odpověď není JSON. Ctrl+Shift+R.</td></tr>'; return; }
-  if(!d.ok){ body.innerHTML='<tr><td colspan="10" class="empty">🔒 '+esc(d.error||'chyba')+'</td></tr>'; return; }
+  body.innerHTML='<tr><td colspan="17" class="empty">Načítám…</td></tr>';
+  let r; try{ r=await fetch(API+'/app/hr/podminky-prehled',{credentials:'same-origin'}); }catch(e){ body.innerHTML='<tr><td colspan="17" class="empty" style="color:#ff8a7a">✗ síť. Ctrl+Shift+R.</td></tr>'; return; }
+  if(!r.ok){ body.innerHTML='<tr><td colspan="17" class="empty" style="color:#ff8a7a">✗ Server '+r.status+'</td></tr>'; return; }
+  let d; try{ d=await r.json(); }catch(e){ body.innerHTML='<tr><td colspan="17" class="empty" style="color:#ff8a7a">✗ Odpověď není JSON. Ctrl+Shift+R.</td></tr>'; return; }
+  if(!d.ok){ body.innerHTML='<tr><td colspan="17" class="empty">🔒 '+esc(d.error||'chyba')+'</td></tr>'; return; }
   PODMINKY=d.radky||[];
   podminkyFilter();
 }
@@ -1307,7 +1307,7 @@ function podminkyFilter(){
   const _prijmeni=x=>((x.jmeno||'').trim().split(/\s+/).slice(-1)[0]||'').toLowerCase();
   r=r.slice().sort((a,b)=>_prijmeni(a).localeCompare(_prijmeni(b),'cs'));
   if(cnt) cnt.textContent='('+r.length+' poměrů)';
-  if(!r.length){ body.innerHTML='<tr><td colspan="10" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  if(!r.length){ body.innerHTML='<tr><td colspan="17" class="empty">Nic nenalezeno.</td></tr>'; return; }
   body.innerHTML=r.map(function(x){
     const doba=x.smlouva_do?('<span style="color:#e0b04a">určitá do '+_dcz(x.smlouva_do)+'</span>'):'neurčitá';
     // 14. 8. 2026: nárok se bere z Podmínek (osobní → skupina → systém), ne z výplňové
@@ -1322,6 +1322,10 @@ function podminkyFilter(){
     const dovZ=(dzk!=null)?(nesedi?'<span style="color:#ff8a7a" title="součet nesedí na celkové číslo">'+dzk+'</span>':dzk):'<span style="color:#5d6b7c">—</span>';
     const dovN=(dnv!=null)?(nesedi?'<span style="color:#ff8a7a" title="součet nesedí na celkové číslo">'+dnv+'</span>':dnv):'<span style="color:#5d6b7c">—</span>';
     const sd=(x.sd_dny!=null)?(String(x.sd_dny).replace('.',',')+' dní'):'<span style="color:#5d6b7c">—</span>';
+    // Ostatní podmínky (Šárka 24. 8. 2026) — celý přehled na jednom místě.
+    const _c=v=>(v!=null&&v!==''?String(v).replace('.',','):'<span style="color:#5d6b7c">—</span>');
+    const sdn=_c(x.sd_navic), nepl=_c(x.nepl), strav=_c(x.strav), home=_c(x.home), lekar=_c(x.lekar), lim=_c(x.lim);
+    const dano=(x.dano==='Ano')?'<span style="color:#7fe0a0">Ano</span>':(x.dano==='Ne'?'<span style="color:#cdd6e2">Ne</span>':'<span style="color:#5d6b7c">—</span>');
     const typBg=x.typ==='HPP'?'#1b3a5c':(x.typ==='OSVC'?'#3a2f5c':'#4a3a1b');
     return '<tr style="border-top:1px solid #1e2730">'+
       '<td style="padding:4px 8px;white-space:nowrap;color:#e8eef5">'+esc(_pjmeno(x.jmeno))+'</td>'+
@@ -1333,7 +1337,14 @@ function podminkyFilter(){
       '<td style="padding:4px 8px;text-align:center;color:#e8eef5">'+dov+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+dovZ+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+dovN+'</td>'+
-      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sd+'</td></tr>';
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sd+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sdn+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+nepl+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+strav+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+home+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+lekar+'</td>'+
+      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+lim+'</td>'+
+      '<td style="padding:4px 8px;text-align:center">'+dano+'</td></tr>';
   }).join('');
 }
 function podminkyPrint(){
@@ -1349,8 +1360,8 @@ function podminkyPrint(){
   const e2=s=>(s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const nn=v=>(v==null?'':String(v).replace('.',','));
   const dt=new Date().toLocaleDateString('cs-CZ');
-  const rows=r.map(x=>'<tr><td>'+e2(_pjmeno(x.jmeno))+'</td><td>'+e2(x.firma||'')+'</td><td>'+e2(x.typ||'')+'</td><td>'+(x.uvazek!=null?e2(''+x.uvazek)+' h':'')+'</td><td>'+(x.smlouva_do?('určitá do '+_dcz(x.smlouva_do)):'neurčitá')+'</td><td>'+e2(_dcz(x.nastup))+'</td><td>'+nn(x.dov_dny)+'</td><td>'+nn(x.dov_zakl)+'</td><td>'+nn(x.dov_navic)+'</td><td>'+nn(x.sd_dny)+'</td></tr>').join('');
-  const html='<!doctype html><html><head><meta charset="utf-8"><title>Podmínky zaměstnanců</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Podmínky zaměstnanců</h1><p class="sub">EUROSOFT · '+r.length+' poměrů'+(ff?(' · '+e2(ff)):'')+(tf?(' · '+e2(tf)):'')+' · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma</th><th>Typ</th><th>Úvazek</th><th>Doba</th><th>Nástup</th><th>Dovolená celkem</th><th>Dovolená</th><th>Navíc</th><th>Sick days</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+  const rows=r.map(x=>'<tr><td>'+e2(_pjmeno(x.jmeno))+'</td><td>'+e2(x.firma||'')+'</td><td>'+e2(x.typ||'')+'</td><td>'+(x.uvazek!=null?e2(''+x.uvazek)+' h':'')+'</td><td>'+(x.smlouva_do?('určitá do '+_dcz(x.smlouva_do)):'neurčitá')+'</td><td>'+e2(_dcz(x.nastup))+'</td><td>'+nn(x.dov_dny)+'</td><td>'+nn(x.dov_zakl)+'</td><td>'+nn(x.dov_navic)+'</td><td>'+nn(x.sd_dny)+'</td><td>'+nn(x.sd_navic)+'</td><td>'+nn(x.nepl)+'</td><td>'+nn(x.strav)+'</td><td>'+nn(x.home)+'</td><td>'+nn(x.lekar)+'</td><td>'+nn(x.lim)+'</td><td>'+e2(x.dano||'')+'</td></tr>').join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Podmínky zaměstnanců</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Podmínky zaměstnanců</h1><p class="sub">EUROSOFT · '+r.length+' poměrů'+(ff?(' · '+e2(ff)):'')+(tf?(' · '+e2(tf)):'')+' · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma</th><th>Typ</th><th>Úvazek</th><th>Doba</th><th>Nástup</th><th>Dovolená celkem</th><th>Dovolená</th><th>Navíc</th><th>Sick days</th><th>Sick navíc</th><th>Nepl. přesčas</th><th>Stravenka</th><th>Home off.</th><th>Lékař</th><th>Limit přesč.</th><th>Daň. HO</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
   const w=window.open('','_blank'); if(!w){ alert('Povol prosím vyskakovací okna, ať se tisk otevře.'); return; }
   w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} },300);
 }

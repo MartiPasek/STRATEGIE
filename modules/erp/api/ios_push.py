@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 
 from fastapi import APIRouter, Request
@@ -56,6 +57,13 @@ MAX_STARI_MIN = 60
 
 # Kolik příkazů odbavit v jednom kole — pojistka proti zahlcení.
 DAVKA = 50
+
+# Jak dlouho spát, když APNs ještě není nastavené. Smyčka se dřív při startu
+# jednou zeptala, a když klíč nebyl, TIŠE SKONČILA a už se nikdy nezeptala —
+# 23. 8. 2026 kvůli tomu notifikace nechodily od 21:10 do 23:01 a rozjely se
+# až náhodou, při restartu kvůli úplně jiné změně. Teď smyčka běží vždy
+# a jednou za minutu se podívá, jestli klíč nepřibyl.
+CEKACI_S = 60
 
 _APNS_PROD = "https://api.push.apple.com"
 _APNS_SANDBOX = "https://api.sandbox.push.apple.com"
@@ -168,6 +176,48 @@ def _cfg():
     )
 
 
+def _je_sekundar() -> bool:
+    """Běžím na záložní instanci? Tam se notifikace odesílat NESMÍ — uživatel
+    by každou dostal dvakrát.
+
+    ⚠️ VĚDOMÁ DRUHÁ KOPIE pravidla z `apps/api/main.py` (výpočet `_is_secondary_ls`).
+    Dřív o primáru/sekundáru rozhodoval jen lifespan tím, že smyčku na sekundáru
+    vůbec nespustil; teď se smyčka spouští VŽDY (kvůli čekacímu režimu), takže si
+    to musí ohlídat sama. **Když se to pravidlo změní, oprav OBĚ místa.**
+    Vyčlenění do sdíleného helperu je odložený refactor, ne součást téhle opravy.
+
+    Pozor na hloubku cesty: `main.py` je v `apps/api/`, tenhle soubor v
+    `modules/erp/api/` — proto o jeden `dirname` víc, ať vyjde tatáž složka repa.
+    NIKDY nerozhodovat podle `STRATEGIE_INSTANCE_NAME` — primár ho může mít
+    nastavený na jiný název a vyplo by to notifikace i jemu."""
+    try:
+        zaklad = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))))
+        return ("prev" in zaklad.lower()) or \
+            os.environ.get("STRATEGIE_DR_STANDBY", "").strip() == "1"
+    except Exception as exc:
+        # Když si nejsme jistí, radši NEodesílat dvakrát: chovej se jako sekundár.
+        logger.warning("[ios_push] rozpoznani sekundaru selhalo (%s) — beru jako sekundar", exc)
+        return True
+
+
+def _duvod_smycky() -> str:
+    """Proč smyčka neodesílá. Prázdný řetězec = odesílá, všechno je v pořádku.
+
+    Kvůli tomuhle se 23. 8. 2026 hledala příčina půl hodiny v logu — teď to
+    řekne `/app/ios/push/status` na první pohled."""
+    if _je_sekundar():
+        return "bezim na zaloznim serveru (na primaru to jede)"
+    enabled, p8, key_id, team_id, topic = _cfg()
+    if not enabled:
+        return "vypnuto (APNS_ENABLED neni 1 ani v .env, ani v trezoru)"
+    chybi = [n for n, v in (("klic .p8", p8), ("KEY_ID", key_id),
+                            ("TEAM_ID", team_id), ("TOPIC", topic)) if not v]
+    if chybi:
+        return "chybi " + ", ".join(chybi)
+    return ""
+
+
 def _jwt(p8: str, key_id: str, team_id: str) -> str:
     """Podepsaný APNs provider token (ES256). Cachovaný na 50 minut."""
     now = time.time()
@@ -250,11 +300,18 @@ async def _odeslat(klient, jwt_tok: str, topic: str, device_token: str,
             "apns-push-type": "alert",
             # Android dává tichému kanálu PRIORITY_LOW; APNs ekvivalent je 5.
             "apns-priority": "5" if tichy else "10",
+            "content-type": "application/json",
+        } | (
             # Ekvivalent Android `setOnlyAlertOnce` + stabilní id notifikace:
             # opakovaný push k témuž příkazu přepíše ten původní.
-            "apns-collapse-id": str(payload.get("cmd_id") or "")[:64],
-            "content-type": "application/json",
-        },
+            # ⚠️ Hlavičku posíláme JEN když má hodnotu. Prázdný `apns-collapse-id`
+            # umí Apple odmítnout jako `BadCollapseId`, což je v `_TRVALE` —
+            # push by se odepsal natrvalo. Týká se to zhasínacího pushe
+            # (`badge: 0`), který k žádnému příkazu nepatří, a teoreticky
+            # i příkazu bez `id`.
+            {"apns-collapse-id": str(payload.get("cmd_id"))[:64]}
+            if payload.get("cmd_id") else {}
+        ),
     )
     reason = ""
     if r.status_code != 200:
@@ -345,6 +402,42 @@ def _pocet_cekajicich(s, app_key: str, user_id) -> int:
         return -1
 
 
+def _zarizeni_k_zhasnuti(s, limit: int = 200) -> list[dict]:
+    """Zařízení, kterým má odejít „odznak = 0".
+
+    PROČ: každá notifikace se sama počítá jako čekající, takže nejnižší číslo,
+    jaké kdy odejde s běžnou notifikací, je 1 — **odznak by nikdy nezhasl**
+    (nedodělek z 23. 8. 2026). Když uživateli klesne počet čekajících na nulu,
+    pošle se mu „prázdný" push jen s `badge: 0`: nic nezobrazí, jen srovná číslo.
+
+    `last_badge` u tokenu hlídá, aby se nula poslala JEDNOU, ne každých 5 s.
+    Vrací se **všechna aktivní zařízení toho člověka** (upozornila Marti-AI):
+    kdo má iPhone i iPad, musí dostat nulu na obojí, jinak zůstane svítit
+    na tom druhém."""
+    rows = s.execute(_t("""
+        SELECT t.device_token, t.apns_env, t.user_id, t.app_key
+        FROM fw.ios_push_token t
+        WHERE t.active
+          AND coalesce(t.last_badge, 0) > 0
+          AND NOT EXISTS (SELECT 1 FROM fw.mobile_command c
+                           WHERE c.app_key = t.app_key
+                             AND c.target_user_id = t.user_id
+                             AND c.status = 'pending')
+        LIMIT :lim
+    """), {"lim": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def _zapamatuj_odznak(s, device_token: str, odznak: int) -> None:
+    """Poznamená si, jaké číslo odznaku na to zařízení naposledy odešlo."""
+    try:
+        s.execute(_t("UPDATE fw.ios_push_token SET last_badge = :b, updated_at = now() "
+                     "WHERE device_token = :d"), {"b": int(odznak), "d": device_token})
+    except Exception as exc:
+        # Kosmetika — nesmí shodit odesílání notifikací.
+        logger.warning("[ios_push] zapamatovani odznaku selhalo: %s", exc)
+
+
 def _zapsat_vysledek(s, command_id, device_token: str, ok: bool, detail: str) -> None:
     s.execute(_t("""
         INSERT INTO fw.ios_push_sent (command_id, device_token, ok, detail)
@@ -376,18 +469,51 @@ async def push_tick() -> dict:
         s.close()
         logger.warning("[ios_push] výběr neodeslaných selhal: %s", exc)
         return {"ok": False, "error": str(exc)}
-    if not ukoly:
+    try:
+        zhasnout = _zarizeni_k_zhasnuti(s)
+    except Exception as exc:
+        # Zhasínání odznaku je kosmetika — nesmí zabránit odeslání notifikací.
+        logger.warning("[ios_push] vyber zarizeni k zhasnuti selhal: %s", exc)
+        zhasnout = []
+    if not ukoly and not zhasnout:
         s.close()
         return {"ok": True, "odeslano": 0}
 
     import httpx
     jwt_tok = _jwt(p8, key_id, team_id)
-    odeslano = chyb = 0
+    odeslano = chyb = zhasnuto = 0
     try:
         # Odznak se v jednom kole počítá jednou na dvojici (appka, uživatel) —
         # ne na každý push zvlášť, ať z toho nejsou zbytečné dotazy.
         odznaky: dict = {}
         async with httpx.AsyncClient(http2=True, timeout=10.0) as klient:
+            # Nejdřív zhasnout odznak tam, kde už nic nečeká. Je to „prázdný"
+            # push — bez textu a bez zvuku, uživatel nic neuvidí ani neuslyší,
+            # jen mu z ikony zmizí číslo.
+            for z in zhasnout:
+                dtz = z["device_token"]
+                poradi_z = [True, False] if z.get("apns_env") == "sandbox" else [False, True]
+                for sandbox_z in poradi_z:
+                    try:
+                        kodz, duvodz = await _odeslat(
+                            klient, jwt_tok, topic, dtz,
+                            {"aps": {"badge": 0}}, True, sandbox_z)
+                    except Exception as exc:
+                        kodz, duvodz = 0, str(exc)[:200]
+                    if kodz == 200 or duvodz not in ("BadDeviceToken", "BadEnvironmentKeyInToken"):
+                        break
+                if kodz == 200:
+                    _zapamatuj_odznak(s, dtz, 0)
+                    zhasnuto += 1
+                elif _trvala_chyba(kodz, duvodz):
+                    # Mrtvý token — ať se to nezkouší donekonečna.
+                    if kodz == 410 or duvodz in _MRTVY_TOKEN:
+                        _zneplatnit_token(s, dtz, f"{kodz} {duvodz}")
+                    else:
+                        _zapamatuj_odznak(s, dtz, 0)
+            if zhasnuto:
+                logger.info("[ios_push] odznak zhasnut u %d zarizeni", zhasnuto)
+
             for u in ukoly:
                 klic_odznaku = (u.get("app_key"), u.get("target_user_id"))
                 if klic_odznaku not in odznaky:
@@ -431,6 +557,11 @@ async def push_tick() -> dict:
                     _odz = odznaky.get(klic_odznaku)
                     _zapsat_vysledek(s, u["id"], dt, True,
                                      "" if _odz is None or _odz < 0 else f"badge={_odz}")
+                    # Zapamatovat, jaké číslo na tohle zařízení odešlo — podle
+                    # toho se pozná, že se má později poslat nula (viz
+                    # `_zarizeni_k_zhasnuti`).
+                    if _odz is not None and _odz >= 0:
+                        _zapamatuj_odznak(s, dt, _odz)
                     s.execute(_t("UPDATE fw.ios_push_token SET last_sent_at = now(), "
                                  "apns_env = :env, last_error = NULL, updated_at = now() "
                                  "WHERE device_token = :d"),
@@ -460,34 +591,60 @@ async def push_tick() -> dict:
         s.close()
     if odeslano or chyb:
         logger.info("[ios_push] odeslano=%s chyb=%s", odeslano, chyb)
-    return {"ok": True, "odeslano": odeslano, "chyb": chyb}
+    return {"ok": True, "odeslano": odeslano, "chyb": chyb, "odznak_zhasnut": zhasnuto}
 
 
 async def _push_loop():
+    """Odesílací smyčka. Běží pořád — i když APNs zatím není nastavené.
+
+    ČEKACÍ REŽIM: dokud chybí klíč (nebo cokoli jiného z konfigurace), smyčka
+    jen spí `CEKACI_S` a zkouší to znovu. Jakmile klíč přibude, sama se přepne
+    na odesílání — bez restartu serveru. Dřív se konfigurace četla JEN jednou
+    při startu a smyčka tiše skončila, takže klíč nahraný o půl hodiny později
+    nikdo nezaregistroval (23. 8. 2026)."""
     import asyncio as _aio
+    posledni_duvod = None
     while not _PUSH_STOP[0]:
         try:
+            duvod = _duvod_smycky()
+            if duvod:
+                # Do logu jen při ZMĚNĚ důvodu — jinak by to psalo každou minutu.
+                if duvod != posledni_duvod:
+                    logger.info("[ios_push] cekaci rezim: %s (zkusim znovu za %s s)",
+                                duvod, CEKACI_S)
+                    posledni_duvod = duvod
+                await _aio.sleep(CEKACI_S)
+                continue
+            if posledni_duvod is not None:
+                logger.info("[ios_push] konfigurace doplnena — prechazim na odesilani")
+                posledni_duvod = None
             await _aio.sleep(POLL_S)
             await push_tick()
         except _aio.CancelledError:
             break
         except Exception as e:
             logger.warning("[ios_push_loop] %s", e)
+            await _aio.sleep(POLL_S)
 
 
 def ios_push_sched_start():
-    """Spustí odesílací smyčku. Volá lifespan — JEN na primáru, aby se pushe
-    neposílaly dvakrát (stejně jako mirror/att_sync)."""
+    """Spustí odesílací smyčku. Volá lifespan a taky `/app/ios/push/key` hned
+    po uložení klíče, ať se nemusí restartovat server.
+
+    Smyčku spustí VŽDY (mimo záložní server) — i když APNs zatím není nastavené.
+    O čekání se postará sama smyčka, viz `_push_loop`. **Tohle je ta oprava:**
+    dřív funkce při chybějícím klíči jen zalogovala a skončila, takže se smyčka
+    už nikdy nerozjela a klíč nahraný později byl k ničemu."""
     import asyncio as _aio
-    enabled, p8, key_id, team_id, topic = _cfg()
-    if not enabled:
-        logger.info("[ios_push] vypnuto (APNS_ENABLED není 1) — smyčka nestartuje")
-        return
-    if not (p8 and key_id and team_id and topic):
-        logger.warning("[ios_push] APNS_ENABLED=1, ale chybí klíč/KEY_ID/TEAM_ID/TOPIC — smyčka nestartuje")
+    if _je_sekundar():
+        logger.info("[ios_push] zalozni server — smycka nestartuje "
+                    "(na primaru bezi; jinak by kazdy dostal notifikaci dvakrat)")
         return
     if _PUSH_TASK[0] is not None and not _PUSH_TASK[0].done():
         return
+    duvod = _duvod_smycky()
+    if duvod:
+        logger.info("[ios_push] startuji v cekacim rezimu: %s", duvod)
     _PUSH_STOP[0] = False
     try:
         from core.database_data import get_data_session as _g
@@ -501,7 +658,11 @@ def ios_push_sched_start():
         logger.warning("[ios_push] zalozeni tabulek selhalo: %s", exc)
     try:
         _PUSH_TASK[0] = _aio.create_task(_push_loop())
-        logger.info("[ios_push] odesilaci smycka nastartovana (kolo a %s s, topic=%s)", POLL_S, topic)
+        if duvod:
+            logger.info("[ios_push] odesilaci smycka nastartovana v CEKACIM rezimu "
+                        "(kontrola a %s s, duvod: %s)", CEKACI_S, duvod)
+        else:
+            logger.info("[ios_push] odesilaci smycka nastartovana (kolo a %s s)", POLL_S)
     except Exception as e:
         logger.warning("[ios_push] start smycky selhal: %s", e)
 
@@ -621,6 +782,10 @@ async def ios_push_status(req: Request) -> JSONResponse:
             "apns_nastaveno": bool(enabled and p8 and key_id and team_id and topic),
             "topic": topic,
             "smycka_bezi": bool(_PUSH_TASK[0] is not None and not _PUSH_TASK[0].done()),
+            # Prázdné = odesílá. Jinak lidsky řečený důvod, ať se nemusí hledat
+            # v logu (23. 8. 2026 se kvůli tomu ladilo půl hodiny naslepo).
+            "duvod": _duvod_smycky(),
+            "zalozni_server": _je_sekundar(),
             "zarizeni": [{
                 "token_konec": r["device_token"][-8:],
                 "app_version": r["app_version"],
@@ -710,15 +875,25 @@ async def ios_push_key_upload(req: Request) -> JSONResponse:
             "SELECT skey, length(sval) AS delka, left(sval, 27) AS zacatek "
             "FROM fw.app_secret WHERE skey LIKE 'apns%' ORDER BY skey")).mappings().all()
         _JWT_CACHE["token"] = None   # klíč se mohl změnit → podepsat znovu
+        # Klíč právě přibyl → zkus smyčku rovnou nastartovat, ať se nemusí
+        # restartovat server. Když už běží, funkce si toho všimne a nic neudělá;
+        # když běží v čekacím režimu, přepne se sama do minuty.
+        try:
+            ios_push_sched_start()
+        except Exception as exc:
+            logger.warning("[ios_push] start smycky po ulozeni klice selhal: %s", exc)
+        bezi = bool(_PUSH_TASK[0] is not None and not _PUSH_TASK[0].done())
+        duvod = _duvod_smycky()
         return JSONResponse({
             "ok": True,
             "ulozeno": [k for k, _ in polozky],
             "trezor": [{"klic": r["skey"], "delka": r["delka"], "zacatek": r["zacatek"]}
                        for r in rows],
-            "smycka_bezi": bool(_PUSH_TASK[0] is not None and not _PUSH_TASK[0].done()),
-            "poznamka": ("Když smyčka neběží, restartuj API — startuje se v lifespanu."
-                         if not (_PUSH_TASK[0] is not None and not _PUSH_TASK[0].done())
-                         else "Smyčka běží, notifikace se začnou odesílat."),
+            "smycka_bezi": bezi,
+            "duvod": duvod,
+            "poznamka": ("Smyčka běží, notifikace se začnou odesílat." if bezi and not duvod
+                         else f"Smyčka běží, ale zatím neodesílá: {duvod}" if bezi
+                         else "Smyčka neběží — restartuj API."),
         })
     except Exception as exc:
         s.rollback()

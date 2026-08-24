@@ -15742,7 +15742,7 @@ async def app_hr_finance_tabulka(req: Request) -> JSONResponse:
             " " + _amt + " FILTER (WHERE ct.code='vedeni_lidi') AS vedeni,"
             " " + _amt + " FILTER (WHERE ct.code='jednatelska_odmena') AS jednatel,"
             " " + _amt + " FILTER (WHERE ct.code='individualni') AS individ,"
-            " " + _amt + " FILTER (WHERE ct.kind='monthly') AS hruba"
+            " " + _amt + " FILTER (WHERE ct.kind='monthly' OR ct.code='jednatelska_odmena') AS hruba"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"

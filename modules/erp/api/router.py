@@ -9357,7 +9357,7 @@ def _stredisko_map(s):
 
 def _stredisko_label(smap, kod):
     """Popisek střediska „001 — Výroba rozvaděčů"; neznámý kód se ukáže jak je."""
-    kod = (kod or "").strip()
+    kod = ("" if kod is None else str(kod)).strip()
     if not kod:
         return ""
     nz = smap.get(kod)
@@ -9519,9 +9519,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "email": (r[12] or ""), "telefon": (r[13] or ""),
                         "prac_email": (r[14] or ""), "prac_telefon": (r[15] or ""),
                         "nadrizeny": (r[16] or ""),
-                        "stredisko": _stredisko_label(smap, r[17]),
-                        "stredisko_kod": ((r[17] or "").strip()),
-                        "post": (r[18] or ""),
+                        "stredisko": _stredisko_label(smap, r[18]),
+                        "stredisko_kod": ("" if r[18] is None else str(r[18]).strip()),
+                        "post": (r[19] or ""),
                         "osobni_cislo": (str(r[-2]) if r[-2] not in (None, "") else ""),
                         "datum_odchodu": (r[-1].strftime("%d.%m.%Y") if r[-1] else "")})
         # Šárka 5.8.2026: v režimu „i bývalé" doplnit i bývalé BEZ účtu — existují jen

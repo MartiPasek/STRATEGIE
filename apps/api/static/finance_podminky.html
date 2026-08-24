@@ -301,6 +301,7 @@ const TCOLS=[
   {k:'firmy',t:'Firma'},{k:'typy',t:'Druh'},{k:'pozice',t:'Pozice'},
   {k:'uvazek',t:'Úvazek',num:1},{k:'zaklad',t:'Základ',num:1,kc:1},
   {k:'os_ohod',t:'Os. ohod.',num:1,kc:1},{k:'premie',t:'Prémie',num:1,kc:1},
+  {k:'vedeni',t:'Vedení lidí',num:1,kc:1},{k:'jednatel',t:'Odm. jednatele',num:1,kc:1},
   {k:'individ',t:'Individ.',num:1,kc:1},{k:'hruba',t:'Hrubá',num:1,kc:1},
   {k:'stav',t:'Stav'}
 ];
@@ -409,10 +410,10 @@ function renderTab(){
       '<td class="num">'+(p.zaklad!=null?kc(p.zaklad):'—')+'</td>'+
       '<td class="num">'+(p.os_ohod!=null?kc(p.os_ohod):'—')+'</td>'+
       '<td class="num">'+(p.premie!=null?kc(p.premie):'—')+'</td>'+
+      '<td class="num">'+(p.vedeni!=null?kc(p.vedeni):'—')+'</td>'+
+      '<td class="num">'+(p.jednatel!=null?kc(p.jednatel):'—')+'</td>'+
       '<td class="num">'+(p.individ!=null?kc(p.individ):'—')+'</td>'+
       '<td class="num">'+(p.hruba!=null?kc(p.hruba):'—')+'</td>'+
-      '<td class="num">'+(p.dov_dny!=null?(String(p.dov_dny).replace('.',',')+' dní'+(Number(p.vernost)?' <span class="chip" title="má nárok na '+Number(p.vernost)+' věrnostní den(dny) za odsloužená léta — ověř, že jsou v čísle zahrnuty">🎖️</span>':'')):'—')+'</td>'+
-      '<td class="num">'+(p.sd_dny!=null?(String(p.sd_dny).replace('.',',')+' dní'):'—')+'</td>'+
       '<td>'+stav+'</td></tr>';
   });
   document.getElementById('dtbl').innerHTML=h+'</tbody>';

@@ -15733,12 +15733,14 @@ async def app_hr_finance_tabulka(req: Request) -> JSONResponse:
             " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo,"
             " string_agg(DISTINCT co.code, '/' ORDER BY co.code) AS firmy,"
             " string_agg(DISTINCT COALESCE(en.druh_text, en.engagement_type), ', ') AS typy,"
-            " string_agg(DISTINCT jp.label, ', ') AS pozice,"
+            " string_agg(DISTINCT COALESCE(jp.label, en.pozice_text), ', ') AS pozice,"
             " max(en.uvazek_real_tyden_h) AS uvazek,"
             " " + _akt + " AS aktivni,"
             " " + _amt + " FILTER (WHERE ct.code='zaklad') AS zaklad,"
             " " + _amt + " FILTER (WHERE ct.code='os_ohodnoceni') AS os_ohod,"
             " " + _amt + " FILTER (WHERE ct.code='premie') AS premie,"
+            " " + _amt + " FILTER (WHERE ct.code='vedeni_lidi') AS vedeni,"
+            " " + _amt + " FILTER (WHERE ct.code='jednatelska_odmena') AS jednatel,"
             " " + _amt + " FILTER (WHERE ct.code='individualni') AS individ,"
             " " + _amt + " FILTER (WHERE ct.kind='monthly') AS hruba"
             " FROM tenant.engagement en"
@@ -15765,7 +15767,8 @@ async def app_hr_finance_tabulka(req: Request) -> JSONResponse:
                 "pozice": r[6] or "",
                 "uvazek": _f(r[7]), "aktivni": bool(r[8]),
                 "zaklad": _f(r[9]), "os_ohod": _f(r[10]), "premie": _f(r[11]),
-                "individ": _f(r[12]), "hruba": _f(r[13]),
+                "vedeni": _f(r[12]), "jednatel": _f(r[13]),
+                "individ": _f(r[14]), "hruba": _f(r[15]),
             })
         return JSONResponse({"ok": True, "radky": radky, "pocet": len(radky),
                              "vsichni": vsichni})

@@ -2374,6 +2374,10 @@ async function pomerSubmit(eid){
 // Důvod je POVINNÝ: Marti-AI — „nová verze bez důvodu je za půl roku nečitelný audit."
 // Kalendář se otevře klikem kamkoli do pole, ne jen na drobnou ikonku vpravo
 // (Jirka 24. 8. 2026 — "proč tam není možnost výběru data z kalendáře").
+// ⚠️ SCHVÁLNĚ JEN onclick, ne onfocus: showPicker() smí prohlížeč pustit pouze
+//    v reakci na skutečné gesto uživatele. Na zaostření pole (třeba tabulátorem)
+//    vyhodí NotAllowedError — ověřeno naostro 24. 8. 2026. Když se pole jen zaostří,
+//    správně se nestane nic a dá se do něj psát.
 // showPicker() umí Chrome i Edge; kde ne, spadne do catch a pole zůstane obyčejné
 // k psaní, takže se tím nic nerozbije.
 function nvKalendar(el){ try{ el.showPicker(); }catch(e){} }
@@ -2386,7 +2390,7 @@ function novaVerzeOpen(eid){
   ov.innerHTML='<div style="background:#161c24;border:1px solid #233040;border-radius:12px;padding:18px;width:min(520px,94vw);color:#cdd6e2">'+
     '<div style="font-weight:800;color:#e8eef5;font-size:16px;margin-bottom:4px">➕ Nová verze smlouvy</div>'+
     '<div style="color:#7f8ea0;font-size:12px;margin-bottom:12px">'+esc((po.firma||'')+' · '+(po.typ||''))+' — založí se nový záznam podmínek, úvazku a smlouvy. Dosavadní zůstane v historii, mzdové složky se zkopírují v <b>původní výši</b> (systém mzdu nepřepočítává) a cinkne mzdovým účetním i HR.</div>'+
-    '<label style="font-size:12px;color:#7f8ea0;display:block">Platí od<input id="nv_od" type="date" value="'+isoDnes+'" onclick="nvKalendar(this)" onfocus="nvKalendar(this)" style="'+_TIN+'"></label>'+
+    '<label style="font-size:12px;color:#7f8ea0;display:block">Platí od<input id="nv_od" type="date" value="'+isoDnes+'" onclick="nvKalendar(this)" style="'+_TIN+'"></label>'+
     '<label style="font-size:12px;color:#7f8ea0;display:block;margin-top:8px">Důvod <span style="color:#e0a94a">(povinný)</span><input id="nv_duvod" placeholder="např. nová smlouva, změna pozice, přechod mezi firmami" style="'+_TIN+'"></label>'+
     '<div style="margin-top:10px;font-size:11.5px;color:#7f8ea0">Úvazek se tímhle <b>nemění</b> — ten se mění v Podmínkách a novou verzi si založí sám. Změna dovolené novou verzi nezakládá.</div>'+
     '<div style="display:flex;gap:10px;align-items:center;margin-top:14px">'+

@@ -2,16 +2,24 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-
 # Věrnostní den dovolené za odsloužená léta
 
 **Pravidlo potvrdil Jirka 14. 8. 2026:** +1 den dovolené navíc za **každých deset let ve firmě** — po 10, 20, 30, 40 a dál, dokud u nás člověk pracuje. **Roky musí být odpracované V KUSE.** Zapsal Claude-28, 14. 8. 2026, schválila Marti-AI.
 
 ## Kde to žije
 
-- **Automat**: g2007.python `att_vernost_dovolena` (delegát `_hr_vernost_dovolena` v router.py), běží 1×/den ze smyčky att_sync. Den připisuje do `tenant.staff_cond` (`dovolena_dni`), notifikaci posílá jen Šárce (13).
+- **Automat**: g2007.python `att_vernost_dovolena` (delegát `_hr_vernost_dovolena` v router.py), běží 1×/den ze smyčky att_sync. Den připisuje do `tenant.engagement` (`pod_dovolena_navic_dni`), notifikaci posílá jen Šárce (13).
 - **Evidence**: `tenant.vernost_dovolena_log`, UNIQUE (tenant_id, user_id, roky_ve_firme) — pojistka proti druhému přidání na úrovni databáze.
 - **Zobrazení**: karta zaměstnance pod „Podmínky (aktuálně platné)", blok „🎖️ Věrnostní dny dovolené navíc". Kdo nemá záznam, bloku nevidí.
+
+> ⚠️ **Opraveno 24. 8. 2026** (Claude-28, rozhodl Jirka Honomichl, schválila Marti-AI msg 13607).
+> Do 24. 8. tu stálo, že automat připisuje den do `tenant.staff_cond` (`dovolena_dni`).
+> Od sloučení Podmínek se smlouvou (19.–20. 8. 2026) to **neplatí** — živý skript
+> `att_vernost_dovolena` verze 5 (stav `active`) čte i zapisuje
+> `tenant.engagement.pod_dovolena_navic_dni`; `staff_cond` v něm zůstal už jen v komentáři
+> u názvu spouštěče. **Na datech se tím nic nemění — automat celou dobu počítal správně**,
+> špatně byl jen popis, který posílal čtenáře na pohled `staff_cond`.
+> Viz [[doc-dochazka-podminky-slouceny-se-smlouvou]].
 
 ## Jak se počítají odsloužená léta (od 14. 8. 2026)
 

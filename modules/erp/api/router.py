@@ -19794,13 +19794,6 @@ def _sick_balance_h(s, user_id):
     return _ereg.call("att_sick_balance_h", s, user_id)
 
 
-def _med_limit_h(s, user_id):
-    try:
-        return float(_resolve_cond_num(s, user_id, "lekar_listecek_limit_h", 4.0) or 4.0)
-    except Exception:
-        return 4.0
-
-
 def _hhmm_h(v):
     try:
         p = str(v).split(":"); return int(p[0]) + int(p[1]) / 60.0
@@ -19829,17 +19822,17 @@ def _parse_dataurl(s_):
 
 @api_router.get("/app/med/balance")
 async def med_balance(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_med_balance). Puvodni telo migrovano do DB
+    dne 24.8.2026 (Jirka Honomichl / Claude-28, schvalila Marti-AI msg 13634). Limit listecku
+    od lekare se nove bere toutez kaskadou jako zbytek systemu (smlouva -> skupina -> system
+    z ciselniku podminky_vychozi), ne pres pohled tenant.staff_cond, ktery od 19.8.2026 vraci
+    jen osobni radky. Chovani se nikomu nemeni - overeno u vsech 76 aktivnich lidi
+    hodnotu po hodnote (shoda 76, rozdil 0)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    cm, s = _att_session()
-    try:
-        bal = _sick_balance_h(s, uid)
-        bal["limit_listecek_h"] = _med_limit_h(s, uid)
-        bal["ok"] = True
-        return JSONResponse(bal)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_med_balance", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/med/start")
@@ -19859,26 +19852,14 @@ async def med_start(req: Request) -> JSONResponse:
 
 @api_router.get("/app/med/mine")
 async def med_mine(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=att_med_mine). Puvodni telo migrovano do DB
+    dne 24.8.2026 (Jirka Honomichl / Claude-28, schvalila Marti-AI msg 13634) - stejny
+    duvod jako u med_balance vyse."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, datum, cas_od, cas_do, doba_h, typ, zarizeni, kryti, kryto_sick_h, "
-            "proplaceno_listecek_h, neplaceno_h, stav, (foto IS NOT NULL) "
-            "FROM tenant.att_med_note WHERE user_id=:u AND tenant_id=2 "
-            "ORDER BY datum DESC, id DESC LIMIT 60"), {"u": uid}).fetchall()
-        out = [{"id": r[0], "datum": r[1].isoformat() if r[1] else None, "cas_od": str(r[2])[:5] if r[2] else None,
-                "cas_do": str(r[3])[:5] if r[3] else None, "doba_h": float(r[4] or 0), "typ": r[5],
-                "zarizeni": r[6], "kryti": r[7], "kryto_sick_h": float(r[8] or 0),
-                "proplaceno_listecek_h": float(r[9] or 0), "neplaceno_h": float(r[10] or 0),
-                "stav": r[11], "has_foto": bool(r[12])} for r in rows]
-        return JSONResponse({"ok": True, "cases": out, "balance": _sick_balance_h(s, uid),
-                             "limit_h": _med_limit_h(s, uid)})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_med_mine", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/med/photo/{nid}")
@@ -20706,48 +20687,6 @@ def _cond_groups(s):
             for r in s.execute(_t(
                 "SELECT id, name, icon FROM tenant.staff_group WHERE tenant_id=2 "
                 "AND COALESCE(archived,false)=false ORDER BY sort_order, id")).fetchall()]
-
-
-def _cond_group_of(s, user_id):
-    """Podmínková skupina člověka = jeho členství ve staff_group, které má definované podmínky.
-    Při více členstvích vyhrává nejnižší sort_order. Vrací group_code (str id) nebo None."""
-    from sqlalchemy import text as _t
-    return s.execute(_t(
-        "SELECT g.id::text FROM tenant.staff_group_member m "
-        "JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
-        "WHERE m.user_id=:u AND EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 "
-        "  AND c.scope_kind='group' AND c.group_code=g.id::text) "
-        "ORDER BY g.sort_order, g.id LIMIT 1"), {"u": user_id}).scalar()
-
-
-def _resolve_cond(s, user_id, code, grp=False):
-    """SDÍLENÝ resolver podmínky (Marti-AI Q1, live): osobní → skupina → systém.
-    Vrací (value, source). grp=False → dotáhne skupinu; jinak předaný group_code (i None)."""
-    from sqlalchemy import text as _t
-    v = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='user' "
-                     "AND user_id=:u AND cond_code=:c LIMIT 1"), {"u": user_id, "c": code}).scalar()
-    if v is not None:
-        return (v, "osobní")
-    g = _cond_group_of(s, user_id) if grp is False else grp
-    if g:
-        gv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='group' "
-                          "AND group_code=:g AND cond_code=:c LIMIT 1"), {"g": g, "c": code}).scalar()
-        if gv is not None:
-            return (gv, "skupina")
-    sv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
-                      "AND cond_code=:c LIMIT 1"), {"c": code}).scalar()
-    return (sv, "systém") if sv is not None else (None, "")
-
-
-def _resolve_cond_num(s, user_id, code, dflt=0.0):
-    """Resolved podmínka jako číslo (čárka i tečka). Pro výpočty (fond, prahy)."""
-    v, _ = _resolve_cond(s, user_id, code)
-    if v is None:
-        return dflt
-    try:
-        return float(str(v).replace(",", ".").strip())
-    except Exception:
-        return dflt
 
 
 @api_router.get("/app/hr/conditions")

@@ -237,9 +237,13 @@ async function openP(uid,row){
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
       (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
       // Šárka 20.8.2026: výběr pozice odsud odebrán — pozice se mění v Pracovních údajích (Zařazení), ne u mezd.
-    h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th><th></th></tr>';
+    h+='<table><tr><th>Mzdová složka</th><th style="text-align:right" title="Částka na plný (40h) úvazek — pro porovnání">Plán · na 40 h</th><th style="text-align:right" title="Skutečná částka přepočtená na sjednaný úvazek">Skutečnost · na úvazek</th><th></th></tr>';
+    // Šárka 24.8.2026: součet složek (Celkem hrubá) pro plán i skutečnost. Sčítají se jen
+    // měsíční částky, ne hodinové sazby (per_hour). Výpočet jen na frontendu, delegate beze změny.
+    let sumP=0,sumR=0;
     for(const c of (p.slozky||[])){
       const ph=c.per_hour?'<span class="ph">/hod</span>':'';
+      if(!c.per_hour){ sumP+=Number(c.plan)||0; sumR+=Number(c.real)||0; }
       const base=(c.je_zaklad||/zaklad/.test(c.kod||''))?'base':'';
       const aud=c.changed_by?('<div class="aud" title="Kdo naposledy měnil tuto složku">✎ '+esc(c.changed_by)+(c.changed_at?' · '+c.changed_at.substring(0,10):'')+'</div>'):'';
       h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+aud+'</td>'+
@@ -248,6 +252,8 @@ async function openP(uid,row){
         '<td style="white-space:nowrap"><button class="sbtn p" onclick="saveRow(this,'+c.id+')">💾</button> '+
         '<button class="sbtn d" onclick="delRow('+c.id+')" title="Smazat">✕</button></td></tr>';
     }
+    h+='<tr style="border-top:2px solid #2f4a63;font-weight:800;background:#12181f"><td>Celkem hrubá</td>'+
+       '<td class="num">'+kc(sumP)+'</td><td class="num">'+kc(sumR)+'</td><td></td></tr>';
     h+='</table>';
     h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
       '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+

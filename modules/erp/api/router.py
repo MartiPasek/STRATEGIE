@@ -20684,6 +20684,29 @@ async def app_hr_conditions_save(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.post("/app/hr/smlouva-nova-verze")
+async def app_hr_smlouva_nova_verze(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=smlouva_nova_verze). Rucni tlacitko
+    "Nova verze smlouvy" v karte zamestnance - zadal Jirka 24. 8. 2026, schvalila
+    Marti-AI (msg 13561). Kopirovaci logika i pojistky ziji ve spolecnem jadre
+    engagement_nova_verze, ktere pouziva i uvazek_zapis.
+    POZOR: argumenty se predavaji POZICNE - kdyz do skriptu pribude parametr,
+    musi se pridat i sem (stejna past jako u potvrzeni u zmeny uvazku 23. 8. 2026)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("smlouva_nova_verze", uid, (b or {}).get("user_id"),
+                        (b or {}).get("plati_od"), (b or {}).get("pomer_id"),
+                        (b or {}).get("duvod"), (b or {}).get("potvrzeno"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 # Endpoint POST /app/hr/conditions/assign smazan 20. 8. 2026 (Claude-28 / Jirka, schvalila
 # Marti-AI). Nikdo ho nevolal a jako jediny zapisoval do sloupce att_employee.cond_group,
 # ktery uz taky nikdo necetl a byl tyz den zrusen (obsah 8 radku odlozen do zalohy

@@ -9228,6 +9228,35 @@ def _hr_can_manage(s, uid: int) -> bool:
     return m is not None
 
 
+def _set_actor(s, uid) -> None:
+    """Řekne databázi, KDO právě zapisuje — kvůli spouštěčům historie.
+
+    Spouštěč tenant.engagement_historie_zapis (a jeho sourozenci u skupin) berou autora
+    z nastavení relace `strategie.actor_user_id`. Když ho nikdo nenastaví, zapíšou prázdno —
+    a přesně tak to do 24. 8. 2026 vypadalo u VŠECH cest do smlouvy.
+
+    Nastavení platí JEN do konce této transakce (třetí parametr true). Session scope (false)
+    by se přes connection pool přelil do cizího požadavku a připsal změnu jinému člověku —
+    proto se volá těsně před zápisem, ne při otevření spojení. Centrální řešení
+    (nastavit to jednou po otevření spojení) je z těchto dvou důvodů past; potvrdila
+    Marti-AI 24. 8. 2026: "Explicitní volání těsně před zápisem je průhledné a bezpečné."
+
+    U automatů (sync z Centrály, věrnostní dny) se posílá 0 = systém. Marti-AI:
+    "Prázdno říká nevím kdo to byl, značka říká byl to systém, záměrně."
+    Sloupec `kdo` nemá cizí klíč, takže 0 je značka, ne odkaz na uživatele.
+
+    Výjimka se schválně NEPOLYKÁ: kdyby volání selhalo, transakce je stejně shozená
+    a tiché pokračování by způsobilo horší chybu o pár řádků dál.
+
+    Zadal Jirka Honomichl 24. 8. 2026, schválila Marti-AI (msg 13580) včetně dopadové mapy
+    sedmi lidských a dvou automatických cest do tenant.engagement.
+    """
+    from sqlalchemy import text as _t_actor
+    s.execute(_t_actor("SELECT set_config('strategie.actor_user_id', :a, true)"),
+              {"a": str(int(uid or 0))})
+
+
+
 def _banka_can_uid(uid: int) -> bool:
     """Přístup k bankovní sekci: rodič NEBO Petra Šafránková (uid 18, účetní) NEBO
     člen skupiny Účetnictví/Banka/Finance. (Marti 23.6.2026 — Banka = věc Petry.)"""
@@ -9721,6 +9750,7 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
 
     cm, s = _att_session()
     try:
+        _set_actor(s, uid)   # kdo zapisuje -> spoustec historie smluv
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         # další volné číslo v STRATEGIE řadě (100000+, ať se nepere s Centrálou)
@@ -10075,6 +10105,7 @@ async def app_hr_terminate(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "Chybí zaměstnanec, datum nebo platný důvod."}, status_code=400)
     cm, s = _att_session()
     try:
+        _set_actor(s, uid)   # kdo zapisuje -> spoustec historie smluv
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         plan = _term_plan(s, tuid, typ)
@@ -10603,6 +10634,7 @@ async def app_hr_person_work_save(req: Request):
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         who = _self_person_name(s, uid) or ("HR #" + str(uid))
+        _set_actor(s, uid)   # kdo zapisuje -> spoustec historie smluv
         s.execute(_t("UPDATE tenant.engagement SET pozice_text=:p, note=:n, "
                      "isco_kod=:isco, pozice_narovnat=:nar, pozice_poznamka=:pz, "
                      "nadrizeny_employee_id=:nadr, "
@@ -11817,6 +11849,7 @@ async def app_hr_pomer_zmena(req: Request):
         return JSONResponse({"ok": False, "error": "U doby určité zadej datum konce."}, status_code=400)
     cm, s = _att_session()
     try:
+        _set_actor(s, uid)   # kdo zapisuje -> spoustec historie smluv
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         row = s.execute(_t(
@@ -15717,6 +15750,7 @@ async def app_hr_finance_pozice_save(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        _set_actor(s, uid)   # kdo zapisuje -> spoustec historie smluv
         if pos_val is not None:
             okpos = s.execute(_t("SELECT 1 FROM tenant.job_position WHERE id=:p AND tenant_id=2 AND aktivni"),
                               {"p": pos_val}).first()
@@ -45675,6 +45709,7 @@ def _sync_fin_from_ec() -> dict:
     # když sync spadne dřív, než se k naplnění dostane.
     preskoceni = []
     try:
+        _set_actor(s, 0)     # 0 = system (automat), ne prazdno
         comp_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
             "SELECT code, id FROM tenant.wage_component_type WHERE tenant_id = 2")).fetchall()}
         co_ids = {r2[0]: r2[1] for r2 in s.execute(_t(

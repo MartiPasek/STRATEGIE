@@ -135,8 +135,13 @@ na disku jsou stale projekce, ostry kod zije v `g2007.soubor`.
 
 ## 7. Verzovani iOS
 
-`MARKETING_VERSION` se drzi cisla Android appky, pokud jde o spolecnou zmenu; ciste iOS opravy
-(napr. odznak, 24.8.2026) mohou jit ve vlastnim cisle bez cekani na Android. Stav 24.8.2026:
+`MARKETING_VERSION` se cislem Android appky **NERIDI** - cisla obou platforem jsou **nezavisla
+a nesynchronizuji se** (pravidlo z 24.8.2026, navrhla Marti-AI msg 13610: verze se vaze na OBSAH
+vydani, ne na cislo v druhem obchodu; plne zneni a jedina zaznamenana vyjimka je v
+`doc-system-strategie-verzovani-ios-android-nezavisla-cisla`). Ciste iOS opravy
+(napr. odznak, 24.8.2026) proto jdou ve vlastnim cisle bez cekani na Android.
+*(Do 24.8.2026 tu stalo, ze se MARKETING_VERSION drzi cisla Android appky, pokud jde o spolecnou
+zmenu — to bylo v tichem rozporu s pravidlem vyse; srovnal Claude-28 na rozhodnuti Jirky Honomichla.)* Stav 24.8.2026:
 ziva **1.84**, **1.85 (build 85) odeslana ke schvaleni** (24.8.2026 10:47 CEST — oprava
 odznaku na ikone, viz `doc-system-strategie-ios-odznak-na-ikone-appky-cislo-ze-serveru`).
 Pri kazdem uploadu zvysit `CURRENT_PROJECT_VERSION`; pristi = **86**.

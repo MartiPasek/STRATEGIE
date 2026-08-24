@@ -65,9 +65,18 @@ už jen jako **kompatibilní skořápka pro tři zbylá místa**: zápis při za
   ⚠️ Do 20. 8. 2026 07.12 ho **umlčovaly pevné defaulty sloupců** z kroku 3b (default se použije
   dřív než spouštěč), takže skupinové hodnoty se do nové smlouvy nedostaly a všichni brali
   systémové. Defaulty jsou od té doby zrušené — viz `doc-dochazka-vychozi-podminky-spoustec-a-pevne-defaulty`.
-  Jen doplňuje, existující hodnotu nikdy nepřepíše. Skupinu si vybírá přes `MIN(id)`, zatímco
-  ostatní resolvery přes `sort_order, id` — dnes na tom nezáleží (v obou skupinách s podmínkami
-  není nikdo dvakrát a obě mají `sort_order` 100), ale je to rozdíl, o kterém je dobré vědět.
+  Jen doplňuje, existující hodnotu nikdy nepřepíše.
+  ✅ **Výběr skupiny je od 24. 8. 2026 sjednocený se zbytkem systému** — spouštěč (i jeho
+  sourozenec `engagement_doplneni_pri_zarazeni`) bere skupinu přes `ORDER BY sort_order, id`,
+  stejně jako osm živých míst v `g2007.python`. Rozhodl Jirka Honomichl, schválila Marti-AI
+  (msg 13628); ověřeno porovnáním starého a nového výběru u **všech 76 lidí ve skupinách:
+  shoda 76, rozdíl 0**. Detail: [[doc-system-strategie-podminky-vychozi-na-sirku-a-historie-zmen]].
+  ⚠️ **Do 24. 8. 2026 tu stálo, že spouštěč vybírá přes `MIN(id)` a že „na tom nezáleží,
+  protože v obou skupinách s podmínkami není nikdo dvakrát a obě mají `sort_order` 100".**
+  Ta druhá půlka **už neplatila**: skupiny s vlastními výchozími hodnotami jsou dnes **čtyři**
+  (KANCELÁŘE pořadí 10, Výroba 100, Nákup 100, Úklid 110), takže pořadí stejné nemají.
+  Závěr „dnes na tom nezáleží" platil dál, ale z jiného důvodu — **nikdo není ve dvou takových
+  skupinách zároveň** (ověřeno v `staff_group_member` 24. 8. 2026).
 - ⛔ `trg_staff_cond_default_dovolena` na `att_employee` byl **20. 8. 2026 ZRUŠEN**
   (doporučila Marti-AI). Zakládal novému člověku tři řádky s nulou ve chvíli, kdy ještě neměl
   smlouvu — ty pak natrvalo zůstávaly v číselníku výchozích hodnot jako osobní řádky, kam

@@ -69,11 +69,21 @@ Bez toho by u VYŘAZENÍ ze skupiny nešlo zjistit, kdo ho provedl (řádek se m
   Na to navázala i **políčka editačního formuláře** — ve `fw.comp_def` (jádro 236) byla
   **22. 8. 2026 v 7:50** přepnuta na 9× `number`, 4× `combobox`, 2× `timeedit`
   a 2× `label_readonly` (`id` a počítadlo `pod_dovolena_dni`).
-- **Textové řazení skupin** ve spouštěčích `engagement_pod_defaults` a
-  `engagement_doplneni_pri_zarazeni` (`MIN(sg.id::text)`) — zbylých deset míst používá
-  `ORDER BY sort_order, id`. Čeká na potvrzení Kristý. **Platí i k 24. 8. 2026** — ověřeno
-  přes `pg_get_functiondef`: obě funkce textové řazení dál obsahují a `sort_order`
-  v nich není vůbec.
+- ✅ **VYŘEŠENO 24. 8. 2026 — výběr skupiny sjednocen se zbytkem systému.**
+  Obě funkce (`engagement_pod_defaults`, `engagement_doplneni_pri_zarazeni`) berou skupinu
+  nově přes **`ORDER BY sg.sort_order, sg.id LIMIT 1`**, stejně jako **osm živých míst
+  v `g2007.python`** (`hr_conditions`, `my_conditions`, `plan_generate_effective`,
+  `plan_my_default`, `sickday_lekar_apply`, `att_med_start`, `att_narok_cerpani`,
+  `att_sick_balance_h`). Rozhodl Jirka Honomichl, schválila Marti-AI (msg 13628);
+  ověřeno přes `pg_get_functiondef` (starý tvar 0 výskytů) a porovnáním starého a nového
+  výběru u **všech 76 lidí ve skupinách: shoda 76, rozdíl 0**.
+  ⚠️ **POZOR — dřívější tvrzení v této odrážce bylo CHYBNÉ a stálo tu jen pár hodin.**
+  Do 24. 8. 2026 tu bylo, že obě funkce *„textové řazení dál obsahují"*. **Nebyla to pravda** —
+  textové řazení opravili Kristý a Jirka už **23. 8. 2026** (poznámka je přímo v kódu obou
+  funkcí) a od té doby se řadilo podle čísla. Chyba vznikla tím, že se v definici funkce
+  hledal **podřetězec `id::text`**, ten se našel v **přetypování při ukládání do textové
+  proměnné** a byl vyhodnocen jako řazení; celý kód se přečetl až potom. Poučení: ověřená
+  ingredience není ověřený závěr — u funkce se čte celá definice, ne výskyt slova.
 - ✅ **VYŘEŠENO 21. 8. 2026 — editace výchozích hodnot už v mobilu není.**
   *(Do 24. 8. 2026 tu stálo „je zatím i v mobilu — po dokončení ERP obrazovky se má zrušit".)*
   Ověřeno **přímo v `g2007.soubor` 24. 8. 2026**, a to na obou místech: dílek

@@ -2222,7 +2222,8 @@ async function orgLoadPodriz(uid){
       pod.slice(0,12).map(x=>'<b>'+esc(x.jmeno)+'</b>').join(', ')+(pod.length>12?(' <span style="color:#5d6b7c">+'+(pod.length-12)+' dalších</span>'):'')+'</div>';
   }
   h+='<div style="padding:6px 0 2px">'+
-    '<a href="#" onclick="togglePosty();return false;" style="display:inline-flex;align-items:center;gap:8px;background:#1b3a5c;border:1px solid #2f6ea8;color:#dff0ff;border-radius:8px;padding:7px 14px;font-weight:700;font-size:12.5px;text-decoration:none">🏷️ Posty zaměstnance <span style="background:#2f6ea8;border-radius:20px;padding:1px 9px;font-size:11px">'+aktivnich+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length):'')+'</span> ›</a></div>'+
+    '<a href="#" onclick="togglePosty();return false;" style="display:inline-flex;align-items:center;gap:8px;background:#1b3a5c;border:1px solid #2f6ea8;color:#dff0ff;border-radius:8px;padding:7px 14px;font-weight:700;font-size:12.5px;text-decoration:none">🏷️ Posty zaměstnance <span style="background:#2f6ea8;border-radius:20px;padding:1px 9px;font-size:11px">'+aktivnich+(PU_POSTY.length>aktivnich?(' / '+PU_POSTY.length):'')+'</span> ›</a>'+
+    '<a href="#" onclick="postyPrint();return false;" style="margin-left:10px;color:#aac8ec;text-decoration:none;font-size:12.5px">🖨 Tisk</a></div>'+
     '<div id="puPostyTbl" style="display:none;margin-top:6px"></div>';
   box.innerHTML=h;
 }
@@ -2245,6 +2246,16 @@ function togglePosty(){
   el.innerHTML='<div style="border:1px solid #1e2730;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
     '<thead><tr style="background:#161c24;color:#7f8ea0"><th style="padding:5px 8px;text-align:center">Akt.</th><th style="padding:5px 8px;text-align:left">Název postu</th><th style="padding:5px 8px;text-align:left">Produkt (kompetence)</th><th style="padding:5px 8px;text-align:center">Divize</th><th style="padding:5px 8px;text-align:left">Platnost do</th></tr></thead>'+
     '<tbody>'+(rows||'<tr><td colspan="5" style="padding:8px;color:#5d6b7c">Žádné posty.</td></tr>')+'</tbody></table></div>';
+}
+function postyPrint(){
+  const p=LIDE.find(x=>x.user_id===PU_UID)||{};
+  const jm=(p.prijmeni && (p.jmeno||'').indexOf(p.prijmeni)===0)?((p.jmeno.slice(p.prijmeni.length).trim()+' '+p.prijmeni).trim()):(p.jmeno||'');
+  const e2=s=>(s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const dt=new Date().toLocaleDateString('cs-CZ');
+  const rows=(PU_POSTY||[]).map(x=>'<tr><td style="text-align:center">'+(x.aktivni?'✔':'—')+'</td><td>'+e2(x.nazev)+(x.zastupce?' (zástupce)':'')+(x.kvalifikace?' (kvalifikace)':'')+'</td><td>'+e2(x.produkt||'')+'</td><td style="text-align:center">'+e2(''+(x.divize||''))+'</td><td>'+e2(x.platnost_do||'')+'</td></tr>').join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Posty – '+e2(jm)+'</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:22px}h1{font-size:17px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:11.5px}th,td{border:1px solid #bbb;padding:5px 8px;text-align:left;vertical-align:top}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Posty zaměstnance — '+e2(jm)+'</h1><p class="sub">EUROSOFT · '+((PU_POSTY||[]).length)+' postů · '+dt+'</p><table><thead><tr><th style="text-align:center">Akt.</th><th>Název postu</th><th>Produkt (kompetence)</th><th style="text-align:center">Divize</th><th>Platnost do</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5">Žádné posty.</td></tr>')+'</tbody></table></body></html>';
+  const w=window.open('','_blank'); if(!w){ alert('Povol prosím vyskakovací okna, ať se tisk otevře.'); return; }
+  w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} },300);
 }
 async function pracUdajeSave(){
   const byE={};

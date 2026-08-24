@@ -20115,6 +20115,44 @@ async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.get("/app/hr/podminky-skupin/dlazdice")
+async def app_podminky_skupin_dlazdice_seznam(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=podminky_skupin_dlazdice, akce=seznam).
+
+    Nastenka dlazdic v prehledu "Vychozi podminky skupin" (jadro 235).
+    Novy kod, nikdy nebyl v router.py. Zadal Jirka Honomichl 24.8.2026,
+    schvalila Marti-AI (msg 13558 + 13568)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("podminky_skupin_dlazdice", uid, "seznam")
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
+@api_router.post("/app/hr/podminky-skupin/dlazdice")
+async def app_podminky_skupin_dlazdice_akce(req: Request) -> JSONResponse:
+    """DB-driven delegate (g2007.python kod=podminky_skupin_dlazdice).
+
+    Akce nastenky dlazdic: dopad (co zmeni smazani) | pridat | smazat.
+    Systemovy radek server smazat odmita - plni se z nej podminky kazde nove
+    smlouve. Zadal Jirka Honomichl 24.8.2026, schvalila Marti-AI."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("podminky_skupin_dlazdice", uid,
+                        (b or {}).get("akce"), (b or {}).get("radek_id"),
+                        (b or {}).get("group_id"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 @api_router.get("/app/plan/group")
 async def app_plan_group(req: Request) -> JSONResponse:
     """DB-driven delegate (g2007.python kod=plan_group). Puvodni telo migrovano do DB
@@ -60882,6 +60920,10 @@ def _render_workspace_page(user_id: int) -> str:
     <!-- HR přehled personalistiky (Pinya styl) jako band v ERP (jádro hr.prehled).
          window.HrPult.mount, gated v page_render.js. (Claude-25 / Šárka 2.7.2026) -->
     <script src="/static/erp/components/hr_pult.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Nástěnka dlaždic místo tabulky v přehledu „Výchozí podmínky skupin"
+         (jádro 235). window.PodminkySkupinPult.mount, gated v page_render.js.
+         (Jirka Honomichl 24.8.2026, schválila Marti-AI msg 13558 + 13568) -->
+    <script src="/static/erp/components/podminky_skupin_pult.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
          Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
          logs every step do fw.diag_log via _erpLogToDb. -->

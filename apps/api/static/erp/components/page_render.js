@@ -452,6 +452,24 @@
         console.warn('[page_render] HR pult band failed (grid jede dál):', _hrErr);
       }
 
+      // Nástěnka dlaždic MÍSTO tabulky pro „Výchozí podmínky skupin" (jádro 235).
+      // Jirka 24.8.2026, schválila Marti-AI (msg 13558 + 13568). Vzor HR pult:
+      // gated na coreId → jiných přehledů se NETÝKÁ, fail-safe (chyba jen zaloguje
+      // a tabulka jede dál). Pult si sám schová/vrátí grid podle přepínače.
+      try {
+        if (String(coreId) === '235'
+            && window.PodminkySkupinPult
+            && typeof window.PodminkySkupinPult.mount === 'function'
+            && !document.getElementById('podminky-skupin-pult')) {
+          var _pspEl = document.createElement('div');
+          _pspEl.id = 'podminky-skupin-pult';
+          mainContent.insertBefore(_pspEl, gridHost);
+          window.PodminkySkupinPult.mount(_pspEl);
+        }
+      } catch (_pspErr) {
+        console.warn('[page_render] Podminky skupin pult band failed (grid jede dál):', _pspErr);
+      }
+
       // No data_source → dashed placeholder
       if (!rootCd.data_source_code) {
         gridHost.style.border = '1px dashed #3a4754';

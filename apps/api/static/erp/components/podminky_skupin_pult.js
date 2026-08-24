@@ -19,7 +19,8 @@
   "use strict";
 
   var EP = "/api/v1/erp/app/hr/podminky-skupin/dlazdice";
-  var EDIT_CORE_ID = 236;      // „Výchozí podmínky — řádek"
+  var EDIT_CORE_ID = 236;                      // „Výchozí podmínky — řádek"
+  var GRID_CODE = "grid_podminky_skupin";      // comp_def root přehledu (jádro 235)
   var LS_KEY = "erp.podminky_skupin.pohled";   // zapamatovaný přepínač
 
   var _el = null;
@@ -168,21 +169,45 @@
 
   function otevriEditaci(rowId) {
     if (rowId == null || isNaN(rowId)) { return; }
-    if (typeof window.DesignFwForm !== "function") {
-      alert("⚠ Editační formulář není načtený. Zkus obnovit stránku (Ctrl+F5).");
-      return;
-    }
     var uz = document.querySelector(
       '[data-design-fw-form-root="1"][data-design-fw-form-core-id="' + EDIT_CORE_ID + '"]'
     );
     if (uz) { return; }   // stejný formulář už je otevřený (parita s ErpGridActions)
+
+    // Stejnou cestou jako tabulka (ErpGridActions), aby platily tytéž pojistky
+    // i případný novější typ detailu. registerEditForm je runtime override —
+    // přehled 235 zatím vlastní záznam ve FW_EDIT_FORM_REGISTRY nemá.
+    var ga = window.ErpGridActions;
+    if (ga && typeof ga.dispatch === "function") {
+      try {
+        if (typeof ga.registerEditForm === "function") {
+          ga.registerEditForm(GRID_CODE, EDIT_CORE_ID);
+        }
+        return ga.dispatch("edit", {
+          gridCode: GRID_CODE,
+          coreId: EDIT_CORE_ID,
+          rowData: { id: rowId },
+          refreshFn: obnov,
+        });
+      } catch (e) {
+        console.warn("[PodminkySkupinPult] ErpGridActions selhal, zkouším přímo:", e);
+      }
+    }
+
+    // Záloha, kdyby registr akcí nebyl načtený. Pozor: samotné new nestačí,
+    // formulář se zobrazí až po open() (parita s erp_grid_actions.js).
+    if (typeof window.DesignFwForm !== "function") {
+      alert("⚠ Editační formulář není načtený. Zkus obnovit stránku (Ctrl+F5).");
+      return;
+    }
     try {
-      new window.DesignFwForm({
+      var fwf = new window.DesignFwForm({
         coreId: EDIT_CORE_ID,
         rowId: rowId,
         mode: "edit",
         onSaveSuccess: function () { obnov(); },
       });
+      if (typeof fwf.open === "function") { fwf.open(); }
     } catch (e) {
       console.warn("[PodminkySkupinPult] otevření editace selhalo:", e);
       alert("⚠ Editaci se nepodařilo otevřít: " + (e && e.message ? e.message : e));

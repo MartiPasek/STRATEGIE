@@ -2,7 +2,6 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-
 # Výchozí podmínky na šířku + historie změn (21. 8. 2026)
 
 > Zadal Jirka Honomichl, schválila Marti-AI (msg 13160, 13172, 13184). Postavil Claude-28.
@@ -28,6 +27,13 @@ takže hodnota nejspíš nikdy zapsaná nebyla — karta zobrazovala systémový
 | `tenant.podminky_vychozi` | **už není tabulka, ale POHLED** nad `podminky_skupin` (+ `podminky_osobni` pro osobní řádky lidí bez smlouvy). Starý tvar 1:1, aby všech deset čtenářů i mobil jely dál. Zápis přes `trg_podminky_vychozi_zapis` (INSTEAD OF). |
 | `tenant.podminky_vychozi__zaloha_20260821` | původní tabulka před přepnutím. |
 | ERP přehled `hr.podminky_skupin` + formulář `hr.podminky_skupin_edit` | menu 🧑‍💼 HR & LIDÉ → „⚙️ Výchozí podmínky skupin". Šest záznamů ve `fw.*`, žádné nasazení. |
+
+> **Doplněno 24. 8. 2026** (Jirka Honomichl + Claude-28, schválila Marti-AI msg 13586): věta
+> „žádné nasazení" platila do 24. 8. 2026. Tehdy k přehledu přibyla **nástěnka dlaždic místo tabulky**
+> (s přepínačem zpět na tabulku, přidáváním a mazáním řádků), a ta nasazení vyžadovala — vlastní
+> soubor v ERP, napojení v `page_render.js` a dva tenké předavače v `router.py`; logika žije
+> v `g2007.python` pod kódem `podminky_skupin_dlazdice`. Šest záznamů ve `fw.*` zůstalo beze změny.
+> Detail: `doc-system-strategie-erp-prehled-jako-nastenka-dlazdic-podminky-skupin`.
 
 ## Kdo aktéra předává
 

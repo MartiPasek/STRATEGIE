@@ -9340,6 +9340,30 @@ def _kategorie_prace(pozice):
     return "Výroba" if any(k in p for k in _VYROBA_KW) else "Kancelář"
 
 
+def _stredisko_map(s):
+    """Číselník středisek (Šárka 24.8.2026): kód → název z tenant.stredisko.
+    Popisky žijí v DB, dají se měnit bez zásahu do kódu. Fallback = tvrdá mapa,
+    kdyby číselník chvíli nebyl (aby přehled nespadl)."""
+    from sqlalchemy import text as _t
+    try:
+        rows = s.execute(_t("SELECT kod, nazev FROM tenant.stredisko WHERE tenant_id=2")).fetchall()
+        m = {r[0]: r[1] for r in rows}
+        if m:
+            return m
+    except Exception as exc:
+        logger.warning("[stredisko_map] %s", exc)
+    return {"001": "Výroba rozvaděčů", "002": "Automatizace", "900": "Ostatní"}
+
+
+def _stredisko_label(smap, kod):
+    """Popisek střediska „001 — Výroba rozvaděčů"; neznámý kód se ukáže jak je."""
+    kod = (kod or "").strip()
+    if not kod:
+        return ""
+    nz = smap.get(kod)
+    return (kod + " — " + nz) if nz else kod
+
+
 @api_router.get("/app/hr/people")
 async def app_hr_people(req: Request) -> JSONResponse:
     """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""
@@ -9477,6 +9501,7 @@ async def app_hr_people(req: Request) -> JSONResponse:
         def _klic(s_):
             return _ud.normalize("NFKD", s_ or "").encode("ascii", "ignore").decode().lower()
 
+        smap = _stredisko_map(s)
         out = []
         for r in rows:
             prijmeni, krestni = _rozdel(r[5], r[6], r[1])
@@ -9494,7 +9519,8 @@ async def app_hr_people(req: Request) -> JSONResponse:
                         "email": (r[12] or ""), "telefon": (r[13] or ""),
                         "prac_email": (r[14] or ""), "prac_telefon": (r[15] or ""),
                         "nadrizeny": (r[16] or ""),
-                        "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[17], r[17]) if r[17] else ""),
+                        "stredisko": _stredisko_label(smap, r[17]),
+                        "stredisko_kod": ((r[17] or "").strip()),
                         "post": (r[18] or ""),
                         "osobni_cislo": (str(r[-2]) if r[-2] not in (None, "") else ""),
                         "datum_odchodu": (r[-1].strftime("%d.%m.%Y") if r[-1] else "")})
@@ -10486,8 +10512,8 @@ async def app_hr_person_work(req: Request):
                 return None
             f = float(x)
             return int(f) if f == int(f) else round(f, 2)
-        # číselník středisek (Šárka 23.7.): kód → název; neznámý kód se ukáže jako je
-        _STR = {"001": "Výroba", "002": "Automatizace"}
+        # číselník středisek (Šárka 23.7./24.8.): kód → název z tenant.stredisko
+        _STR = _stredisko_map(s)
         pomery = []
         for r in rows:
             uv = _num(r[7])                       # úvazek h/týden
@@ -10507,7 +10533,8 @@ async def app_hr_person_work(req: Request):
                 "hodinovka": bool(r[15]),
                 "doba": ("neurčitá" if not r[5] else "určitá"),
                 "velikost": ("" if velikost is None else str(velikost).replace(".", ",")),
-                "stredisko": (_STR.get(r[16], r[16]) if r[16] else ""),
+                "stredisko": _stredisko_label(_STR, r[16]),
+                "stredisko_kod": ((r[16] or "").strip()),
                 "osobni_cislo": (r[17] or ""),
                 "isco": (r[18] or ""),
                 "narovnat": bool(r[19]),
@@ -10627,22 +10654,31 @@ async def app_hr_person_work_save(req: Request):
         nadr = int(_nadr) if _nadr not in (None, "", 0, "0") else None
     except Exception:
         nadr = None
+    # Středisko (Šárka 24.8.2026): kód z číselníku tenant.stredisko; prázdné = nechat NULL.
+    stredisko = (str((b or {}).get("stredisko") or "")).strip()
     if not eid:
         return JSONResponse({"ok": False, "error": "Chybí id poměru"}, status_code=400)
     cm, s = _att_session()
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if stredisko:
+            ok_str = s.execute(_t("SELECT 1 FROM tenant.stredisko "
+                                  "WHERE tenant_id=2 AND kod=:k AND COALESCE(aktivni,true)=true"),
+                               {"k": stredisko}).first()
+            if not ok_str:
+                return JSONResponse({"ok": False, "error": "Neznámé středisko: " + stredisko},
+                                    status_code=400)
         who = _self_person_name(s, uid) or ("HR #" + str(uid))
         _set_actor(s, uid)   # kdo zapisuje -> spoustec historie smluv
         s.execute(_t("UPDATE tenant.engagement SET pozice_text=:p, note=:n, "
                      "isco_kod=:isco, pozice_narovnat=:nar, pozice_poznamka=:pz, "
-                     "nadrizeny_employee_id=:nadr, "
+                     "nadrizeny_employee_id=:nadr, stredisko=:stred, "
                      "changed_by_text=:by, changed_at=now() "
                      "WHERE id=:id AND tenant_id=2 AND is_current=true"),
                   {"p": (pozice or None), "n": (note or None),
                    "isco": (isco or None), "nar": narovnat, "pz": (pozn_poz or None),
-                   "nadr": nadr, "by": who, "id": eid})
+                   "nadr": nadr, "stred": (stredisko or None), "by": who, "id": eid})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -12692,6 +12728,7 @@ async def app_hr_odpovednost_list(req: Request):
             "FROM tenant.att_employee ae LEFT JOIN public.users u ON u.id=ae.user_id "
             "WHERE ae.tenant_id=2 AND ae.is_active=true AND ae.user_id IS NOT NULL "
             "ORDER BY lower(COALESCE(u.last_name, ae.full_name)), lower(COALESCE(u.first_name,''))")).fetchall()
+        smap = _stredisko_map(s)
         out = []
         seen = set()
         for r in emps:
@@ -12758,7 +12795,7 @@ async def app_hr_odpovednost_list(req: Request):
             out.append({
                 "user_id": tuid, "emp_id": emp_id, "jmeno": r[2],
                 "firma": (r[3] or ""),
-                "stredisko": ({"001": "Výroba", "002": "Automatizace"}.get(r[4], r[4]) if r[4] else ""),
+                "stredisko": _stredisko_label(smap, r[4]),
                 "volno_schvaluje": vol_txt,
                 "volno_zdroj": vol_zd,
                 "volno_system": vol_sys,

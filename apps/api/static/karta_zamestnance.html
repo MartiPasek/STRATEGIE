@@ -130,6 +130,12 @@
       <option value="Výroba">Výroba</option>
       <option value="Kancelář">Kancelář</option>
     </select>
+    <select id="fstred" style="width:100%;border:0;border-bottom:1px solid #233040;padding:9px 14px;font:inherit;background:#161c24;color:#cdd6e2;outline:none">
+      <option value="">🏢 Středisko: vše</option>
+      <option value="001">001 — Výroba rozvaděčů</option>
+      <option value="002">002 — Automatizace</option>
+      <option value="900">900 — Ostatní</option>
+    </select>
     <div id="exbar" style="padding:7px 14px;font-size:11.5px;color:#7f8ea0;border-bottom:1px solid #1e2730"></div>
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
   </div>
@@ -150,6 +156,12 @@
         <option value="">🏭 Výroba / kancelář: vše</option>
         <option value="Výroba">Výroba</option>
         <option value="Kancelář">Kancelář</option>
+      </select>
+      <select id="tfstred">
+        <option value="">🏢 Středisko: vše</option>
+        <option value="001">001 — Výroba rozvaděčů</option>
+        <option value="002">002 — Automatizace</option>
+        <option value="900">900 — Ostatní</option>
       </select>
       <select id="tffirma">
         <option value="">🏢 Společnost: vše</option>
@@ -631,15 +643,16 @@ async function crSubmit(){
 function activeFilters(){
   const t=(VIEW==='table');
   const g=(l,tb)=>((document.getElementById(t?tb:l)||{}).value||'');
-  return {q:(g('srch','tsrch')).toLowerCase(), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat'), ff:g('ffirma','tffirma')};
+  return {q:(g('srch','tsrch')).toLowerCase(), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat'), ff:g('ffirma','tffirma'), fs:g('fstred','tfstred')};
 }
 function filteredLide(){
-  const {q,fp,ft,fk,ff}=activeFilters();
+  const {q,fp,ft,fk,ff,fs}=activeFilters();
   return LIDE.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
     && (!fp || p.pozice===fp)
     && (!ft || (p.typ||'').split(' / ').includes(ft))
     && (!fk || p.kategorie===fk)
-    && (!ff || (p.firma||'').includes(ff)));
+    && (!ff || (p.firma||'').includes(ff))
+    && (!fs || (p.stredisko_kod||'')===fs));
 }
 function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else if(VIEW==='terminated') renderTerminated(); else render(); }
 // Odpovědnost (Šárka 5.8.2026) — přehled kdo schvaluje volno / kontroluje docházku + rychlé dovyplnění
@@ -1633,8 +1646,8 @@ function renderTerminated(){
     '<td>'+c(r.odchod)+'</td></tr>').join('');
 }
 (function(){ const el=document.getElementById('tmsrch'); if(el) el.addEventListener('input',renderTerminated); })();
-[['srch','input'],['fpoz','change'],['ftyp','change'],['fkat','change'],
- ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change'],['tffirma','change']].forEach(function(x){
+[['srch','input'],['fpoz','change'],['ftyp','change'],['fkat','change'],['fstred','change'],
+ ['tsrch','input'],['tfpoz','change'],['tftyp','change'],['tfkat','change'],['tfstred','change'],['tffirma','change']].forEach(function(x){
   const el=document.getElementById(x[0]); if(el) el.addEventListener(x[1],paint);
 });
 
@@ -2195,6 +2208,8 @@ function renderPU(edit){
   for(const po of (d.pomery||[])){
     const dobaTxt = (po.doba==='určitá') ? ('určitá'+(po.smlouva_do?(' do '+po.smlouva_do):'')) : 'neurčitá';
     const nadrOpts='<option value="">—</option>'+(d.zamestnanci||[]).map(z=>'<option value="'+z.id+'"'+(z.id===po.nadrizeny_id?' selected':'')+'>'+esc(z.jmeno)+'</option>').join('');
+    const STRED=[['001','001 — Výroba rozvaděčů'],['002','002 — Automatizace'],['900','900 — Ostatní']];
+    const stredOpts='<option value="">—</option>'+STRED.map(o=>'<option value="'+o[0]+'"'+(o[0]===(po.stredisko_kod||'')?' selected':'')+'>'+o[1]+'</option>').join('');
     const rSEL=(lab,k,eid,opts)=>'<div style="padding:3px 10px"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lab+'</div><select data-eid="'+eid+'" data-k="'+k+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit">'+opts+'</select></div>';
     const rRAW=(lab,html)=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 10px;border-bottom:1px solid #1b2430"><span style="color:#8595a8;white-space:nowrap;font-size:12px">'+lab+'</span><span style="text-align:right;font-size:13.5px">'+(html||'<span style="color:#5d6b7c">—</span>')+'</span></div>';
     const stavRO = po.narovnat ? ('<span style="color:#E0A94A">⚠ Nutno narovnat</span>'+(po.pozice_poznamka?'<div style="color:#9aa7b4;font-size:11px">'+esc(po.pozice_poznamka)+'</div>':'')) : (po.isco?'<span style="color:#7fe0a0">✅ V souladu</span>':'<span style="color:#5d6b7c">—</span>');
@@ -2205,6 +2220,7 @@ function renderPU(edit){
       + (edit
           ? ('<div style="padding:3px 10px"><label style="color:#7f8ea0;font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-eid="'+po.id+'" data-k="narovnat"'+(po.narovnat?' checked':'')+'> ⚠ Nutno narovnat (smlouva × ČSSZ)</label></div>'+rIN('Poznámka k narovnání','pozice_poznamka',po.pozice_poznamka,po.id))
           : rRAW('Stav zařazení', stavRO))
+      + (edit?rSEL('Středisko','stredisko',po.id,stredOpts):rRO('Středisko', po.stredisko))
       + rRO('Útvar', po.segment);
     // Ručně založit novou verzi smlouvy (Jirka 24. 8. 2026, schválila Marti-AI msg 13561).
     // Do 24. 8. šla nová verze vyrobit JEDINĚ změnou úvazku — tohle je vědomá cesta pro

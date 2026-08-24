@@ -505,11 +505,23 @@ async def push_tick() -> dict:
                 if kodz == 200:
                     _zapamatuj_odznak(s, dtz, 0)
                     zhasnuto += 1
-                elif _trvala_chyba(kodz, duvodz):
-                    # Mrtvý token — ať se to nezkouší donekonečna.
+                    s.execute(_t("UPDATE fw.ios_push_token SET last_error = NULL, "
+                                 "updated_at = now() WHERE device_token = :d"), {"d": dtz})
+                else:
+                    # ⚠️ Odpověď APNs si MUSÍME zapsat. Zhasínací push nepatří
+                    # k žádnému příkazu, takže nejde do `ios_push_sent` — a bez
+                    # zápisu se pak jen hádá, proč odznak nezhasl (naběhlo to
+                    # 24. 8. 2026 hned při první zkoušce).
+                    logger.warning("[ios_push] zhasnuti odznaku SELHALO: %s %s (token ...%s)",
+                                   kodz, duvodz, dtz[-6:])
+                    s.execute(_t("UPDATE fw.ios_push_token SET last_error = :e, "
+                                 "updated_at = now() WHERE device_token = :d"),
+                              {"e": f"zhasnuti odznaku: {kodz} {duvodz}"[:300], "d": dtz})
                     if kodz == 410 or duvodz in _MRTVY_TOKEN:
                         _zneplatnit_token(s, dtz, f"{kodz} {duvodz}")
-                    else:
+                    elif _trvala_chyba(kodz, duvodz):
+                        # Trvalá chyba, ale token žije — nezkoušet donekonečna.
+                        # `last_error` výše zůstává jako důkaz, proč se to vzdalo.
                         _zapamatuj_odznak(s, dtz, 0)
             if zhasnuto:
                 logger.info("[ios_push] odznak zhasnut u %d zarizeni", zhasnuto)

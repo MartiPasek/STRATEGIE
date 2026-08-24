@@ -59,15 +59,31 @@ Bez toho by u VYŘAZENÍ ze skupiny nešlo zjistit, kdo ho provedl (řádek se m
    `fw.core`/`comp_def`/`menu_node` mají textové `created_by_text` — a `menu_node.updated_by_text`
    je NOT NULL.
 
-## Otevřené (stav k 21. 8. 2026 dopoledne)
+## Otevřené (přeověřeno 24. 8. 2026)
 
-- **Podmínky jsou netypované** — všech 15 sloupců `pod_*` je text v obou tabulkách (smluvní část
-  je přitom otypovaná správně). Ověřeno na 1154 hodnotách, že převod by byl čistý. Číselník je
-  bezpečný (čte ho přímo jen nový přehled), smlouva ne — `g.pod_*` čte přímo devět živých skriptů
-  plus zapisuje `hr_conditions_save`. Čeká na rozhodnutí Marti-AI, jestli dělat obojí naráz.
-  Výjimka: `pod_uvazek_h_tyden` v číselníku už na číslo převeden byl, aby seděl se smlouvou.
+- ✅ **VYŘEŠENO — podmínky jsou otypované.** *(Do 24. 8. 2026 tu stálo „všech 15 sloupců `pod_*`
+  je text v obou tabulkách … čeká na rozhodnutí Marti-AI" — to už neplatilo.)*
+  Ověřeno **přímo v `information_schema.columns` 24. 8. 2026** (Claude-28, ne převzato):
+  `tenant.engagement` má 9 `numeric`, 3 `boolean`, 2 `time`, 1 `text` (`pod_prac_dny`)
+  a `jsonb pod_meta`; `tenant.podminky_skupin` totéž plus `pod_uvazek_h_tyden` jako `numeric`.
+  Na to navázala i **políčka editačního formuláře** — ve `fw.comp_def` (jádro 236) byla
+  **22. 8. 2026 v 7:50** přepnuta na 9× `number`, 4× `combobox`, 2× `timeedit`
+  a 2× `label_readonly` (`id` a počítadlo `pod_dovolena_dni`).
 - **Textové řazení skupin** ve spouštěčích `engagement_pod_defaults` a
   `engagement_doplneni_pri_zarazeni` (`MIN(sg.id::text)`) — zbylých deset míst používá
-  `ORDER BY sort_order, id`. Čeká na potvrzení Kristý.
-- **Editace výchozích hodnot je zatím i v mobilu** — po dokončení ERP obrazovky se má zrušit.
+  `ORDER BY sort_order, id`. Čeká na potvrzení Kristý. **Platí i k 24. 8. 2026** — ověřeno
+  přes `pg_get_functiondef`: obě funkce textové řazení dál obsahují a `sort_order`
+  v nich není vůbec.
+- ✅ **VYŘEŠENO 21. 8. 2026 — editace výchozích hodnot už v mobilu není.**
+  *(Do 24. 8. 2026 tu stálo „je zatím i v mobilu — po dokončení ERP obrazovky se má zrušit".)*
+  Ověřeno **přímo v `g2007.soubor` 24. 8. 2026**, a to na obou místech: dílek
+  `apps/api/static/mobile_parts/48_hr_podminky_me.js` i sestavená stránka
+  `apps/api/static_db/mobile.html` nesou hlášku „🔒 Jen ke čtení. Výchozí hodnoty se upravují
+  v ERP: HR & LIDÉ → ⚙️ Výchozí podmínky skupin", políčka mají `f.disabled = true`
+  a žádné uložení tam nezbylo.
+
+> **Srovnáno 24. 8. 2026** (Claude-28, zadal Jirka Honomichl, schválila Marti-AI msg 13619).
+> Sekce vedla jako nedodělané dvě věci, které byly hotové — přesně ta zastaralost, kterou
+> zakazuje bod 14 pravidel práce. Všechna tvrzení výše jsou ověřená **přímým čtením
+> z databáze** téhož dne, ne převzatá.
 

@@ -8,7 +8,7 @@
 
 **Žádný import ani sync z Centrály se podmínek nedotýká.** Prověřeno vyčerpávajícím způsobem: `pg_trigger` na engagement / att_employee / podminky_vychozi / staff_group_member / staff_cond, všechny funkce v `pg_proc` (schémata tenant, public, g2007, fw) obsahující `pod_*`, všech 43 skriptů v `g2007.python` dotýkajících se těch tabulek, a grep na disku (`*.py`, `*.js`) — na disku **nula** zápisů.
 
-Do `tenant.engagement.pod_*` zapisuje přesně **sedm** cest:
+Do `tenant.engagement.pod_*` zapisuje přesně **osm** cest *(sedm k 20. 8. 2026; osmá přibyla 24. 8. — viz poznámka pod tabulkou)*:
 
 | Kdo | Kdy | Přepíše ruční hodnotu? |
 |---|---|---|
@@ -18,7 +18,16 @@ Do `tenant.engagement.pod_*` zapisuje přesně **sedm** cest:
 | `tenant.engagement_doplneni_pri_zarazeni` | AFTER INSERT na staff_group_member | **ne** — jen položky s příznakem `ceka_na_zarazeni` |
 | `engagement_pod_soucet_dovolene` + `staff_cond_prepocet_dovolene` | při změně dovolené | ano, ale správně — `dovolena_dni` je počítadlo |
 | **`g2007.python / att_vernost_dovolena`** | **1×/den po 7:00** | **mění** — viz níže |
-| `g2007.python / uvazek_zapis` | změna úvazku | **ne** — novou verzi smlouvy skládá jako kopii všech sloupců podle `information_schema` |
+| `g2007.python / uvazek_zapis` | změna úvazku | **ne** — novou verzi smlouvy nechá složit společným jádrem jako kopii všech sloupců podle `information_schema` |
+| **`g2007.python / smlouva_nova_verze`** | **ruční tlačítko „Nová verze smlouvy" v kartě** | **ne** — tatáž kopie přes totéž jádro *(nové 24. 8. 2026)* |
+
+> **Doplněno 24. 8. 2026 (Claude-28 / Jirka Honomichl, schválila Marti-AI msg 13561).**
+> Kopírování celého řádku se z `uvazek_zapis` přestěhovalo do nového společného jádra
+> **`engagement_nova_verze`**, které volají obě cesty zakládající novou verzi (změna úvazku
+> i nové ruční tlačítko). **Na chování téhle tabulky to nic nemění** — kopie se pořád skládá
+> ze všech sloupců podle `information_schema`, takže ruční hodnoty se nepřepíšou; ověřeno
+> naostro porovnáním všech 49 sloupců, všech 16 podmínek se opsalo beze změny.
+> Detail: [[doc-dochazka-smlouva-nova-verze-rucne]].
 
 ## Past č. 1 — věrnostní automat a PRÁZDNÁ hodnota
 

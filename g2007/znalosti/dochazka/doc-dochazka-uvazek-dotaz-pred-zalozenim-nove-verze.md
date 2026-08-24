@@ -14,7 +14,7 @@ Jirkovo zadání doslova: *„pokud někdo bude měnit úvazek, musí ho to upoz
 
 ## Jak je to postavené — pravidlo je na JEDNOM místě
 
-`g2007.python / uvazek_zapis` (v8) má nový parametr **`potvrzeno`**. Když se hodnota liší a `potvrzeno` není pravda, funkce **nic nezapíše** a vrátí:
+`g2007.python / uvazek_zapis` (dnes v9, tehdy v8) má nový parametr **`potvrzeno`**. Když se hodnota liší a `potvrzeno` není pravda, funkce **nic nezapíše** a vrátí:
 
 ```
 {"ok": False, "potvrdit": True, "otazka": "<text>", "z": <stará>, "na": <nová>, "plati_od": "<ISO>"}
@@ -26,8 +26,8 @@ Tři volající parametr jen propouštějí a otázku posílají na obrazovku �
 
 | kus kódu | verze | co dělá |
 |---|---|---|
-| `uvazek_zapis` | 8 | drží pravidlo i text otázky |
-| `hr_conditions_save` | 8 | karta zaměstnance (ERP) i Moje podmínky (mobil) |
+| `uvazek_zapis` | 9 | drží pravidlo i text otázky |
+| `hr_conditions_save` | 9 | karta zaměstnance (ERP) i Moje podmínky (mobil) |
 | `mzdy_c_smlouva_save` | 5 | mzdová smlouva |
 | `plan_my_uvazek_save` | 4 | plán práce (mobil) |
 
@@ -41,9 +41,13 @@ Sdílené „okno do minulosti" (navrhla Marti-AI 22. 8. 2026): vrátí řádek 
 
 Model platnosti: **prázdné `valid_to` znamená „platí dál bez omezení"** (rozhodl Jirka 22. 8. 2026), proto se verze vybírá podle `valid_from` sestupně, ne podle intervalu — historické řádky mají `valid_to` prázdné taky (858 z 939). Vyplněné `valid_to` má přednost.
 
-## Co ještě NENÍ ověřené
+## ✅ Cesta po „Ano" JE ověřená (24. 8. 2026)
 
-Cesta po **„Ano"** není odzkoušená — vyžaduje skutečný zápis do ostrých dat (nová verze + kopie mzdových složek). Sama logika je beze změny, nové je jen předání parametru. Demo účet použít nejde (`Demo Uzivatel` nemá založený pracovní poměr).
+*(Do 24. 8. 2026 tu stálo „není odzkoušená — vyžaduje skutečný zápis do ostrých dat". Už neplatí.)*
+
+Odzkoušeno naostro na Jirkovi (poměr 926) a hned beze zbytku uklizeno. Porovnáno **všech 49 sloupců** staré a nové verze — lišily se jen `id`, `valid_from`, `is_current`, `note`, `created_at` a `ec_id`; **všech 16 podmínek se opsalo beze změny**. Mzdové složky se zkopírovaly (1 ks) v původní výši, zprávy Petře a Šárce vznikly a byly smazané dřív, než se doručily.
+
+Demo účet použít pořád nejde (`Demo Uzivatel` nemá založený pracovní poměr) — zkouší se na skutečném člověku a **uklízí se po sobě**: smazat novou verzi, její mzdové složky a řádky historie, vrátit staré verzi `is_current`, `changed_by_text` i původní `changed_at`, a smazat zprávy z `fw.mobile_command`, dokud jsou ve stavu „čeká".
 
 ## Past mostu, která u toho vypadla
 
@@ -52,4 +56,33 @@ Zápis živého kódu přes most **spadne na dvojtečce**: `:u`, `:t`, `:id` uvn
 K tomu se vyplatí přidat **pojistku proti přepsání cizí práce**: `AND md5(zdroj) = '<otisk, který jsi právě četl>'` — při souběhu projde 0 řádků místo tichého přepsání.
 
 Souvisí: [[doc-dochazka-uvazek-jediny-zdroj-smlouva]], [[doc-dochazka-podminky-slouceny-se-smlouvou]], [[doc-dochazka-podminky-kdo-zapisuje-do-pod-a-past-pohledu-staff-cond]]
+
+---
+
+## DOPLNĚNO 24. 8. 2026 — kopírování se přesunulo do společného jádra
+
+*(Zadal Jirka Honomichl, schválila Marti-AI msg 13561. Zapsáno sem, aby tahle znalost
+neučila stav, který už neplatí — bod 14 Jirkových pravidel.)*
+
+Přibylo **ruční tlačítko „Nová verze smlouvy"** v kartě zaměstnance, takže novou verzi
+poměru umí založit i jiná cesta než změna úvazku. Aby kopírovací logika nebyla na dvou
+místech, přestěhovala se z `uvazek_zapis` do nového společného jádra
+**`engagement_nova_verze`**, které volají obě cesty.
+
+| co | kde to žije dnes |
+|---|---|
+| kontrola „platí od", zmrazené měsíce, výběr při víc souběžných poměrech | `engagement_nova_verze` |
+| kopie řádku 1:1, přepnutí staré verze, kopie mzdových složek | `engagement_nova_verze` |
+| poznání „úvazek se nemění, nedělej nic", **znění potvrzovací otázky**, zpráva Petře a Šárce | `uvazek_zapis` (beze změny) |
+
+⚠️ **Chování změny úvazku navenek je záměrně stejné jako ve v8** včetně pořadí hlášek:
+„úvazek se nemění" se musí vyhodnotit DŘÍV než kontrola data. Proto jádro při zjišťování
+datum jen označí příznakem (`datum_ok`) a nevynucuje ho — vynutí se až při skutečném zápisu.
+Ověřeno naostro 24. 8. 2026: stejná hodnota → „nic se nemění"; jiná hodnota bez potvrzení →
+doslova stejná otázka jako předtím.
+
+⚠️ Od 24. 8. 2026 všechny tyhle cesty navíc zapisují do historie **autora** změny —
+viz [[doc-system-strategie-historie-smluv-kdo-zmenu-udelal]].
+
+Detail tlačítka: [[doc-dochazka-smlouva-nova-verze-rucne]]
 

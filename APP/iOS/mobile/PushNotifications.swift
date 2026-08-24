@@ -49,6 +49,10 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
     }
 
     /// Návrat do popředí — srovnat notifikační lištu se skutečností.
+    /// ⚠️ U SwiftUI appky s `@UIApplicationDelegateAdaptor` se tahle metoda spolehlivě
+    /// NEVOLÁ (ověřeno 24. 8. 2026 na fyzickém iPhonu — proto zůstával odznak viset
+    /// na starém čísle). Skutečný spouštěč je `scenePhase == .active` v `mobileApp.swift`;
+    /// tohle necháváme jen jako neškodnou pojistku, kdyby se to na nějaké verzi iOS chovalo jinak.
     func applicationDidBecomeActive(_ application: UIApplication) {
         synchronizovatNotifikace()
     }
@@ -131,17 +135,29 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
     /// které mezi nimi nejsou (někdo je odbavil na počítači), smažeme.
     /// Zároveň se srovná odznak na ikoně.
     func synchronizovatNotifikace() {
+        // Logování (přidáno 24. 8. 2026 při hledání chyby s odznakem) — dřív funkce
+        // neměla žádnou stopu ani při úspěchu, takže nešlo poznat, jestli se vůbec
+        // spustí a jestli setBadgeCount doopravdy projde. Necháváme trvale, ať se to
+        // příště nemusí zjišťovat znovu (viz i mobileApp.swift, kde je hlavní příčina).
         guard let url = URL(string: adresaPending) else { return }
-        pozadavekSCookies(url: url, metoda: "GET", telo: nil) { data, _, _ in
+        pozadavekSCookies(url: url, metoda: "GET", telo: nil) { data, odpoved, chyba in
             guard let data = data,
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let prikazy = json["commands"] as? [[String: Any]] else { return }
+                  let prikazy = json["commands"] as? [[String: Any]] else {
+                let kod = (odpoved as? HTTPURLResponse)?.statusCode
+                NSLog("[push][odznak] /commands/pending se nepodařilo přečíst — data=%@ chyba=%@ http=%@",
+                      data == nil ? "nil" : "\(data!.count)B",
+                      chyba?.localizedDescription ?? "-",
+                      kod.map(String.init) ?? "-")
+                return
+            }
 
             var ceka = Set<Int>()
             for p in prikazy {
                 if let id = p["id"] as? Int { ceka.insert(id) }
                 else if let id = p["id"] as? NSNumber { ceka.insert(id.intValue) }
             }
+            NSLog("[push][odznak] server hlásí %d čekajících příkazů", ceka.count)
 
             let centrum = UNUserNotificationCenter.current()
             centrum.getDeliveredNotifications { doruceno in
@@ -156,7 +172,14 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
                     NSLog("[push] smazáno %d notifikací k vyřízeným příkazům", kSmazani.count)
                 }
                 DispatchQueue.main.async {
-                    centrum.setBadgeCount(ceka.count) { _ in }
+                    centrum.setBadgeCount(ceka.count) { chybaOdznaku in
+                        if let chybaOdznaku = chybaOdznaku {
+                            NSLog("[push][odznak] setBadgeCount(%d) SELHALO: %@", ceka.count, chybaOdznaku.localizedDescription)
+                        } else {
+                            NSLog("[push][odznak] setBadgeCount(%d) OK, appka teď hlásí applicationIconBadgeNumber=%d",
+                                  ceka.count, UIApplication.shared.applicationIconBadgeNumber)
+                        }
+                    }
                 }
             }
         }

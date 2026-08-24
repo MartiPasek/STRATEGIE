@@ -14413,6 +14413,41 @@ def _dovolena_kaskada_nocni():
         logger.warning("[dovolena_kaskada] %s", _e)
 
 
+_NEOML_ABS_LAST = [""]
+
+
+def _neomluvena_absence_nocni():
+    """1×/den (5:00–7:00): neomluvená absence ve výrobě — pracovní den, kdy člověk
+    nemá žádnou docházku ani absenci → nález do fronty „K vyřešení" (bez vazby na
+    záznam docházky, den je v att_anomaly.den) + zpráva editorům oprav dle působnosti
+    (výroba = Dušan a Michaela) i dotyčnému.
+
+    VLASTNÍ OKNO A VLASTNÍ SPUŠTĚNÍ (Peťa 20. 8. 2026: „jednotlivé úkony a kontroly
+    by měly být oddělené") — schválně to NENÍ přilepené k _hr_daily_pass ani ke kaskádě
+    dovolené. Běží až po nich, aby měl uzavřený předchozí den.
+
+    Kouká 3 dny zpět, ať dožene víkend nebo výpadek; tentýž den u téhož člověka se
+    podruhé nezaloží (unikátní index att_anomaly_bez_zaznamu_uniq) — to je obdoba
+    příznaku ChybaJeOK v Centrále, kde se odbavená chyba znovu nezakládá.
+
+    Logika je v g2007.python kod=att_neomluvena_absence (Peťa + Claude-26, 24. 8. 2026,
+    převzato z dbo.EC_KontrolaDochazky typ 4, kurzor CurDopln).
+    Idempotentní, best-effort. Volá se z att_sync smyčky."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    today = now.date().isoformat()
+    if _NEOML_ABS_LAST[0] == today or not (5 <= now.hour < 7):
+        return
+    _NEOML_ABS_LAST[0] = today
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        _od = (now.date() - _dt.timedelta(days=3)).isoformat()
+        vys = _ereg.call("att_neomluvena_absence", 2, _od, None, True, True, False)
+        logger.info("[neomluvena_absence] denni beh: %s", vys)
+    except Exception as _e:
+        logger.warning("[neomluvena_absence] %s", _e)
+
+
 def _hr_daily_pass():
     """1×/den (po 7. hodině) na primáru: generátor úkolů, auto narozeninová přání,
     věrnostní dny za 10 let, měsíční personální resumé. Idempotentní, best-effort.
@@ -28833,6 +28868,10 @@ async def _att_sync_loop():
                 await loop.run_in_executor(None, _dovolena_kaskada_nocni)
             except Exception as _ke:
                 logger.warning("[dovolena_kaskada] %s", _ke)
+            try:  # neomluvená absence ve výrobě — self-gated 1×/den mezi 5. a 7. hodinou
+                await loop.run_in_executor(None, _neomluvena_absence_nocni)
+            except Exception as _ne:
+                logger.warning("[neomluvena_absence] %s", _ne)
         except _aio.CancelledError:
             break
         except Exception as e:

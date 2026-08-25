@@ -1,6 +1,32 @@
-# Editace fragmentu mobilu z mostu - primy zapis do g2007.soubor je ZAKAZANY, overeny postup pres base64 kolo (17.8.2026)
+# Editace fragmentu mobilu z mostu - kolo base64 pro vymenu celeho obsahu; primy zapis do g2007.soubor uz ZAKAZANY NENI (opraveno 25.8.2026)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+
+> ## !! OPRAVA 25. 8. 2026 - PRIMY ZAPIS DO `g2007.soubor` UZ ZAKAZANY NENI
+>
+> Tenhle dokument od 17. 8. 2026 tvrdil, ze most primy `UPDATE g2007.soubor` odmita
+> a ze **jedina** cesta k editaci fragmentu je `@@G2007SOUBOR` s celym novym obsahem.
+> **To uz neplati.** 25. 8. 2026 prosel primy `UPDATE g2007.soubor SET obsah = replace(...)`
+> pres most a runner ho vyridil jako **`G2007 KONSTRUKTIVNI (primo, bez banneru)`**.
+> Stejnou cestou jde i `UPDATE g2007.python`. Overeno naostro tyz den (fragment
+> `50_skupiny_vyroba.js` verze 15 -> 16, otisk po zapisu precten z DB), viz
+> [[doc-dochazka-absence-obrazovka-bez-karty-zamestnance]].
+>
+> **Co si z toho vzit:**
+> - **Cilena zaplata jednoho mista** = `UPDATE ... SET obsah = replace(obsah, <kotva>, <novy text>)`
+>   **s pojistkou `AND md5(obsah) = '<otisk, ktery jsi prave cetl>'`**. Pri soubehu projde
+>   0 radku misto ticheho prepsani cizi prace. Diakritiku posilej pres
+>   `convert_from(decode('<base64>','base64'),'UTF8')`, at ji nerozbije cesta.
+>   **Kotvu si predem over dotazem, ze je v souboru prave jednou.**
+> - **Vymena celeho obsahu** = dal `@@G2007SOUBOR` a kolo s base64 popsane nize. Postup nize
+>   je stale platny a spravny, uz jen **neni jediny mozny**.
+> - **Pri skladani base64 po kouscich dekoduj KAZDY kusek zvlast a spoj az bajty.**
+>   Slepit base64 retezce a dekodovat najednou NEJDE - kazdy kus konci vlastnim odsazenim
+>   (`=`) a dekoder za nim skonci. Zjisteno 25. 8. 2026: z 4430 bajtu se vratilo jen 4000
+>   a otisk nesedel.
+>
+> Zbytek dokumentu nize zustava beze zmeny. Vety, ktere uz neplati, jsou oznacene **NEPLATI**.
 
 ## Co se zmenilo
 
@@ -10,7 +36,7 @@ Most (`/diag-sql`) **odmita primy zapis do `g2007.soubor`**. Pokus o `UPDATE g20
 query_raw obsahuje forbidden keyword (DELETE/UPDATE/INSERT/DROP/...). Pouzij dedicated tool.
 ```
 
-Kontrola forbidden keywords bezi **az za obsluhou `@@` prikazu**, takze `@@` prikazy fungujou normalne a slovo UPDATE uvnitr jejich textu nic neshodi. Jedina cesta k editaci fragmentu je proto **`@@G2007SOUBOR`, ktery bere CELY novy obsah**.
+Kontrola forbidden keywords bezi **az za obsluhou `@@` prikazu**, takze `@@` prikazy fungujou normalne a slovo UPDATE uvnitr jejich textu nic neshodi. ~~Jedina cesta k editaci fragmentu je proto **`@@G2007SOUBOR`, ktery bere CELY novy obsah**.~~ **NEPLATI od 25. 8. 2026** - primy `UPDATE` prochazi jako G2007 konstruktivni operace, viz ramecek na zacatku. `@@G2007SOUBOR` zustava spravnou cestou pro vymenu CELEHO obsahu.
 
 ## Past: fragment nejde vyvezt na disk
 
@@ -38,7 +64,7 @@ Runner dela `sql = SQL_FILE.read_text(...).strip()` (`claude_sql_runner.py` r. 5
 - **Uvodni mezery fragmentu zustanou** - jsou az za hlavickou prikazu (server dela `_rest3.split("\n", 1)`), takze je strip nesebere. Dosud se to uvadelo jako riziko, **neni**.
 - **Koncove zalomeni radku se ztrati** - vzdy. 17.8.2026 to znamenalo 56022 na 56021 znaku.
 
-Naprava, kterou dosud doporucovala G2007 (`UPDATE ... SET obsah = obsah || chr(10)`), **JIZ NENI DOSTUPNA** - most primy zapis zakazuje. Misto ni:
+Naprava, kterou dosud doporucovala G2007 (`UPDATE ... SET obsah = obsah || chr(10)`), ~~**JIZ NENI DOSTUPNA** - most primy zapis zakazuje.~~ **NEPLATI od 25. 8. 2026** - primy `UPDATE` uz prochazi, takze i tahle naprava je zase dostupna. Misto ni:
 
 **Over, ze hranice fragmentu je syntakticky bezpecna.** `@@G2007SESTAV`/`@@G2007PUBLISH` slepuji fragmenty pres `"".join(...)` **bez separatoru**, takze posledni radek tveho fragmentu se slepi s prvnim radkem nasledujiciho.
 - Bezpecne: tvuj fragment konci `;` nebo `{` nebo `}`. 17.8.2026 `50_skupiny_vyroba.js` konci radkem `  try {` a `51_skupiny_sdileny.js` zacina `  function skupiny(){` - slepene `  try {  function skupiny(){` je platny JS a `node --check` v `@@G2007PUBLISH` prosel.

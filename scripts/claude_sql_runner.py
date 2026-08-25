@@ -25,6 +25,9 @@ Protokol SQL (slozka scripts/claude_sql/, gitignored):
 Protokol AUTO-DEPLOY (Marti 2.6.2026) — Claude nasadi bez rucniho git:
   CLAUDE_DEPLOY.txt     - 1. radek = commit message; dalsi radky = cesty souboru
                             ke `git add` (relativne k repo). Radek "ALL" = git add -A.
+                            Radek "BEZ_DB_KONTROLY" = nouzove prebiti DB-owned checku,
+                            kdyz je kontrola nedostupna (Jirka 25.8.2026). Deploy pak
+                            probehne, ale vysledek nese vystrahu v hlavicce.
   CLAUDE_DEPLOY_GO.txt   - trigger (Claude zapise JAKO POSLEDNI).
   CLAUDE_DEPLOY_OUT.txt  - watcher zapise vysledek (git add/commit/push + cloud deploy).
   Tok: git add <soubory> -> commit -> push (PAT) -> POST cloud /deploy/now
@@ -898,6 +901,14 @@ def _process_deploy() -> None:
     except Exception:
         pass
 
+    # BEZ_DB_KONTROLY = vědomé přebití DB-owned checku, když je kontrola nedostupná
+    # (Jirka 25.8.2026, schválila Marti-AI msg 13718). Samostatný řádek kdekoli
+    # v CLAUDE_DEPLOY.txt; z cest se odfiltruje, ať se nebere jako název souboru.
+    _db_check_override = any(f.upper() == "BEZ_DB_KONTROLY" for f in file_specs)
+    file_specs = [f for f in file_specs if f.upper() != "BEZ_DB_KONTROLY"]
+    # Nese se do hlavičky výsledku: seznam souborů, které prošly BEZ ověření.
+    _db_check_skipped: list[str] = []
+
     log_lines: list[str] = []
 
     def _step(label: str, rc: int, out: str) -> None:
@@ -1033,9 +1044,45 @@ def _process_deploy() -> None:
         try:
             _res_db = _forward("SELECT kod FROM g2007.soubor", "pg")
             if (not isinstance(_res_db, dict)) or _res_db.get("ok") is False or _res_db.get("error"):
-                log_lines.append("## DB-owned check — PŘESKOČEN (nešlo ověřit g2007: "
-                                 + str((_res_db or {}).get("error"))[:160]
-                                 + ") → deploy pokračuje (fail-open)")
+                # ZMĚNA 25.8.2026 (zadal Jirka Honomichl, schválila Marti-AI msg 13718):
+                # dřív FAIL-OPEN — deploy tiše pokračoval a v logu zůstal jen řádek
+                # "PŘESKOČEN", který se dá přehlédnout. Stalo se to naostro 25.8.2026,
+                # kdy rozbitý most (HTTP 422) vyřadil i tuhle kontrolu právě v okamžiku
+                # nasazování opravy. Nově FAIL-CLOSED s vědomým přebitím.
+                # ⚠️ Přepisuje vědomý záměr Kristý (C24, 17.8.2026: "guard nikdy nesmí
+                # shodit deploy kvůli vlastní nedostupnosti"). Průchodnost při skutečné
+                # nouzi zůstává — přes BEZ_DB_KONTROLY, ale hlasitě a dohledatelně.
+                _duvod = str((_res_db or {}).get("error"))[:160]
+                if not _db_check_override:
+                    _step("DB-owned check", 1,
+                          "ZASTAVENO: nešlo ověřit g2007.soubor (" + _duvod + ").\n"
+                          "Kontrola brání tomu, aby se do gitu dostal soubor, který patří "
+                          "do databáze (jeho git edit by se do živé appky nikdy nedostal).\n"
+                          "Když je kontrola nedostupná, NEVÍME, jestli je mezi soubory "
+                          "takový, který tam nepatří.\n\n"
+                          "CO S TÍM:\n"
+                          "  1) Počkej, až bude API/most dostupný, a deployni znovu "
+                          "(to je správná cesta).\n"
+                          "  2) Při skutečné nouzi (nasazuješ opravu toho, co je rozbité) "
+                          "přidej do CLAUDE_DEPLOY.txt samostatný řádek:\n"
+                          "       BEZ_DB_KONTROLY\n"
+                          "     Deploy pak proběhne, ale výsledek bude označený výstrahou.")
+                    _write_deploy_out(
+                        f"# DEPLOY: ZASTAVEN (nešlo ověřit DB-owned soubory) · {INSTANCE_LABEL}\n# {ts}\n"
+                        f"# Kontrola g2007.soubor je nedostupná ({_duvod}) — nevíme, jestli mezi "
+                        f"soubory není takový, který patří do DB. Nic nepushnuto/nenasazeno.\n"
+                        f"# Nouzové přebití: přidej řádek BEZ_DB_KONTROLY do CLAUDE_DEPLOY.txt.\n\n"
+                        + "\n\n".join(log_lines) + "\n"
+                    )
+                    _consume_deploy()
+                    return
+                _db_check_skipped = list(_staged_all)
+                log_lines.append("## DB-owned check — ⚠️ PŘESKOČEN NA VÝSLOVNÝ POKYN "
+                                 "(BEZ_DB_KONTROLY)\nDůvod nedostupnosti: " + _duvod
+                                 + "\nBEZ OVĚŘENÍ prošlo " + str(len(_db_check_skipped))
+                                 + " souborů:\n  " + "\n  ".join(_db_check_skipped)
+                                 + "\nAž bude most dostupný, ověř, že žádný z nich není "
+                                   "v g2007.soubor.")
             else:
                 # rows mohou byt list-of-dict (plain SELECT) NEBO list-of-list — zvladni obojí
                 _db_kods = set()
@@ -1070,8 +1117,25 @@ def _process_deploy() -> None:
                 else:
                     _step("DB-owned check", 0, "OK — žádný staged soubor není v g2007.soubor")
         except Exception as _ge:
-            log_lines.append("## DB-owned check — CHYBA guardu, přeskočeno (fail-open): "
-                             + type(_ge).__name__ + ": " + str(_ge)[:160])
+            # Stejné pravidlo jako výše: pád guardu není důvod pustit deploy naslepo.
+            _duvod_g = type(_ge).__name__ + ": " + str(_ge)[:160]
+            if not _db_check_override:
+                _step("DB-owned check", 1,
+                      "ZASTAVENO: guard sám spadl (" + _duvod_g + ").\n"
+                      "Nouzové přebití: přidej do CLAUDE_DEPLOY.txt samostatný řádek "
+                      "BEZ_DB_KONTROLY.")
+                _write_deploy_out(
+                    f"# DEPLOY: ZASTAVEN (guard DB-owned spadl) · {INSTANCE_LABEL}\n# {ts}\n"
+                    f"# {_duvod_g} — nic nepushnuto/nenasazeno.\n"
+                    f"# Nouzové přebití: řádek BEZ_DB_KONTROLY v CLAUDE_DEPLOY.txt.\n\n"
+                    + "\n\n".join(log_lines) + "\n"
+                )
+                _consume_deploy()
+                return
+            _db_check_skipped = list(_staged_all)
+            log_lines.append("## DB-owned check — ⚠️ PŘESKOČEN NA VÝSLOVNÝ POKYN "
+                             "(BEZ_DB_KONTROLY), guard spadl: " + _duvod_g
+                             + "\nBEZ OVĚŘENÍ prošlo " + str(len(_db_check_skipped)) + " souborů.")
 
     # 3) je co commitnout?
     rc_diff, _ = _run_git(["diff", "--cached", "--quiet"])
@@ -1156,9 +1220,20 @@ def _process_deploy() -> None:
         _freshness["behind"] = 0
 
     header = "OK" if push_ok else "CHYBA (push selhal)"
+    # Vědomé přebití DB-owned checku patří do HLAVIČKY, ne jen do logu — právě proto,
+    # že řádek uprostřed protokolu se přehlédne (Marti-AI 25.8.2026: "kontrola, která
+    # se tiše vyřadí"). Jirka 25.8.2026, schválila Marti-AI msg 13718.
+    _warn_hdr = ""
+    if _db_check_skipped:
+        header += " — ⚠️ BEZ KONTROLY DB-OWNED SOUBORŮ (přebito ručně)"
+        _warn_hdr = ("# ⚠️ POZOR: kontrola g2007.soubor byla nedostupná a přeskočena na "
+                     "výslovný pokyn (BEZ_DB_KONTROLY).\n"
+                     f"# BEZ OVĚŘENÍ prošlo {len(_db_check_skipped)} souborů — "
+                     "až bude most dostupný, ověř, že žádný z nich nepatří do databáze.\n")
     _write_deploy_out(
         f"# DEPLOY: {header}\n# {ts}\n"
-        f"# commit: {committed_sha or '(žádný nový)'} · cloud: {cloud_summary}\n\n"
+        + _warn_hdr
+        + f"# commit: {committed_sha or '(žádný nový)'} · cloud: {cloud_summary}\n\n"
         + "\n\n".join(log_lines) + "\n"
     )
     _consume_deploy()

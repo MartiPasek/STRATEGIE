@@ -1,6 +1,28 @@
-# Mobil, obrazovka Absence - ukazatel cesty k VLASTNI absenci pro vedouciho + nalez o skrytych dlazdicich pri praci (17.8.2026)
+# Mobil, obrazovka Absence - ukazatel cesty k VLASTNI absenci pro vedouciho + nalez o skrytych dlazdicich pri praci (17.8.2026; cast klice a vyctu NEPLATI, opraveno 25.8.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+
+> ## !! CAST TOHOTO DOKUMENTU UZ NEPLATI (opraveno 25. 8. 2026)
+>
+> Nasazene reseni ze 17. 8. 2026 (ukazatel cesty pro vedouciho) **plati dal**.
+> Zastaraly je **popis klice `je_vedouci` a vycet lidi**, kterych se to tyka:
+>
+> - **Klic se 18. 8. 2026 zmenil.** Uz to NENI `parent OR out OR att_approver`. Dnes plati
+>   **"vedouci = jsem NECIM schvalovatelem"** = osobni vyjimka `tenant.att_odpovednost`
+>   (agenda `volno`) NEBO aktivni radek v `tenant.att_approver`. **Rodicovstvi klic uz nedava**
+>   a **kolisani pres "mam prave ted cekajici zadost" je pryc.** Viz
+>   [[doc-dochazka-vedouci-jediny-zpusob-a-fronta-oprav-rodice]].
+> - **Vycet 5 lidi neplati.** K 25. 8. 2026 je schvalovatelu **16**.
+> - **Jirka (20) uz schvalovatelem JE** - od 25. 8. 2026 je veden u skupiny `TestovaciSkupina`,
+>   takze veta, ze si to na sobe nevyzkousi, uz neplati.
+> - **Od 25. 8. 2026 se formular skryva jeste jednomu okruhu lidi** - tem, kdo nemaji kartu
+>   zamestnance v `tenant.att_employee` (priznak `ma_kartu`). Viz
+>   [[doc-dochazka-absence-obrazovka-bez-karty-zamestnance]].
+> - **Zaverecna metodicka poznamka o zakazu primeho zapisu do `g2007.soubor` uz taky neplati** -
+>   primy `UPDATE` prochazi jako G2007 konstruktivni operace.
+>
+> Vety, ktere uz neplati, jsou v textu nize oznacene **NEPLATI**. Zbytek je beze zmeny.
 
 ## Zadani a kdo rozhodl
 
@@ -10,9 +32,9 @@ Zadal **Jirka Honomichl 17. 8. 2026** dotazem "vedouci opravdu nevidi formular v
 
 Ve fragmentu `mobile_parts/50_skupiny_vyroba.js`, funkce `absence()`, je `nf.style.display=ved?"none":""` - formular "Nova zadost" se vedoucimu nekresli. Rozhodnuti Jirky ze 16. 8. 2026, viz [[doc-dochazka-mobil-absence-obrazovka-vedouciho]]. **Neni to rozbite.**
 
-**Koho to potka (overeno na zivych datech 17.8.2026):** 5 lidi s aktivnim radkem v `tenant.att_approver` - Dusan Havlat (41), Petra Safrankova (18), Sarka Novotna (13), Marek Honal (85), Jiri Veverka (106). Plus rodice, kteri v `att_absence_inbox` vidi vsechny pending zadosti. **Jirka (user 20) NENI rodic** a v `att_approver` neni, jeho ucet vraci `je_vedouci=false` - na sobe si to tedy nevyzkousi.
+**NEPLATI (stav k 17.8.2026, k 25.8.2026 je schvalovatelu 16 a klic je jiny - viz ramecek nahore).** ~~Koho to potka:~~ 5 lidi s aktivnim radkem v `tenant.att_approver` - Dusan Havlat (41), Petra Safrankova (18), Sarka Novotna (13), Marek Honal (85), Jiri Veverka (106). Plus rodice, kteri v `att_absence_inbox` vidi vsechny pending zadosti. ~~**Jirka (user 20) NENI rodic** a v `att_approver` neni, jeho ucet vraci `je_vedouci=false` - na sobe si to tedy nevyzkousi.~~ **NEPLATI od 25. 8. 2026** - Jirka je schvalovatelem skupiny `TestovaciSkupina`, jeho ucet vraci `je_vedouci=true` (overeno na zive `/mobile`).
 
-**Pozor na tvar klice:** `je_vedouci = parent OR out OR radek v att_approver`. Ta prostredni podminka znamena, ze **za vedouciho se povazuje i clovek, ktery jen ma nejakou pending zadost s `manager_user_id` na sebe**, i kdyz v `att_approver` neni (17.8. to byl user 17). Formular tedy muze zmizet i nekomu, koho bys mezi vedoucimi nehledal.
+**NEPLATI od 18. 8. 2026, tvar klice se zmenil - viz ramecek nahore.** ~~Pozor na tvar klice: `je_vedouci = parent OR out OR radek v att_approver`.~~ Ta prostredni podminka znamena, ze **za vedouciho se povazuje i clovek, ktery jen ma nejakou pending zadost s `manager_user_id` na sebe**, i kdyz v `att_approver` neni (17.8. to byl user 17). Formular tedy muze zmizet i nekomu, koho bys mezi vedoucimi nehledal.
 
 ## 2) Nahradni cesty existuji, ale NE tam, kde se hledaji
 
@@ -47,5 +69,5 @@ Pod sekci "Ke schvaleni" se vedoucimu kresli ramecek s vetou *"Tady rozhodujes z
 
 ## Metodicka poznamka
 
-Editace fragmentu uz nejde primym zapisem do `g2007.soubor` - most to odmita. Overeny postup je v [[doc-system-strategie-editace-fragmentu-mobilu-pres-most-bez-primeho-zapisu]].
+~~Editace fragmentu uz nejde primym zapisem do `g2007.soubor` - most to odmita.~~ **NEPLATI od 25. 8. 2026** - primy `UPDATE` prochazi jako G2007 konstruktivni operace. Overeny postup je v [[doc-system-strategie-editace-fragmentu-mobilu-pres-most-bez-primeho-zapisu]].
 

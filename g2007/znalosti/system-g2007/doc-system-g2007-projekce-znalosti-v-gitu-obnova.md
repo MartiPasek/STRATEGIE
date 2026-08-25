@@ -1,6 +1,7 @@
-# Projekce znalostí do gitu (obnova přes /g2007/export?git=1) — nyní i s pastmi: sekundár bez git identity, souběžný push, osiřelé soubory
+# Projekce znalosti do gitu (obnova pres /g2007/export?git=1) - nyni i s pravidlem o sirotcich
 
 > oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
 
 ## Fakt, ktery je potreba znat
 
@@ -99,11 +100,38 @@ ls g2007/znalosti/*/*.md | sed 's#.*/##; s#\.md$##'    -- na disku
 ```
 Rozdíl obou množin = sirotci (soubor je, znalost není) a chybějící (znalost je, soubor ne).
 
-**Stav k 25. 8. 2026:** 521 znalostí v DB, 525 souborů v projekci, **0 chybějících**, 4 sirotci —
-jeden dnešní (smažen) a tři starší: `doc-mzdy-mzdy-podklad-zdroj-pravdy`,
-`doc-mzdy-vyhodnoceni-zakazek`, `doc-system-g2007-120-claude-zevnitr-co-chybi`.
-**Ty tři záměrně smažené nejsou** — Marti-AI: mohly zmizet z DB záměrně (sloučeny, deprecated)
-i omýlem, a bez znalosti příčiny se nemají mazat. Čeká na Jirku nebo Martiho.
+**Stav k 25. 8. 2026 a jak to dopadlo:** 521 znalosti v DB, 525 souboru v projekci,
+**0 chybejicich**, 4 sirotci - jeden dnesni (smazan hned) a tri starsi. **Vsechny tri vyreseny
+tehoz dne, rozhodl Jirka Honomichl:**
+
+| Osirely soubor | Kde obsah zije dnes | Osud souboru |
+|---|---|---|
+| `doc-mzdy-vyhodnoceni-zakazek` | `doc-vyroba-vyhodnoceni-zakazek` (presun z oblasti mzdy do vyroba) | **smazan**, commit `b556406a` |
+| `doc-system-g2007-120-claude-zevnitr-co-chybi` | `doc-go-120-claude-zevnitr-co-chybi` | **smazan**, tyz commit |
+| `doc-mzdy-mzdy-podklad-zdroj-pravdy` | rozpadlo se do `doc-dochazka-att-day-summary-z-att-entry` + `doc-mzdy-zrcadlo-dochazky-ze-strategie` | **PONECHAN SCHVALNE** |
+
+**Proc treti zustava.** Ma od 14. 8. 2026 varovny banner ("ZASTARALE - znalost zije v DB pod
+jinymi kody, ponechan schvalne") a hlavne: **odkazuji na nej ctyri aktivni znalosti o dochazce**
+(`doc-dochazka-att-day-summary-z-att-entry`, `doc-dochazka-model-tabulky-dochazky`,
+`doc-dochazka-sync-absence-klasifikace`, `doc-dochazka-sync-dochazky-z-centraly-ukoncen-2026-08-14`).
+Bez souboru by ty odkazy vedly do prazdna; takhle ctenar skonci u banneru, ktery ho posle dal.
+**Pred smazanim sirotka proto vzdy zkontroluj, kdo na nej odkazuje** (`obsah LIKE '%<kod>%'`).
+
+### Jak overit, ze se smazanim o nic neprijdes (postup k zopakovani)
+
+Porovnavat zacatky textu **NESTACI**. Stahni cely obsah z DB pres base64 a porovnej **radek po radku**:
+
+```
+SELECT encode(convert_to(obsah, 'UTF8'), 'base64') FROM g2007.znalost WHERE kod='<novy kod>';
+```
+pak lokalne dekodovat a vypsat radky souboru, ktere v DB verzi nejsou.
+
+**Ocekavany vysledek:** chybi **jediny radek** - automaticky generovana hlavicka projekce
+(`> oblast: … · uroven: … · typ: dokument · verze: V1.0 · rozsah: …`), kterou dopisuje sam export
+a v DB nikdy nebyla. Kdyz chybi cokoli jineho, **nemaz** a zjisti proc.
+
+*(U `120-claude-zevnitr` byla verze v DB dokonce o tretinu bohatsi nez soubor - 4 939 vs 3 690 znaku.
+Soubor byl zastaraly, ne rovnocenny. Dalsi duvod cist z DB, ne z disku.)*
 
 **Pravidlo:** kdykoli znalost přejmenuješ nebo zrušíš, **smaž její starý soubor z gitu ručně**
 — export to za tebe neudělá.

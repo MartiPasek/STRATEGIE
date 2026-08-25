@@ -1813,6 +1813,15 @@ function openP(uid,row){
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const det=document.getElementById('det');
   let h=pheadHTML(p);
+  // Prepnuti CELE karty na stav k vybranemu dni (Jirka Honomichl 25. 8. 2026,
+  // schvalila Marti-AI msg 13658). Historicky rezim je JEN KE CTENI — misto sekci
+  // se vykresli snimek k tomu dni, takze se v nem principialne neda nic ulozit
+  // a nikdo nemuze omylem prepsat dnesni hodnotu tou starou.
+  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 16px;padding:8px 12px;border:1px solid #2a3442;border-radius:8px;background:#141b23;font-size:12.5px">'+
+     '<span style="color:#7f8ea0">\u23F1 Zobrazit kartu ke dni:</span>'+
+     '<input type="date" id="kartadatum" style="background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 8px;font:inherit">'+
+     '<a href="#" onclick="kartaKDatu('+uid+');return false;" style="color:#aac8ec;font-weight:800;text-decoration:none">Zobrazit</a>'+
+     '<span style="color:#5d6b7c;margin-left:auto">jen ke čtení · kde si nepamatujeme, napíše se to</span></div>';
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
@@ -3030,6 +3039,14 @@ async function histUdaje(){
   renderHist();
 }
 function histObl(o){ HIST_OBL=o; renderHist(); }
+async function kartaKDatu(uid){
+  const el=document.getElementById('kartadatum'); const d=el?el.value:'';
+  if(!d){ alert('Vyber datum.'); return; }
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Počítám stav k '+histCZ(d)+'…</div>';
+  HIST_UID=uid; HIST_OBL=''; HIST_DATUM=d;
+  HIST_DATA=await j(API+'/app/hr/historie?user_id='+uid+'&datum='+encodeURIComponent(d));
+  HIST_POHLED='datum'; renderHist();
+}
 async function histKDatu(){
   const el=document.getElementById('histdatum'); const d=el?el.value:'';
   if(!d){ alert('Vyber datum.'); return; }

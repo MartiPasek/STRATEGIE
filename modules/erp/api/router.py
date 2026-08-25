@@ -15973,6 +15973,11 @@ async def app_hr_finance_slozka_save(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        # Kdo zapisuje -> spoustec tenant.wage_component_historie_zapis. Bez toho by
+        # historie financi mela autora prazdneho, prestoze zmenu udelal konkretni clovek
+        # (Jirka Honomichl 25. 8. 2026; changed_by_text je jen jmeno textem, na spor o mzdu
+        # to nestaci - Marti-AI msg 13655).
+        _set_actor(s, uid)
         who = s.execute(_t("SELECT trim(coalesce(first_name,'')||' '||coalesce(last_name,''))"
                            " FROM public.users WHERE id=:u"), {"u": uid}).scalar() or ("uid " + str(uid))
         if wc_id:
@@ -16026,6 +16031,7 @@ async def app_hr_finance_slozka_smazat(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        _set_actor(s, uid)   # kdo maze -> spoustec historie financi
         s.execute(_t("DELETE FROM tenant.wage_component WHERE id=:id AND tenant_id=2"), {"id": wc_id})
         s.commit()
         return JSONResponse({"ok": True})

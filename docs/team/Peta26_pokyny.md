@@ -78,7 +78,7 @@ je horší než žádný.
   na dvou místech.
 - Pojistka `uvazek-z-podminek-uplny` je **vypnutá** (19. 8.), protože hlídala opak toho,
   co teď platí. Až rozhodnutí padne, přepsat ji podle výsledku.
-- Zdroj: G2007 `doc-podminky-skupin-zamestnancu`, `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy`.
+- Zdroj: G2007 `doc-dochazka-podminky-skupin-zamestnancu`, `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy`.
 
 ## 🔍 NEJDŘÍV HLEDEJ, JESTLI TO UŽ EXISTUJE — NIC NOVÉHO NEPSAT (Peťa 18. 8. 2026, ZÁVAZNÉ)
 

@@ -258,6 +258,26 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
 - **Stává se, že fakturovaný díl v nabídce vůbec není** (Peťa: *„i to se bohužel stává"*)
   — pak platí čtvrtá varianta výstupu výše, není to potřeba dál rozebírat.
 
+### 💳 PLATBA PŘEDEM — tři doklady, tři řady (vysvětlila Peťa 25. 8. 2026)
+
+Když se platí předem, není to jeden doklad, ale **řetěz tří** (prostřední nemusí být vždy):
+
+| Krok | Řada dokladu | Co to je a co tam musí být |
+|---|---|---|
+| 1. Záloha | **530** | Zálohová / proforma faktura. Musí mít vybraný **účetní řádek „záloha - proforma Fa 314100"**, zakázku **`Rezie`** (bez háčku) a **v textu náš popis, za co to je**. Když k tomu existuje naše objednávka, **musí tam být její číslo**. |
+| 2. Doklad o platbě | **520** | Potvrzení, že se zaplatilo. **Není vždycky.** Páruje se s dokladem 530. |
+| 3. Konečná faktura | **500** | Už je **na konkrétní díly a vzniká z příjemky**. Provazuje se s **530** (když nic jiného není), jinak s **520**. |
+
+**Proto má konečná faktura v saldu 0** — je krytá tou zálohou, není co doplácet. To samé
+platí pro celkovou částku k úhradě: **nula u dokladu řady 500 s platbou předem NENÍ chyba
+a nehlásí se.**
+
+- Příklad z 25. 8. 2026: **2111 ABRASIV 32607565** — řada 500, na dokladu „Typ úhrady:
+  Platba předem", záloha 840,95 Kč, k úhradě 0. V Centrále `SumaKc` = 0 a saldo 0.
+  Hlásil jsem to jako podezřelé, **správně to hlásit nemám**.
+- Pořád ale platí, že se **kontroluje splatnost, DUZP, účet a ceny položek** i u těchto
+  faktur — nula v celkové částce nevypíná zbytek kontroly.
+
 **Kde to je (ověřeno 21. 8. 2026, DB_EC přes most `db=mssql`):**
 
 - Přehled Centrály **2300 „Přijaté faktury – vše"** — menu `EC_CentralaMenu` id 181,

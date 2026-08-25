@@ -22,6 +22,31 @@ Závazně:
 - Platí dvojnásob u čísel, mezd, nároků a jmen. Peťa mi věří v oblastech, kde si to
   sama neověří — tím spíš tam nesmím hádat.
 
+## 📚 DOCHÁZKA MÁ DVA ČÍSELNÍKY — NEŽ ŘEKNU „TO NEMÁME", KOUKNU DO OBOU (Peťa 25. 8. 2026)
+
+Peťa: *„jak je možné, že něco máme a často mi pak znovu o pár dnů později píšete, že to nemáme?"*
+
+**Spouštěč:** 25. 8. 2026 jsem Petě tvrdil, že „dovolená navíc u nás není jako samostatný druh".
+Podíval jsem se přitom jen do **jednoho** číselníku. Dovolená navíc **je** — v tom druhém.
+A v Docházce new se normálně zobrazuje. Týden předtím ji Peťa s Týnkou nastavovaly, takže
+to vyznělo, jako by jejich práce nebyla.
+
+**Dva číselníky, každý na něco jiného:**
+
+1. **Druhy záznamu** (`tenant.att_entry_type`, 21 položek) — z toho se **vybírá při zadávání**
+   absence ve Správě docházky. „Dovolená navíc" tam **není a nemá být** — při zadání se ještě neví,
+   jestli jí bude.
+2. **Činnosti** (`tenant.vyroba_cinnost`, čísla z Centrály) — 20 Dovolená, **30 Dovolená navíc**,
+   31 Sickday, 34 Ostatní/Nepřítomen… **Tady dovolená navíc JE** a na záznamu ji drží `ec_druh`.
+
+**Co se čím řídí:** Správa docházky druhem („Dovolená" bez čísla) · **Docházka new činností**
+(vidíš „Dovolená navíc" zvlášť) · stravenky a nároky činností · mzdový podklad se řídil druhem,
+a proto sčítal dovolenou s dovolenou navíc do složky 211 — **opraveno 25. 8. 2026**.
+
+**Závazně:** než u docházky prohlásím, že nějaký druh nebo činnost „nemáme", **podívám se do
+obou číselníků a na to, co obrazovka reálně vrací** — a **nejdřív si přečtu G2007 k tématu**.
+Celé je to v G2007: `doc-dochazka-dva-ciselniky-druh-zaznamu-vs-cinnost`.
+
 ## 🧾 NEPŘÍTOMNOST OSVČ JE JEN INFORMACE — NIKAM NEJDE (Peťa 25. 8. 2026)
 
 Peťa: *„už jsme to řešili asi šestkrát."* Proto to je tady natvrdo, ať se to neptá posedmé.

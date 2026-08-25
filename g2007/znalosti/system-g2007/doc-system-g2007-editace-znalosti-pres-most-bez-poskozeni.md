@@ -52,6 +52,36 @@ Kdo chce smycku uplne zavrenou, precte si po zapisu obsah znovu pres base64.
 `ltrim(obsah, chr(10))` tam je proto, ze **`@@G2007ADD` uklada obsah s UVODNIM zlomem radku**
 (oddelovaci radek za hlavickou) — viz `doc-system-strategie-most-gotchy-hlidac-dotazu-uvodni-zlom-a-lane3`.
 
+### ⚠️ Ale pozor — `ltrim` sam umi vyrobit FALESNY POPLACH
+
+**Zjisteno naostro 25. 8. 2026** (Claude-28 / Jirka Honomichl, souhlasila Marti-AI msg 13649).
+Kontrola z kroku 5 ohlasila neshodu u znalosti, ktera se ulozila **naprosto presne**.
+Pricina: **ta znalost sama legitimne ZACINA zlomem radku** (byl v ni od zacatku, ne od
+`@@G2007ADD`), takze `ltrim` urizl i ten a otisky nesedly.
+
+**Kontroluj proto OBE varianty a staci, kdyz sedne jedna z nich:**
+
+```sql
+SELECT md5(obsah) = '<md5 toho, co jsi poslal>'                    AS sedi_presne,
+       md5(ltrim(obsah, chr(10))) = '<md5 toho, co jsi poslal>'    AS sedi_po_orezu,
+       length(obsah) AS delka
+FROM g2007.znalost WHERE kod = 'doc-...';
+```
+
+**Kdyz nesedne ani jedna, teprve pak** stahni obsah zpet pres base64 a porovnej **znak po znaku** —
+delka totiz casto sedi a lisi se jediny znak, takze samotna delka nic nedokazuje.
+
+### ⚠️ `@@G2007ADD` orizne KONCOVY zlom radku
+
+**Zmereno 25. 8. 2026 na dvou zapisech:** ulozeny obsah byl **o jeden znak kratsi** nez odeslany —
+chybel koncovy `chr(10)`. Uvnitr **0 rozdilu**, obsah byl jinak cely a spravny.
+
+Znalost `doc-system-strategie-most-orez-koncove-newline-oprava` tvrdi, ze koncovy newline je
+od 17. 8. 2026 na serveru dorovnavany. **Pro `@@G2007ADD` to podle tohohle mereni neplati**
+(u `@@G2007SOUBOR` nemereno — proto se ta druha znalost zamerne neprepisuje).
+U markdownu je to bez nasledku, ale **pri kontrole otisku s tim pocitej**: porovnavej proti
+`md5(<tvuj obsah>.rstrip(chr(10)))`, nebo pouzij obe varianty vyse.
+
 ## ⚠️ PRIMY `UPDATE` textu NEPREPOCITA VEKTORY
 
 Cileny `UPDATE g2007.znalost SET obsah = replace(...)` je svudny (netreba cist cely dokument),

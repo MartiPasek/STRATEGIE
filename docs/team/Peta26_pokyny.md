@@ -962,7 +962,23 @@ Přijaté faktury (`platby.html`) — a **KAŽDÝ nový přehled to má mít tak
   Stav v `SORT{k,dir}` (resp. `DSORT`/`FSORT`), řazení nad vyfiltrovaným polem, u faktur přes `.slice()` (nemutovat zdroj).
 - **Filtr sloupce — PRAVÝ klik do filtračního políčka** = pop-up menu: **Jen prázdné · Jen neprázdné · Smaž · Vlastní…**
   (levý klik / psaní = filtr „obsahuje" jako dřív). „Prázdné" = null / false / prázdný řetězec. Psaní do políčka
-  režim prázdné/neprázdné zruší. Stav v `FILMODE` (resp. `DFILMODE`/`_fMode`). Žádná šipka/roletka — jen pravý klik.
+  režim prázdné/neprázdné zruší. Stav v `FILMODE` (resp. `DFILMODE`/`_fMode`). U textových sloupců žádná šipka — jen pravý klik.
+- **☑️ ZAŠKRTÁVACÍ SLOUPEC = ROLETKA VE FILTRU (Peťa 25. 8. 2026, závazné pro všechny přehledy):**
+  sloupec, který nese ✓ / prázdno (schváleno, doloženo, vyřízeno…), **musí mít ve filtračním řádku
+  rozbalovací seznam se třemi volbami** — `–` (vše) · `✓` (jen zaškrtnuté) · `✗` (jen nezaškrtnuté).
+  Peťa 25. 8.: *„nemám jak vybrat, že chci vidět schválené a neschválené."*
+  - **Proč roletka a ne klikací přepínač:** na roletce je na první pohled vidět, co je nastavené.
+    Do 25. 8. 2026 to byl přepínač (klikáním dokola) — nešlo poznat, v jakém stavu filtr je,
+    a v úzkém sloupci (28 px) to vypadalo jako prázdné psací políčko.
+  - **Jak se to zapojí:** v definici sloupce příznak **`bool:1`** (vzor `{k:'Schvaleno',h:'S',w:28,c:1,bool:1}`).
+    Bez něj sloupec dostane obyčejné psací políčko a **filtrovat prakticky nejde** — přesně tahle chyba
+    byla ve Správě docházky u sloupce Schváleno.
+  - Hodnoty filtru: `''` = vše · `'ano'` = obsahuje ✓ · `'ne'` = neobsahuje. Porovnání převede
+    buňku na `'✓ano'` / `'ne'`, takže funguje i na sloupce, kde je ✓ součástí delšího textu.
+  - Křížek „zrušit filtry" musí vyprázdnit **i roletky** (`querySelectorAll('.frow input,.frow select')`).
+  - Vzhled roletky stejný jako psacích políček (tmavé pozadí `#0b0d10`, rámeček `#363b43`).
+  - Hotovo ve Správě docházky (`dochazka-po-zakazkach.html`) 25. 8. 2026. **Do ostatních přehledů
+    doplnit, kdykoli se v nich na zaškrtávací sloupec sáhne.**
 - **Vlastní filtr (spodní panel, „Vlastní…"):** víc podmínek, operátory **Obsahuje / Neobsahuje / Rovná se / Nerovná se**,
   spojené **A / NEBO**, „+ přidat podmínku". **Filtruje ŽIVĚ — bez OK** (hned při vyplnění/změně hodnoty). Tlačítka jen
   **Zavřít** a **Smazat vše**. Prázdná hodnota podmínku ignoruje. Aktivní filtr = zelený indikátor „⚙ vlastní filtr (N)"

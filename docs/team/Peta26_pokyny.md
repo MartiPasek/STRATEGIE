@@ -867,6 +867,38 @@ Peťa: *„za mě to ohlášení má být jen info nadřízenému do notifikace,
 - Než se to bude přesouvat: **nejdřív mapa** (kdo zapisuje, kdo čte) dle pravidla výše.
   Dnes to čtou „kdo kde je dnes", nástěnka přítomnosti a mobil — tam smysl dává.
 
+## 🏠 HOME OFFICE JE DVOJÍ VĚC — OHLÁŠENÍ × ODPRACOVANÝ ČAS (Peťa 19. a 25. 8. 2026, závazné)
+
+Peťa to říkala **opakovaně**, tak ať se to neřeší počtvrté:
+
+| Co to je | Jak vypadá v datech | Kam patří |
+|---|---|---|
+| **Ohlášení** „nebudu v práci, budu doma" | typ home office, **bez hodin i bez času** | **jen Správa docházky**, tam šedě |
+| **Reálně odpracovaný home office** | typ home office, **má čas nebo hodiny** | **Docházka new i Opravy** — edituje se a počítá |
+
+Člověk může z domova odpracovat něco úplně jiného, než plánoval. Proto se **ohlášení nikdy
+nepřeklápí do docházky** — skutečný čas si napíchá zvlášť.
+
+- **Rozlišuje se PODLE DAT, ne podle značky původu.** Mobilní aplikace značku `ohlaseni`
+  často nezapíše — 24. a 25. 8. 2026 tak přibylo pět ohlášení Veverkových úplně bez značky.
+  Kontrola podle značky by je propustila, kontrola podle dat je chytí vždycky.
+- **Zapojené na třech místech, každé jinak:** Opravy docházky (`att_fix_day`) a Správa
+  (`dochazka.zakazky_budoucnost_list`) podle **značky** — od 19. 8. 2026; Docházka new
+  (`dochazka.zakazky_vse_list`) podle **dat** — až od 25. 8. 2026, do té doby tam ohlášení visela.
+- Hlídají to pojistky **`ho-ohlaseni-nepatri-do-oprav`** a **`ho-ohlaseni-z-mobilu-ma-znacku`**.
+- **Zůstává nedodělané:** mobilní aplikace pořád zakládá ohlášení bez značky. Doplňuje se
+  ručně. Opravit u zdroje = zásah do mobilní cesty, čeká na rozhodnutí.
+- Podrobně v G2007: `doc-dochazka-sprava-vs-new-co-se-preklapi`, oddíl „Doplněno 25. 8. 2026".
+
+> ### ⚠️ GOTCHA, KTERÁ TO ZPŮSOBILA — „N řádků dotčeno" NIC NEZNAMENÁ
+> 24. 8. 2026 se filtr doplňoval do dvou přehledů příkazem, který **nahrazuje text**.
+> Do jednoho se doplnil, do druhého ne — hledaný text tam vůbec nebyl. Příkaz přesto
+> ohlásil **„2 řádky dotčeny"**, protože se řádků dotkl, jen v jednom nic nezměnil.
+> Chyba se našla až o týden později, náhodou.
+>
+> **Pravidlo:** u příkazu s nahrazením textu vždycky ověřit **čtením**, že tam nová podoba
+> opravdu je. Návratovka to nepozná. (Platí i pro `@@G2007ADD`, viz pravidlo výše.)
+
 ## 🎨 BAREVNÝ SYSTÉM HLÁŠEK A ZVÝRAZNĚNÍ (Peťa 11.8.2026, závazné všude)
 Barva má vždycky znamenat totéž — v docházce, v opravách, v mobilu i v každém novém přehledu.
 Peťa se pak nemusí u každé obrazovky ptát, co ta barva znamená.

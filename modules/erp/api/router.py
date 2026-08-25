@@ -40595,7 +40595,6 @@ async def hlas_voice_completions(req: Request) -> Any:
     return StreamingResponse(sse_chunks(reply), media_type="text/event-stream")
 
 
-@api_router.post("/diag-sql")
 def _import_centrala_gate(sql: str, nazev: str, dopad: str) -> dict:
     """Varování před ručním spuštěním importu ze staré Centrály přes most.
 
@@ -40622,6 +40621,7 @@ def _import_centrala_gate(sql: str, nazev: str, dopad: str) -> dict:
                 "Nechceš-li, prostě nic nedělej — nic se nespustilo." % (nazev, dopad))}
 
 
+@api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):
     read-only diagnostický SQL proti PRODUKCI přes existující tooly —

@@ -2,6 +2,7 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **DOPLNĚNÍ 25. 8. 2026:** Níže uvedené platí pro úroveň **uživatele**. Na úrovni **zařízení** existují samostatné vypínače `TlOdvozy` a `TlBeistellung` v `EC_Dochazka_NastavZar` — viz [[doc-dochazka-odvozy-potvrzovani-stoji-od-22-7-2026]], kde je i doložený výpadek potvrzování odvozů od 22. 7. 2026.
 
 ## Kontext
 Mechanismus `_ec_vypni_dochazku` (viz [[doc-dochazka-vypnuti-centrala-navrh]]) se spustí při **1. „Makat"** v mobilní appce STRATEGIE a zapíše do DB_EC pro daného člověka (dle os. čísla → `TabCisZam.ID`):

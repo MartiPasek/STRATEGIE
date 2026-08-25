@@ -104,5 +104,5 @@ skrytý report). Data jsou připravená — hledá se smlouva, v jejímž `pod_m
 záznam s `ceka_na_zarazeni = true`. Obrazovka zatím není; k 20. 8. na ni není ani jeden člověk.
 
 Souvisí: `doc-dochazka-podminky-slouceny-se-smlouvou`, `doc-dochazka-uvazek-jediny-zdroj-smlouva`,
-`doc-dochazka-rozpad-dovolene-zakladni-a-navic`, `doc-podminky-skupin-zamestnancu`.
+`doc-dochazka-rozpad-dovolene-zakladni-a-navic`, `doc-dochazka-podminky-skupin-zamestnancu`.
 

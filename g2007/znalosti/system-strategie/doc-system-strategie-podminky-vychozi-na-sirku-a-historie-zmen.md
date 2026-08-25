@@ -1,4 +1,4 @@
-# Výchozí podmínky „na šířku", historie změn smluv a skupin (21. 8. 2026)
+# Výchozí podmínky „na šířku“, historie změn smluv a skupin (21. 8. 2026)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -25,7 +25,7 @@ takže hodnota nejspíš nikdy zapsaná nebyla — karta zobrazovala systémový
 | `tenant.staff_group_member_historie` | zařazení/vyřazení/změna skóre ve skupině. Plní `trg_staff_group_member_historie`. |
 | `tenant.podminky_skupin` | výchozí podmínky **na šířku** — řádek = skupina + jeden řádek `scope_kind='system'`, sloupce `pod_*` stejně jako ve smlouvě. Prázdná buňka = dědí se ze systémového řádku. |
 | `tenant.podminky_vychozi` | **už není tabulka, ale POHLED** nad `podminky_skupin` (+ `podminky_osobni` pro osobní řádky lidí bez smlouvy). Starý tvar 1:1, aby všech deset čtenářů i mobil jely dál. Zápis přes `trg_podminky_vychozi_zapis` (INSTEAD OF). |
-| `tenant.podminky_vychozi__zaloha_20260821` | původní tabulka před přepnutím. |
+| ~~`tenant.podminky_vychozi__zaloha_20260821`~~ | původní tabulka před přepnutím — ⛔ **zrušena 25. 8. 2026** po uplynutí lhůty (zadal Jirka Honomichl, schválila Marti-AI, msg 13661). **Nehledej ji, už neexistuje.** ⚠️ Vlastnila sekvenci `staff_cond_id_seq`, ze které bere `id` živá `tenant.podminky_osobni` — sekvence byla před zrušením přepojena a přejmenována na `podminky_osobni_id_seq`. Detail: [[doc-dochazka-podminky-slouceny-se-smlouvou]]. |
 | ERP přehled `hr.podminky_skupin` + formulář `hr.podminky_skupin_edit` | menu 🧑‍💼 HR & LIDÉ → „⚙️ Výchozí podmínky skupin". Šest záznamů ve `fw.*`, žádné nasazení. |
 
 > **Doplněno 24. 8. 2026** (Jirka Honomichl + Claude-28, schválila Marti-AI msg 13586): věta

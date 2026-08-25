@@ -124,6 +124,20 @@ už jen jako **kompatibilní skořápka pro tři zbylá místa**: zápis při za
 `tenant.engagement__zaloha_20260819`, `tenant.engagement__zaloha3_20260819` (pořízená před krokem 3a).
 **Nechat aspoň do konce srpna 2026** (potvrdila Marti-AI).
 
+⛔ **ZRUŠENY 25. 8. 2026 po uplynutí lhůty** — zadal **Jirka Honomichl**, schválila
+**Marti-AI** (msg 13661). Spolu s nimi i `tenant.podminky_vychozi__zaloha_20260821`
+a `tenant.att_employee_cond_group__zaloha_20260820`. **Nehledej je, už neexistují.**
+Před zrušením ověřeno, že na nich nevisí žádná pojistka, žádný živý kód v `g2007.python`,
+žádný obsah webu ani mobilu, žádný pohled a žádný cizí klíč.
+
+⚠️ **Gotcha, na kterou to nejdřív spadlo:** záloha `podminky_vychozi__zaloha_20260821`
+**vlastnila sekvenci `staff_cond_id_seq`**, ze které bere `id` **živá** tabulka
+`tenant.podminky_osobni` — `CASCADE` by rozbil zakládání osobních podmínek u lidí bez
+platné smlouvy (dnes 0 řádků, projevilo by se až u prvního takového člověka). Sekvence
+byla nejdřív přepojena (`OWNED BY tenant.podminky_osobni.id`) a přejmenována na
+`podminky_osobni_id_seq`; `DEFAULT` sloupce se propsal sám. **Před rušením tabulky proto
+kontroluj i sekvence** (`pg_depend` s `deptype='a'`) — cizí klíče ani pohledy to neukážou.
+
 ## Co zbývá
 
 - Domluvit se Šárkou a Petrou, jestli se mají verzovat všechny podmínky, nebo jen ty

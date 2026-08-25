@@ -1,6 +1,29 @@
-# Výchozí podmínky - výběr skupiny je textové MIN(id), rozbije se při naplnění skupin 13/14/15
+# Výchozí podmínky - výběr skupiny bylo textové MIN(id) — OPRAVENO 23.–24. 8. 2026
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ✅ OPRAVENO 23.–24. 8. 2026 — tento nález už neplatí
+>
+> **Textové řazení je pryč a zákaz níž už neplatí.** Ověřil Claude-28 **25. 8. 2026**
+> čtením definic obou spouštěčů přímo z produkční DB (`pg_get_functiondef`), na zadání
+> **Jirky Honomichla**; schválila **Marti-AI** (msg 13661).
+>
+> `tenant.engagement_pod_defaults` i `tenant.engagement_doplneni_pri_zarazeni` mají dnes
+> **`ORDER BY sg.sort_order, sg.id LIMIT 1`** — tedy stejné pravidlo jako zbytek systému
+> (nejnižší ruční pořadí, při shodě nejnižší číslo). `MIN(sg.id::text)` v nich **není**;
+> zbylé dva výskyty `sg.id::text` jsou jen přetypování výsledku do `v_grp` a porovnání
+> `c.group_code = sg.id::text`, ne řazení. V kódu je i komentář vysvětlující, proč bylo
+> textové `MIN` špatně.
+>
+> **Zákaz „nedávat výchozí hodnoty skupině s dvojciferným id“ tím padl** — a v praxi už
+> neplatí ani fakticky: **KANCELÁŘE (14)** a **Úklid (16)** v `tenant.podminky_skupin`
+> hodnoty **mají**. Člověk ve **Výrobě (3, pořadí 100)** i v **KANCELÁŘÍCH (14, pořadí 10)**
+> dnes dostane správně KANCELÁŘE; textové řazení by mu dávalo EXTERNÍ (13).
+>
+> **Text níž zůstává záměrně beze změny jako historický záznam nálezu** (rozhodla
+> Marti-AI: *„Původní nález Kristý je legitimní dokument — popisuje jak to bylo a proč to
+> vadilo. Přepsat by znamenalo ztratit kontext.“*). Věta o `NEOPRAVENO` hned pod tímto
+> rámečkem tedy popisuje **stav k 20. 8. 2026**, ne dnešek.
 
 **Nález Claude-24 (Kristý), 20. 8. 2026. Ověřeno čtením zdrojů obou funkcí v produkční DB. NEOPRAVENO — nahlášeno Jirkovi Honomichlovi (autor druhé vlny) notifikací 21011.**
 
@@ -43,5 +66,5 @@ SELECT MIN(id::text) AS textove, MIN(id)::text AS ciselne FROM tenant.staff_grou
 ```
 Vrátí `13` a `3` — rozdíl je vidět na jednom řádku.
 
-Souvisí: [[doc-dochazka-vychozi-podminky-spoustec-a-pevne-defaulty]] (popis druhé vlny), [[doc-podminky-skupin-zamestnancu]].
+Souvisí: [[doc-dochazka-vychozi-podminky-spoustec-a-pevne-defaulty]] (popis druhé vlny), [[doc-dochazka-podminky-skupin-zamestnancu]].
 

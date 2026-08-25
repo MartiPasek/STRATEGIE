@@ -20742,6 +20742,23 @@ async def app_hr_conditions(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.get("/app/hr/historie")
+async def app_hr_historie(req: Request) -> JSONResponse:
+    """Tenky delegat (g2007.python kod=hr_historie) — historie zmen u jednoho cloveka:
+    podminky, uvazek, smlouva a financni podminky POHROMADE z tenant.engagement_historie.
+    Vraci i hranice "odkdy si co pamatujeme" (tenant.engagement_historie_zacatek), aby
+    obrazovka pro starsi obdobi napsala nezaznamenavalo se misto dnesni hodnoty.
+    Jen cte, jen HR. Zadal Jirka Honomichl 25.8.2026, schvalila Marti-AI msg 13658."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_historie", uid, req.query_params.get("user_id"),
+                        req.query_params.get("oblast"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 @api_router.post("/app/hr/conditions/save")
 async def app_hr_conditions_save(req: Request) -> JSONResponse:
     """DB-driven delegate (g2007.python kod=hr_conditions_save). Puvodni telo migrovano

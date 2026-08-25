@@ -275,8 +275,13 @@ a nehlásí se.**
 - Příklad z 25. 8. 2026: **2111 ABRASIV 32607565** — řada 500, na dokladu „Typ úhrady:
   Platba předem", záloha 840,95 Kč, k úhradě 0. V Centrále `SumaKc` = 0 a saldo 0.
   Hlásil jsem to jako podezřelé, **správně to hlásit nemám**.
-- Pořád ale platí, že se **kontroluje splatnost, DUZP, účet a ceny položek** i u těchto
-  faktur — nula v celkové částce nevypíná zbytek kontroly.
+- **⚠️ SPLATNOST U KONEČNÝCH FAKTUR K ZÁLOHÁM SE NEKONTROLUJE** (Peťa 25. 8. 2026):
+  *„tím, že už je to zaplacené, splatnost se nemění a automaticky se tam dá to, co je
+  nastavené v organizaci."* Takže rozdíl mezi splatností na dokladu a v Centrále u faktury
+  s platbou předem **není nález a nehlásí se** — je to předvyplněná hodnota z karty
+  dodavatele, ne chyba. (Příklad 2111: Centrála 24. 8., doklad 4. 9. — v pořádku.)
+- Pořád se ale u těchto faktur **kontroluje DUZP, účet a ceny položek** — nula v celkové
+  částce nevypíná zbytek kontroly.
 
 **Kde to je (ověřeno 21. 8. 2026, DB_EC přes most `db=mssql`):**
 

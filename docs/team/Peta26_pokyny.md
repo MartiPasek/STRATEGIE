@@ -265,7 +265,7 @@ Když se platí předem, není to jeden doklad, ale **řetěz tří** (prostřed
 | Krok | Řada dokladu | Co to je a co tam musí být |
 |---|---|---|
 | 1. Záloha | **530** | Zálohová / proforma faktura. Musí mít vybraný **účetní řádek „záloha - proforma Fa 314100"**, zakázku **`Rezie`** (bez háčku) a **v textu náš popis, za co to je**. Když k tomu existuje naše objednávka, **musí tam být její číslo**. |
-| 2. Doklad o platbě | **520** | Potvrzení, že se zaplatilo. **Není vždycky.** Páruje se s dokladem 530. |
+| 2. Doklad o platbě | **520** | Potvrzení, že se zaplatilo. **Není vždycky** — ale když existuje, musí mít vybraný účetní řádek **„záloha - potvrzení přijetí platby 314000"**. Páruje se s dokladem 530. |
 | 3. Konečná faktura | **500** | Už je **na konkrétní díly a vzniká z příjemky**. Provazuje se s **530** (když nic jiného není), jinak s **520**. |
 
 **Proto má konečná faktura v saldu 0** — je krytá tou zálohou, není co doplácet. To samé

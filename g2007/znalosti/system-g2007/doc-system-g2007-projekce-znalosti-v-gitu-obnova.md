@@ -1,4 +1,4 @@
-# Projekce znalostí do gitu (obnova přes /g2007/export?git=1) — nyní i s pastmi: sekundár bez git identity, souběžný push
+# Projekce znalostí do gitu (obnova přes /g2007/export?git=1) — nyní i s pastmi: sekundár bez git identity, souběžný push, osiřelé soubory
 
 > oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -74,4 +74,37 @@ ne az lokalnim pullem.
 
 Spoustet po vetsi davce zapisu do G2007 (napr. na konci session), ne po kazde znalosti.
 Do te doby plati - **znalost cti z DB, ne ze souboru**.
+
+## ⚠️ Export soubory JEN prepisuje a pridava — NIKDY NEMAZE
+
+Zjištěno **25. 8. 2026** (Claude-28, na závěr session Jirky Honomichla, schválila
+Marti-AI msg 13682). Je to rub té vlastnosti, která chrání cizí práci: nástroj sahne jen na
+`g2007` a nic nemaze, takže **když znalost přejmenuješ nebo zrušíš, její starý soubor
+zůstane v gitu ležet** — se starým obsahem a bez jakéhokoli varování.
+
+**Příklad z 25. 8. 2026:** přejmenování `doc-podminky-skupin-zamestnancu`
+→ `doc-dochazka-podminky-skupin-zamestnancu` (nestandardní kód, viz
+[[doc-system-g2007-prejmenovani-kodu-znalosti-postup]]). Po exportu ležely v projekci
+**oba soubory vedle sebe** a ten starý nesl neaktuální text. Smažen ručně, commit `1b41e719`.
+
+### Jak sirotky najdeš
+
+Stáhni si seznam kódů z DB a porovnej ho se seznamem souborů — **lokálně**, ne dotazem
+s `VALUES`: hlídač mostu takový dotaz odmítne, protože mezi kódy znalostí jsou řetězce,
+které vypadají jako zakázaná klíčová slova.
+
+```
+SELECT z.kod FROM g2007.znalost z ORDER BY z.kod;      -- pres most
+ls g2007/znalosti/*/*.md | sed 's#.*/##; s#\.md$##'    -- na disku
+```
+Rozdíl obou množin = sirotci (soubor je, znalost není) a chybějící (znalost je, soubor ne).
+
+**Stav k 25. 8. 2026:** 521 znalostí v DB, 525 souborů v projekci, **0 chybějících**, 4 sirotci —
+jeden dnešní (smažen) a tři starší: `doc-mzdy-mzdy-podklad-zdroj-pravdy`,
+`doc-mzdy-vyhodnoceni-zakazek`, `doc-system-g2007-120-claude-zevnitr-co-chybi`.
+**Ty tři záměrně smažené nejsou** — Marti-AI: mohly zmizet z DB záměrně (sloučeny, deprecated)
+i omýlem, a bez znalosti příčiny se nemají mazat. Čeká na Jirku nebo Martiho.
+
+**Pravidlo:** kdykoli znalost přejmenuješ nebo zrušíš, **smaž její starý soubor z gitu ručně**
+— export to za tebe neudělá.
 

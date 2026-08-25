@@ -193,7 +193,7 @@ rozhodne, jestli a s kým to řešit.
 Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přiloženo v PDF."*
 
 **Co porovnávat:** DUZP · splatnost (jiná data ne) · číslo účtu · částky u položek ·
-kurz · **celková cena**.
+kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 níže).
 
 **Dvě pravidla, jak to hlásit** (Peťa 21. 8., *„zapomněla jsem říct"*):
 
@@ -211,6 +211,25 @@ kurz · **celková cena**.
    Poznávací znamení: víc faktur naráz má v Centrále **stejné DUZP**, zatímco na dokladech
    mají různá data (příklad 21. 8. 2026: faktury 2089–2094 od Siemens AG, doklady z 5.–6. 2026,
    v Centrále všechny DUZP 1. 8. 2026).
+
+4. **💰 SKONTO — kontroluje se, jestli ho kolegyně nezapomněla zadat** (Peťa 25. 8. 2026).
+   Peťa: *„až na nějaké výjimky z 99,9 % chceme platit včas a se skontem."* Když dodavatel
+   na faktuře nabízí skonto (sleva za dřívější platbu), má být v Centrále:
+   - **splatnost = datum se skontem** (ten dřívější termín), NE plná lhůta, a
+   - **vyplněná částka skonta** ve sloupci „Skonto".
+
+   **Kde to je:** tabulka **`TabScontoFaktury`** (`S.IDFak = TabDokladyZbozi.ID`) —
+   `CastkaMena` = částka skonta v měně faktury („Skonto"), `Datum_X` = datum, do kdy skonto
+   platí („SkontoDo"), `Sazba` = procento (**může být 0, když se zadá rovnou částkou** —
+   příklad 2104 Eberhard: Skonto 0,57 EUR, Sazba 0,00; naopak 2112 a 2114 mají Sazbu 2,00).
+   V přehledu 2300 jsou to sloupce **Sk… / Skonto** vpravo vedle Splatnosti.
+
+   **Takže při kontrole:** když je na PDF skonto a v `TabScontoFaktury` nic není (nebo je
+   splatnost nastavená na plnou lhůtu místo skontové), **je to nález — nahlásit.**
+   Když skonto vyplněné je a datum sedí, je to v pořádku a nekomentovat.
+   ⚠️ Chyba z 25. 8. 2026: u 2104 jsem hlásil „hlídej si, ať se skonto neztratí", přestože
+   bylo řádně vyplněné — jen jsem se nepodíval do `TabScontoFaktury`. **Podívej se tam vždycky,
+   než něco kolem skonta napíšeš.**
 
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 

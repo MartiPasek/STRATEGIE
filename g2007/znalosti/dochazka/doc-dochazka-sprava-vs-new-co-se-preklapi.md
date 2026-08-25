@@ -70,4 +70,47 @@ otevření stránky. Žádná noční úloha, není co selhat. Databáze běží
   (`engagement_entitlement`) v DB jsou, jen je nikdo nespojil. Porovnáno s tabulkou od Šárky:
   **60 z 62 lidí sedí** (neshoda jen u dvou nováčků, kterým Šárka krátí nárok podle nástupu).
   Proto přepočet mění jen `cerpano_h`, `zbytek_h` se schválně nesahá.
+## DOPLNĚNO 25. 8. 2026 — pravidlo o home office se rok nedodržovalo (Peťa + Claude-26)
+
+Pravidlo z tabulky výše (*„home office se do Docházky new nepřeklápí, schválně"*) **v přehledu
+„vše" nikdy zapojené nebylo.** Ohlášení home office tam visela mezi odpracovanou prací.
+
+### Jak se ohlášení pozná — PODLE DAT, ne podle značky
+
+| Co to je | Jak vypadá v datech | Kam patří |
+|---|---|---|
+| **Ohlášení** „nebudu v práci, budu doma" | typ home office, **bez hodin i bez času** | jen Správa docházky, tam šedě |
+| **Reálně odpracovaný home office** | typ home office, **má čas nebo hodiny** | Docházka new i Opravy — edituje se a počítá |
+
+**Proč podle dat a ne podle značky původu:** mobilní aplikace značku `ohlaseni` často nezapíše.
+24. a 25. 8. 2026 tak přibylo **pět ohlášení Veverkových** úplně bez značky — a ta by přes
+kontrolu podle značky prošla. Rozlišení podle dat funguje vždycky, bez ohledu na to,
+co appka zapíše.
+
+### Kde to je zapojené (tři místa, každé jinak)
+
+- **Opravy docházky** (`att_fix_day`) — vylučuje podle **značky** (`absence_req`, `ohlaseni`), od 19. 8. 2026
+- **Správa docházky** (`dochazka.zakazky_budoucnost_list`) — podle **značky**, od 19. 8. 2026
+- **Docházka new** (`dochazka.zakazky_vse_list`) — podle **dat** (bez hodin a bez času), **od 25. 8. 2026**
+
+Hlídá to pojistka **`ho-ohlaseni-nepatri-do-oprav`** (kontroluje všechna tři místa)
+a **`ho-ohlaseni-z-mobilu-ma-znacku`** (že nová ohlášení dostávají značku).
+
+### Gotcha, která to způsobila
+
+24. 8. 2026 se filtr doplňoval do obou přehledů příkazem, který **nahrazuje text**. Do přehledu
+„budoucnost" se doplnil, do „vše" ne — ten hledaný text tam totiž vůbec nebyl (přehled „vše"
+má úplně jinou podmínku). Příkaz přesto ohlásil **„2 řádky dotčeny"**, protože se řádků
+opravdu dotkl, jen v jednom nic nezměnil.
+
+> **Poučení:** „N řádků dotčeno" u příkazu s nahrazením textu **neznamená, že se něco změnilo.**
+> Vždy ověřit čtením, že tam nová podoba opravdu je. Tahle chyba stála týden, kdy pojistka
+> neexistovala a nikdo o tom nevěděl.
+
+### Zálohy
+
+`tenant.zaloha_data_set_vse_20260825` (definice přehledu před změnou),
+`tenant.zaloha_ho_ohlaseni_20260825` (pět záznamů před doplněním značky),
+`tenant.zaloha_ho_ohlaseni_20260824` (17 záznamů z pondělní opravy).
+
 

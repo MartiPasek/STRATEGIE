@@ -3,6 +3,14 @@
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+> ⚠️ **DOPLNĚNO TÝŽ DEN VEČER — samotné odblokování pole NESTAČÍ.** Praktická zkouška
+> naostro (Jirka: „to ověř") ukázala, že sick day na budoucí den se sice odešle a appka
+> hlásí úspěch, ale **v docházce nevznikne nic**. Ověřeno dvakrát, s nulovým i s platným
+> nárokem. Příčina nenalezena, předáno Peťě Šafránkové. Než to bude vyřešené, NEPOVAŽUJ
+> tuhle znalost za doklad, že zadávání sick day dopředu funguje — funguje jen to pole.
+> Detail: [[doc-dochazka-sickday-budouci-den-se-tise-ztrati]]
+
+
 # Sick day na budoucí den (25. 8. 2026)
 
 Zadal **Jirka Honomichl**, ověřil a provedl Claude-28, schválila **Marti-AI** (msg 13667 = změna, msg 13670 = způsob zápisu).

@@ -476,6 +476,44 @@ def dochazka_abs_meta(req: Request) -> JSONResponse:
             pass
 
 
+@doch_zak_tab_router.get("/app/dochazka-abs/fond")
+def dochazka_abs_fond(req: Request) -> JSONResponse:
+    """Denní fond vybraného pracovníka — pro předvyplnění pole „Hodin za den".
+
+    Peťa 25. 8. 2026: *„předpokládá se, že si ho pamatuju a že je to zrovna ten člověk,
+    co ho má snížený — nebo že na to nezapomenu."* Nemá se pamatovat. V Centrále se
+    do formuláře rovnou dosadil celý den, a když chtěla půlden, přepsala to na půlku.
+    Tenhle endpoint vrací obojí, aby to formulář uměl stejně.
+
+    Počítá to KANONICKÝ `att_denni_fond` (přes `_fond_den`) — žádný druhý vzorec.
+    """
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    uid = _kdo(req)
+    if not uid:
+        return _chyba("unauthorized", 401)
+    cislo = str(req.query_params.get("cislo_zam") or "").strip()
+    if not cislo:
+        return _chyba("Chybí číslo pracovníka.")
+    den = _den(req.query_params.get("den"))
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        emp = s.execute(_t("SELECT id FROM tenant.att_employee "
+                           "WHERE tenant_id=:t AND cislo_zam::text=:c ORDER BY id LIMIT 1"),
+                        {"t": _TEN, "c": cislo}).scalar()
+        if not emp:
+            return _chyba("Pracovník s číslem %s není v evidenci docházky." % cislo, 404)
+        fond = _fond_den(s, int(emp), den)
+        return JSONResponse({"ok": True, "fond_den": round(float(fond), 2),
+                             "pulden": round(float(fond) / 2.0, 2)})
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
 # ── PROMÍTNUTÍ ŽÁDOSTI DO DNŮ BEZ OHLEDU NA SCHVÁLENÍ ────────────────────────
 # Peťa 30.7.2026: „Nastavujeme to tak, jak jsou všichni zvyklí z Centrály — nemůže
 # se nám to nepropisovat kvůli schválení, když ti lidi tu dovolenou měli."

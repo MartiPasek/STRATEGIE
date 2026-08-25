@@ -22,6 +22,29 @@ Závazně:
 - Platí dvojnásob u čísel, mezd, nároků a jmen. Peťa mi věří v oblastech, kde si to
   sama neověří — tím spíš tam nesmím hádat.
 
+## 🧾 NEPŘÍTOMNOST OSVČ JE JEN INFORMACE — NIKAM NEJDE (Peťa 25. 8. 2026)
+
+Peťa: *„už jsme to řešili asi šestkrát."* Proto to je tady natvrdo, ať se to neptá posedmé.
+
+**Nepřítomnost OSVČ (činnost 37) je u nás POUZE INFORMACE.** Nejde:
+
+- do mezd ani do mzdového podkladu (`mzdy_absence_rows` ji nezná a znát nemá),
+- do stravenek (OSVČ na ně nemá nárok, `mzdy_stravenky_rows` ji vyjmutou má),
+- do docházky vůbec — při importu z Centrály se **zahazuje** (`_DRUH_SKIP` obsahuje 37 a 54
+  v `g2007.python` kód `att_ec_druh_entry_type`).
+
+Slouží jen k tomu, aby bylo vidět, že OSVČ ten den nebyl. Nic se z ní nepočítá.
+
+### A při té příležitosti dovolená navíc a sick day (Peťa 25. 8. 2026)
+
+- **Dovolená navíc (činnost 30)** je v docházce samostatný řádek, ale **do mezd jde jako běžný
+  odpracovaný den** a **stravenka za ni náleží**. **NESMÍ se sčítat s řádnou dovolenou** do
+  složky 211 — do 25. 8. 2026 se sčítala, opraveno. Ověřeno v Centrále: tam si každá činnost
+  nese vlastní číslo pro mzdy (dovolená 20 zůstává 20, dovolená navíc 30 zůstává 30).
+- **Sick day (činnost 31)** taky jako odpracovaný den se stravenkou; do mzdového podkladu nejde.
+- Celý rozpis i s mzdovými složkami je v G2007:
+  `doc-dochazka-dovolena-navic-sickday-osvc-do-mezd`.
+
 ## 🎯 JEDEN JASNÝ ZDROJ PRAVDY — A NOVÝ SI NEVYMÝŠLÍM (Peťa 17. 8. 2026, ZÁVAZNÉ)
 
 Peťa: *„používáme jasně daný zdroj, a pokud není, nevytváříme ho bez jasné jednoznačné

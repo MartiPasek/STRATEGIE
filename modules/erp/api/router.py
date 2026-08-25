@@ -9857,20 +9857,18 @@ async def app_hr_employee_create(req: Request) -> JSONResponse:
             _zakl = 0.0 if _osvc else min(float(dovolena_dni), 20.0)
             _navic = float(dovolena_dni) - _zakl
             _pozn = "zadano pri zalozeni zamestnance v HR (13.8.2026+), rozpad dle pravidla (16.8.2026)"
-            for _kod, _hod in (("dovolena_zakladni_dni", _zakl),
-                               ("dovolena_navic_dni", _navic),
-                               ("dovolena_dni", float(dovolena_dni))):
-                _dv = ("%g" % _hod)
-                _n = s.execute(_t(
-                    "UPDATE tenant.staff_cond SET value=:v, note=:n, changed_by=:by, changed_at=now() "
-                    "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u AND cond_code=:c"),
-                    {"v": _dv, "u": new_uid, "by": uid, "c": _kod, "n": _pozn}).rowcount or 0
-                if _n == 0:
-                    s.execute(_t(
-                        "INSERT INTO tenant.staff_cond (tenant_id, scope_kind, user_id, cond_code, "
-                        " value, note, changed_by, changed_at) "
-                        "VALUES (2, 'user', :u, :c, :v, :n, :by, now())"),
-                        {"u": new_uid, "v": _dv, "by": uid, "c": _kod, "n": _pozn})
+            s.execute(_t(
+                "UPDATE tenant.engagement g SET "
+                " pod_dovolena_zakladni_dni = :z, pod_dovolena_navic_dni = :n, "
+                " pod_meta = COALESCE(g.pod_meta, '{}'::jsonb) "
+                "   || jsonb_build_object('dovolena_zakladni_dni', jsonb_build_object("
+                "        'id', nextval('tenant.staff_cond_id_seq'), 'note', :p, 'by', :by, 'at', now())) "
+                "   || jsonb_build_object('dovolena_navic_dni', jsonb_build_object("
+                "        'id', nextval('tenant.staff_cond_id_seq'), 'note', :p, 'by', :by, 'at', now())) "
+                "FROM tenant.att_employee em "
+                "WHERE em.id = g.employee_id AND em.tenant_id = g.tenant_id "
+                "  AND em.user_id = :u AND g.tenant_id = 2 AND g.is_current"),
+                {"z": _zakl, "n": _navic, "p": _pozn, "by": uid, "u": new_uid})
         s.commit()
 
         # notifikace: Petra (mzdy) + HR skupina/rodiče. Best-effort (nesmí shodit založení).

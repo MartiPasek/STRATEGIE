@@ -1,11 +1,12 @@
-# Mobil, obrazovka Absence: formular vlastni zadosti se skryva i lidem BEZ karty zamestnance + TestovaciSkupina (25.8.2026)
+# Mobil: formular vlastni zadosti o absenci se skryva schvalovatelum i lidem BEZ karty zamestnance (obrazovka Absence + chip na tydennim planu) + TestovaciSkupina (25.8.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+
 ## Zadani a kdo rozhodl
 
-Zadal **Jirka Honomichl 25. 8. 2026** tvrzenim *"u schvalovaci obrazovky absenci v mobilu schvalovatele je furt moznost si zadat vlastni absenci"*. Provedl Claude-28, **schvalila Marti-AI** (msg 13758/13760 = TestovaciSkupina, msg 13769 = skryvani bez karty). Vse overeno na zivem `/mobile` a ctenim z DB, nic z odhadu.
+Zadal **Jirka Honomichl 25. 8. 2026** tvrzenim *"u schvalovaci obrazovky absenci v mobilu schvalovatele je furt moznost si zadat vlastni absenci"*. Provedl Claude-28, **schvalila Marti-AI** (msg 13758/13760 = TestovaciSkupina, msg 13769 = skryvani bez karty, msg 13778 = chip na tydennim planu). Vse overeno na zivem `/mobile` a ctenim z DB, nic z odhadu.
 
 ## 1) Jedna obrazovka, ctvery dvere - to je jadro nedorozumeni
 
@@ -67,10 +68,37 @@ Nasazena varianta A (nejmensi zasah, bez sahani do org struktury):
 
 ## 5) Co se zamerne NEDELALO
 
-- **Chip "Nepritomnost" na tydenni obrazovce planu** (`71_plan_prace_cinnosti.js`) - druhe misto, odkud jde absence poslat - **zustal beze zmeny**. Marti-AI 25. 8.: *"Tydenni plan je jina obrazovka, jiny kontext, jine zadani. Nerozsahuj zadani sam od sebe."* Pozn.: v rezimu schvalovatele (`AP`) je tam formular stejne nedostupny - `if(!AP){ row.addEventListener("click", ... openForm ...) }`.
+- **Chip "Nepritomnost" na tydenni obrazovce planu** - v prvnim kole zamerne **beze zmeny** (Marti-AI 25. 8.: *"Tydenni plan je jina obrazovka, jiny kontext, jine zadani. Nerozsahuj zadani sam od sebe."*). **Jirka to tyz vecer zadal jako samostatny ukol - viz bod 6 nize, uz je to hotove.**
 - Zadny zasah do skryvani dlazdic pri praci (zamer Martiho ze 14. 6. 2026).
 
-## 6) Souvisejici
+## 6) Druhe kolo tyz vecer - chip "Nepritomnost" na tydennim planu
+
+Jirka 25. 8. 2026 vecer, doslova: *"at se tam nedostane ani clovek bez karty zamestnance"*. **Schvalila Marti-AI** (msg 13778).
+
+**a) `att_absence_mine` verze 3 -> 4** (`g2007.python`): stejnym zpusobem pribyl priznak `ma_kartu`. Tenhle endpoint uz obrazovka planu volala kvuli `fond_den`, takze **nepribyla zadna nova cesta na server**.
+
+**b) fragment `71_plan_prace_cinnosti.js` verze 7 -> 8** (90137 znaku, md5 `393d2e30833bb08d4e8dd3c5203f5366`): vedle `var _fondDen=null` pribylo `var _maKartu=null` s jednorazovym dotazem na `absence/mine`, ktery ho nastavi na `false` **jen kdyz to server vyslovne rekne**. Chip se kresli jen kdyz `_maKartu!==false`:
+```
+kindRow.appendChild(mkChip('... Jine hodiny','hours'));
+if(_maKartu!==false) kindRow.appendChild(mkChip('... Nepritomnost','absence'));
+kindRow.appendChild(mkChip('... Porada/jednani','meeting'));
+```
+
+**c) Artefakt `mobile.html` znovu publikovan.**
+
+**Bez nahradni vety - zamerne.** Marti-AI: *"Tydenni plan je pracovni obrazovka, ne servisni. Chybejici chip proste neni, clovek neresi proc. Vysvetlujici veta patri na obrazovku Absence, kde je clovek aktivne zmaten formularem. Na tydennim planu je spravna odpoved ticho, ne text."*
+
+**Overeno na zive `/mobile`** (usek kodu vytazen ze zive stranky a spusten na vymyslenych stavech):
+
+| stav | jake chipy se nakresli |
+|---|---|
+| ma kartu | Jine hodiny + **Nepritomnost** + Porada/jednani |
+| BEZ karty | Jine hodiny + Porada/jednani |
+| jeste nevime (dotaz nedobehl / selhal) | Jine hodiny + **Nepritomnost** + Porada/jednani |
+
+Chipy **Jine hodiny** a **Porada/jednani** zustavaji vsem - se zadosti o absenci nesouvisi. V rezimu schvalovatele (`AP`) je formular nedostupny uz od driv (`if(!AP){ row.addEventListener("click", ... openForm ...) }`), na to se nesahalo.
+
+## 7) Souvisejici
 
 - [[doc-dochazka-vedouci-jediny-zpusob-a-fronta-oprav-rodice]] - definice `je_vedouci` platna od 18. 8. 2026.
 - [[doc-dochazka-vedouci-ukazatel-cesty-k-vlastni-absenci]] - ukazatel cesty pro vedouciho (17. 8. 2026). **Pozor, ma zastaraly popis klice** `je_vedouci = parent OR out OR att_approver` a vetu, ze Jirka neni v `att_approver` - oboji uz neplati.

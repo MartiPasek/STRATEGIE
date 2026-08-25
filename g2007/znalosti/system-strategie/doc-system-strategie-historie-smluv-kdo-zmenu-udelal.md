@@ -61,11 +61,41 @@ Poučení: než něco označíš za „chybějící data", přečti si, **co v t
 ## Kde se to dá vidět (a kde ne)
 
 - **Karta zaměstnance → Historie změn (N)** ukazuje seznam verzí poměru a u nich jméno — bere se ze `engagement.changed_by_text`, ne z téhle tabulky.
-- **`tenant.engagement_historie`** (podrobnost po jednotlivých sloupcích) **nemá v aplikaci žádnou obrazovku** — ověřeno, že ji nečte ani jeden živý skript ani nic v repu. Autor se do ní od 24. 8. zapisuje, ale podívat se na to jde zatím jen dotazem do databáze.
+- **`tenant.engagement_historie`** (podrobnost po jednotlivých sloupcích) **měla obrazovku až od 25. 8. 2026** — do té doby ji nečetl ani jeden živý skript ani nic v repu — ověřeno, že ji nečte ani jeden živý skript ani nic v repu. Autor se do ní od 24. 8. zapisuje, ale podívat se na to jde zatím jen dotazem do databáze.
 
 ## Ověřeno naostro 24. 8. 2026
 
 Zkouška na Jirkovi: šest nových řádků historie, **u všech `kdo` = 20 (Jiří Honomichl)** — tři z cesty v jádru (uložení karty) a tři ze společného jádra (nová verze). Před opravou by tam bylo prázdno. Vše po zkoušce uklizeno a data vrácena do původního stavu.
+
+## DOPLNĚNO 25. 8. 2026 — přibyla obrazovka a dvě další cesty
+
+**Zadal Jirka Honomichl, schválila Marti-AI (msg 13658).**
+
+1. **Tahle tabulka už obrazovku má.** V kartě zaměstnance je sekce **🕓 Historie změn**
+   (živý kód `g2007.python` kód `hr_historie`, endpoint `GET /app/hr/historie`) se třemi
+   pohledy: časová osa, tabulka vývoje a stav k datu. Věta výše o „žádné obrazovce"
+   platila jen do 24. 8. 2026.
+
+2. **Do téže tabulky nově zapisují i finanční podmínky.** Přibyl spouštěč
+   `trg_wage_component_historie` nad `tenant.wage_component` — do 25. 8. 2026 neměly mzdové
+   složky žádnou historii, držel se jen poslední stav. Řádky se poznají podle `oblast='finance'`.
+
+3. **Dopadová mapa se rozšířila o dvě cesty**, obě v jádru a obě volají `_set_actor(s, uid)`:
+
+| kde | co dělá | kdo za tím stojí |
+|---|---|---|
+| `app_hr_finance_slozka_save` (jádro) | uložení / přidání mzdové složky | člověk |
+| `app_hr_finance_slozka_smazat` (jádro) | smazání mzdové složky | člověk |
+
+**Ověřeno naostro 25. 8. 2026:** složka založena i smazána ostrým endpointem z prohlížeče,
+v obou řádcích historie `kdo = 20 (Jiří Honomichl)`. Před opravou by tam bylo prázdno.
+Testovací řádky uklizeny.
+
+**Poučení, které z toho plyne:** prázdný autor dnes už neznamená „nevíme" u běžné práce
+v aplikaci — znamená **zápis mimo aplikaci**, typicky přes SQL most. U řádků starších
+než 24. 8. 2026 autor chybí vždy.
+
+Detail: [[doc-dochazka-historie-podminek-uvazku-smluv-financi]]
 
 Souvisí: [[doc-dochazka-smlouva-nova-verze-rucne]] · [[doc-system-strategie-podminky-vychozi-na-sirku-a-historie-zmen]] · [[doc-dochazka-podminky-slouceny-se-smlouvou]]
 

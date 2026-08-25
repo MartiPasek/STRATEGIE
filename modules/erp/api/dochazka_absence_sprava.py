@@ -571,6 +571,33 @@ def _sd_check(emp, typ_code, hpd, den=None):
     return r.get("error") or "Neplatný počet hodin sick day."
 
 
+def _hpd_check(s, emp, typ_code, hpd, den=None, ma_cas=False):
+    """Absence jen na CELÝ nebo PŮL dne podle úvazku (Peťa 25. 8. 2026).
+
+    Peťa: „žádný jiný než jak to má být nemůže existovat." Do 25. 8. 2026 šlo do pole
+    „Hodin za den" napsat cokoli — Dvořákové (denní fond 6 h) tak prošlo 8 h a později
+    4 h. Prázdné pole se dopočítá z úvazku (`_fond_den`), tohle hlídá ručně vyplněnou
+    hodnotu.
+
+    Výjimka Lékař a obecně záznam se skutečným časem — tam se hodiny počítají z časů
+    od–do a na půlden se zaokrouhlovat nesmí.
+
+    Pravidlo ŽIJE V DATABÁZI (g2007.python kód=att_absence_hpd_kontrola), stejně jako
+    `_sd_check`, aby se dalo změnit i vypnout za běhu. Tady je jen dotaz.
+
+    Vrací text chyby, nebo None když je vše v pořádku.
+    """
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        r = _ereg.call("att_absence_hpd_kontrola", emp, typ_code, hpd,
+                       den.isoformat() if den else None, bool(ma_cas)) or {}
+    except Exception:
+        return None  # kontrola nikdy nesmí shodit samotný zápis
+    if r.get("ok", True):
+        return None
+    return r.get("error") or "Neplatný počet hodin absence."
+
+
 def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix", zad_id=None,
                schvaleno=True, cas_od=None, cas_do=None):
     """Založí absenční denní záznamy na pracovní dny rozsahu. Vrací počet dnů.
@@ -856,6 +883,9 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
             chyba_sd = _sd_check(emp, typ, hpd, d_od)
             if chyba_sd:
                 return _chyba(chyba_sd)
+            chyba_h = _hpd_check(s, emp, typ, hpd, d_od, bool(c_od and c_do))
+            if chyba_h:
+                return _chyba(chyba_h)
             zam = _zamek(s, [r[1], r[2], d_od, d_do])
             if zam:
                 return _chyba(zam, 409)
@@ -897,6 +927,9 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         chyba_sd = _sd_check(emp, typ, hpd, d_od)
         if chyba_sd:
             return _chyba(chyba_sd)
+        chyba_h = _hpd_check(s, emp, typ, hpd, d_od, bool(c_od and c_do))
+        if chyba_h:
+            return _chyba(chyba_h)
         stare = [r[2] for r in rows]
         zam = _zamek(s, stare + [d_od, d_do])
         if zam:
@@ -995,6 +1028,9 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         chyba_sd = _sd_check(emp, typ, hpd, d_od)
         if chyba_sd:
             return _chyba(chyba_sd)
+        chyba_h = _hpd_check(s, emp, typ, hpd, d_od, bool(c_od and c_do))
+        if chyba_h:
+            return _chyba(chyba_h)
         bad = _smi(s, uid, emp)
         if bad:
             return _chyba(bad[0], bad[1])

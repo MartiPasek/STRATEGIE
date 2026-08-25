@@ -20754,7 +20754,7 @@ async def app_hr_historie(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from modules.erp.api import erp_registry as _ereg
     result = _ereg.call("hr_historie", uid, req.query_params.get("user_id"),
-                        req.query_params.get("oblast"))
+                        req.query_params.get("oblast"), req.query_params.get("datum"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

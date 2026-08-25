@@ -40607,8 +40607,10 @@ def _import_centrala_gate(sql: str, nazev: str, dopad: str) -> dict:
     """
     if "POTVRZUJI" in (sql or "").upper():
         return None
+    # Text MUSÍ jít v poli "error" — jinak ho most zobrazí jen jako "neznámá chyba"
+    # a varování se k člověku vůbec nedostane (ověřeno naostro 25.8.2026).
     return {"ok": False, "potvrzeni_chybi": True, "prikaz": nazev,
-            "varovani": (
+            "error": (
                 "⚠️ POZOR — ruční spuštění importu ze STARÉ CENTRÁLY (%s).\n\n"
                 "CO SE STANE:\n%s\n"
                 "PROČ TO DNES SPÍŠ UŠKODÍ:\n"

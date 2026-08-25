@@ -482,6 +482,13 @@
   }
 
   function _opsConfirm(a) {
+    // Akce s vlastním varováním (server posílá pole "warning") ukáže konkrétní text,
+    // co provede, místo obecné věty o auditu — a potvrzovací tlačítko je červené.
+    // Jirka 25.8.2026, schválila Marti-AI msg 13706.
+    if (a.warning) {
+      _dialog(a.label + "?", a.warning, function () { _opsDo(a); }, "Ano, pokračovat");
+      return;
+    }
     _dialog(
       a.label + "?",
       "Spustí pojmenovanou ops akci na cíli „" + a.target + "“. " +
@@ -655,7 +662,10 @@
     document.body.appendChild(ov);
   }
 
-  function _dialog(title, msg, onOk) {
+  // okLabel (volitelné, Jirka 25.8.2026, schválila Marti-AI msg 13706): přebije
+  // výchozí "🚀 Nasadit" u potvrzení, které není deploy (např. varování před
+  // importem ze staré Centrály). Bez něj se dialog chová přesně jako dosud.
+  function _dialog(title, msg, onOk, okLabel) {
     var ov = document.createElement("div");
     ov.style.cssText =
       "position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,0.55);" +
@@ -676,8 +686,9 @@
     if (onOk) {
       // Marti 3.6.2026: primární "🚀 Nasadit" PRVNÍ (vlevo), "Zrušit" druhé.
       var ok = document.createElement("button");
-      ok.type = "button"; ok.textContent = "🚀 Nasadit";
-      ok.style.cssText = "padding:8px 16px;background:#3a7a3a;border:none;border-radius:4px;color:#fff;font-weight:600;cursor:pointer;font-size:13px;";
+      ok.type = "button"; ok.textContent = okLabel || "🚀 Nasadit";
+      ok.style.cssText = "padding:8px 16px;background:" + (okLabel ? "#8a3a3a" : "#3a7a3a") +
+        ";border:none;border-radius:4px;color:#fff;font-weight:600;cursor:pointer;font-size:13px;";
       ok.addEventListener("click", function () { _close(); onOk(); });
       row.appendChild(ok);
       var cancel = document.createElement("button");

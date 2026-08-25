@@ -40596,6 +40596,32 @@ async def hlas_voice_completions(req: Request) -> Any:
 
 
 @api_router.post("/diag-sql")
+def _import_centrala_gate(sql: str, nazev: str, dopad: str) -> dict:
+    """Varování před ručním spuštěním importu ze staré Centrály přes most.
+
+    Zadal Jirka Honomichl 25.8.2026, schválila Marti-AI (msg 13706). Automatická
+    hlídka `_maybe_sync_ec_dochazka` je pozastavená od 30.7.2026, ale @@ příkazy
+    import spustí ručně. V mostu nejde vyskočit dialog, takže ekvivalent je:
+    bez slova POTVRZUJI se import NESPUSTÍ a vrátí se varování s dopadem.
+
+    Vrací dict s varováním (= nespouštět), nebo None (= potvrzeno, pokračuj).
+    """
+    if "POTVRZUJI" in (sql or "").upper():
+        return None
+    return {"ok": False, "potvrzeni_chybi": True, "prikaz": nazev,
+            "varovani": (
+                "⚠️ POZOR — ruční spuštění importu ze STARÉ CENTRÁLY (%s).\n\n"
+                "CO SE STANE:\n%s\n"
+                "PROČ TO DNES SPÍŠ UŠKODÍ:\n"
+                "Ve staré Centrále se od 11. 8. 2026 už nepíchá. Import proto přinese "
+                "ZASTARALÝ stav a přepíše jím to, co je dnes ve STRATEGII.\n"
+                "Automatický import je pozastavený od 30. 7. 2026 — tímhle příkazem "
+                "ho spouštíš ručně.\n\n"
+                "CHCEŠ-LI PŘESTO POKRAČOVAT:\n"
+                "zopakuj tentýž příkaz a přidej na konec slovo POTVRZUJI.\n"
+                "Nechceš-li, prostě nic nedělej — nic se nespustilo." % (nazev, dopad))}
+
+
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):
     read-only diagnostický SQL proti PRODUKCI přes existující tooly —
@@ -42524,7 +42550,22 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@VYRWSYNC"):
         parts = sql.split()
         _dry = any(p.lower() == "dry" for p in parts[1:])
-        _args = [p for p in parts[1:] if p.lower() != "dry"]
+        _args = [p for p in parts[1:] if p.lower() not in ("dry", "potvrzuji")]
+        # Náhled (dry) nic nezapisuje → varování nepotřebuje. Ostrý běh ano.
+        if not _dry:
+            _g = _import_centrala_gate(
+                sql, "@@VYRWSYNC",
+                "• Přepíše rozpad práce na zakázky (čas + zakázka) u záznamů "
+                "pocházejících z Centrály — podle toho, co je v Centrále.\n"
+                "• RUČNÍ OPRAVY času nebo zakázky u těchto záznamů se tím ZTRATÍ. "
+                "Ochrana proti tomu neexistuje (na rozdíl od docházky, kde ji "
+                "ručně opravené řádky mají).\n"
+                "• Bez uvedení rozsahu jede za poslední 3 dny.\n"
+                "• Nic nemaže, jen přepisuje.\n\n"
+                "BEZPEČNÁ VARIANTA:\n"
+                "„@@VYRWSYNC dry\" ukáže náhled a nic nezapíše.\n")
+            if _g:
+                return JSONResponse(_g)
         _frm = _args[0] if len(_args) > 0 else None
         _to = _args[1] if len(_args) > 1 else None
         _ec = _sync_vyroba_work_ec(frm=_frm, to=_to, dry_run=_dry)
@@ -42536,7 +42577,19 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@DOCHRESYNC <od> <do>  → wipe + re-import EC_Dochazka → att_entry za rozsah (opravená
     #   klasifikace absencí DruhCinnosti). Naše app záznamy (source_system!=centrala1) zůstanou. Kristý 29.7.2026
     if sql.upper().startswith("@@DOCHRESYNC"):
-        parts = sql.split()
+        parts = [p for p in sql.split() if p.upper() != "POTVRZUJI"]
+        _g = _import_centrala_gate(
+            sql, "@@DOCHRESYNC",
+            "• SMAŽE veškerou docházku pocházející z Centrály v zadaném rozsahu "
+            "a naimportuje ji znovu.\n"
+            "• Sáhne i do UZAVŘENÝCH měsíců — tento import zámek období "
+            "NEKONTROLUJE. (Uzavřeno je leden až červenec 2026.)\n"
+            "• Ručně opravené záznamy jsou chráněné a smazání se jich netkne.\n"
+            "• Vlastní píchnutí ze STRATEGIE (mobil, opravy) zůstávají.\n"
+            "  Měřeno 25. 8. 2026: v sázce bylo 20 436 záznamů u 66 lidí, "
+            "chráněných 38 u 12 lidí.\n")
+        if _g:
+            return JSONResponse(_g)
         _frm = parts[1] if len(parts) > 1 else None
         _to = parts[2] if len(parts) > 2 else None
         _r = _sync_ec_dochazka_recent(frm=_frm, to=_to, wipe=True)
@@ -45231,6 +45284,25 @@ _OPS_ACTIONS = {
     "att_resync_full": {
         "label": "Re-sync docházky z Centrály (od ledna, čistý import)",
         "target": "cloud", "remote": False,
+        # Varování před ručním spuštěním importu (zadal Jirka Honomichl 25.8.2026,
+        # schválila Marti-AI msg 13706). Automatická hlídka je pozastavená od 30.7.2026
+        # (_maybe_sync_ec_dochazka), ale tohle tlačítko import spustí jedním kliknutím.
+        # Čísla jsou změřená 25.8.2026 v tenant.att_entry — orientační, ne živá.
+        "warning": (
+            "⚠️ POZOR — čistý re-import docházky ze STARÉ CENTRÁLY.\n\n"
+            "CO SE STANE:\n"
+            "• Smaže a znovu naimportuje veškerou docházku pocházející z Centrály "
+            "od 1. 1. 2026 do včerejška.\n"
+            "  (K 25. 8. 2026 to bylo 20 436 záznamů u 66 lidí za období 1. 1. – 11. 8.)\n"
+            "• Sáhne i do UZAVŘENÝCH měsíců — tato akce zámek období NEKONTROLUJE.\n"
+            "  (Uzavřeno je leden až červenec 2026.)\n"
+            "• Ručně opravené záznamy zůstanou zachované "
+            "(k 25. 8. jich bylo 38 u 12 lidí).\n\n"
+            "PROČ TO DNES SPÍŠ UŠKODÍ:\n"
+            "Ve staré Centrále se od 11. 8. 2026 už nepíchá. Import proto přinese "
+            "ZASTARALÝ stav a přepíše jím to, co je dnes ve STRATEGII.\n\n"
+            "Opravdu pokračovat?"
+        ),
     },
     "recruit_anonymize": {
         "label": "GDPR: anonymizovat staré uchazeče (lhůta 1 rok, ne smazání)",
@@ -49700,7 +49772,10 @@ async def ops_actions(req: Request) -> JSONResponse:
     """Whitelist dostupných ops akcí pro UI (parent-only)."""
     uid = _get_uid(req)
     _require_admin(uid)
-    items = [{"action_key": k, "label": v["label"], "target": v["target"]}
+    # "warning" (volitelné) = konkrétní varovný text, který UI ukáže místo obecné
+    # potvrzovací věty. Jirka 25.8.2026, schválila Marti-AI msg 13706.
+    items = [{"action_key": k, "label": v["label"], "target": v["target"],
+              "warning": v.get("warning")}
              for k, v in _OPS_ACTIONS.items()]
     return JSONResponse({"ok": True, "actions": items})
 
@@ -49741,7 +49816,8 @@ async def app_ops_actions(req: Request) -> JSONResponse:
         if not _app_parent(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         return JSONResponse({"ok": True, "actions": [
-            {"action_key": k, "label": v["label"], "target": v["target"]} for k, v in _OPS_ACTIONS.items()]})
+            {"action_key": k, "label": v["label"], "target": v["target"],
+             "warning": v.get("warning")} for k, v in _OPS_ACTIONS.items()]})
     finally:
         cm.__exit__(None, None, None)
 

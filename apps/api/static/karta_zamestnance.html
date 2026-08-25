@@ -499,6 +499,7 @@ function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).
 const SEKCE=[
   {ic:"🧾",t:"Obecné",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
   {ic:"💼",t:"Personální a finanční podmínky",d:"Poměr, smlouva, úvazek, mzdové podmínky, dovolená, sick days, bonusy a srážky — vše na jednom místě (jako v Centrále).",on:true,key:'pmf'},
+  {ic:"🕓",t:"Historie změn",d:"Jak se v čase měnily podmínky, úvazek, smlouva a finanční podmínky. Jen čtení.",on:true,key:'historie'},
   {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
   {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, docházka po dnech, absence.",on:true,key:'absence'},
   {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
@@ -1815,7 +1816,7 @@ function openP(uid,row){
   h+='<div class="sects">';
   for(const s of SEKCE){
     const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pmf:'pmfUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
+    const ACT={zakladni:'zakUdaje',pmf:'pmfUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',historie:'histUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
     const cls='sec'+((s.go||ACT[s.key])?' on':'');
     h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
@@ -3012,6 +3013,113 @@ async function odpClear(){
   const r=await fetch(API+'/app/hr/person-odpovednost/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({agenda:'dochazka',uid:ODP_UID,odpovedny_user_id:null})});
   const d=await r.json().catch(()=>({ok:false,error:'server'}));
   if(d.ok) odpUdaje(); else alert('Nepovedlo se: '+(d.error||''));
+}
+
+// ── Historie změn (Jirka Honomichl 25. 8. 2026, schválila Marti-AI msg 13658) ──────────
+// Podmínky, úvazek, smlouva i finanční podmínky POHROMADĚ — jedna úzká tabulka
+// tenant.engagement_historie. Dva pohledy nad týmiž daty: časová osa (co se kdy stalo)
+// a tabulka vývoje (jak se hodnota měnila v čase).
+// ⚠️ Kde si nepamatujeme, se NIKDY nedosazuje dnešní hodnota — píše se „nezaznamenávalo se".
+//    Hranice se čtou z tenant.engagement_historie_zacatek (zapsané natvrdo, ne dopočítané).
+let HIST_DATA=null, HIST_UID=null, HIST_OBL='', HIST_POHLED='osa';
+async function histUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  HIST_UID=uid; HIST_OBL=''; HIST_POHLED='osa';
+  HIST_DATA=await j(API+'/app/hr/historie?user_id='+uid);
+  renderHist();
+}
+function histObl(o){ HIST_OBL=o; renderHist(); }
+function histPohled(p){ HIST_POHLED=p; renderHist(); }
+function histCZ(den){ if(!den) return ''; const c=den.split('-'); return (+c[2])+'. '+(+c[1])+'. '+c[0]; }
+const HIST_BARVA={podminka:['#12243a','#7fb2e8'],smlouva:['#23262b','#9aa7b4'],uvazek:['#122a1e','#7fe0a0'],finance:['#3a2f12','#E0A94A']};
+function histChip(o,t){ const m=HIST_BARVA[o]||['#23262b','#9aa7b4'];
+  return '<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+m[0]+';color:'+m[1]+'">'+esc(t)+'</span>'; }
+function renderHist(){
+  const d=HIST_DATA||{}, uid=HIST_UID, det=document.getElementById('det');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">🕓 Historie změn</span>'+
+    '<span style="display:flex;gap:14px;white-space:nowrap">'+back+'</span></div>';
+  if(!d.ok){
+    h+='<div class="empty">🔒 '+esc(d.error==='forbidden'?'Nemáš oprávnění — historii vidí jen HR a vedení.':(d.error||'nedostupné'))+'</div>';
+    det.innerHTML=h; return;
+  }
+  const vse=d.udalosti||[];
+  const ud=HIST_OBL?vse.filter(x=>x.oblast===HIST_OBL):vse;
+  // přepínače
+  const tl=(k,t)=>'<a href="#" onclick="histPohled(\''+k+'\');return false;" style="text-decoration:none;font-weight:'+(HIST_POHLED===k?'800':'400')+';color:'+(HIST_POHLED===k?'#e8eef5':'#7f8ea0')+'">'+t+'</a>';
+  const ob=(k,t)=>'<a href="#" onclick="histObl(\''+k+'\');return false;" style="text-decoration:none;font-weight:'+(HIST_OBL===k?'800':'400')+';color:'+(HIST_OBL===k?'#e8eef5':'#7f8ea0')+'">'+t+'</a>';
+  h+='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:6px 16px 8px;font-size:12.5px;border-bottom:1px solid #1e2730">'+
+     '<span style="color:#5d6b7c">Pohled:</span>'+tl('osa','Časová osa')+tl('tab','Tabulka vývoje')+
+     '<span style="color:#5d6b7c;margin-left:10px">Oblast:</span>'+ob('','vše')+ob('podminka','Podmínky')+
+     ob('uvazek','Úvazek')+ob('smlouva','Smlouva')+ob('finance','Finanční podmínky')+
+     '<span style="margin-left:auto;color:#5d6b7c">'+ud.length+' záznamů</span></div>';
+  // poctivé hranice — odkdy si co pamatujeme
+  const zc=(d.zacatky||[]).filter(z=>!HIST_OBL||z.oblast===HIST_OBL);
+  if(zc.length){
+    h+='<div style="margin:8px 16px;padding:8px 12px;border:1px solid #2a3442;border-left:3px solid #E0A94A;border-radius:6px;background:#161c24;font-size:12px;color:#b9c4d2">'+
+       '<b style="color:#E0A94A">Odkdy si pamatujeme</b><br>'+
+       zc.map(z=>'· '+esc(z.oblast_text)+': od <b>'+histCZ(z.od_den)+'</b>'+
+          (z.jiny_zdroj?' <span style="color:#7f8ea0">(starší stav jde dopočítat z verzí smluv)</span>':'')).join('<br>')+
+       '<br><span style="color:#7f8ea0">Starší změny se nezaznamenávaly. Kde je „nezaznamenávalo se", opravdu to nevíme — nedosazuje se dnešní hodnota.</span></div>';
+  }
+  if(!ud.length){ h+='<div class="empty">Žádné zaznamenané změny.</div>'; det.innerHTML=h; return; }
+
+  if(HIST_POHLED==='osa'){
+    let den='';
+    h+='<div style="padding:4px 16px 18px">';
+    ud.forEach(function(u){
+      if(u.den!==den){
+        den=u.den;
+        h+='<div style="margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid #1e2730;font-weight:800;color:#e8eef5">'+histCZ(den)+'</div>';
+      }
+      const kdo=u.kdo?esc(u.kdo):(u.poznamka?('<span style="color:#7f8ea0">'+esc(u.poznamka)+'</span>'):'<span style="color:#5d6b7c">autor neznámý</span>');
+      const zn=(u.akce==='zalozeno')?'<span style="color:#7fe0a0">založeno</span>':((u.akce==='smazano')?'<span style="color:#e08080">smazáno</span>':
+        (esc(u.pred||'—')+' <span style="color:#5d6b7c">→</span> <b style="color:#e8eef5">'+esc(u.po||'—')+'</b>'));
+      h+='<div style="display:flex;gap:10px;align-items:baseline;padding:3px 0;font-size:13px">'+
+         '<span style="min-width:120px">'+histChip(u.oblast,u.oblast_text)+'</span>'+
+         '<span style="flex:1;color:#cdd6e2">'+esc(u.polozka)+'</span>'+
+         '<span style="flex:1;text-align:right;white-space:nowrap">'+zn+'</span>'+
+         '<span style="min-width:150px;text-align:right;color:#7f8ea0;font-size:11.5px">'+kdo+'</span></div>';
+    });
+    h+='</div>'; det.innerHTML=h; return;
+  }
+
+  // Tabulka vývoje: řádek = položka, sloupec = den, ve kterém se něco měnilo.
+  // Hodnota se přenáší doprava (co platilo, platí dál). Před první zaznamenanou
+  // změnou položky je „?" = nezaznamenávalo se, NIKDY dnešní hodnota.
+  const asc=ud.slice().sort(function(a,b){ return (a.kdy<b.kdy?-1:(a.kdy>b.kdy?1:a.id-b.id)); });
+  const dny=[]; const pol={};
+  asc.forEach(function(u){
+    if(u.akce==='zalozeno'&&!u.kod) return;
+    if(dny.indexOf(u.den)<0) dny.push(u.den);
+    const k=u.oblast+'|'+u.kod+'|'+(u.varianta||'');
+    if(!pol[k]) pol[k]={oblast:u.oblast,oblast_text:u.oblast_text,label:u.polozka,zmeny:{}};
+    pol[k].zmeny[u.den]=(u.akce==='smazano')?'—':(u.po||'');
+  });
+  const klice=Object.keys(pol);
+  if(!dny.length||!klice.length){ h+='<div class="empty">V této oblasti nejsou hodnotové změny, jen události. Přepni na časovou osu.</div>'; det.innerHTML=h; return; }
+  h+='<div class="tblscroll" style="padding:0 16px 18px"><table style="border-collapse:collapse;font-size:12.5px;min-width:100%">'+
+     '<thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid #2a3442;color:#9aa7b4;position:sticky;left:0;background:#0f151b">Položka</th>'+
+     dny.map(x=>'<th style="text-align:right;padding:6px 10px;border-bottom:1px solid #2a3442;color:#9aa7b4;white-space:nowrap">'+histCZ(x)+'</th>').join('')+'</tr></thead><tbody>';
+  klice.forEach(function(k){
+    const it=pol[k]; let drz=null;
+    h+='<tr style="border-top:1px solid #1e2730"><td style="padding:6px 10px;color:#cdd6e2;white-space:nowrap;position:sticky;left:0;background:#0f151b">'+
+       histChip(it.oblast,it.oblast_text)+' '+esc(it.label)+'</td>';
+    dny.forEach(function(den){
+      let txt, st='padding:6px 10px;text-align:right;white-space:nowrap;';
+      if(Object.prototype.hasOwnProperty.call(it.zmeny,den)){ drz=it.zmeny[den]; txt=esc(drz===''?'—':drz); st+='color:#e8eef5;font-weight:800'; }
+      else if(drz===null){ txt='<span title="Změny se u této položky tehdy ještě nezaznamenávaly">?</span>'; st+='color:#5d6b7c'; }
+      else { txt=esc(drz===''?'—':drz); st+='color:#7f8ea0'; }
+      h+='<td style="'+st+'">'+txt+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>'+
+     '<div style="padding:0 16px 18px;color:#5d6b7c;font-size:11.5px">Tučně = v ten den se hodnota změnila. Šedě = platila dál beze změny. <b>?</b> = tehdy se to ještě nezaznamenávalo.</div>';
+  det.innerHTML=h;
 }
 
 // Šárka 21.7.2026: Finanční podmínky přímo v kartě (hlavička + fotka + editace uvnitř).

@@ -91,6 +91,30 @@ Hlídá pojistka `prepocet-jen-kdyz-se-neco-zapsalo`.
 **Závazně:** kdykoli něco skrývám filtrem, zeptám se sám sebe — *„má ten záznam vůbec vznikat?"*
 Když ne, řeknu to Petě a řešíme to u zdroje, ne filtrem.
 
+## ⛔ NÁROK NEJDE PŘEČERPAT — VE SPRÁVĚ SE ZAKAZUJE, BEZ VÝJIMEK (Peťa 26. 8. 2026)
+
+Spouštěč: Dušan 26. 8. zadal Jiřímu Hájkovi sick day, přestože měl nárok 16 h vyčerpaný
+do poslední hodiny. Správa docházky nárok **nekontrolovala vůbec** — jen tvar zápisu.
+
+> **Týnka 26. 8. 2026:** *„v Centrále to nešlo zadat vůbec, pokud byl vyčerpaný nárok.
+> Myslím, že ty a Dušan jste na to měli výjimku… ale lidem to nešlo určitě."*
+>
+> **Peťa k tomu:** *„za mě není žádoucí ani ta výjimka u nás, kdyby to skutečně někdy
+> bylo potřeba, vyřešíme to s tebou."*
+
+- **Ve Správě docházky nárok ZAKAZUJE zápis** — u nového zadání vždy, u úpravy jen když
+  se objem zvyšuje (jinak by kontrola křičela i při zkracování, protože původní absence
+  už v čerpání je).
+- **Žádná výjimka pro editory.** Ani pro Peťu, ani pro Dušana.
+- **V mobilu to zatím jen VARUJE** (Jirka 16. 8. 2026, schválila Marti-AI) — má zůstat
+  prostor pro dovolenou plánovanou dopředu a pro lidi nastoupivší v půlce roku. Rozdíl
+  je záměrný; pravidlo je společné (`att_limit_kontrola`), rozhoduje volající.
+- Kód: `dochazka_absence_sprava._narok_check` (tenký delegát) + `_objem_h`.
+
+⚠️ **Do 26. 8. 2026 bylo v tomto souboru napsáno, že se nárok „nekontroluje vůbec při
+zápisu editorem".** Byl to **popis stavu, ne Petin požadavek** — Peťa 26. 8.: *„toto jsem
+určitě nepožadovala, je potřeba to hlídat, aby nikdo nepřečerpal."* Teď je to opravené.
+
 ## 🚫 PRÁCE NAD FOND SE NIKOMU NEHLÁSÍ — HLÍDAČ SE NEDĚLÁ (Peťa 26. 8. 2026)
 
 Peťa: *„Dušanovi se nemá nic hlásit, jeho lidi můžou pracovat víc. V Centrále takového
@@ -161,7 +185,7 @@ abych spoléhal, že platí, co jsem věděl minule.
 |---|---|---|
 | Odpracované hodiny | `tenant.att_entry` přes `tenant.att_den_hodiny` | hrubý součet `att_entry.hours` |
 | Mzdový podklad dne | `tenant.att_day_summary` **počítaný z `att_entry`** | zrcadlo Centrály (`@@DOCHSUM`) |
-| Nárok dovolená / dovolená navíc / sick days | **Podmínky (`staff_cond`)** | `engagement_entitlement` (zrušeno 16. 8.) |
+| Nárok dovolená / dovolená navíc / sick days | **smlouva `engagement.pod_sick_days_rok` / `pod_dovolena_*`** — ověřeno 26. 8. 2026 v kódu (`sickday_lekar_apply`, `att_narok_cerpani`, `att_limit_kontrola`) | `engagement_entitlement` (zrušeno 16. 8.) · Podmínky (`staff_cond`) drží tytéž hodnoty, ale **čte se ze smlouvy** |
 | **Týdenní úvazek** | **smlouva (`engagement.uvazek_tyden_h`)** — stav k 19. 8. 2026, ⚠️ ještě se řeší | Podmínky (`staff_cond`, `uvazek_h_tyden`) — Jirka je 19. 8. odstranil, aby úvazek nebyl na dvou místech |
 | Docházka ze staré Centrály | **nic — sync ukončen 14. 8. 2026** | `sync_ec_dochazka_recent` |
 | Rozpad na zakázky | `tenant.vyroba_work` s vazbou `att_entry_id` | položky bez vazby (sirotci) |

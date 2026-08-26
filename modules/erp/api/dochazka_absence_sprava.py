@@ -636,6 +636,56 @@ def _hpd_check(s, emp, typ_code, hpd, den=None, ma_cas=False):
     return r.get("error") or "Neplatný počet hodin absence."
 
 
+def _narok_check(s, emp, typ_code, d_od, d_do, hpd, uid):
+    """Nikdo nesmí přečerpat nárok — ve Správě docházky ZAKAZUJEME (Peťa 26. 8. 2026).
+
+    Spouštěč: Dušan 26. 8. 2026 zadal Jiřímu Hájkovi sick day, přestože měl nárok
+    16 h vyčerpaný do poslední hodiny. Správa docházky do té doby nárok nekontrolovala
+    vůbec — hlídala jen tvar zápisu (`_sd_check`, `_hpd_check`).
+
+    Týnka (26. 8. 2026): „v Centrále to nešlo zadat vůbec, pokud byl vyčerpaný nárok.
+    Myslím, že ty a Dušan jste na to měli výjimku… ale lidem to nešlo určitě."
+    Peťa k tomu: **výjimku pro editory nechceme.** Kdyby někdy byla potřeba, řeší se
+    s ní — ne obcházením kontroly.
+
+    ROZDÍL PROTI MOBILU je záměrný: tam táž kontrola jen VARUJE (Jirka 16. 8. 2026,
+    schválila Marti-AI) — musí zůstat prostor pro dovolenou plánovanou dopředu a pro
+    lidi, kteří nastoupili v půlce roku. Rozhodnutí varovat/zakázat dělá volající,
+    samotné pravidlo je společné (`g2007.python` kód=`att_limit_kontrola`), takže se
+    čerpání počítá na jednom místě.
+
+    Hlídají se jen `vacation` a `sickday`. Když o nároku nic nevíme (člověk bez platné
+    smlouvy, nedostupný přehled), vrací kontrola `hlidano=False` a my zápis pustíme —
+    o nároku nevíme, tak nestrašíme.
+
+    Vrací text chyby, nebo None když je vše v pořádku.
+    """
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        r = _ereg.call("att_limit_kontrola", s, emp, typ_code, d_od, d_do, hpd, uid) or {}
+    except Exception:
+        return None  # kontrola nikdy nesmí shodit samotný zápis
+    if not r.get("prekroceno"):
+        return None
+    return ((r.get("varovani") or "Překračuje nárok.")
+            + " Zápis jsme neuložili — nárok nejde přečerpat.")
+
+
+def _objem_h(s, d_od, d_do, hpd):
+    """Kolik hodin absence celkem znamená zadání od–do × hodin za den (jen pracovní dny).
+
+    Slouží jen k tomu, aby se při ÚPRAVĚ existující absence nekontroloval nárok
+    zbytečně: když se objem nezvyšuje (zkracuje se období nebo se snižují hodiny),
+    přečerpat nelze a kontrola by falešně křičela — původní absence je v čerpání
+    započítaná, takže by se počítala dvakrát.
+    """
+    try:
+        dnu = len(_pracovni_dny(s, d_od, d_do) or [])
+        return round(dnu * float(hpd or 0), 2)
+    except Exception:
+        return None
+
+
 def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix", zad_id=None,
                schvaleno=True, cas_od=None, cas_do=None):
     """Založí absenční denní záznamy na pracovní dny rozsahu. Vrací počet dnů.
@@ -907,7 +957,8 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         # ── A) nepromítnutá žádost ──────────────────────────────────────────
         if kind == "zadost":
             zid = ids[0]
-            r = s.execute(_t("SELECT employee_id, datum_od, datum_do, typ, COALESCE(note,'') "
+            r = s.execute(_t("SELECT employee_id, datum_od, datum_do, typ, COALESCE(note,''), "
+                             "       hours_per_day "
                              "FROM tenant.att_absence_request WHERE id=:i AND tenant_id=:t"),
                           {"i": zid, "t": _TEN}).first()
             if not r:
@@ -924,6 +975,16 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
             chyba_h = _hpd_check(s, emp, typ, hpd, d_od, bool(c_od and c_do))
             if chyba_h:
                 return _chyba(chyba_h)
+            # ÚPRAVA — nárok se hlídá, jen když se objem ZVYŠUJE (Peťa 26. 8. 2026).
+            # Původní absence je v čerpání započítaná, takže při zkrácení nebo snížení
+            # hodin by kontrola falešně křičela, že se přečerpává. Zvětšení hlídáme
+            # stejně přísně jako nový zápis — zakazujeme.
+            _stary = _objem_h(s, r[1], r[2], r[5])
+            _novy = _objem_h(s, d_od, d_do, hpd)
+            if _stary is None or _novy is None or _novy > _stary or typ != r[3]:
+                chyba_n = _narok_check(s, emp, typ, d_od, d_do, hpd, uid)
+                if chyba_n:
+                    return _chyba(chyba_n)
             zam = _zamek(s, [r[1], r[2], d_od, d_do])
             if zam:
                 return _chyba(zam, 409)
@@ -1069,6 +1130,10 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         chyba_h = _hpd_check(s, emp, typ, hpd, d_od, bool(c_od and c_do))
         if chyba_h:
             return _chyba(chyba_h)
+        # NOVÝ ZÁPIS — nárok se hlídá vždy a ZAKAZUJE (Peťa 26. 8. 2026, viz _narok_check)
+        chyba_n = _narok_check(s, emp, typ, d_od, d_do, hpd, uid)
+        if chyba_n:
+            return _chyba(chyba_n)
         bad = _smi(s, uid, emp)
         if bad:
             return _chyba(bad[0], bad[1])

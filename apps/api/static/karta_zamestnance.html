@@ -460,13 +460,13 @@
       <select id="podmtyp" onchange="podminkyFilter()" style="margin-left:8px"><option value="">Typ: vše</option><option>HPP</option><option>OSVC</option><option>DPP</option></select>
       <button onclick="podminkyPrint()" style="margin-left:8px;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">🖨 Tisk</button>
     </div>
-    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Aktuální podmínky poměrů (úvazek, doba, nástup, nárok dovolené, sick days). Jen ke čtení. 🎖️ = věrnostní den je v čísle už zahrnutý.<br>📌 Zdroj pravdy jsou Podmínky ve STRATEGII (osobní → skupina → systém), Centrála do nich od 13. 8. 2026 nemluví. Dovolená celkem = součet sloupců „Dovolená“ a „Navíc“; zadává se rozpad, součet se dopočítá sám.</div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Aktuální podmínky poměrů (úvazek, doba, nástup, nárok dovolené, sick days). Jen ke čtení. 🎖️ = věrnostní den je v čísle už zahrnutý.<br>📌 Zdroj pravdy jsou Podmínky ve STRATEGII (osobní → skupina → systém), Centrála do nich od 13. 8. 2026 nemluví. Dovolená celkem už zahrnuje i věrnostní dny navíc; sick days jsou sloučené do jednoho sloupce.</div>
     <div class="tblscroll">
       <table class="ptbl" id="podmtbl">
         <thead><tr>
-          <th>Jméno</th><th>Firma</th><th>Typ</th><th style="text-align:center">Úvazek</th><th>Doba</th><th>Nástup</th><th style="text-align:center">Dovolená celkem</th><th style="text-align:center">Dovolená</th><th style="text-align:center">Navíc</th><th style="text-align:center">Sick celkem</th><th style="text-align:center">Sick days</th><th style="text-align:center">Sick navíc</th><th style="text-align:center">Nepl. přesčas</th><th style="text-align:center">Stravenka</th><th style="text-align:center">Home off.</th><th style="text-align:center">Lékař</th><th style="text-align:center">Limit přesč.</th><th style="text-align:center">Daň. HO</th>
+          <th>Jméno</th><th>Firma</th><th>Typ</th><th style="text-align:center">Úvazek</th><th>Doba</th><th>Nástup</th><th style="text-align:center">Dovolená celkem</th><th style="text-align:center">Dovolená</th><th style="text-align:center">Sick days</th><th style="text-align:center">Nepl. přesčas</th><th style="text-align:center">Stravenka</th><th style="text-align:center">Home off.</th><th style="text-align:center">Lékař</th><th style="text-align:center">Limit přesč.</th><th style="text-align:center">Daň. HO</th>
         </tr></thead>
-        <tbody id="podmbody"><tr><td colspan="18" class="empty">Načítám…</td></tr></tbody>
+        <tbody id="podmbody"><tr><td colspan="15" class="empty">Načítám…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1321,7 +1321,7 @@ function podminkyFilter(){
   const _prijmeni=x=>((x.jmeno||'').trim().split(/\s+/).slice(-1)[0]||'').toLowerCase();
   r=r.slice().sort((a,b)=>_prijmeni(a).localeCompare(_prijmeni(b),'cs'));
   if(cnt) cnt.textContent='('+r.length+' poměrů)';
-  if(!r.length){ body.innerHTML='<tr><td colspan="18" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  if(!r.length){ body.innerHTML='<tr><td colspan="15" class="empty">Nic nenalezeno.</td></tr>'; return; }
   body.innerHTML=r.map(function(x){
     const doba=x.smlouva_do?('<span style="color:#e0b04a">určitá do '+_dcz(x.smlouva_do)+'</span>'):'neurčitá';
     // 14. 8. 2026: nárok se bere z Podmínek (osobní → skupina → systém), ne z výplňové
@@ -1354,10 +1354,7 @@ function podminkyFilter(){
       '<td style="padding:4px 8px;white-space:nowrap;color:#cdd6e2">'+_dcz(x.nastup)+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#e8eef5">'+dov+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+dovZ+'</td>'+
-      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+dovN+'</td>'+
-      '<td style="padding:4px 8px;text-align:center;color:#e8eef5">'+sdc+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sd+'</td>'+
-      '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+sdn+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+nepl+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+strav+'</td>'+
       '<td style="padding:4px 8px;text-align:center;color:#cdd6e2">'+home+'</td>'+
@@ -1380,8 +1377,8 @@ function podminkyPrint(){
   const nn=v=>(v==null?'':String(v).replace('.',','));
   const scc=x=>{const a=(x.sd_dny==null||x.sd_dny==='')?null:Number(x.sd_dny),b=(x.sd_navic==null||x.sd_navic==='')?null:Number(x.sd_navic);return (a==null&&b==null)?'':String((a||0)+(b||0)).replace('.',',');};
   const dt=new Date().toLocaleDateString('cs-CZ');
-  const rows=r.map(x=>'<tr><td>'+e2(_pjmeno(x.jmeno))+'</td><td>'+e2(x.firma||'')+'</td><td>'+e2(x.typ||'')+'</td><td>'+(x.uvazek!=null?e2(''+x.uvazek)+' h':'')+'</td><td>'+(x.smlouva_do?('určitá do '+_dcz(x.smlouva_do)):'neurčitá')+'</td><td>'+e2(_dcz(x.nastup))+'</td><td>'+nn(x.dov_dny)+'</td><td>'+nn(x.dov_zakl)+'</td><td>'+nn(x.dov_navic)+'</td><td>'+scc(x)+'</td><td>'+nn(x.sd_dny)+'</td><td>'+nn(x.sd_navic)+'</td><td>'+nn(x.nepl)+'</td><td>'+nn(x.strav)+'</td><td>'+nn(x.home)+'</td><td>'+nn(x.lekar)+'</td><td>'+nn(x.lim)+'</td><td>'+e2(x.dano||'')+'</td></tr>').join('');
-  const html='<!doctype html><html><head><meta charset="utf-8"><title>Podmínky zaměstnanců</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Podmínky zaměstnanců</h1><p class="sub">EUROSOFT · '+r.length+' poměrů'+(ff?(' · '+e2(ff)):'')+(tf?(' · '+e2(tf)):'')+' · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma</th><th>Typ</th><th>Úvazek</th><th>Doba</th><th>Nástup</th><th>Dovolená celkem</th><th>Dovolená</th><th>Navíc</th><th>Sick celkem</th><th>Sick days</th><th>Sick navíc</th><th>Nepl. přesčas</th><th>Stravenka</th><th>Home off.</th><th>Lékař</th><th>Limit přesč.</th><th>Daň. HO</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+  const rows=r.map(x=>'<tr><td>'+e2(_pjmeno(x.jmeno))+'</td><td>'+e2(x.firma||'')+'</td><td>'+e2(x.typ||'')+'</td><td>'+(x.uvazek!=null?e2(''+x.uvazek)+' h':'')+'</td><td>'+(x.smlouva_do?('určitá do '+_dcz(x.smlouva_do)):'neurčitá')+'</td><td>'+e2(_dcz(x.nastup))+'</td><td>'+nn(x.dov_dny)+'</td><td>'+nn(x.dov_zakl)+'</td><td>'+nn(x.sd_dny)+'</td><td>'+nn(x.nepl)+'</td><td>'+nn(x.strav)+'</td><td>'+nn(x.home)+'</td><td>'+nn(x.lekar)+'</td><td>'+nn(x.lim)+'</td><td>'+e2(x.dano||'')+'</td></tr>').join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Podmínky zaměstnanců</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Podmínky zaměstnanců</h1><p class="sub">EUROSOFT · '+r.length+' poměrů'+(ff?(' · '+e2(ff)):'')+(tf?(' · '+e2(tf)):'')+' · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma</th><th>Typ</th><th>Úvazek</th><th>Doba</th><th>Nástup</th><th>Dovolená celkem</th><th>Dovolená</th><th>Sick days</th><th>Nepl. přesčas</th><th>Stravenka</th><th>Home off.</th><th>Lékař</th><th>Limit přesč.</th><th>Daň. HO</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
   const w=window.open('','_blank'); if(!w){ alert('Povol prosím vyskakovací okna, ať se tisk otevře.'); return; }
   w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} },300);
 }

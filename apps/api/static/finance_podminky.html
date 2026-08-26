@@ -237,7 +237,11 @@ async function openP(uid,row){
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
       (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
       // Šárka 20.8.2026: výběr pozice odsud odebrán — pozice se mění v Pracovních údajích (Zařazení), ne u mezd.
-    h+='<table><tr><th>Mzdová složka</th><th style="text-align:right" title="Částka na plný (40h) úvazek — pro porovnání">Plán · na 40 h</th><th style="text-align:right" title="Skutečná částka přepočtená na sjednaný úvazek">Skutečnost · na úvazek</th><th></th></tr>';
+    h+='<table><tr><th>Mzdová složka</th><th style="text-align:right" title="Částka na plný (40h) úvazek — pro porovnání">Plán · na 40 h</th><th style="text-align:right" title="Skutečná částka přepočtená na sjednaný úvazek">Skutečnost · na úvazek</th>'+
+       '<th style="text-align:center" title="Od kdy částka platí. Prázdné = platí vždy.">Platí od</th>'+
+       '<th style="text-align:center" title="Do kdy částka platila. Prázdné = platí pořád.">Platí do</th>'+
+       '<th style="text-align:center" title="Zaškrtnuté = částka NENÍ pevná, krátí se podle docházky: částka ÷ počet dnů × kolikrát člověk přišel, nejvýše celá částka. Používá se u DPP placených za návštěvu (úklid).">Krátí docházkou</th>'+
+       '<th></th></tr>';
     // Šárka 24.8.2026: součet složek (Celkem hrubá) pro plán i skutečnost. Sčítají se jen
     // měsíční částky, ne hodinové sazby (per_hour). Výpočet jen na frontendu, delegate beze změny.
     let sumP=0,sumR=0;
@@ -246,17 +250,32 @@ async function openP(uid,row){
       if(!c.per_hour){ sumP+=Number(c.plan)||0; sumR+=Number(c.real)||0; }
       const base=(c.je_zaklad||/zaklad/.test(c.kod||''))?'base':'';
       const aud=c.changed_by?('<div class="aud" title="Kdo naposledy měnil tuto složku">✎ '+esc(c.changed_by)+(c.changed_at?' · '+c.changed_at.substring(0,10):'')+'</div>'):'';
-      h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+aud+'</td>'+
+      // Peťa 26.8.2026: krácená složka se do součtu nepočítá jako pevná částka — kolik
+      // se opravdu vyplatí, se pozná až z docházky za konkrétní měsíc.
+      const krati=!!c.krati_dochazkou;
+      const dnu=(c.plny_pocet_dnu!=null?c.plny_pocet_dnu:'');
+      const kratiCell='<label style="white-space:nowrap;cursor:pointer" title="Částka se krátí podle docházky">'+
+        '<input type="checkbox" data-f="krati"'+(krati?' checked':'')+'> '+
+        '<input class="ei" data-f="dnu" style="width:42px" value="'+dnu+'" placeholder="dnů" title="Kolik návštěv za měsíc = plná částka"></label>';
+      h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+
+        (krati?' <span class="chip" title="Vyplácí se podle docházky, ne napevno">dle docházky</span>':'')+aud+'</td>'+
         '<td class="num"><input class="ei" data-f="plan" value="'+nval(c.plan)+'"></td>'+
         '<td class="num"><input class="ei" data-f="real" value="'+nval(c.real)+'"></td>'+
+        '<td class="num"><input class="ei" data-f="pod" type="date" value="'+(c.platnost_od||'')+'"></td>'+
+        '<td class="num"><input class="ei" data-f="pdo" type="date" value="'+(c.platnost_do||'')+'"></td>'+
+        '<td style="text-align:center">'+kratiCell+'</td>'+
         '<td style="white-space:nowrap"><button class="sbtn p" onclick="saveRow(this,'+c.id+')">💾</button> '+
         '<button class="sbtn d" onclick="delRow('+c.id+')" title="Smazat">✕</button></td></tr>';
     }
     h+='<tr style="border-top:2px solid #2f4a63;font-weight:800;background:#12181f"><td>Celkem hrubá</td>'+
-       '<td class="num">'+kc(sumP)+'</td><td class="num">'+kc(sumR)+'</td><td></td></tr>';
+       '<td class="num">'+kc(sumP)+'</td><td class="num">'+kc(sumR)+'</td><td colspan="4"></td></tr>';
     h+='</table>';
     h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
       '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+
+      '<input class="ei" id="ad_'+eg+'" type="date" title="Platí od — prázdné znamená platí vždy">'+
+      '<label style="white-space:nowrap;cursor:pointer" title="Částka se krátí podle docházky (DPP za návštěvu)">'+
+      '<input type="checkbox" id="ak_'+eg+'"> dle docházky '+
+      '<input class="ei" id="an_'+eg+'" style="width:42px" placeholder="dnů" title="Kolik návštěv za měsíc = plná částka"></label>'+
       '<button class="sbtn" onclick="addRow('+eg+')">+ přidat</button>'+
       '<span class="savemsg" id="sm_'+eg+'"></span></div>';
     h+='</div>';
@@ -271,8 +290,15 @@ async function saveRow(btn,wcId){
   const tr=btn.closest('tr');
   const plan=tr.querySelector('[data-f="plan"]').value;
   const real=tr.querySelector('[data-f="real"]').value;
+  const pod=tr.querySelector('[data-f="pod"]').value;
+  const pdo=tr.querySelector('[data-f="pdo"]').value;
+  const krati=tr.querySelector('[data-f="krati"]').checked;
+  const dnu=tr.querySelector('[data-f="dnu"]').value;
+  // Peťa 26.8.2026: bez počtu dnů by dopočet neměl čím dělit a člověk by dostal 0 Kč.
+  if(krati && !(parseInt(dnu,10)>0)){ alert('U složky krácené docházkou vyplň, kolik návštěv za měsíc znamená plnou částku.'); return; }
   if(!confirm('Uložit změnu mzdové složky?'))return;
-  const d=await _post('/app/hr/finance/slozka-save',{id:wcId,amount_planned:plan,amount_real:real});
+  const d=await _post('/app/hr/finance/slozka-save',{id:wcId,amount_planned:plan,amount_real:real,
+    platnost_od:pod,platnost_do:pdo,krati_dochazkou:krati,plny_pocet_dnu:dnu});
   if(d.ok){ openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
 }
 async function delRow(wcId){
@@ -285,7 +311,12 @@ async function addRow(eg){
   if(!ct){alert('Vyber složku.');return;}
   const plan=document.getElementById('ap_'+eg).value;
   const real=document.getElementById('ar_'+eg).value;
-  const d=await _post('/app/hr/finance/slozka-save',{engagement_id:eg,component_type_id:parseInt(ct,10),amount_planned:plan,amount_real:real});
+  const pod=document.getElementById('ad_'+eg).value;
+  const krati=document.getElementById('ak_'+eg).checked;
+  const dnu=document.getElementById('an_'+eg).value;
+  if(krati && !(parseInt(dnu,10)>0)){ alert('U složky krácené docházkou vyplň, kolik návštěv za měsíc znamená plnou částku.'); return; }
+  const d=await _post('/app/hr/finance/slozka-save',{engagement_id:eg,component_type_id:parseInt(ct,10),
+    amount_planned:plan,amount_real:real,platnost_od:pod,krati_dochazkou:krati,plny_pocet_dnu:dnu});
   if(d.ok){ openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
 }
 async function savePozice(eg,pid){

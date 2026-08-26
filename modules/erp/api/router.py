@@ -15888,7 +15888,8 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
             for r in s.execute(_t(
                 "SELECT wc.engagement_id, ct.code, ct.label, ct.kind, ct.applies_to,"
                 " wc.amount_planned, wc.amount_real, wc.per_hour, wc.id, ct.id AS ct_id,"
-                " wc.changed_by_text, wc.changed_at"
+                " wc.changed_by_text, wc.changed_at,"
+                " wc.platnost_od, wc.platnost_do, wc.krati_dochazkou, wc.plny_pocet_dnu"
                 " FROM tenant.wage_component wc"
                 " JOIN tenant.wage_component_type ct ON ct.id=wc.component_type_id"
                 " WHERE wc.engagement_id IN (" + ids_sql + ")"
@@ -15899,6 +15900,12 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
                     "plan": (float(r[5]) if r[5] is not None else None),
                     "real": (float(r[6]) if r[6] is not None else None),
                     "per_hour": bool(r[7]),
+                    # Peťa 26.8.2026: platnost od–do + krácení docházkou (DPP za návštěvu).
+                    # Prázdná platnost = platí vždy, tak to bylo u všech řádků do 26.8.2026.
+                    "platnost_od": (r[12].isoformat() if r[12] else None),
+                    "platnost_do": (r[13].isoformat() if r[13] else None),
+                    "krati_dochazkou": bool(r[14]),
+                    "plny_pocet_dnu": (int(r[15]) if r[15] is not None else None),
                     "changed_by": r[10], "changed_at": (r[11].isoformat() if r[11] else None)})
         pomery = []
         for e in engs:
@@ -15974,6 +15981,24 @@ async def app_hr_finance_slozka_save(req: Request) -> JSONResponse:
     plan = _num(body.get("amount_planned"))
     real = _num(body.get("amount_real"))
     per_hour = bool(body.get("per_hour"))
+
+    # Peťa 26.8.2026: platnost od–do + krácení docházkou (DPP placené za návštěvu).
+    # Prázdné datum = platí vždy (tak to bylo u všech řádků do 26.8.2026), proto None,
+    # ne dnešek. Krácení: částka / plny_pocet_dnu * počet návštěv, nejvýš celá částka —
+    # počítá skript mzdy_dpp_navstevy_rows, tady se to jen zapisuje.
+    def _dat(x):
+        x = (str(x).strip() if x is not None else "")
+        return x[:10] if x else None
+
+    def _celo(x):
+        try:
+            return int(x) if str(x).strip() not in ("", "None") else None
+        except Exception:
+            return None
+    plat_od = _dat(body.get("platnost_od"))
+    plat_do = _dat(body.get("platnost_do"))
+    krati = bool(body.get("krati_dochazkou"))
+    plny_dnu = _celo(body.get("plny_pocet_dnu"))
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
@@ -15987,8 +16012,10 @@ async def app_hr_finance_slozka_save(req: Request) -> JSONResponse:
         if wc_id:
             r = s.execute(_t(
                 "UPDATE tenant.wage_component SET amount_planned=:p, amount_real=:r, per_hour=:ph,"
+                " platnost_od=:pod, platnost_do=:pdo, krati_dochazkou=:kd, plny_pocet_dnu=:pdnu,"
                 " changed_by_text=:who, changed_at=now() WHERE id=:id AND tenant_id=2"),
-                {"p": plan, "r": real, "ph": per_hour, "who": who, "id": int(wc_id)})
+                {"p": plan, "r": real, "ph": per_hour, "pod": plat_od, "pdo": plat_do,
+                 "kd": krati, "pdnu": plny_dnu, "who": who, "id": int(wc_id)})
             if (r.rowcount or 0) == 0:
                 return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
         else:
@@ -16003,14 +16030,18 @@ async def app_hr_finance_slozka_save(req: Request) -> JSONResponse:
                            {"e": int(eng_id), "c": int(ct_id)}).scalar()
             if ex:
                 s.execute(_t("UPDATE tenant.wage_component SET amount_planned=:p, amount_real=:r, per_hour=:ph,"
+                             " platnost_od=:pod, platnost_do=:pdo, krati_dochazkou=:kd, plny_pocet_dnu=:pdnu,"
                              " changed_by_text=:who, changed_at=now() WHERE id=:id"),
-                          {"p": plan, "r": real, "ph": per_hour, "who": who, "id": int(ex)})
+                          {"p": plan, "r": real, "ph": per_hour, "pod": plat_od, "pdo": plat_do,
+                           "kd": krati, "pdnu": plny_dnu, "who": who, "id": int(ex)})
             else:
                 s.execute(_t(
                     "INSERT INTO tenant.wage_component (tenant_id, engagement_id, component_type_id,"
-                    " amount_planned, amount_real, per_hour, changed_by_text, changed_at)"
-                    " VALUES (2,:e,:c,:p,:r,:ph,:who,now())"),
-                    {"e": int(eng_id), "c": int(ct_id), "p": plan, "r": real, "ph": per_hour, "who": who})
+                    " amount_planned, amount_real, per_hour, platnost_od, platnost_do,"
+                    " krati_dochazkou, plny_pocet_dnu, changed_by_text, changed_at)"
+                    " VALUES (2,:e,:c,:p,:r,:ph,:pod,:pdo,:kd,:pdnu,:who,now())"),
+                    {"e": int(eng_id), "c": int(ct_id), "p": plan, "r": real, "ph": per_hour,
+                     "pod": plat_od, "pdo": plat_do, "kd": krati, "pdnu": plny_dnu, "who": who})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

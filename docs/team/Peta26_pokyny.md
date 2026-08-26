@@ -91,6 +91,17 @@ Hlídá pojistka `prepocet-jen-kdyz-se-neco-zapsalo`.
 **Závazně:** kdykoli něco skrývám filtrem, zeptám se sám sebe — *„má ten záznam vůbec vznikat?"*
 Když ne, řeknu to Petě a řešíme to u zdroje, ne filtrem.
 
+## 🚫 PRÁCE NAD FOND SE NIKOMU NEHLÁSÍ — HLÍDAČ SE NEDĚLÁ (Peťa 26. 8. 2026)
+
+Peťa: *„Dušanovi se nemá nic hlásit, jeho lidi můžou pracovat víc. V Centrále takového
+taky nic nebylo."*
+
+- **Hlídač „den nad fond" se NESTAVÍ** a Dušanovi (ani nikomu jinému) nemá chodit
+  upozornění, že někdo odpracoval navíc. Ve výrobě je práce nad fond normální stav.
+- Bylo to v handoffu z 25. 8. jako „čeká na dohodu s Dušanem" — **dohoda dopadla tak,
+  že se to dělat nebude.** Těch 22 připravených dnů se neprojíždí.
+- **Neptat se na to znovu a nenabízet to.**
+
 ## 💬 OTÁZKY PIŠ DO TEXTU, NE DO VYSKAKOVACÍHO OKNA (Peťa 25. 8. 2026)
 
 Když se Peti na něco ptám, **napíšu to do běžné odpovědi**. Vyskakovací okno s volbami

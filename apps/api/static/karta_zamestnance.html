@@ -174,11 +174,11 @@
     <div class="tblscroll">
       <table class="ptbl" id="ptbl">
         <thead><tr>
-          <th>Foto</th><th>Jméno</th><th>Pracovní pozice</th><th>Kategorie</th>
+          <th>Foto</th><th>Jméno</th><th>Č. zam.</th><th>Pracovní pozice</th><th>Kategorie</th>
           <th>Nadřízený</th><th>Pracovní e-mail</th><th>Pracovní mobil</th>
           <th>Společnost</th><th>Nástup</th><th>Země</th><th>Stav</th>
         </tr></thead>
-        <tbody id="ptbody"><tr><td colspan="11" class="empty">Načítám…</td></tr></tbody>
+        <tbody id="ptbody"><tr><td colspan="12" class="empty">Načítám…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1553,7 +1553,7 @@ function renderTable(){
   const f=filteredLide();
   const tc=document.getElementById('tcnt'); if(tc) tc.textContent=f.length+' zaměstnanců';
   document.getElementById('cnt').textContent='('+f.length+')';
-  if(!f.length){ tb.innerHTML='<tr><td colspan="11" class="empty">Nic nenalezeno.</td></tr>'; return; }
+  if(!f.length){ tb.innerHTML='<tr><td colspan="12" class="empty">Nic nenalezeno.</td></tr>'; return; }
   const c=(v)=> v?esc(v):'<span class="muted">—</span>';
   tb.innerHTML=f.map(p=>{
     const fi=esc(ini(p.jmeno));
@@ -1569,6 +1569,7 @@ function renderTable(){
     return '<tr'+trk+'>'+
       '<td>'+foto+'</td>'+
       '<td><span class="tnm">'+esc(p.jmeno)+'</span>'+cardnote+'</td>'+
+      '<td>'+c(p.osobni_cislo)+'</td>'+
       '<td>'+c(p.pozice)+'</td>'+
       '<td>'+c(p.kategorie)+'</td>'+
       '<td>'+c(p.nadrizeny)+'</td>'+

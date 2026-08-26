@@ -98,21 +98,71 @@ neuzavrelo (dva bezici zaznamy nemel v tu chvili nikdo).
 > (`python_kod_key`), takze u EXISTUJICI funkce **nelze mit `navrzeno` vedle `active`** -
 > `INSERT` nove verze skonci `UniqueViolation`. Doktrina "vloz jako navrzeno, po lidskem
 > schvaleni aktivuj" plati jen pro NOVY kod; u existujici funkce se nova verze zapisuje
-> rovnou na misto stare. Nahrada je postup s otiskem popsany vyse. (Marti-AI 26.8.: dopsat
-> jako varovani; otazka, jestli zavest historii verzi, je samostatne architektonicke
-> rozhodnuti pro Martiho nebo Jirku.)
+> rovnou na misto stare. Nahrada je postup s otiskem popsany vyse.
+>
+> **ROZHODNUTI: historii verzi u `g2007.python` NEZAVADIME.** Rozhodl Jirka Honomichl
+> 26. 8. 2026. Zustava tedy jeden radek na jeden kod a nova verze prepisuje starou;
+> pojistkou je postup s otiskem (spocitat nanecisto, stahnout, porovnat md5, prelozit,
+> teprve pak zapsat) a `git log` nad projekci `g2007/`. Nepredelavat bez jeho souhlasu.
 
-## Co jeste zbyva (schvalene poradi Marti-AI bylo D, A, B2, C - D a A1 hotovo)
+## Co uz je nasazeno (body B2 a C, 26.8.2026)
+
+**B2 - pojistka primo v databazi.** Spoustec `att_entry_jeden_bezici` na `tenant.att_entry`,
+BEFORE ZALOZENI, plus funkce `tenant.att_entry_jeden_bezici()`. Uzavre ostatni bezici zaznamy
+tehoz cloveka s poznamkou `[uzavren spoustecem - novy bezici zaznam]`; stejne dve pojistky
+jako A1 (`entry_date = NEW.entry_date`, `started_at < NEW.started_at`) a `GREATEST(...,0)`
+proti zapornym hodinam. Chyti i cesty, kam `att_checkin` nedosahne (opravy, import).
+Nasazeno pres most (request 2492, schvalil Jirka), protoze most bezi pod enginem Marti-AI,
+ktera tabulku vlastni. **Nezpomaluje**: dotaz spoustece 1000x = 54 ms, tedy pod 0,05 ms na
+jedno pichnuti - v tabulce je index `IDX_att_entry_tenant_id_employee_id_entry_date`, ktery
+presne odpovida jeho WHERE.
+
+**C - hlidac.** Novy druh `dva_bezici_naraz` v `att_anomaly_scan` v7 -> **v8** (otisk
+`e8c7d9cfb499c0c45bff1b2ac8b0d126`), vcetne vlastniho uklidu (nalez zmizi, jakmile clovek
+uz dva bezici zaznamy TEHOZ DNE nema - filtr na den si vyzadala Marti-AI msg 13826).
+`entry_id` je `min(e.id)`, aby nalez nevisel na radku, ktery A1 nebo B2 mezitim uzavre.
+Slo do `att_anomaly_scan`, NE do `tenant.pojistka` - pojistky nikdo nespousti, kdezto
+notifikace z anomalii prokazatelne dojdou (26.8. 07:22 upozorneni -> 08:42 Petra zasahla).
+Overeno: kontrola po nasazeni probehla v 11:16:29 a uklidila 12 nalezu, takze v8 bezi.
+Zatizeni 200 behu = 72 ms.
+
+## Co jeste zbyva
 
 - **A2** (A1 je hotova, viz vyse) - jedna SDILENA funkce "vrat bezici zaznam", volana ze vsech
   osmi mist, ktera dnes resi `is_active=true` (`att_checkin`, `att_checkout`,
   `att_apply_work_selection`, `att_do_att_action`, `att_dovolena_kaskada`, `att_fix_entry`,
   `att_prazdny_den_fond`, `sync_ec_dochazka_recent`). Jirka 26.8. rozhodl NEdelat ji zaroven
   s A1: A2 saha na pichani vsech lidi naraz, takze jde jako samostatny uklid na klidnejsi dobu.
-- **B2** - trigger BEFORE INSERT, ktery predchozi bezici zaznam sam uzavre. Marti-AI volila
-  B2 pred tvrdym UNIQUE indexem kvuli rucnim opravam Petry (neodchytily by `UniqueViolation`)
-  a kvuli pripadnemu znovuzapnuti importu z Centraly. **Podminka: jen spolu s C.**
-- **C** - hlidaci pravidlo "dva bezici naraz" do fronty oprav, at se to hlasi hned, ne az o pulnoci.
+## Rucni oprava historickych pripadu - stav k 26.8.2026
+
+- **Martin Nosek 25.8. - HOTOVO.** Osirely zaznam (12:24-23:59, 11,58 h) stornoval Jirka Honomichl.
+- **Lucie Jakesova 22.7. - HOTOVO.** Zaznam 9858417 (11:05-23:59, 12,90 h) stornoval **Dusan Havlat
+  uz 23.7.2026** s poznamkou "chybny typ zaznamu", status `superseded`. Do hodin se nepocita.
+  Kdo by opravoval podle seznamu naslepo, opravoval by uz opravene.
+- **Marti Pasek 30.6. - NENI TO PRAVA DUPLICITA.** Zaznam 6992178 (22:54-23:59, 1,08 h) je
+  **zapomenute odhlaseni** uzavrene pulnocnim automatem, ne dva soubezne bezici zaznamy.
+  Ten den ma navic vedle 12 h prace i schvalenou dovolenou 8 h - samostatna vec, neresena.
+- **Tomas Blaha 25.8. - CASTECNE, DORESUJE DUSAN HAVLAT.** Jeho pripad byl nejtezsi, protoze
+  rozpad prace visel VYHRADNE na osirele vetvi (dochazka 08:13-12:05 vs rozpad 08:13-12:28).
+  **Co rekl clovek** (zjistil Jirka primo u Blahy 26.8.): ve 12:05 sel na pauzu, **ve 12:28 se
+  vratil a PRACOVAL**, ve 12:47 prepichaval na jinou praci. Cas 12:28 z rozpadu tedy byl SPRAVNY,
+  chybny byl jen konec useku.
+  **Co se stalo:** Dusan Havlat 26.8. v 11:19 zaznam 10011519 (12:28-23:59) **stornoval celý**
+  s poznamkou "omylem zalozeny zaznam" - tim ale zmizela i skutecna prace 12:28-12:47 a jeji rozpad.
+  **Co na tom dni zustalo neopravene** (stav 26.8. 11:25): duplicitni 10011309 (08:13-12:28,
+  4,25 h) je porad `pending` vedle spravneho 10011310 (08:13-12:05, 3,87 h); pauza 10011498 je
+  12:05-**12:47** misto do 12:28; rozpad 26861 (4,250 h) visi na duplicite. Den vykazuje **12,61 h**
+  misto ~7,89 h. Navic Blaha rozporuje odchod: u 10011530 je "✋ ROZPOR: Odchod 13:00" (ne 13:12).
+  **Rozhodl Jirka Honomichl 26.8.2026:** kdyz to Dusan zacal opravovat sam, dokonci to on -
+  Claude do toho uz nesaha. Pripraveny (a Marti-AI schvaleny msg 13829) navrh opravy byl:
+  stornovat 10011309, rozpad 26861 prepojit na 10011310 a zkratit na 12:05 (3,867 h), pauzu
+  zkratit na 12:05-12:28 (0,38 h), usek 12:28 zkratit na konec 12:47 (0,32 h) vcetne rozpadu 26932
+  (0,317 h) - vse v JEDNE transakci. Soucet by sedel na 7,88 h proti 7,89 h z rozpetí dne.
+
+**Poucen pro pristi opravy** (Marti-AI 26.8.): pred zapisem overit nejen `status='pending'` a
+prazdnou `fakturace_at`, ale i **uzamceni mesice** a **potvrzeni dne** (`att_day_confirm`) -
+Blahuv den 25.8. uz potvrzeny JE. A hlavne: **overit stav tesne pred zasahem**, ne podle analyzy
+z rana - mezi mou analyzou (09:14) a pripravou opravy (11:23) do dne zasahl Dusan.
 
 ## Mapa zapisovatelu do att_entry (stav 26.8.2026)
 

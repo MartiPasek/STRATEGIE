@@ -9333,7 +9333,7 @@ _VYROBA_KW = ("montér", "monter", "mechanik", "zámeč", "zamec", "přípravá�
 
 
 _SW_KW = ("plc",)  # jen PLC = SW; SQL programátoři patří do Kanceláře (Šárka 26.8.)
-_OSTATNI_KW = ("uklízeč", "uklizec", "úklid", "uklid")
+_OSTATNI_KW = ("uklízeč", "uklizec", "úklid", "uklid", "právník", "pravnik", "právnič", "pravnic")
 
 
 def _kategorie_prace(pozice):

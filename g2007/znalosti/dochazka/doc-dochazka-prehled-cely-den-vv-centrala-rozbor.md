@@ -1,7 +1,6 @@
-# Prehled "Cely den - VV" ze stare Centraly - kompletni rozbor pred prenosem do STRATEGIE (25. 8. 2026)
+# Prehled "Cely den - VV" ze stare Centraly - kompletni rozbor pred prenosem do STRATEGIE (25. 8. 2026, doplneno 26. 8. 2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
-
 
 # Prehled "Cely den - VV" — nastroj vedouciho vyroby
 
@@ -14,7 +13,7 @@ Do te doby chodilo do Centraly 60-90 pichnuti denne od 30 lidi. Pak nula. Od 4. 
 
 Ve STRATEGII ve stejny den (25. 8. 2026): **260 zaznamu, 56 lidi, 486 hodin.**
 
-**Dusanova posledni vyrizena chyba je z 22. 7. 2026** — presne tehdy mu dosla data. Neprestal pracovat, prisel o nastroj.
+**Dusanova posledni vyrizena chyba je z 22. 7. 2026** (upresneno 26. 8. — v 7.58) — presne tehdy mu dosla data. Neprestal pracovat, prisel o nastroj.
 
 Souvisi: `doc-dochazka-sync-dochazky-z-centraly-ukoncen-2026-08-14`.
 
@@ -62,6 +61,14 @@ Za 12 mesicu (do 25. 8. 2026):
 
 **Kdo chyby vyrizuje** (za 12 mesicu): Dusan **1 339**, Michelle 865, Peta 276, Kristyna 1.
 
+⚠️ **Doplneno 26. 8. 2026 — dve mereni, ktera nejsou totez.** Cisla vyse pochazeji z 25. 8.
+a jejich metoda neni v tomto dokumentu uvedena. Merenim primo nad daty
+(`EC_Dochazka_ChybyVDochazce WHERE ChybaJeOK=1`, `GROUP BY ChybuPotvrdil`, okno 12 mesicu)
+vychazi 26. 8. 2026: **Dusan 1 344** (6 204 za celou dobu, naposledy 22. 7. 2026 v 7.58),
+**Michelle 875** (2 323), **Peta 276** (2 494), **Kristyna 1** (680).
+Rozdil je maly, ale **nez se na kterekoli cislo nekdo odvola, at si overi, co presne pocita** —
+pocitadlo spusteni akce a pocet odmavnutych radku jsou dve ruzne veliciny.
+
 ## Rozhodnuti Jirky (25. 8. 2026)
 
 - Stavi se **jen ve STRATEGII**, stara Centrala se resit nebude.
@@ -71,5 +78,22 @@ Za 12 mesicu (do 25. 8. 2026):
 - Tisk az uplne nakonec; volba mesice a roku ma byt **osobni nastaveni uzivatele** (v Centrale je to tak taky — tabulka `EC_Dochazka_tisk` na prihlaseneho uzivatele).
 - Automaticke opravy dat se **nezavedou, dokud je nepotvrdi Dusan**.
 
-Souvisi: `doc-dochazka-kontrola-dochazky-centrala-co-hlida-a-co-tise-opravuje`, `doc-dochazka-anomaly-ciselnik-druhu-chyb-chybi`.
+## Stav k 26. 8. 2026
+
+Ceka se na Dusana — nemel cas. **Nic se nesmi zakladat ani menit, dokud neodpovi**;
+na jeho odpovedich visi rozhodnuti o ciselniku chyb i o automatickych opravach.
+Zatim nebylo zmeneno nic v zadne databazi.
+
+## Souvisi
+
+- `doc-dochazka-centrala-nocni-kontrola-a-automaticke-opravy` — kdy kontrola bezi (denne 2.30) a 13 zasahu, ktere sama udela
+- `doc-dochazka-kontroly-centrala-vs-strategie-parovani` — ktere kontroly mame a ktere ne
+- `doc-dochazka-anomaly-ciselnik-druhu-chyb-chybi` — proc u nas ciselnik druhu chyb neexistuje
+- `doc-dochazka-anomaly-frontu-nikdo-rucne-neodbavuje` — frontu nalezu u nas nikdo neproklikava
+- `doc-system-strategie-centrala-definice-prehledu-jak-cist` — jak cist definice prehledu Centraly
+- `doc-dochazka-sync-dochazky-z-centraly-ukoncen-2026-08-14` — proc do Centraly prestala chodit data
+
+⚠️ **Oprava 26. 8. 2026:** puvodni odkaz `doc-dochazka-kontrola-dochazky-centrala-co-hlida-a-co-tise-opravuje`
+byl **mrtvy — takova znalost nikdy nevznikla.** Nahrazen odkazem
+`doc-dochazka-centrala-nocni-kontrola-a-automaticke-opravy`, ktery to tema pokryva.
 

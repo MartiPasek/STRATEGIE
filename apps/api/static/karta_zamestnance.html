@@ -661,7 +661,7 @@ function filteredLide(){
     && (!fk || p.kategorie===fk)
     && (!ff || (p.firma||'').includes(ff))
     && (!fs || (p.stredisko_kod||'')===fs)
-    && (!fn || (p.nadrizeny||'')===fn));
+    && (!fn || (p.nadrizeny||'').includes(fn)));
 }
 function paint(){ if(VIEW==='table') renderTable(); else if(VIEW==='contracts') renderContracts(); else if(VIEW==='terminated') renderTerminated(); else render(); }
 // Odpovědnost (Šárka 5.8.2026) — přehled kdo schvaluje volno / kontroluje docházku + rychlé dovyplnění
@@ -1534,8 +1534,10 @@ function naplnPozice(){
     const sel=document.getElementById(id); if(!sel) continue;
     const cur=sel.value; sel.innerHTML=opts; sel.value=cur;
   }
-  // dropdown nadřízených/koordinátorů z načtených lidí (Šárka 26.8.2026)
-  const nad=[...new Set(LIDE.map(p=>p.nadrizeny).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'cs'));
+  // dropdown nadřízených/koordinátorů z načtených lidí (Šárka 26.8.2026) — sloučené rozdělíme na jednotlivce
+  const nadSet=new Set();
+  LIDE.forEach(p=>{ if(p.nadrizeny) String(p.nadrizeny).split(',').forEach(x=>{ const v=x.trim(); if(v) nadSet.add(v); }); });
+  const nad=[...nadSet].sort((a,b)=>a.localeCompare(b,'cs'));
   const nopts='<option value="">🧭 Nadřízený / koordinátor: vše</option>'+nad.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
   for(const id of ['fnadr','tfnadr']){
     const sel=document.getElementById(id); if(!sel) continue;

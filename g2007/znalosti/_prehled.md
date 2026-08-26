@@ -6,11 +6,11 @@
 |--------|--------|----------|-------|
 | `system-g2007` | system | 60 | Jak g2007 funguje a jak je mineno (vize). Globalni pravda. |
 | `marti-ai` | system | 41 | Persona je inkarnace Marti-AI MD1. Zakladni identita, ze ktere role-persony inkarnuji. |
-| `system-strategie` | system | 148 | Technicka a provozni znalostni baze platformy STRATEGIE — DB architektura, produkcni infrastruktura, architektonicke principy, dev workflow. Presunuto z CLAUDE.md (C27, 21.7.2026), aby MD drzela jen osobni/vztahove jadro. |
+| `system-strategie` | system | 150 | Technicka a provozni znalostni baze platformy STRATEGIE — DB architektura, produkcni infrastruktura, architektonicke principy, dev workflow. Presunuto z CLAUDE.md (C27, 21.7.2026), aby MD drzela jen osobni/vztahove jadro. |
 | `provoz` | system | 8 | Operacni znalost - mostni kanaly, lekce, schemata DB. Aby to bylo dohledatelne. |
 | `ucetnictvi` | obor | 14 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 32 |  |
-| `mzdy` | obor | 40 | Oborova znalost pro personu mzdovou. |
+| `mzdy` | obor | 41 | Oborova znalost pro personu mzdovou. |
 | `dochazka` | obor | 132 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 6 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 7 | Oborova znalost pro personu tvorici nabidky. |

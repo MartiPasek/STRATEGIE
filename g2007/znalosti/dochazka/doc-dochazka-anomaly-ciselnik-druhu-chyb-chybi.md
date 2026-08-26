@@ -22,10 +22,11 @@ Prohledana schemata `tenant, public, fw, master, g2007, tenant_group, user` na n
 zaklada je automat `att_anomaly_scan`, a **lidske popisky jsou opsane v kazde funkci zvlast**
 (napr. `att_odbavene_pripomenuti` ma vlastni slovnik nazvu).
 
-## Deset druhu, ktere STRATEGIE realne eviduje (stav 26. 8. 2026)
+## Jedenact druhu, ktere STRATEGIE realne eviduje (stav 26. 8. 2026 odpoledne)
 
-⚠️ 25. 8. jich tu bylo devet. **Desaty (`rozdil_dochazka_rozpad`) se objevil 26. 8. rano** —
-pocet druhu neni stalice, pred pouzitim si ho preved dotazem.
+⚠️ 25. 8. jich tu bylo devet. **Desaty (`rozdil_dochazka_rozpad`) se objevil 26. 8. rano**
+a **jedenacty (`dva_bezici_naraz`) tehoz dne v 11:00** — pocet druhu neni stalice, pred
+pouzitim si ho preved dotazem.
 
 | kod v `rule` | pocet | lidi | nevyreseno |
 |---|---|---|---|
@@ -39,7 +40,15 @@ pocet druhu neni stalice, pred pouzitim si ho preved dotazem.
 | zapomenuty_odchod | 18 | 12 | 0 |
 | chybi_zakazka | 8 | 5 | 2 |
 | **rozdil_dochazka_rozpad** | 2 | 2 | 1 |
+| **dva_bezici_naraz** | 0 | 0 | 0 |
 | **celkem** | **940** | | **83** |
+
+**Novy druh `dva_bezici_naraz`** (pridan 26. 8. 2026 v 11:00 do `att_anomaly_scan` v8, zadal
+Jirka Honomichl, schvalila Marti-AI msg 13826): hlasi, ze **jeden clovek ma dva soubezne bezici
+zaznamy**. Je to posledni zachranna vrstva pod opravami appky, `att_checkin` v9 a spoustecem
+`att_entry_jeden_bezici` — proto ma zatim **0 nalezu a je spravne, ze mlci**. `entry_id` se vaze
+na `min(e.id)` a nalez se sam uzavre, jakmile clovek dva bezici zaznamy TEHOZ DNE uz nema.
+Podrobne: [[doc-dochazka-duplicitni-bezici-zaznamy-dvoji-odeslani]].
 
 **Vazba na zaznam dochazky:** vsechny druhy krome `neomluvena_absence` visi na konkretnim
 zaznamu (`entry_id`). Neomluvena absence zadny nema — proto se u ni datum vede ve sloupci `den`

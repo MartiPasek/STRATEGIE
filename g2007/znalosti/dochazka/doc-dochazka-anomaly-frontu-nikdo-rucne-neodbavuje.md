@@ -2,6 +2,30 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## OPRAVA 26. 8. 2026 (tyz den, o dve hodiny pozdeji) - "0 rucne" UZ NEPLATI
+>
+> Mereno v 07:35, kdy `resolved_by IS NOT NULL` vracelo 0. **V 08:42 tehoz dne uzavrela
+> Petra Safrankova (user 18) rucne nalez 1749866** (`prace_pri_absenci` u Michaely Hladikove).
+> Cislo je tedy **1**, ne 0. Overil Claude-28 v 09:57 v zive databazi.
+>
+> **Co z puvodniho zaveru plati dal:** 1 z 858 porad znamena, ze se fronta prakticky neproklikava.
+> **Co uz neplati:** tvrzeni "jeste NIKDY nikdo" - a nesmi se pouzivat jako argument, ze je
+> hlidaci pravidlo zbytecne.
+>
+> **Podstatnejsi zjisteni: upozorneni PROKAZATELNE CHODI a lide podle nich zasahuji.**
+> V `fw.mobile_command` jsou 26. 8. v 07:22 tri zpravy "Dochazka - nesrovnalost" (Petra Safrankova
+> `done`, Michelle Safrankova `pending`, Michaela Hladikova `done`) - a prave Petra pak v 08:42
+> ten nalez zavrela. Uzavreny retezec **hlidac -> notifikace -> clovek**. Stejne zpravy sly
+> 25. 8. v 10:53 (Jakesova, Havlat, Hladikova) a od 24. 8. chodi i samotnemu cloveku
+> (26. 8. v 05:00 Vojtech Purkar "Chybi dochazka 25.08.").
+>
+> Na zaklade toho bylo 26. 8. rozhodnuto pridat nove hlidaci pravidlo `dva_bezici_naraz` do
+> `att_anomaly_scan` (v8), a NE do `tenant.pojistka` - viz
+> [[doc-dochazka-duplicitni-bezici-zaznamy-dvoji-odeslani]].
+>
+> **NEOVERENO zustava** (upozornil uz autor): kdy do `tenant.att_anomaly` pribyl sloupec
+> `resolved_by`. Kdyby pribyl pozdeji nez cast tech 857 uzaverek, mohl nekdo odbavovat rucne i driv.
+
 # Frontu nalezenych chyb ve STRATEGII rucne neodbavuje nikdo
 
 **Overeno 26. 8. 2026 v zive databazi a v zivem kodu. Nic nebylo zmeneno.**

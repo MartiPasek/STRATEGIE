@@ -9328,7 +9328,8 @@ def _poz_style(s):
 
 _VYROBA_KW = ("montér", "monter", "mechanik", "zámeč", "zamec", "přípravář", "pripravar",
               "sklad", "obráb", "obrab", "výrob", "vyrob", "dílna", "dilna", "svář", "svar",
-              "dělník", "delnik", "příjem zboží", "prijem zbozi", "zámečník", "zamecnik")
+              "dělník", "delnik", "příjem zboží", "prijem zbozi", "zámečník", "zamecnik",
+              "zkušební", "zkusebni")
 
 
 _SW_KW = ("programátor", "programator", "plc")

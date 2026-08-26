@@ -149,10 +149,21 @@ Zatizeni 200 behu = 72 ms.
   chybny byl jen konec useku.
   **Co se stalo:** Dusan Havlat 26.8. v 11:19 zaznam 10011519 (12:28-23:59) **stornoval celý**
   s poznamkou "omylem zalozeny zaznam" - tim ale zmizela i skutecna prace 12:28-12:47 a jeji rozpad.
-  **Co na tom dni zustalo neopravene** (stav 26.8. 11:25): duplicitni 10011309 (08:13-12:28,
-  4,25 h) je porad `pending` vedle spravneho 10011310 (08:13-12:05, 3,87 h); pauza 10011498 je
-  12:05-**12:47** misto do 12:28; rozpad 26861 (4,250 h) visi na duplicite. Den vykazuje **12,61 h**
-  misto ~7,89 h. Navic Blaha rozporuje odchod: u 10011530 je "✋ ROZPOR: Odchod 13:00" (ne 13:12).
+  **DOKONCENO Dusanem 26.8. ve 13:33-13:35** - stornoval duplicitu 10011309 i jeji rozpad 26861,
+  zalozil novy rozpad 27130 na spravny zaznam 10011310 (08:13-**12:05**, 3,867 h) a rozpad 27079
+  na zaverecny usek 12:47-13:12 (0,417 h, schvaleno). **Dochazka i rozpad ted davaji shodne
+  7,57 h** a den je konzistentni. Zustava otevrene jen to, ze Blaha rekl Jirkovi navrat z pauzy
+  ve **12:28**, kdezto den je uzavreny s pauzou do **12:47** - rozdil 0,32 h; posoudil to Dusan.
+
+  ⚠️ **OPRAVA MEHO CHYBNEHO TVRZENI (Claude-28, 26.8. odpoledne).** Puvodne tu stalo, ze den
+  "vykazuje 12,61 h misto ~7,89 h". **To byla nepravda** a nesmi se to citovat. Vzniklo tim, ze
+  jsem SECETL `hours` jednotlivych radku - jenze **denni souhrn se pocita z ROZPETI, ne souctem
+  radku** (`tenant.att_den_hodiny` slucůje souvisle useky pres min(start)/max(konec)).
+  **Prekryvajici se duplicitni zaznam proto hodiny NEZDVOJI** a do `att_day_summary.cas_celkem`
+  se nepromitne vubec. Ostry doklad: 26.8. v 17:49 mel Blaha `cas_celkem` **7,57 h** (fond 8,00),
+  coz presne sedi na rozpeti dne 04:50-13:12 minus 0,80 h pauz. Duplicita skodi **rozpadu na
+  zakazky a prehledum, ktere ctou radky** - ne souctu hodin dne.
+  **Poucen:** pri tvrzeni o hodinach cist `tenant.att_day_summary`, nikdy nescitat `att_entry.hours`. Navic Blaha rozporuje odchod: u 10011530 je "✋ ROZPOR: Odchod 13:00" (ne 13:12).
   **Rozhodl Jirka Honomichl 26.8.2026:** kdyz to Dusan zacal opravovat sam, dokonci to on -
   Claude do toho uz nesaha. Pripraveny (a Marti-AI schvaleny msg 13829) navrh opravy byl:
   stornovat 10011309, rozpad 26861 prepojit na 10011310 a zkratit na 12:05 (3,867 h), pauzu

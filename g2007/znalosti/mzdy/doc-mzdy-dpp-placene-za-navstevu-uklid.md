@@ -25,9 +25,9 @@ Sedí až **1 000 za návštěvu se stropem 4 000**: souhlasí se všemi výplat
 
 ## Co to nahradilo a proč
 
-Ruční složka `tenant.mzdy_rucni_slozka` (EC / 525 / MS 700) dávala **4 000 napevno** bez ohledu na to, jestli člověk přišel. **26. 8. 2026 byla VYPNUTA** (`aktivni=false`, požadavek mostu #2497 schválila Peťa).
+Ruční složka `tenant.mzdy_rucni_slozka` (EC / 525 / MS 700) dávala **4 000 napevno** bez ohledu na to, jestli člověk přišel. **26. 8. 2026 byla VYPNUTA** (požadavek mostu #2497).
 
-⚠️ **Vypnout ruční složku bylo nutné hned**, ne později: dokud běží obě cesty, částka by se od nahrání docházky **zdvojila** (4 000 + 4 000). Je to táž chyba, kterou Marti řešil 10. 7. 2026 — *„Herejtová 8000 místo 4000, jednatelé/Šenft 2×"_.
+⚠️ **Vypnout ruční složku bylo nutné hned**, ne později: dokud běží obě cesty, částka by se od nahrání docházky **zdvojila** (4 000 + 4 000). Je to táž chyba, kterou Marti řešil 10. 7. 2026 — *„Herejtová 8000 místo 4000, jednatelé/Šenft 2×"*.
 
 ## ⚠️ Past, kvůli které vznikl hlídač
 
@@ -48,9 +48,17 @@ Proto pojistka **`dpp-za-navstevu-ma-dochazku`** (`tenant.pojistka`, aktivní od
 
 Skript **nikdy nevyhodí výjimku** — při chybě vrátí prázdný seznam. Je totiž připojený ke stejnému volání jako ruční složky, takže by výjimkou shodil i odměny jednatelů.
 
-## Kdo zůstává na ruční složce
+## ✅ Ruční složky jsou od 26. 8. 2026 VŠECHNY vypnuté
 
-Šenft (EC 374, DPP 700, 9 000) — docházku nemá vůbec, částka je fixní, dopočet by u něj neměl z čeho počítat. Jednatelé (EC 2, ES 41, EC 47, složka 693) — jejich odměna v Podmínkách už je a míří správně na 693, ale ruční složka má přednost; přepnutí je připravené, jen se neudělalo.
+Tahle sekce dřív říkala, že jednatelé a Šenft na ruční složce zůstávají. **Už neplatí** — dotaženo týž den odpoledne (požadavek mostu #2498):
+
+| Kdo | Kde je teď | Helios složka |
+|---|---|---|
+| Pašek EC 2, Pašek ES 41, Mózer EC 47 | Podmínky, typ `odmena_jednatel` | 693 |
+| Šenft EC 374 | Podmínky, typ `dpp_pravni_sluzby` (nově založeno, 9 000) | 700 |
+| Herejtová EC 525 | dopočet z docházky | 700 |
+
+V `tenant.mzdy_rucni_slozka` **není aktivní ani jeden řádek**. Tabulka zůstává jako historie a jako mechanismus pro výjimky, ale nikoho už neplatí.
 
 Souvisí: [[doc-mzdy-zdroj-pravdy-podminky-misto-centraly]] · [[doc-mzdy-prevodnik-odmena-jednatele-693-vs-432]]
 

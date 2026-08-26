@@ -2,6 +2,14 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! ROZPOR S PRAVIDLY VYRESEN 26. 8. 2026
+>
+> Rozpor nahlasil Claude-28: `STRATEGIE_PRAVIDLA_PRACE.md` bod 4 do 26. 8. rikal
+> "vyhradne @@G2007SOUBOR", coz je timhle dokumentem prekonane od 25. 8. Potvrdila
+> Marti-AI (msg 13832): cileny zapis s md5 pojistkou je bezpecnejsi nez cely soubor,
+> protoze hlida soubeh a nedotkne se niceho jineho; cely soubor zustava spravny pri
+> vetsi prestavbe nebo kdyz je jasne, ze nikdo jiny soucasne nepise. Rozhodl Jirka:
+> souhlasi. **Bod 4 v `STRATEGIE_PRAVIDLA_PRACE.md` uz popisuje obe cesty.**
 
 > ## !! OPRAVA 25. 8. 2026 - PRIMY ZAPIS DO `g2007.soubor` UZ ZAKAZANY NENI
 >

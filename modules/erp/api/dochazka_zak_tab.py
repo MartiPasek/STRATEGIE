@@ -18,6 +18,10 @@ _DZT_ALLOWED = {1, 11, 13, 16, 17, 18, 20, 41, 107, 108, 109}
 _DZT_DATASET = {
     "vse": "dochazka.zakazky_vse_list",
     "budoucnost": "dochazka.zakazky_budoucnost_list",
+    # Ohlášení lékaře, nemoci a OČR z mobilu — JEN NA VĚDOMÍ (Peťa 26.8.2026).
+    # Do docházky se z nich nic nezapisuje, dosud šla jen notifikace vedoucímu
+    # do mobilu a ve Správě docházky nebyla vidět vůbec. Záložka je ke čtení.
+    "ohlaseni": "dochazka.ohlaseni_zdravi_list",
 }
 
 
@@ -151,7 +155,12 @@ def dochazka_zak_tab_data(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     obdobi = (req.query_params.get("obdobi") or "vse").strip().lower()
     # 'all' (Vše) = stejná data jako 'vse', jen bez omezení na poslední 2 měsíce
-    base = "budoucnost" if obdobi == "budoucnost" else "vse"
+    if obdobi == "budoucnost":
+        base = "budoucnost"
+    elif obdobi == "ohlaseni":
+        base = "ohlaseni"
+    else:
+        base = "vse"
     ds_code = _DZT_DATASET[base]
     from sqlalchemy import text as _t
     from modules.strategie_pg.application import service as _pg

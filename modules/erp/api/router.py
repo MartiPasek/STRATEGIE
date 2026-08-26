@@ -9331,12 +9331,17 @@ _VYROBA_KW = ("montér", "monter", "mechanik", "zámeč", "zamec", "přípravá�
               "dělník", "delnik", "příjem zboží", "prijem zbozi", "zámečník", "zamecnik")
 
 
+_SW_KW = ("programátor", "programator", "plc")
+
+
 def _kategorie_prace(pozice):
-    """Hrubé zařazení Výroba/Kancelář dle názvu pozice (Šárka 23.7.). Prázdná pozice → ''.
-    Přesnou kategorizaci uděláme později (kategorizace práce)."""
+    """Hrubé zařazení SW/Výroba/Kancelář dle názvu pozice (Šárka 23.7., SW 26.8.).
+    Prázdná pozice → ''. Přesnou kategorizaci uděláme později (kategorizace práce)."""
     p = (pozice or "").lower()
     if not p:
         return ""
+    if any(k in p for k in _SW_KW):
+        return "SW"
     return "Výroba" if any(k in p for k in _VYROBA_KW) else "Kancelář"
 
 

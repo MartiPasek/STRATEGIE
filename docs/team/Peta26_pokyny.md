@@ -47,6 +47,55 @@ a proto sčítal dovolenou s dovolenou navíc do složky 211 — **opraveno 25. 
 obou číselníků a na to, co obrazovka reálně vrací** — a **nejdřív si přečtu G2007 k tématu**.
 Celé je to v G2007: `doc-dochazka-dva-ciselniky-druh-zaznamu-vs-cinnost`.
 
+## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU = JEN INFO VEDOUCÍMU, DO DOCHÁZKY NIC (Peťa 26. 8. 2026, ZÁVAZNÉ)
+
+Peťa to řekla **počtvrté** — 19. 8., 24. 8., 25. 8. a znovu 26. 8. 2026. Pokaždé proto, že to
+nikde nebylo zapsané. Teď je to tady i v G2007 `doc-dochazka-mobil-nemoc-ocr-lekar-jen-info-vedoucimu`
+a hlídá to pojistka `nemoc-ocr-lekar-z-mobilu-jen-info`.
+
+> Peťa 25. 8. 2026: *„když někdo z mobilu nahlásí nemoc, NIKAM se to nezapisuje, jde info jen
+> vedoucímu, do správy se to zapíše ručně na základě dokladu."* · *„apka to nemá umět zapisovat
+> nemoc, protože to nechceme přece."*
+
+- **Nemoc a OČR** zapisuje Peťa **ručně ve Správě docházky** až podle dokladu. Z mobilu nesmí
+  vzniknout ani řádek v docházce, ani žádost.
+- **Lékař** je zatím taky jen info. Peťa 26. 8.: *„lékaře musíme řešit individuálně, bude
+  fungovat jinak po domluvě s Martim."* Do té doby **pozastaveno** — nečerpá sick day, nezapisuje.
+- Člověk v mobilu dostane „Nahlášeno vedoucímu", vedoucí prostou zprávu na vědomí (bez schvalování).
+
+### ⚠️ TŘI mobilní vstupy, ne jeden — kdo opraví jeden, nechá díru ve dvou
+
+| Vstup | `g2007.python` | Co dělal do 26. 8. 2026 |
+|---|---|---|
+| „Tady budu jinde" | `att_absence` | zapsal rovnou do docházky, hodiny = denní fond |
+| Žádost o nepřítomnost | `att_absence_request` | založil žádost → schválení ji zapsalo do docházky |
+| **„Je mi blbě, dnes nedorazím"** | `att_announce` | z volného textu poznal nemoc a **založil žádost na 8 h** |
+
+Ta třetí je nejzákeřnější — člověk jen napíše, že mu není dobře. **Správa docházky má vlastní
+cestu** (`dochazka_absence_sprava.py`, `_zapis_dny`, zdroj `manual_fix`) — na tu se nesahá.
+
+## 🙈 KDYŽ NĚCO SCHOVÁVÁME, NEMÁ SE S TÍM NIC DÍT (Peťa 26. 8. 2026, obecné pravidlo)
+
+Peťa: *„celkově si pamatovat, že když něco schováváme, tak protože tam nemá být — a nedává
+smysl, aby se nad tím nebo s tím cokoliv dělo."*
+
+**Schování z obrazovky není řešení.** Když se něco filtrem skryje z přehledu, ale záznam pod tím
+zůstane, automaty a dopočty na něj dál sahají — a nikdo to nevidí.
+
+**Konkrétní případ:** ohlášení home office jsme 25. 8. schovali z Oprav i z Docházky new, ale
+řádek v `att_entry` zůstal a `att_absence` na ten den pouštěla přepočet doplnění do fondu.
+Ověřeno 26. 8.: reálnou škodu to nedělalo (ohlášení nemá hodiny, do výpočtu nevstupuje), ale
+běhat to nemělo. Opraveno — přepočet jede jen když se opravdu něco zapsalo a nejde o home office.
+Hlídá pojistka `prepocet-jen-kdyz-se-neco-zapsalo`.
+
+**Závazně:** kdykoli něco skrývám filtrem, zeptám se sám sebe — *„má ten záznam vůbec vznikat?"*
+Když ne, řeknu to Petě a řešíme to u zdroje, ne filtrem.
+
+## 💬 OTÁZKY PIŠ DO TEXTU, NE DO VYSKAKOVACÍHO OKNA (Peťa 25. 8. 2026)
+
+Když se Peti na něco ptám, **napíšu to do běžné odpovědi**. Vyskakovací okno s volbami
+(AskUserQuestion) **nepoužívat** — při rolování konverzace se jí ztrácí a nemůže se k otázce vrátit.
+
 ## 🧾 NEPŘÍTOMNOST OSVČ JE JEN INFORMACE — NIKAM NEJDE (Peťa 25. 8. 2026)
 
 Peťa: *„už jsme to řešili asi šestkrát."* Proto to je tady natvrdo, ať se to neptá posedmé.

@@ -365,6 +365,13 @@ Když se platí předem, není to jeden doklad, ale **řetěz tří** (prostřed
 | 2. Doklad o platbě | **520** | Potvrzení, že se zaplatilo. **Není vždycky** — ale když existuje, musí mít vybraný účetní řádek **„záloha - potvrzení přijetí platby 314000"**. Páruje se s dokladem 530. |
 | 3. Konečná faktura | **500** | Už je **na konkrétní díly a vzniká z příjemky**. Provazuje se s **530** (když nic jiného není), jinak s **520**. |
 
+**🔎 Kde ten „účetní řádek" v datech je** (ověřeno 26. 8. 2026 na dokladu 530/27, Stecker Express):
+je to **položka dokladu** v `TabPohybyZbozi` — sloupec **`RegCis`** (registrační číslo)
+a `Nazev1`. U zálohy má být **`RegCis = 314100`**, `Nazev1 = „Záloha - proforma Fa"`.
+V aplikaci je to v mřížce položek sloupec **Controling** („záloha - proforma Fa 314100").
+U dokladu řady 520 čekej obdobně **`RegCis = 314000`** („záloha - potvrzení přijetí platby")
+— ⚠️ **tohle ještě NENÍ ověřené na živém dokladu**, jen odvozené z názvu, který dala Peťa.
+
 **Proto má konečná faktura v saldu 0** — je krytá tou zálohou, není co doplácet. To samé
 platí pro celkovou částku k úhradě: **nula u dokladu řady 500 s platbou předem NENÍ chyba
 a nehlásí se.**

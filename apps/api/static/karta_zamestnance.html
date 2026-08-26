@@ -640,15 +640,17 @@ async function crSubmit(){
   await load();
   setTimeout(()=>{ if(nid) openFromTable(nid); }, 200);
 }
+// Odstranění diakritiky pro hledání (Šárka 26.8.2026): „Bohm" najde „Böhm", „Novak" → „Novák".
+function _nodia(s){ return (s==null?'':String(s)).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,''); }
 // Sdílené filtrování (čte z ovládacích prvků aktivního pohledu)
 function activeFilters(){
   const t=(VIEW==='table');
   const g=(l,tb)=>((document.getElementById(t?tb:l)||{}).value||'');
-  return {q:(g('srch','tsrch')).toLowerCase(), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat'), ff:g('ffirma','tffirma'), fs:g('fstred','tfstred')};
+  return {q:_nodia(g('srch','tsrch')), fp:g('fpoz','tfpoz'), ft:g('ftyp','tftyp'), fk:g('fkat','tfkat'), ff:g('ffirma','tffirma'), fs:g('fstred','tfstred')};
 }
 function filteredLide(){
   const {q,fp,ft,fk,ff,fs}=activeFilters();
-  return LIDE.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
+  return LIDE.filter(p=>_nodia(p.jmeno).includes(q)
     && (!fp || p.pozice===fp)
     && (!ft || (p.typ||'').split(' / ').includes(ft))
     && (!fk || p.kategorie===fk)
@@ -1626,10 +1628,10 @@ async function loadTerminated(){
 }
 function renderTerminated(){
   const tb=document.getElementById('tmbody'); if(!tb) return;
-  const q=((document.getElementById('tmsrch')||{}).value||'').toLowerCase();
+  const q=_nodia((document.getElementById('tmsrch')||{}).value||'');
   const recent=(document.getElementById('tmrecent')||{}).checked;
   let cutoff=''; if(recent){ const d=new Date(); d.setFullYear(d.getFullYear()-1); cutoff=d.toISOString().slice(0,10); }
-  const f=TERM.filter(r=>(r.jmeno||'').toLowerCase().includes(q) && (!recent || (r.odchod_key && r.odchod_key>=cutoff)));
+  const f=TERM.filter(r=>_nodia(r.jmeno).includes(q) && (!recent || (r.odchod_key && r.odchod_key>=cutoff)));
   const cc=document.getElementById('tmcnt'); if(cc) cc.textContent=f.length+' ukončených'+(recent?' (poslední rok)':'');
   if(!f.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Žádní ukončení zaměstnanci.</td></tr>'; return; }
   const c=(v)=> v?esc(v):'<span class="muted">—</span>';

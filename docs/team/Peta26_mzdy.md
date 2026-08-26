@@ -19,14 +19,71 @@ na něco koukat."*
 | hodiny, fond, přesčas | `tenant.att_den_hodiny` (naše docházka včetně oprav) |
 | stravenky | `tenant.att_entry` podle **čísla činnosti** (`ec_druh`) |
 | pracovní dny a svátky | `tenant.firemni_kalendar` (doplňuje se sám) |
-| základ, osobko, **hodinová sazba přesčasu** | `tenant.helios_wage_snapshot` (sazba = `HrHodsFK`, tedy **s FK**) |
+| **základ a osobko** | **`tenant.wage_component` = PODMÍNKY, sloupec `amount_real`** (od 26. 8. 2026, viz níže) |
+| **hodinová sazba přesčasu** | `tenant.helios_wage_snapshot` (sazba = `HrHodsFK`, tedy **s FK**) — **jediné, co ještě chodí z kopie Centrály** |
 | příplatky, odměny, srážky | `tenant.wage_movement` |
 | prémie ze zakázek | příplatky → složka **651** (stará docházková cesta **vypnutá**) |
-| jednatelé a DPP | `tenant.mzdy_rucni_slozka` |
+| **odměny jednatelů a DPP** | **Podmínky** (od 26. 8. 2026) — ruční složky jsou vypnuté, viz níže |
+| **úklid placený za návštěvu** | dopočet z docházky, skript `mzdy_dpp_navstevy_rows` (od 26. 8. 2026) |
 | denní souhrn docházky | `tenant.att_day_summary` — **od 6. 8. 2026 počítaný z naší docházky** (viz níže) |
 
 Hlídá to pojistka **`mzdy-vstupy-ze-strategie`** a je to napsané i v hlavičce skriptu
 `mzdy_generuj`, takže to vidí každý, kdo ho otevře.
+
+### ⭐ 26. 8. 2026 — ZÁKLAD A OSOBKO SE BEROU Z PODMÍNEK, NE Z KOPIE CENTRÁLY
+
+Zadali Jirka a Peťa, konzultováno s Marti‑AI. **Kdyby po tomhle datu něco ve mzdách nesedělo,
+začni tady.**
+
+**Co se změnilo:** skript `mzdy_predzprac_rows` četl `tenant.helios_wage_snapshot` — ruční kopii
+staré Centrály, naposledy taženou 6. 8. 2026. Nově čte **Podmínky** (`tenant.wage_component`),
+sloupec **`amount_real`** = skutečnost po zkrácení úvazkem a po Landmarku. `amount_planned` je
+výměr na 40 h a **do mezd nepatří**.
+
+**Kam sáhnout, kdyby to nefungovalo:**
+
+| Co | Kde |
+|---|---|
+| Původní verze skriptu (návrat zpět) | `g2007.python`, kód **`mzdy_predzprac_rows__zaloha_20260826`** |
+| Nový dopočet úklidu | `g2007.python`, kód **`mzdy_dpp_navstevy_rows`** |
+| Hlídač nenahrané docházky | `tenant.pojistka`, kód **`dpp-za-navstevu-ma-dochazku`** |
+| Plný popis včetně důkazů | G2007 `doc-mzdy-zdroj-pravdy-podminky-misto-centraly` |
+
+**Ruční složky jsou VŠECHNY vypnuté.** Odměny jednatelů (Pašek EC 2, Pašek ES 41, Mózer EC 47 →
+složka 693) i Šenftovo DPP (EC 374 → složka 700) jdou nově z Podmínek. Herejtová (EC 525) má
+dopočet z docházky: **1 000 Kč za návštěvu, strop 4 000 Kč/měsíc**, den v týdnu nerozhoduje.
+`tenant.mzdy_rucni_slozka` zůstává jako historie, ale nikoho už neplatí.
+
+**Dvě pravidla, která nový skript drží:**
+
+1. **Ruční složka má přednost** — když je aktivní, ta kombinace člověk+složka se z Podmínek
+   vynechá. Bez toho by jednatel dostal odměnu dvakrát.
+2. **Chybí‑li skutečnost, generování spadne** s hláškou, která toho člověka jmenuje. Radši chyba
+   než tichá ztráta složky ve výplatě.
+
+**Ověřeno:** složky, které se nekrátí (693, 700), sedí na červencové výplatnice do koruny u všech
+pěti lidí. Proti starému zdroji vyšel jediný rozdíl — Jan Svoboda, základ 89 000 → 95 000, což je
+Šárčino narovnání z 24. 8., a navíc je OSVČ bez výplatnice.
+
+⚠️ **Skript ještě neběžel naostro** — ověřovaly se jeho dotazy, ne běh. Předzpracování není
+v ošetřeném bloku, takže překlep by shodil celé generování. **Vyzkoušet na srpnu dřív než na
+uzávěrce.**
+
+⚠️ **Herejtová: docházka z tabletu chodí v dávkách se zpožděním** (červenec se nahrál 30. 7.,
+červen 31. 7.). Když se měsíc nenahraje, dopočet dá **nulu**. Před generováním zkontroluj
+hlídač — a když svítí červeně, nejdřív nahraj tablet.
+
+### ⚠️ Pozor na `ZakladReal` v Centrále — nemusí sedět se `Zaklad`
+
+Náš import z Centrály bral schválně sloupce **`...Real`**, protože u zkrácených úvazků jsou
+jediné správné. Jenže **`ZakladReal` se v Centrále nedopočítává spolehlivě.**
+
+Případ Jan Svoboda (ES 9017, plný úvazek 40 h): aktuální řádek v Centrále má `Zaklad` **95 000**,
+ale `ZakladReal` zůstal **89 000** z předchozí verze. Na obrazovce Centrály je vidět 95 000,
+takže rozdíl nikdo nezahlédne — a přitom k nám se přenášelo 89 000.
+
+**Proto se to přepnutím na Podmínky vyřešilo.** Kdyby se někdy dělalo porovnání proti Centrále,
+srovnávej `Zaklad`, ne jen `ZakladReal`.
 
 ### ⚠️ OPRAVENO 6. 8. 2026 — zrcadlo docházky se plnilo z Centrály
 

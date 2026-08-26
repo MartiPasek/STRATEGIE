@@ -244,10 +244,12 @@ async function openP(uid,row){
        '<th></th></tr>';
     // Šárka 24.8.2026: součet složek (Celkem hrubá) pro plán i skutečnost. Sčítají se jen
     // měsíční částky, ne hodinové sazby (per_hour). Výpočet jen na frontendu, delegate beze změny.
-    let sumP=0,sumR=0;
+    let sumP=0,sumR=0,sumSazba=0;
     for(const c of (p.slozky||[])){
       const ph=c.per_hour?'<span class="ph">/hod</span>':'';
       if(!c.per_hour){ sumP+=Number(c.plan)||0; sumR+=Number(c.real)||0; }
+      // Hodinová sazba jen ze základu + osobního ohodnocení (prémie se nepočítají) — Šárka 26.8.2026
+      if(!c.per_hour && /^(zaklad|os_ohodnoceni)$/.test(c.kod||'')) sumSazba+=Number(c.plan)||0;
       const base=(c.je_zaklad||/zaklad/.test(c.kod||''))?'base':'';
       const aud=c.changed_by?('<div class="aud" title="Kdo naposledy měnil tuto složku">✎ '+esc(c.changed_by)+(c.changed_at?' · '+c.changed_at.substring(0,10):'')+'</div>'):'';
       // Peťa 26.8.2026: krácená složka se do součtu nepočítá jako pevná částka — kolik
@@ -269,6 +271,13 @@ async function openP(uid,row){
     }
     h+='<tr style="border-top:2px solid #2f4a63;font-weight:800;background:#12181f"><td>Celkem hrubá</td>'+
        '<td class="num">'+kc(sumP)+'</td><td class="num">'+kc(sumR)+'</td><td colspan="4"></td></tr>';
+    // Hodinové sazby (Šárka 26.8.2026) — pro výpočet přesčasů. Základ+os.ohodnocení ÷ fond 174; nákladová × koeficient 1,40 (Martiho). Prémie se nepočítají.
+    const _fond=174, _koef=1.40, _hrHod=sumSazba/_fond, _naklHod=_hrHod*_koef;
+    const _kh=v=>(v?v.toFixed(2).replace('.',','):'0,00')+' Kč/h';
+    h+='<tr style="background:#12181f;color:var(--muted)"><td title="(základ + osobní ohodnocení) ÷ 174 h. Prémie se nepočítají. Slouží pro výpočet přesčasů.">Hrubá hodinová sazba</td>'+
+       '<td class="num" style="color:var(--title);font-weight:700">'+_kh(_hrHod)+'</td><td colspan="4"></td></tr>';
+    h+='<tr style="background:#12181f;color:var(--muted)"><td title="Hrubá hodinová × koeficient 1,40 (Martiho) — nákladová sazba, „Základ za hodinu“ jako v Centrále.">Základ za hodinu (nákladová · ×1,40)</td>'+
+       '<td class="num" style="color:var(--accent);font-weight:700">'+_kh(_naklHod)+'</td><td colspan="4"></td></tr>';
     h+='</table>';
     h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
       '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+

@@ -9332,7 +9332,7 @@ _VYROBA_KW = ("montér", "monter", "mechanik", "zámeč", "zamec", "přípravá�
               "zkušební", "zkusebni")
 
 
-_SW_KW = ("programátor", "programator", "plc")
+_SW_KW = ("plc",)  # jen PLC = SW; SQL programátoři patří do Kanceláře (Šárka 26.8.)
 _OSTATNI_KW = ("uklízeč", "uklizec", "úklid", "uklid")
 
 

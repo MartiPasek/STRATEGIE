@@ -273,25 +273,32 @@ async function openP(uid,row){
        '<td class="num">'+kc(sumP)+'</td><td class="num">'+kc(sumR)+'</td><td colspan="4"></td></tr>';
     // Hodinové sazby jako v Centrále (Šárka + Claude-26/Peťa 26.8.2026). Fond 174 h, koeficient 1,40 (nákladový, u OSVČ se nepoužívá).
     // bez FK = základ + osobní ohodnocení; s FK = celá hrubá (vše měsíční). Přesčasy se počítají z „HrHod s FK".
-    const _fond=174, _koef=1.40;
-    const _hrBez=sumSazba/_fond, _hrsFK=sumP/_fond;
-    const _isOsvc=/osv|živn/i.test(p.typ||'');
-    const _kh=v=>(v?v.toFixed(2).replace('.',','):'0,00')+' Kč/h';
+    // Hodinové sazby přesně jako v Centrále (EC_FinZamPodminky). Koeficient 1,40 jen HPP; OSVČ/DPP = 1,0. Ověřeno 1:1 (Šárka/Peťa/Claude-25+26).
+    const _fond=Number(p.fond_mesic)||0;
+    const _koef=/hpp/i.test(p.typ||'')?1.40:1.00;
+    const _kk=_koef.toFixed(2).replace('.',',');
+    const _ft=(_fond%1?_fond.toFixed(2):String(_fond)).replace('.',',');
+    const _kh=v=>(v!=null?v.toFixed(2).replace('.',','):'0,00')+' Kč/h';
     const _rateRow=(nazev,val,barva,tip)=>'<tr style="background:#12181f;color:var(--muted)"><td title="'+tip+'">'+nazev+'</td>'+
        '<td class="num" style="color:'+barva+';font-weight:700">'+_kh(val)+'</td><td colspan="4"></td></tr>';
-    h+='<tr style="background:#0f141a"><td colspan="6" style="color:#7f8ea0;font-size:11px;padding-top:8px">Hodinové sazby (fond 174 h)'+(_isOsvc?' — OSVČ: bez nákladového koeficientu':'')+'</td></tr>';
-    h+=_rateRow('Hrubá hodinová – bez FK',_hrBez,'var(--title)','(základ + osobní ohodnocení) ÷ 174 h');
-    h+=_rateRow('Hrubá hodinová – s FK ⏱ přesčasy',_hrsFK,'#7fe0a0','celá hrubá (základ + osobní + individuální + prémie vč. firemní kultury) ÷ 174 h. Z této sazby se počítají přesčasy.');
-    if(!_isOsvc){
-      h+=_rateRow('Základ za hodinu (nákladová · ×1,40)',_hrBez*_koef,'var(--accent)','Hrubá bez FK × 1,40 (nákladový koeficient) — „Základ za hodinu“ jako v Centrále.');
-      h+=_rateRow('Superhrubá s FK (nákladová · ×1,40)',_hrsFK*_koef,'var(--accent)','Hrubá s FK × 1,40 — nákladová sazba pro oceňování práce na zakázkách (ne pro výplaty).');
+    if(_fond>0){
+      const _hrBez=sumSazba/_fond, _hrsFK=sumP/_fond;
+      h+='<tr style="background:#0f141a"><td colspan="6" style="color:#7f8ea0;font-size:11px;padding-top:8px">Hodinové sazby (fond '+_ft+' h · koeficient '+_kk+')</td></tr>';
+      h+=_rateRow('HrHodBezFK',_hrBez,'var(--title)','Hrubá hodinová bez FK = (základ + osobní ohodnocení) ÷ fond');
+      h+=_rateRow('HrHodsFK ⏱ přesčasy',_hrsFK,'#7fe0a0','Hrubá hodinová s FK = celá hrubá (+ individuální ohodnocení, prémie, firemní kultura) ÷ fond. Z této sazby se počítají přesčasy.');
+      h+=_rateRow('ZakladZaHod',_hrBez*_koef,'var(--accent)','HrHodBezFK × '+_kk+' (nákladový koeficient; u OSVČ a DPP = 1,0).');
+      h+=_rateRow('SuperhrHodsFK',_hrsFK*_koef,'var(--accent)','HrHodsFK × '+_kk+' — nákladová sazba pro oceňování zakázek, ne pro výplaty.');
+      h+='<tr><td colspan="6" style="color:#7f8ea0;font-size:10.5px;line-height:1.6;padding:8px 8px 4px">'+
+         '<b>Jak se počítá</b> (fond '+_ft+' h, ověřeno 1:1 proti Centrále): '+
+         '<b>HrHodBezFK</b> = (základ + osobní ohodnocení) ÷ fond &nbsp;·&nbsp; '+
+         '<b>HrHodsFK</b> = celá hrubá ÷ fond &nbsp;·&nbsp; '+
+         '<b>ZakladZaHod</b> = HrHodBezFK × 1,40 &nbsp;·&nbsp; <b>SuperhrHodsFK</b> = HrHodsFK × 1,40. '+
+         'Koeficient 1,40 jen u HPP; u OSVČ a DPP = 1,0. Fond = měsíční fond hodin daného poměru (HPP 174, zkrácený/DPP dle úvazku). ⏱ <b>Přesčasy</b> z <b>HrHodsFK</b>.</td></tr>';
+    } else if((p.slozky||[]).some(c=>c.per_hour)){
+      h+='<tr style="background:#12181f"><td colspan="6" style="color:#7f8ea0;font-size:11px;padding:8px">Placeno za odpracované hodiny — hodinová sazba je uvedena přímo ve složce označené „/hod" výše (mzda = sazba × odpracované hodiny).</td></tr>';
+    } else {
+      h+='<tr style="background:#12181f"><td colspan="6" style="color:#7f8ea0;font-size:11px;padding:8px">Hodinové sazby: u tohoto poměru není vyplněný měsíční fond hodin, proto je nelze spočítat.</td></tr>';
     }
-    h+='<tr><td colspan="6" style="color:#7f8ea0;font-size:10.5px;line-height:1.6;padding:8px 8px 4px">'+
-       '<b>Jak se počítá</b> (fond '+_fond+' h, ověřeno proti Centrále): '+
-       '<b>bez FK</b> = (základ + osobní ohodnocení) ÷ '+_fond+' &nbsp;·&nbsp; '+
-       '<b>s FK</b> = celá hrubá (+ individuální ohodnocení, prémie, firemní kultura) ÷ '+_fond+' &nbsp;·&nbsp; '+
-       '<b>nákladová (×1,40)</b> = hrubá × 1,40 — kolik hodina stojí firmu (u OSVČ se nepoužívá). '+
-       '⏱ <b>Přesčasy</b> se počítají z hrubé <b>s FK</b>.</td></tr>';
     h+='</table>';
     h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
       '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+

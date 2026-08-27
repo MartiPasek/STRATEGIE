@@ -228,12 +228,16 @@ async function openP(uid,row){
   let h='<h2 style="margin:0 0 14px;color:var(--title);">'+esc(d.jmeno)+'</h2>';
   for(const p of d.pomery){
     const eg=p.engagement_id;
+    const _today=new Date().toISOString().slice(0,10);
+    const _isRed=(p.uvazek_real!=null&&p.uvazek_real<40)||(p.uvazek!=null&&p.uvazek<40);
+    const _cnt={}; for(const _c of (p.slozky||[])){ _cnt[_c.kod]=(_cnt[_c.kod]||0)+1; }
     h+='<div class="pomer"><h3>'+esc(p.typ||'poměr')+
       (p.firma?' <span class="chip">'+esc(p.firma)+'</span>':'')+
       (p.hodinovka?' <span class="chip">hodinová</span>':'')+'</h3>'+
       '<div class="meta">'+
       (p.cislo?'č. zam. '+esc(p.cislo)+' · ':'')+
-      'úvazek '+(p.uvazek!=null?p.uvazek+' h/týd':'—')+
+      'úvazek '+(p.uvazek!=null?p.uvazek+' h/týd':'—')+((p.uvazek_real!=null&&p.uvazek_real!=p.uvazek)?' (skut. '+p.uvazek_real+' h)':'')+
+      (_isRed?' <span class="chip" style="background:#3a2f12;color:#e0c07f" title="Zkrácený úvazek — u složek s více verzemi je zeleně zvýrazněné, co platí právě teď.">zkrácený úvazek</span>':'')+
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
       (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
       // Šárka 20.8.2026: výběr pozice odsud odebrán — pozice se mění v Pracovních údajích (Zařazení), ne u mezd.
@@ -247,9 +251,13 @@ async function openP(uid,row){
     let sumP=0,sumR=0,sumSazba=0;
     for(const c of (p.slozky||[])){
       const ph=c.per_hour?'<span class="ph">/hod</span>':'';
-      if(!c.per_hour){ sumP+=Number(c.plan)||0; sumR+=Number(c.real)||0; }
+      // Šárka 27.8.2026: u složek s více verzemi (platnost od–do) se do součtu i sazeb
+      // počítá jen verze platná k dnešku; historické/budoucí verze se zvýrazní, ale nesčítají.
+      const _now=(!c.platnost_od||c.platnost_od<=_today)&&(!c.platnost_do||c.platnost_do>=_today);
+      const _multi=(_cnt[c.kod]||0)>1;
+      if(!c.per_hour && _now){ sumP+=Number(c.plan)||0; sumR+=Number(c.real)||0; }
       // Hodinová sazba jen ze základu + osobního ohodnocení (prémie se nepočítají) — Šárka 26.8.2026
-      if(!c.per_hour && /^(zaklad|os_ohodnoceni)$/.test(c.kod||'')) sumSazba+=Number(c.plan)||0;
+      if(!c.per_hour && _now && /^(zaklad|os_ohodnoceni)$/.test(c.kod||'')) sumSazba+=Number(c.plan)||0;
       const base=(c.je_zaklad||/zaklad/.test(c.kod||''))?'base':'';
       const aud=c.changed_by?('<div class="aud" title="Kdo naposledy měnil tuto složku">✎ '+esc(c.changed_by)+(c.changed_at?' · '+c.changed_at.substring(0,10):'')+'</div>'):'';
       // Peťa 26.8.2026: krácená složka se do součtu nepočítá jako pevná částka — kolik
@@ -259,8 +267,14 @@ async function openP(uid,row){
       const kratiCell='<label style="white-space:nowrap;cursor:pointer" title="Částka se krátí podle docházky">'+
         '<input type="checkbox" data-f="krati"'+(krati?' checked':'')+'> '+
         '<input class="ei" data-f="dnu" style="width:42px" value="'+dnu+'" placeholder="dnů" title="Kolik návštěv za měsíc = plná částka"></label>';
-      h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+
-        (krati?' <span class="chip" title="Vyplácí se podle docházky, ne napevno">dle docházky</span>':'')+aud+'</td>'+
+      let _trStyle='',_stateChip='';
+      if(_multi){
+        if(_now){ _stateChip=' <span class="chip" style="background:#12402a;color:#7fe0a0" title="Tato verze platí k dnešnímu dni.">✓ platí teď</span>'; _trStyle='box-shadow:inset 3px 0 0 #2ecc71;'; }
+        else if(c.platnost_do && c.platnost_do<_today){ _stateChip=' <span class="chip" style="background:#3a2a2a;color:#cc9999" title="Starší verze — už neplatí.">historie</span>'; _trStyle='opacity:.45;'; }
+        else { _stateChip=' <span class="chip" style="background:#2a2f3a;color:#9aabbd" title="Platí až od budoucího data.">budoucí</span>'; _trStyle='opacity:.6;'; }
+      }
+      h+='<tr class="'+base+'" data-wc="'+c.id+'"'+(_trStyle?' style="'+_trStyle+'"':'')+'><td>'+esc(c.nazev||c.kod)+ph+
+        (krati?' <span class="chip" title="Vyplácí se podle docházky, ne napevno">dle docházky</span>':'')+_stateChip+aud+'</td>'+
         '<td class="num"><input class="ei" data-f="plan" value="'+nval(c.plan)+'"></td>'+
         '<td class="num"><input class="ei" data-f="real" value="'+nval(c.real)+'"></td>'+
         '<td class="num"><input class="ei" data-f="pod" type="date" value="'+(c.platnost_od||'')+'"></td>'+

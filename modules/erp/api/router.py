@@ -45098,124 +45098,15 @@ def _notify_deploy_done(instance_id: str, result: dict) -> None:
 
 
 def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
-    """Sdílené jádro schválení/zamítnutí pending claude_write_request — volá ERP
-    banner (/diag-write/decide) i mobil (potvrzení z notifikace). approve → spustí
-    SQL přes strategie_pg (Marti-AI engine). Binding guard: rozhoduje jen rodič
-    navázaný na danou Claude instanci (jinak default approver Marti). Vrací dict;
-    klíč 'code' = HTTP status pro chybu."""
-    from core.database_data import get_data_session as _gd
-    from sqlalchemy import text as _td
-    if decision not in ("approve", "reject"):
-        return {"ok": False, "error": "decision musí být approve|reject", "code": 400}
-    ds = _gd()
-    try:
-        row = ds.execute(_td(
-            "SELECT id, db_target, sql_text, status, requested_by FROM fw.claude_write_request WHERE id=:id"
-        ), {"id": req_id}).mappings().first()
-        if not row:
-            return {"ok": False, "error": "request nenalezen", "code": 404}
-        if row["status"] != "pending":
-            return {"ok": False, "error": "request už není pending (%s)" % row["status"]}
-        appr_bind = ds.execute(_td(
-            "SELECT ci.bound_user_id FROM fw.claude_instance ci "
-            "WHERE ci.instance_id = regexp_replace(:rb, '^Claude-', '')"
-        ), {"rb": row["requested_by"] or ""}).scalar()
-        # Effective approver (Marti-AI kustod spec): Petra svou doménu, eskalace
-        # destruktivního/out-of-scope k rodičům. Rodičovský bypass: rodič smí
-        # schválit cokoliv (oversight). Jinak musí být routovaný approver.
-        eff_uid, _eff_risk, eff_reason = _effective_approver(
-            row["requested_by"], row["sql_text"], appr_bind)
-        if uid != eff_uid and not is_marti_parent(uid):
-            _who = {_PETA_UID: "Petra", _SARKA_UID: "Šárka"}.get(eff_uid, "rodičovská rada")
-            return {"ok": False,
-                    "error": "Tento request schvaluje %s (routing: %s)." % (_who, eff_reason),
-                    "code": 403}
-
-        if decision == "reject":
-            ds.execute(_td("UPDATE fw.claude_write_request SET status='rejected', "
-                           "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
-                       {"u": uid, "id": req_id})
-            ds.execute(_td("UPDATE fw.mobile_command SET status='done', decided_at=now() "
-                           "WHERE command_type='claude_confirm' AND status='pending' "
-                           "AND payload->>'write_request_id' = :ridtxt"),
-                       {"ridtxt": str(req_id)})
-            ds.commit()
-            return {"ok": True, "status": "rejected"}
-
-        sql = row["sql_text"]
-        _dbt = (row["db_target"] or "pg")
-        err = None
-        rc = None
-        if _dbt == "mssql":
-            # Marti 15.6.: MSSQL write přes EUROSOFT MCP (raw) — schválený banner → DB_EC.
-            try:
-                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
-                import json as _jx
-                mcp = get_eurosoft_mcp_client()
-                if mcp is None:
-                    err = "EUROSOFT MCP nedostupný"
-                else:
-                    rj = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                            {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-                    res = _jx.loads(rj) if isinstance(rj, str) else (rj or {})
-                    if isinstance(res, dict) and res.get("ok"):
-                        rc = res.get("count") if res.get("count") is not None else res.get("rowcount")
-                    else:
-                        err = (str(res.get("message") or res.get("exception_repr")
-                                    or res.get("error") or res)[:1500]
-                               if isinstance(res, dict) else str(res))
-            except Exception as exc:
-                err = "%s: %s" % (type(exc).__name__, exc)
-        else:
-            try:
-                from modules.strategie_pg.application.service import get_session as _pgs
-                with _pgs() as s:
-                    r = s.execute(_td(sql))
-                    try:
-                        rc = r.rowcount
-                    except Exception:
-                        rc = None
-                    s.commit()
-            except Exception as exc:
-                err = "%s: %s" % (type(exc).__name__, exc)
-
-        if err:
-            ds.execute(_td("UPDATE fw.claude_write_request SET status='error', error=:e, "
-                           "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
-                       {"e": err[:4000], "u": uid, "id": req_id})
-            ds.commit()
-            return {"ok": False, "status": "error", "error": err}
-
-        result_text = "OK · %s řádků dotčeno" % (rc if rc is not None else "?")
-        ds.execute(_td("UPDATE fw.claude_write_request SET status='done', row_count=:rc, "
-                       "result_text=:rt, decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
-                   {"rc": rc, "rt": result_text, "u": uid, "id": req_id})
-        # GDPR/HR audit (Marti-AI kustod podmínka 25.6.2026): append-only záznam do
-        # tenant.hr_write_audit — subject_user_id + data_category + legal_basis + retention
-        # pro HR/finance zápisy. Best-effort — nikdy neshodí výsledek zápisu (audit =
-        # early warning, ne brána; doctrine #13 RO append-only).
-        try:
-            _aud = _classify_write_audit(sql)
-            if _aud:
-                ds.execute(_td(
-                    "INSERT INTO tenant.hr_write_audit "
-                    "(write_request_id, actor, approver_user_id, sql_text, data_category, "
-                    " acl_scope, subject_user_id, legal_basis, retention_flag) "
-                    "VALUES (:wr, :ac, :ap, :sql, :dc, :sc, :su, :lb, :rf)"),
-                    {"wr": req_id, "ac": row["requested_by"], "ap": uid, "sql": sql,
-                     "dc": _aud["data_category"], "sc": _aud["acl_scope"],
-                     "su": _aud["subject_user_id"], "lb": _aud["legal_basis"],
-                     "rf": _aud["retention_flag"]})
-        except Exception:
-            logger.exception("[HR audit] zápis do tenant.hr_write_audit selhal (req %s)", req_id)
-        ds.execute(_td("UPDATE fw.mobile_command SET status='done', decided_at=now() "
-                       "WHERE command_type='claude_confirm' AND status='pending' "
-                       "AND payload->>'write_request_id' = :ridtxt"),
-                   {"ridtxt": str(req_id)})
-        ds.commit()
-        return {"ok": True, "status": "done", "row_count": rc, "result_text": result_text}
-    finally:
-        ds.close()
+    """Tenký delegát — logika žije v DB (g2007.python, kód `claude_write_decision`).
+    Migrace 27. 8. 2026 (Peťa + Claude-26) podle pravidla Marti z 2. 8. 2026 „kód
+    žije v databázi, ne v souboru". Volají ho ERP banner (/diag-write/decide) i
+    mobil (/app/command/result) — obojí beze změny chování.
+    Oprava zavedená při migraci: když schválený zápis skončí CHYBOU, zavře se i
+    čekající karta v mobilu (fw.mobile_command). Dřív zůstala viset navždy —
+    schvalovací karty nemají 24h úklid, ten platí jen pro informační claude_msg."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("claude_write_decision", req_id, decision, uid)
 
 
 @api_router.post("/diag-write/{req_id}/decide")

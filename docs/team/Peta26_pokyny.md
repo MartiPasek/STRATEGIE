@@ -325,7 +325,8 @@ rozhodne, jestli a s kým to řešit.
 Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přiloženo v PDF."*
 
 **Co porovnávat:** DUZP · splatnost (jiná data ne) · číslo účtu · částky u položek ·
-kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 níže).
+kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 níže) ·
+**odběratel = správná firma** (viz bod 5 níže).
 
 **Dvě pravidla, jak to hlásit** (Peťa 21. 8., *„zapomněla jsem říct"*):
 
@@ -362,6 +363,22 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
    ⚠️ Chyba z 25. 8. 2026: u 2104 jsem hlásil „hlídej si, ať se skonto neztratí", přestože
    bylo řádně vyplněné — jen jsem se nepodíval do `TabScontoFaktury`. **Podívej se tam vždycky,
    než něco kolem skonta napíšeš.**
+
+5. **🏢 DVĚ FIRMY, DVĚ ŘADY DOKLADŮ — kontroluj, jestli faktura sedí do té správné**
+   (ověřeno 27. 8. 2026 v definici přehledů 2300 a 10100).
+   Centrála vede vedle sebe dvě firmy. **Adresář dodavatelů je společný, rozhoduje řada dokladu:**
+
+   | Firma | IČO | Řady přijatých faktur | Přehled |
+   |---|---|---|---|
+   | EUROSOFT **- Control** s.r.o. | 27960862 | **500**, 510, 520, 530, 540, 560, 590 | 2300 |
+   | EUROSOFT **- System** s.r.o. | 26411741 | **501**, 511, 521, 531, 541 | 10100 / 10101 |
+
+   **Při kontrole se podívej, na koho je faktura vystavená** (IČO odběratele na PDF)
+   a jestli to odpovídá řadě dokladu. Když ne, **je to nález.**
+   Příklad z 27. 8. 2026: **2147 Performia** — faktura psaná na EUROSOFT - System (26411741),
+   ale zaúčtovaná v řadě 500 (Control). Peťa: *„bude to v jiné firmě."*
+   Poznávací znamení v datech: v řadě 501 jsou i faktury, kde je **dodavatelem sám
+   EUROSOFT-Control** (nájemné) — to je právě proto, že odběratelem je System.
 
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 

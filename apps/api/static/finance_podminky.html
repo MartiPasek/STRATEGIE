@@ -284,10 +284,11 @@ async function openP(uid,row){
     if(_fond>0){
       const _hrBez=sumSazba/_fond, _hrsFK=sumP/_fond;
       h+='<tr style="background:#0f141a"><td colspan="6" style="color:#7f8ea0;font-size:11px;padding-top:8px">Hodinové sazby (fond '+_ft+' h · koeficient '+_kk+')</td></tr>';
-      h+=_rateRow('HrHodBezFK',_hrBez,'var(--title)','Hrubá hodinová bez FK = (základ + osobní ohodnocení) ÷ fond');
-      h+=_rateRow('HrHodsFK ⏱ přesčasy',_hrsFK,'#7fe0a0','Hrubá hodinová s FK = celá hrubá (+ individuální ohodnocení, prémie, firemní kultura) ÷ fond. Z této sazby se počítají přesčasy.');
-      h+=_rateRow('ZakladZaHod',_hrBez*_koef,'var(--accent)','HrHodBezFK × '+_kk+' (nákladový koeficient; u OSVČ a DPP = 1,0).');
-      h+=_rateRow('SuperhrHodsFK',_hrsFK*_koef,'var(--accent)','HrHodsFK × '+_kk+' — nákladová sazba pro oceňování zakázek, ne pro výplaty.');
+      const _lbl=(kod,popis)=>kod+' <span style="color:#5d6b7c;font-weight:400;font-size:10px">'+popis+'</span>';
+      h+=_rateRow(_lbl('HrHodBezFK','hrubá/h — jen základ + os. ohodnocení'),_hrBez,'var(--title)','Hrubá hodinová bez FK = (základ + osobní ohodnocení) ÷ fond');
+      h+=_rateRow(_lbl('HrHodsFK','hrubá/h — vše (+ prémie, FK) · ⏱ přesčasy'),_hrsFK,'#7fe0a0','Hrubá hodinová s FK = celá hrubá (+ individuální ohodnocení, prémie, firemní kultura) ÷ fond. Z této sazby se počítají přesčasy.');
+      h+=_rateRow(_lbl('ZakladZaHod','nákladová/h — bez FK (co stojí firmu)'),_hrBez*_koef,'var(--accent)','HrHodBezFK × '+_kk+' (nákladový koeficient; u OSVČ a DPP = 1,0).');
+      h+=_rateRow(_lbl('SuperhrHodsFK','nákladová/h — se vším (oceňování zakázek)'),_hrsFK*_koef,'var(--accent)','HrHodsFK × '+_kk+' — nákladová sazba pro oceňování zakázek, ne pro výplaty.');
       h+='<tr><td colspan="6" style="color:#7f8ea0;font-size:10.5px;line-height:1.6;padding:8px 8px 4px">'+
          '<b>Jak se počítá</b> (fond '+_ft+' h, ověřeno 1:1 proti Centrále): '+
          '<b>HrHodBezFK</b> = (základ + osobní ohodnocení) ÷ fond &nbsp;·&nbsp; '+

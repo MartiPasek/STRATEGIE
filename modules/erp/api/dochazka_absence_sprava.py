@@ -795,9 +795,15 @@ def _zapis_dny(s, emp, typ_code, d_od, d_do, hpd, pozn, uid, zdroj="manual_fix",
     s.execute(_t(
         "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
         "started_at,ended_at,status,source,source_system,source_id,is_active,note,"
-        "ved_schvaleno,created_by_id,created_at,updated_at) "
+        # Peťa 25.8.2026: u fajfky se ukládá i KDO a KDY ji dal (sloupce doplněny
+        # 27.8.2026). Když správce zapisuje absenci rovnou jako schválenou, je
+        # schvalovatelem on sám. Bez zaškrtnutí zůstanou obě pole prázdná.
+        "ved_schvaleno,ved_schvaleno_kym,ved_schvaleno_kdy,"
+        "created_by_id,created_at,updated_at) "
         "VALUES (%d,:e,:d,:ti,:h,:d + CAST(:st AS time),:d + CAST(:et AS time),"
-        "'confirmed',:src,:ss,:si,false,:n,:sch,:u,now(),now())" % _TEN), par)
+        "'confirmed',:src,:ss,:si,false,:n,:sch,"
+        "CASE WHEN :sch THEN :u END,CASE WHEN :sch THEN now() END,"
+        ":u,now(),now())" % _TEN), par)
     return len(dny)
 
 

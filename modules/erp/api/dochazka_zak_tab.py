@@ -574,7 +574,17 @@ async def dochazka_zak_tab_save_doch_meta(req: Request) -> JSONResponse:
         if has_vp:
             sets.append("vedouci_poznamka=:vp"); params["vp"] = vp
         if has_vs:
-            sets.append("ved_schvaleno=:vs"); params["vs"] = vs
+            # Peťa 25.8.2026: u fajfky se musí uložit i KDO a KDY. Do 27.8.2026 se
+            # ukládalo jen ano/ne, takže v přehledu Správa docházky zůstávaly sloupce
+            # „Schválil" a „Schváleno kdy" prázdné u všeho, co neprošlo žádostí
+            # (typicky plán z Centrály a ruční zaškrtnutí přímo v přehledu).
+            # Při odškrtnutí se oba údaje mažou — fajfka tam už není, tak nemá co držet.
+            sets.append("ved_schvaleno=:vs")
+            sets.append("ved_schvaleno_kym=" + ("CAST(:vsu AS integer)" if vs else "NULL"))
+            sets.append("ved_schvaleno_kdy=" + ("now()" if vs else "NULL"))
+            params["vs"] = vs
+            if vs:
+                params["vsu"] = int(uid)
         if not sets:
             return JSONResponse({"ok": True, "id": aid, "note": "nic ke změně"})
         s.execute(_t("UPDATE tenant.att_entry SET " + ", ".join(sets) + " WHERE id=:id AND tenant_id=2"),

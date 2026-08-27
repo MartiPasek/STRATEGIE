@@ -2043,6 +2043,15 @@ def data_source_execute(
     raw_params = dict(req.query_params)
     raw_params.pop("variant", None)  # variant je explicit kwarg
     raw_params.pop("kind", None)     # kind je explicit kwarg (Krok H+3)
+    # Prihlaseny uzivatel jako bind param pro SQL datoveho zdroje (Jirka 27.8.2026,
+    # schvalila Marti-AI msg 13886). Duvod: do 27.8. nemel zadny z 170 zdroju jak
+    # filtrovat na toho, KDO se pta - prava se resila jen clenstvim v ERP nebo pevnym
+    # filtrem v SQL (napr. tenant.vyroba_dusan_team). Diky tomuhle muze SQL napsat
+    # WHERE ... IN (SELECT ... FROM tenant.att_fix_viditelni_emp(:uid)).
+    # NASTAVUJE SE AZ PO nacteni query params zamerne - jinak by slo uid podvrhnout z URL.
+    # Stavajici zdroje se nerozbiji: _normalize_params doplnuje chybejici bind params na None
+    # a k 27.8.2026 zadny z nich :uid nepouziva (overeno dotazem nad vsemi fw.data_set.sql_text).
+    raw_params["uid"] = uid
 
     session = _gds_data()
     try:

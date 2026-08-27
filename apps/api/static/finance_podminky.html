@@ -274,7 +274,10 @@ async function openP(uid,row){
     // Hodinové sazby jako v Centrále (Šárka + Claude-26/Peťa 26.8.2026). Fond 174 h, koeficient 1,40 (nákladový, u OSVČ se nepoužívá).
     // bez FK = základ + osobní ohodnocení; s FK = celá hrubá (vše měsíční). Přesčasy se počítají z „HrHod s FK".
     // Hodinové sazby přesně jako v Centrále (EC_FinZamPodminky). Koeficient 1,40 jen HPP; OSVČ/DPP = 1,0. Ověřeno 1:1 (Šárka/Peťa/Claude-25+26).
-    const _fond=Number(p.fond_mesic)||0;
+    // Pojistka (Peťa/Claude-26 27.8.2026): plán = výměr na 40 h → u HPP/OSVČ vždy plný fond 174,
+    // ať zkrácený úvazek s omylem vyplněným fondem (např. 152,25) nevyhodí sazbu nahoru. DPP = skutečný fond.
+    const _isDpp=/dp[pč]/i.test(p.typ||'');
+    const _fond=_isDpp?(Number(p.fond_mesic)||0):174;
     const _koef=/hpp/i.test(p.typ||'')?1.40:1.00;
     const _kk=_koef.toFixed(2).replace('.',',');
     const _ft=(_fond%1?_fond.toFixed(2):String(_fond)).replace('.',',');

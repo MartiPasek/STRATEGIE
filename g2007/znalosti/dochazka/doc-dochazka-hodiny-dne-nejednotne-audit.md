@@ -2,6 +2,25 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## NEPLATI k 27.8.2026 v jednom bode (doplnil Claude-28 / Jirka, potvrdila Marti-AI msg 13880)
+>
+> V sekci "Kdo pocita spatne (prosty SUM hodin)" nize plati u obou mesicnich sestav uz neco jineho.
+> Overeno 27.8.2026 ctenim primo z `fw.data_set` (id 76 `system_new.hr_att_monthly_list`,
+> id 136 `vyroba.dusan_att_monthly_list`):
+> - **oba** ctou `tenant.att_den_hodiny(2, NULL, NULL)`, tedy sdilenou definici - **neni to prosty SUM**,
+> - **oba** maji v CTE `c` filtr `status IS DISTINCT FROM 'superseded' AND ... 'announced'`.
+>
+> Veta "prosty SUM" a veta "navic bez filtru superseded" u techto **dvou** sestav tedy **neplati**.
+> Vypada to, ze navrh z teto znalosti (jedna sdilena funkce) byl u nich mezitim uskutecnen
+> a znalost se neaktualizovala.
+>
+> **Co NENI overeno a co tento ramecek netvrdi:** jestli sama funkce `tenant.att_den_hodiny`
+> naplnuje celou "spravnou definici" popsanou nize, a jestli uz jsou prepojene zbyle obrazovky
+> ze seznamu (`/app/attendance/daily`, `/app/attendance/real`, `/app/dochazka/moje`).
+> Do tech se 27.8.2026 nesahalo a nikdo je neoveroval.
+>
+> Zbytek znalosti zustava beze zmeny vcetne puvodnich vet - jsou nechany viditelne zamerne,
+> aby bylo poznat, co se zmenilo. Souvisejici: `doc-vyroba-mesicni-prehled-dusan-fond-a-rozdil`.
 
 # Hodiny za den - 8 obrazovek, 5 ruznych definic
 

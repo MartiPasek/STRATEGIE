@@ -27633,16 +27633,28 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        # Marti 18.6.: pamatuj poslední STANDARDNÍ činnost pro tuto zakázku (ctx=project_ref).
+        # Marti 18.6.: pamatuj poslední činnost pro tuto zakázku (ctx=project_ref).
+        # Peťa 27.8.2026: BEZ filtru na druh činnosti. Centrála žádnou vazbu
+        # „tahle činnost jen k téhle zakázce" nemá (přehledy 1046 režie + 1047 dílna
+        # jsou dva SEZNAMY, ne dvě škatulky) — na zakázce Rezie se v roce 2026 použilo
+        # 3 287 režijních a 4 099 dílenských záznamů, na VR i režijní. Dřívější
+        # `c.kind='standard'` znamenalo, že u zakázky Rezie se paměť NETREFILA NIKDY
+        # (0 uložených činností druhu standard pod ctx='Rezie') — a řádek níž se pak
+        # uložilo prázdno. Nepřítomnosti (kind='nepritomnost') do práce nepatří.
         rc = s.execute(_t(
             "SELECT c.id, c.name, c.icon FROM tenant.work_last_cinnost w"
             " JOIN tenant.vyroba_cinnost c ON c.tenant_id=w.tenant_id AND c.id=w.cinnost_id"
-            "  AND c.active=true AND c.kind='standard'"
+            "  AND c.active=true AND c.kind IN ('standard','rezie')"
             " WHERE w.tenant_id=:t AND w.user_id=:u AND w.ctx=:x"),
             {"t": _ATT_TENANT, "u": uid, "x": pr}).first()
-        _ci = rc[0] if rc else None
-        _cn = rc[1] if rc else None
-        _cic = (rc[2] if (rc and rc[2]) else None)
+        # Peťa + Týnka: činnost zůstává, dokud si ji člověk sám nezmění. Když paměť
+        # pro tuhle zakázku nic nenese, NEMAŽEME — necháme, co v předvýběru je.
+        # (Bez tohohle přišel Zeman 18.8.2026 o činnost a devět dní mu vznikaly
+        # prázdné úseky; ~40 h.)
+        _prev = _wp_get(s, uid)
+        _ci = rc[0] if rc else (_prev["cinnost_id"] if _prev else None)
+        _cn = rc[1] if rc else (_prev["cinnost_name"] if _prev else None)
+        _cic = (rc[2] if (rc and rc[2]) else (_prev["cinnost_icon"] if _prev else None))
         # Marti 14.6.: předvýběr funguje vždy (i mimo práci).
         _wp_save(s, uid, project_ref=pr, project_nazev=pn,
                  cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=False)
@@ -27669,16 +27681,20 @@ async def app_work_set_rezie(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        # Marti 18.6.: pamatuj poslední REŽIJNÍ činnost (ctx='REZIE').
+        # Marti 18.6.: pamatuj poslední činnost pro režii (ctx='REZIE').
+        # Peťa 27.8.2026: BEZ filtru na druh činnosti — viz set-zakazka výš.
+        # Nepřítomnosti (kind='nepritomnost') do práce nepatří.
         rc = s.execute(_t(
             "SELECT c.id, c.name, c.icon FROM tenant.work_last_cinnost w"
             " JOIN tenant.vyroba_cinnost c ON c.tenant_id=w.tenant_id AND c.id=w.cinnost_id"
-            "  AND c.active=true AND c.kind='rezie'"
+            "  AND c.active=true AND c.kind IN ('standard','rezie')"
             " WHERE w.tenant_id=:t AND w.user_id=:u AND w.ctx='REZIE'"),
             {"t": _ATT_TENANT, "u": uid}).first()
-        _ci = rc[0] if rc else None
-        _cn = rc[1] if rc else None
-        _cic = (rc[2] if (rc and rc[2]) else None)
+        # Peťa + Týnka: činnost zůstává, dokud si ji člověk sám nezmění — nemazat.
+        _prev = _wp_get(s, uid)
+        _ci = rc[0] if rc else (_prev["cinnost_id"] if _prev else None)
+        _cn = rc[1] if rc else (_prev["cinnost_name"] if _prev else None)
+        _cic = (rc[2] if (rc and rc[2]) else (_prev["cinnost_icon"] if _prev else None))
         # Peťa 21.7.2026: režie nese číslo zakázky 'Rezie' (dřív NULL), ať je vidět
         # v přehledech docházky i v osách práce. Příznak is_rezie zůstává rozhodující.
         _wp_save(s, uid, project_ref=_REZIE_REF, project_nazev=None,

@@ -1,17 +1,25 @@
-# Ohlášení lékaře, nemoci a OČR: dosud končila jen v mobilu vedoucího, teď mají záložku ve Správě docházky
+# Ohlášení nepřítomnosti (lékař, nemoc, OČR, neplacené): záložka ve Správě docházky
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-# Ohlášení lékaře, nemoci a OČR — záložka ve Správě docházky
+# Ohlášení nepřítomnosti — záložka ve Správě docházky
+
+> ⚠️ **AKTUALIZOVÁNO 27. 8. 2026 — dva údaje z původního znění UŽ NEPLATÍ.**
+> 1. Záložka se **nejmenuje „🧑‍⚕️ Ohlášení lékař / nemoc / OČR"**, ale
+>    **„🧑‍⚕️ Ohlášení nepřítomnosti"**.
+> 2. **Nejsou to jen tři druhy.** Od 27. 8. sem patří i **neplacené volno** — viz
+>    `doc-dochazka-neplacene-volno-z-mobilu-jen-ohlaseni`.
+> Zbytek zápisu (kde data žijí, práva, háčky) platí beze změny.
 
 **26. 8. 2026, Peťa + C26.** Zadala Peťa: *„aby se Dušan nebo kdokoliv mohl kouknout, že mu
 to opravdu hlásil, ale jen info, nic víc."*
 
 ## Co se dělo
-Když si člověk v mobilu ohlásí **lékaře, nemoc nebo OČR**, do docházky se **nic nezapíše**
-(pravidlo Peti 30. 7., viz `doc-dochazka-sprava-vs-new-co-se-preklapi` — zadává se až
-z dokladu). Jediné, co vznikne, je **notifikace vedoucímu do mobilu**. Ta se ale nikam
-dál nepromítala, takže vedoucí neměl kde zpětně ověřit, že mu to člověk hlásil.
+Když si člověk v mobilu ohlásí **lékaře, nemoc, OČR nebo (od 27. 8.) neplacené volno**,
+do docházky se **nic nezapíše** (pravidlo Peti 30. 7., viz
+`doc-dochazka-sprava-vs-new-co-se-preklapi` — zadává se až z dokladu). Jediné, co vznikne,
+je **notifikace vedoucímu do mobilu**. Ta se ale nikam dál nepromítala, takže vedoucí neměl
+kde zpětně ověřit, že mu to člověk hlásil.
 Sama notifikace to říká: *„Jen na vědomí, do docházky se nic nezapisuje."*
 
 ## Kde ta informace žije
@@ -26,10 +34,10 @@ proto ten filtr na titulek.
   `RadekId` (`N:<id notifikace>`), `Kdy`, `JmenoPrijmeni`, `Druh`, `Ohlaseni`, `KomuPrislo`.
 - **Třetí pohled v endpointu** `/app/dochazka-zak-tab/data?obdobi=ohlaseni`
   (`_DZT_DATASET["ohlaseni"]`, commit `8f1d342d`) — jediná část, která šla přes deploy.
-- **Záložka „🧑‍⚕️ Ohlášení lékař / nemoc / OČR"** v `dochazka-po-zakazkach.html`
+- **Záložka „🧑‍⚕️ Ohlášení nepřítomnosti"** v `dochazka-po-zakazkach.html`
   (`COLS_OHL`), **jen ke čtení**, žádné akce.
-- Ověřeno na produkci: 12 řádků, mimo jiné „Jan Peřina: Lékař 13. 8. — u lékaře do ~09:00",
-  komu přišlo: Dušan Havlát.
+- Ověřeno na produkci 26. 8.: 12 řádků, mimo jiné „Jan Peřina: Lékař 13. 8. — u lékaře
+  do ~09:00", komu přišlo: Dušan Havlát.
 
 **Práva se NEMĚNILA** (Peťa: *„nechceme nic přepisovat, chceme aby tam viděli stejní lidi"*).
 Záložka dědí přístup obrazovky = `_DZT_ALLOWED` v `dochazka_zak_tab.py`, což je **pevný
@@ -38,9 +46,10 @@ v něm, **vidí všechny lidi** — žádné omezení „jen moji lidé" tam nen
 natvrdo v kódu, je proti pravidlu „práva se nepíšou do kódu"; vědomě ponecháno.
 
 ## Háčky
-- **Druh se pozná z TEXTU zprávy** (`ILIKE '%Lékař%' / '%OČR%' / '%Nemoc%'`), ne z uloženého
-  údaje — notifikace na žádost navázaná není a `ref_id` na `att_absence_request` neukazuje.
-  U těchto tří druhů to vychází spolehlivě, ale je to odvozené.
+- **Druh se pozná z TEXTU zprávy** (`ILIKE '%Lékař%' / '%OČR%' / '%Nemoc%' /
+  '%Neplacené volno%'`), ne z uloženého údaje — notifikace na žádost navázaná není
+  a `ref_id` na `att_absence_request` neukazuje. U těchto druhů to vychází spolehlivě,
+  ale je to odvozené.
 - **Zdroj „žádost z appky" v přehledu Správa docházky je natvrdo napsaný text**, ne uložený
   údaj: dataset dá každé žádosti `'app'::varchar src` a pak vypíše „žádost z appky".
   **Odkud žádost přišla, se dnes nedá zjistit** — `att_absence_request` nemá sloupec zdroje.
@@ -51,13 +60,10 @@ natvrdo v kódu, je proti pravidlu „práva se nepíšou do kódu"; vědomě po
   že se to objeví lidem v přehledu.
 - `fw.data_set` má `db_connection_id` **NOT NULL** — při zakládání nového datasetu ho
   opsat z existujícího (`SELECT db_connection_id FROM fw.data_set WHERE code=…`), jinak
-  INSERT spadne na NotNullViolation.
+  INSERT spadne na NotNullViolation. A `description` je **varchar(255)** — delší popis
+  spadne na StringDataRightTruncation.
 
 ## Otevřené
-- Sloupce ve Správě docházky, které Peťa chce od 25. 8.: **autor záznamu** (dnes se do něj
-  přepisuje ten, kdo schválil nebo opravil — to je špatně), **kde bylo pořízeno** (appka/ERP),
-  **kdo schválil**, **kdy schválil**, **kdo změnil**, **kdy změnil** (podle poslední změny).
-  Neuděláno — chce to zásah do datasetu na čtyřech místech naráz (větev dnů, větev žádostí,
-  výčet sloupců v obou částech UNION, výsledný SELECT) plus hlavičku tabulky. Vzor, kde tyhle
-  údaje už jsou spočítané, leží v `scripts/_dochazka_109_sloupce.sql` (nenasazený, 21. 7.).
+- Sloupce ve Správě docházky (autor, kde pořízeno, kdo a kdy schválil, kdo a kdy změnil) —
+  **Peťa 27. 8.: řeší se jinde, tady už NEPŘIPOMÍNAT.**
 

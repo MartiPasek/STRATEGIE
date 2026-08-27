@@ -286,6 +286,12 @@ async function openP(uid,row){
       h+=_rateRow('Základ za hodinu (nákladová · ×1,40)',_hrBez*_koef,'var(--accent)','Hrubá bez FK × 1,40 (nákladový koeficient) — „Základ za hodinu“ jako v Centrále.');
       h+=_rateRow('Superhrubá s FK (nákladová · ×1,40)',_hrsFK*_koef,'var(--accent)','Hrubá s FK × 1,40 — nákladová sazba pro oceňování práce na zakázkách (ne pro výplaty).');
     }
+    h+='<tr><td colspan="6" style="color:#7f8ea0;font-size:10.5px;line-height:1.6;padding:8px 8px 4px">'+
+       '<b>Jak se počítá</b> (fond '+_fond+' h, ověřeno proti Centrále): '+
+       '<b>bez FK</b> = (základ + osobní ohodnocení) ÷ '+_fond+' &nbsp;·&nbsp; '+
+       '<b>s FK</b> = celá hrubá (+ individuální ohodnocení, prémie, firemní kultura) ÷ '+_fond+' &nbsp;·&nbsp; '+
+       '<b>nákladová (×1,40)</b> = hrubá × 1,40 — kolik hodina stojí firmu (u OSVČ se nepoužívá). '+
+       '⏱ <b>Přesčasy</b> se počítají z hrubé <b>s FK</b>.</td></tr>';
     h+='</table>';
     h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
       '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+

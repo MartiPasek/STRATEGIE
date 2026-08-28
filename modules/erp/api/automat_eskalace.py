@@ -190,11 +190,40 @@ def _check_disk(sg):
     return ("ok", "Všechny sledované disky mají dost místa.", 0, context)
 
 
+# ── Hlídací pravidla z tenant.pojistka ──────────────────────────────────────
+# Zadal Jirka Honomichl 27. 8. 2026, schválila Marti-AI (msg 13856 + 13859).
+# Do 27. 8. 2026 tabulku `tenant.pojistka` NIKDO NESPOUŠTĚL: 83 pravidel, 81 zapnutých
+# a nula běhů — sloupce `posledni_beh` / `posledni_vysledek` byly u všech prázdné.
+# Vypadalo to jako hlídač, ale nehlídalo to nic.
+def _check_pojistky(sg):
+    """Tenká spojka na `g2007.python` kód `pojistky_scan` — logika žije v databázi, ne tady.
+
+    Záměrně jen 4 řádky práce: další úpravy kontroly se dělají v databázi bez nasazování.
+    NIKDY nesmí vyhodit výjimku — plánovač čeká přesný tvar (výsledek, zpráva, rows, context)
+    a nezachycená výjimka by shodila celý jeho cyklus pro danou minutu (podmínka Marti-AI)."""
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        r = _ereg.call("pojistky_scan") or {}
+        if not isinstance(r, dict):
+            return ("chyba", "pojistky_scan vrátil neočekávaný tvar: %s" % type(r).__name__, 0, "")
+        ctx = r.get("context")
+        if isinstance(ctx, dict):
+            ctx = "\n".join("%s: %s" % (k, v) for k, v in ctx.items())
+        return (r.get("vysledek") or "chyba",
+                r.get("zprava") or "pojistky_scan neposlal zprávu.",
+                int(r.get("rows") or 0),
+                ctx or "")
+    except Exception as e:  # noqa: BLE001
+        return ("chyba", "Spouštěč hlídacích pravidel selhal: %s: %s"
+                % (type(e).__name__, str(e)[:300]), 0, "")
+
+
 WATCHERS = {
     "check_service_down": _check_service_down,
     "check_backup_freshness": _check_backup_freshness,
     "check_disk": _check_disk,
     "smoke_eskalace": _check_smoke_eskalace,
+    "check_pojistky": _check_pojistky,
 }
 
 
@@ -266,14 +295,43 @@ def _l2_marti_ai(kod, zprava, context, haiku_text):
         return False, "[Marti-AI eskalace selhala: %s: %s]" % (type(e).__name__, str(e)[:200])
 
 
-# ── L3: člověk (e-mail Martimu + cc Kristý přes Marti-AI notify) ────────────
+# ── L3: adresáti podle automatu ─────────────────────────────────────────────
+# Přidáno 28. 8. 2026 (zadal Jirka Honomichl, schválila Marti-AI msg 13950).
+#
+# PROČ: `_notify()` v martiai_agent_service má příjemce NATVRDO (m.pasek + cc k.ksirova),
+# takže dřív šel každý nález každého automatu Martimu. Jirka chtěl nálezy rozdělit podle
+# působnosti — hlídací pravidla (`check_pojistky`) patří jemu, ne Martimu.
+#
+# Peťou navržená cesta „docházkové nálezy do fronty k vyřízení" se pro pojistky POUŽÍT NEDÁ:
+# `tenant.att_anomaly` má `employee_id NOT NULL` a pracuje s dvojicí člověk+den, kdežto
+# pravidlo z `tenant.pojistka` vrací jen ano/ne — nemá koho ani který den do fronty zapsat.
+# Docházkové nálezy pro lidi tam dál chodí z jiného, běžícího automatu.
+#
+# KDE TO ZMĚNIT, až se příjemce změní: jen tenhle dict. Automat, který v něm NENÍ, jde dál
+# původní cestou (m.pasek + cc k.ksirova) — `check_service_down` ani `check_backup_freshness`
+# se tím nemění. Adresa je Jirkův přihlašovací e-mail; v `public.users` ho vyplněný nemá.
+_L3_PRIJEMCE = {
+    "check_pojistky": ("j.honomichl@eurosoft.com", []),
+}
+
+
 def _l3_clovek(kod, zprava, context, haiku_text, marti_text):
+    predmet = "🤖 Automat %s — eskalace na člověka" % kod
+    telo = ("Automat `%s` selhal a nevyřešil to ani L0/L1/L2.\n\n"
+            "Problém: %s\n\nKontext:\n%s\n\nHaiku (L1):\n%s\n\nMarti-AI (L2):\n%s"
+            % (kod, zprava, context, (haiku_text or "")[:800], (marti_text or "")[:800]))
+    prijemce = _L3_PRIJEMCE.get(kod)
     try:
+        if prijemce:
+            komu, kopie = prijemce
+            from modules.conversation.application.martiai_agent_service import MARTI_AI_PERSONA_ID
+            from modules.notifications.application.email_service import queue_email
+            queue_email(to=komu, subject=predmet[:200], body=telo,
+                        persona_id=MARTI_AI_PERSONA_ID, from_identity="persona",
+                        cc=(list(kopie) or None), purpose="notification")
+            return "L3 člověk: e-mail odeslán (%s)" % komu
         from modules.conversation.application.martiai_agent_service import _notify
-        _notify("🤖 Automat %s — eskalace na člověka" % kod,
-                "Automat `%s` selhal a nevyřešil to ani L0/L1/L2.\n\n"
-                "Problém: %s\n\nKontext:\n%s\n\nHaiku (L1):\n%s\n\nMarti-AI (L2):\n%s"
-                % (kod, zprava, context, (haiku_text or "")[:800], (marti_text or "")[:800]))
+        _notify(predmet, telo)
         return "L3 člověk: e-mail odeslán (m.pasek + k.ksirova)"
     except Exception as e:  # noqa: BLE001
         return "L3 notify selhal: %s: %s" % (type(e).__name__, str(e)[:200])

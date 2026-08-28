@@ -2300,7 +2300,7 @@ function renderPU(edit){
       '</div>'+
       '<div style="margin:0 14px 10px;border:1px solid #233040;border-radius:12px;background:#12181f;padding:12px 16px">'+
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px 22px;font-size:13px;align-items:start">'+
-          cardW('Zařazení',zar)+cardW('Smlouva',sml)+cardW('Úvazek',uva)+
+          cardW('Zařazení',zar)+cardW('Smlouva',sml)+
         '</div>'+
         '<div style="margin-top:10px;border-top:1px solid #1b2430;padding-top:8px">'+cardW('Poznámka',pozn)+'</div>'+
       '</div></div>';
@@ -3271,9 +3271,9 @@ async function pmfUdaje(){
   const souhrn='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:12px 16px 6px">'+
     mcard('Úvazek',mUva)+mcard('Hrubá mzda',mMzda)+mcard('Dovolená (zbývá)',mDov)+mcard('Sick days (zbývá)',mSick)+mcard('Smlouva',mSml)+'</div>';
   const SECS=[
-    {ic:'💼',t:'Poměr a smlouva',src:'/karta-zamestnance?embedsec=pracovni&uid='+uid},
-    {ic:'💰',t:'Mzdové podmínky',src:'/finance-podminky?uid='+uid+'&embed=1'},
-    {ic:'📋',t:'Podmínky a bonusy',src:'/karta-zamestnance?embedsec=podminky&uid='+uid},
+    {ic:'💼',t:'Vztah a smlouva',src:'/karta-zamestnance?embedsec=pracovni&uid='+uid},
+    {ic:'📋',t:'Podmínky a benefity',src:'/karta-zamestnance?embedsec=podminky&uid='+uid},
+    {ic:'💰',t:'Mzda',src:'/finance-podminky?uid='+uid+'&embed=1'},
   ];
   window.PMF_SECS=SECS;
   const tabs=SECS.map((s,i)=>'<button id="pmfTab'+i+'" onclick="pmfTab('+i+')" style="border:1px solid #233040;border-bottom:0;border-radius:9px 9px 0 0;background:transparent;color:#aac8ec;font:inherit;font-weight:700;font-size:12.5px;padding:8px 15px;cursor:pointer">'+s.ic+' '+esc(s.t)+'</button>').join('');

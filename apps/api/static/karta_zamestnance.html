@@ -1756,22 +1756,34 @@ function pheadHTML(p){
     (p.ma_pomer?chip('Aktivní','#16301f','#7fe0a0'):chip('Bývalý','#23262b','#7f8ea0'))+
     (isBday?chip('🎂 Narozeniny dnes','#2a2140','#c58af0'):(roky!=null?chip('Výročí: '+roky+' '+_rs(roky)+' ve firmě','#1b2c44','#7fb2e8'):''))+postyChip;
   const postyPanel=(postN?posty.map(function(x){return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:6px;background:#12181f;border:1px solid #233040;color:#cdd6e2">'+esc(x)+'</span>';}).join(''):'<span style="color:#7f8ea0">Žádné posty v organizaci.</span>');
-  return '<div class="phead" style="align-items:flex-start;gap:20px;flex-wrap:wrap">'+
-    '<div style="display:flex;gap:12px;align-items:flex-start;min-width:230px">'+
+  const _stavDot=(p.ma_pomer?'#7fe0a0':'#7f8ea0');
+  const stavCol=
+    '<div style="display:flex;align-items:center;gap:7px;padding:1px 0"><span style="width:7px;height:7px;border-radius:50%;background:'+_stavDot+';display:inline-block"></span><span style="color:#cdd6e2">'+(p.ma_pomer?'Aktivní':'Bývalý')+'</span>'+(p.typ?'<span style="color:#5d6b7c">· '+esc(p.typ)+'</span>':'')+'</div>'+
+    (p.nastup?'<div style="color:#cdd6e2;padding:2px 0">📅 Nástup '+esc(p.nastup)+'</div>':'')+
+    (p.datum_odchodu?'<div style="color:#8595a8;font-size:11.5px;padding:1px 0">odchod '+esc(p.datum_odchodu)+'</div>':'')+
+    (isBday?'<div style="color:#c58af0;font-size:11.5px;padding:1px 0">🎂 Narozeniny dnes</div>':(roky!=null?'<div style="color:#8595a8;font-size:11.5px;padding:1px 0">🏅 '+roky+' '+_rs(roky)+' ve firmě</div>':''))+
+    '<div style="margin-top:5px">'+postyChip+'</div>';
+  return '<div class="phead" style="align-items:flex-start;gap:24px;flex-wrap:wrap">'+
+    '<div style="display:flex;gap:12px;align-items:flex-start;min-width:240px">'+
       '<div class="avatar" style="position:relative">'+img+
         '<span onclick="photoChange('+p.user_id+')" title="Změnit fotku" style="position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:#26527a;border:2px solid #0f141a;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer">✎</span>'+
       '</div>'+
       '<div style="min-width:0">'+
         '<div class="nm">'+esc(celeJm)+'</div>'+
-        (p.pozice?'<div style="color:#bcd3ef;font-size:14.5px;font-weight:600;margin:1px 0">'+esc(p.pozice)+'</div>':'')+
+        (p.pozice?'<div style="color:#bcd3ef;font-size:14px;font-weight:600;margin:2px 0">'+esc(p.pozice)+'</div>':'')+
         (([p.firma,p.stredisko].filter(Boolean).length)?'<div style="color:#8595a8;font-size:12px">'+[p.firma,p.stredisko].filter(Boolean).map(esc).join(' · ')+'</div>':'')+
       '</div>'+
     '</div>'+
-    '<div style="flex:1;min-width:230px;font-size:12.5px">'+
+    '<div style="min-width:210px;font-size:12.5px">'+
+      '<div style="color:#5d6b7c;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">Kontakt</div>'+
       (kontakt?'<div style="display:flex;flex-direction:column;gap:3px">'+kontakt+'</div>':'')+
       cisloLine+nadrLine+
-      (factsLine?'<div style="color:#8595a8;font-size:12px;margin-top:6px">'+esc(factsLine)+'</div>':'')+
-      '<div style="margin-top:8px">'+stavChips+'</div>'+
+    '</div>'+
+    '<div style="min-width:180px;font-size:12.5px">'+
+      '<div style="color:#5d6b7c;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">Stav</div>'+
+      stavCol+
+    '</div>'+
+    '<div style="flex-basis:100%">'+
       '<div id="pheadPosty" style="display:none;margin-top:6px;font-size:12px">'+postyPanel+'</div>'+
       '<div id="leaveBox" style="margin-top:9px"></div>'+
     '</div>'+
@@ -1814,9 +1826,10 @@ async function loadLeave(uid){
     (dv.zbytek==null?'#eaf2ff':(dv.zbytek<=0?'#ff8a7a':'#7fe0a0')),
     (dv.narok!=null?('z nároku '+num(dv.narok)+' dní · '+num(dv.cerpano)+' využito'+(dv.plan?(' · '+num(dv.plan)+' v plánu'):'')):'')));
   const sk=d.sick;
-  if(sk) cols.push(bigcard('🤒',(sk.zbytek_h==null?'—':num(sk.zbytek_h)),'h sick days zbývá',
+  if(sk){ const _skd=(sk.zbytek_h!=null?Math.round(sk.zbytek_h/8*10)/10:null);
+    cols.push(bigcard('🤒',(sk.zbytek_h==null?'—':num(sk.zbytek_h)),'h sick days zbývá',
     (sk.zbytek_h==null?'#eaf2ff':(sk.zbytek_h<=0?'#ff8a7a':'#7fe0a0')),
-    (sk.narok_h!=null?('z nároku '+num(sk.narok_h)+' h'):'')));
+    ((_skd!=null?('= '+num(_skd)+' dní (8 h/den)'):'')+(sk.narok_h!=null?((_skd!=null?' · ':'')+'z nároku '+num(sk.narok_h)+' h'):'')))); }
   let dm=null; try{ dm=await j(API+'/app/dochazka/moje-mesic?uid='+uid); }catch(e){}
   if(dm&&dm.ok&&dm.has){ const chyb=dm.chybi; const pres=(chyb!=null&&chyb<0);
     cols.push(bigcard('🕐',(chyb==null?'—':num(Math.abs(chyb))),(pres?'h přesčas':'h do fondu zbývá'),

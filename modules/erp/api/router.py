@@ -13693,7 +13693,7 @@ async def app_hr_person_absence(req: Request):
 
 # ── Dokumenty zaměstnance / digitální šanon (Šárka via Claude-25, 21.7.2026) ──────────
 # Osobní údaje (smlouvy, zápočťák, posudky) → bytea v tenant.employee_document (mimo git).
-_DOK_KAT_OK = {"smlouva", "dodatek", "zapoctovy", "posudek", "diplom", "ostatni"}
+_DOK_KAT_OK = {"smlouva", "dodatek", "mzda", "generovana", "zapoctovy", "posudek", "diplom", "gratulace", "ostatni"}
 
 
 def _velikost_h(n) -> str:
@@ -13834,7 +13834,7 @@ async def app_hr_person_leave(req: Request):
                          "dovolena": dovolena, "sick": sick, "zdroj": "dochazka"})
 
 
-_DOC_STAVY = ["koncept", "k_podpisu", "podepsany", "platny"]
+_DOC_STAVY = ["koncept", "k_podpisu", "podepsany", "platny", "archiv"]
 
 
 @api_router.post("/app/hr/person-doc/stav")

@@ -1126,13 +1126,32 @@ function omBox(p,title){
     (p.oddeleni?'<div class="omod">'+esc(p.oddeleni)+'</div>':'')+'</div>';
 }
 function openCardFromOrg(uid){ setView('list'); openP(uid); }
+// Řazení podřízených: dle pozice, pak jména (Šárka 29.8.2026)
+function omSortPZ(a,b){ return (a.pozice||'').localeCompare(b.pozice||'','cs') || (a.jmeno||'').localeCompare(b.jmeno||'','cs'); }
+// Člen týmu jako chip. osvc=true → styl „dodavatel", nikdy „podřízený".
+function omTeamChip(t, osvc){
+  const base='padding:4px 9px;border-radius:7px;margin:0 0 4px;cursor:pointer;font-size:12px;line-height:1.3;';
+  const st = osvc
+    ? base+'border:1px dashed #6a5a2f;background:#211d12;color:#e6d6a8'
+    : base+'border:1px solid #223042;background:#131b24;color:#dfe7f0';
+  const tag = osvc ? '<span style="font-size:9.5px;color:#c8a24a;font-weight:800;letter-spacing:.03em"> · OSVČ</span>' : '';
+  return '<div onclick="openCardFromOrg('+t.user_id+')" style="'+st+'">'+esc(t.jmeno)+
+    (t.pozice?'<span style="color:#7f8ea0"> · '+esc(t.pozice)+'</span>':'')+tag+'</div>';
+}
 function omRender(){
   const box=document.getElementById('omtree'), cnt=document.getElementById('omcnt');
   const inF=(p)=> OM_FILTER==='all' || (p.firmy||[]).indexOf(Number(OM_FILTER))>=0;
   const lidi=(OM_DATA||[]).filter(inF);
   const byU={}; lidi.forEach(p=>byU[p.user_id]=p);
-  const kids={}; lidi.forEach(p=>{ if(p.nadr_user!=null && byU[p.nadr_user]){ (kids[p.nadr_user]=kids[p.nadr_user]||[]).push(p); } });
-  const reditele=lidi.filter(p=>(kids[p.user_id]||[]).length && (p.nadr_user==null || !byU[p.nadr_user]));
+  const isOsvc=(p)=> (p.typ||'')==='osvc';
+  // Zaměstnanci tvoří linii vedení (nadřízený). OSVČ = dodavatelé pod koordinátorem (ne podřízení, švarc).
+  const kidsEmp={}, kidsOsvc={};
+  lidi.forEach(p=>{
+    if(isOsvc(p)){ if(p.koord_user!=null){ (kidsOsvc[p.koord_user]=kidsOsvc[p.koord_user]||[]).push(p); } }
+    else { if(p.nadr_user!=null && byU[p.nadr_user]){ (kidsEmp[p.nadr_user]=kidsEmp[p.nadr_user]||[]).push(p); } }
+  });
+  const isHead=(u)=> !!((kidsEmp[u]||[]).length || (kidsOsvc[u]||[]).length);
+  const reditele=lidi.filter(p=> !isOsvc(p) && isHead(p.user_id) && (p.nadr_user==null || !byU[p.nadr_user]));
   if(cnt) cnt.textContent='('+lidi.length+' lidí)';
   const jn=(a)=>(a||[]).map(x=>'<b style="color:#e8eef5;cursor:pointer" onclick="openCardFromOrg('+x.user_id+')">'+esc(x.jmeno)+'</b>').join(' · ');
   let jed;
@@ -1142,23 +1161,39 @@ function omRender(){
   let h='<div style="text-align:center;margin-bottom:14px"><span style="display:inline-block;color:#9fb3cc;font-size:12px;padding:6px 14px;background:#12181f;border:1px dashed #2a3a4d;border-radius:8px">'+jed+'</span></div>';
   reditele.forEach(dir=>{
     h+='<div class="omcol" style="align-items:center">'+omBox(dir,'Výkonný ředitel')+'</div>';
-    const reps=(kids[dir.user_id]||[]).slice().sort((a,b)=>((b.oddeleni?1:0)-(a.oddeleni?1:0))||a.jmeno.localeCompare(b.jmeno,'cs'));
+    const reps=(kidsEmp[dir.user_id]||[]).slice().sort((a,b)=>((isHead(b.user_id)?1:0)-(isHead(a.user_id)?1:0))||omSortPZ(a,b));
     if(reps.length){
-      h+='<div class="omstem"></div><div class="omrow">';
+      h+='<div class="omstem"></div><div class="omrow" style="flex-wrap:wrap;justify-content:center;gap:14px;align-items:flex-start">';
       reps.forEach(r=>{
-        const team=(kids[r.user_id]||[]).slice().sort((a,b)=>a.jmeno.localeCompare(b.jmeno,'cs'));
-        h+='<div class="omcol">'+omBox(r);
-        if(team.length){ h+='<div class="omstem"></div><div style="min-width:150px">'+team.map(t=>'<div class="omchip" onclick="openCardFromOrg('+t.user_id+')">'+esc(t.jmeno)+(t.pozice?'<span style="color:#7f8ea0"> · '+esc(t.pozice)+'</span>':'')+'</div>').join('')+'</div>'; }
+        const emps=(kidsEmp[r.user_id]||[]).slice().sort(omSortPZ);
+        const osvc=(kidsOsvc[r.user_id]||[]).slice().sort(omSortPZ);
+        h+='<div class="omcol" style="min-width:230px;max-width:300px">'+omBox(r);
+        if(emps.length||osvc.length){
+          h+='<div class="omstem"></div><div style="width:100%;max-width:300px;max-height:340px;overflow:auto;padding-right:2px">';
+          if(emps.length){
+            h+='<div style="color:#7f9bb5;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px">Zaměstnanci ('+emps.length+')</div>'+emps.map(t=>omTeamChip(t,false)).join('');
+          }
+          if(osvc.length){
+            h+='<div style="color:#c8a24a;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:'+(emps.length?'8px':'0')+' 0 4px">Spolupracující OSVČ / dodavatelé ('+osvc.length+')</div>'+osvc.map(t=>omTeamChip(t,true)).join('');
+          }
+          h+='</div>';
+        }
         h+='</div>';
       });
       h+='</div>';
     }
   });
+  // OSVČ bez koordinátora
+  const osvcNoc=lidi.filter(p=>isOsvc(p) && (p.koord_user==null || !byU[p.koord_user]));
+  if(osvcNoc.length){
+    h+='<div style="margin-top:22px;border-top:1px solid #1e2730;padding-top:10px"><div style="color:#c8a24a;font-size:12px;margin-bottom:6px">🤝 Spolupracující OSVČ bez koordinátora ('+osvcNoc.length+') — doplň koordinátora v kartě:</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+osvcNoc.slice().sort(omSortPZ).map(p=>omTeamChip(p,true)).join('')+'</div></div>';
+  }
+  // Zaměstnanci mimo linii
   const dirSet=new Set(reditele.map(d=>d.user_id));
-  const nez=lidi.filter(p=> !dirSet.has(p.user_id) && (p.nadr_user==null || !byU[p.nadr_user]) && !(kids[p.user_id]||[]).length);
+  const nez=lidi.filter(p=> !isOsvc(p) && !dirSet.has(p.user_id) && (p.nadr_user==null || !byU[p.nadr_user]) && !isHead(p.user_id));
   if(nez.length){
-    h+='<div style="margin-top:22px;border-top:1px solid #1e2730;padding-top:10px"><div style="color:#7f8ea0;font-size:12px;margin-bottom:6px">🗂️ Zatím nezařazení do linie ('+nez.length+') — doplní se přiřazením nadřízeného v kartě (Pracovní údaje → Zařazení):</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:6px">'+nez.slice().sort((a,b)=>a.jmeno.localeCompare(b.jmeno,'cs')).map(p=>'<span class="omchip" style="display:inline-block;margin:0" onclick="openCardFromOrg('+p.user_id+')">'+esc(p.jmeno)+'</span>').join('')+'</div></div>';
+    h+='<div style="margin-top:16px;border-top:1px solid #1e2730;padding-top:10px"><div style="color:#7f8ea0;font-size:12px;margin-bottom:6px">🗂️ Zaměstnanci zatím nezařazení do linie ('+nez.length+') — doplní se nadřízeným v kartě (Pracovní údaje → Zařazení):</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">'+nez.slice().sort(omSortPZ).map(p=>'<span class="omchip" style="display:inline-block;margin:0" onclick="openCardFromOrg('+p.user_id+')">'+esc(p.jmeno)+'</span>').join('')+'</div></div>';
   }
   box.innerHTML=h||'<div class="empty">Zatím není nastavená žádná linie vedení.</div>';
 }

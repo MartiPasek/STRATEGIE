@@ -10795,7 +10795,9 @@ async def app_hr_orgman(req: Request):
             " COALESCE(jp.label, e.pozice_text, '') AS pozice, "
             " COALESCE(e.vedouci_oddeleni,'') AS oddeleni, "
             " e.company_id, "
-            " (SELECT nae.user_id FROM tenant.att_employee nae WHERE nae.id=e.nadrizeny_employee_id AND nae.tenant_id=2) AS nadr_user "
+            " (SELECT nae.user_id FROM tenant.att_employee nae WHERE nae.id=e.nadrizeny_employee_id AND nae.tenant_id=2) AS nadr_user, "
+            " lower(COALESCE(e.engagement_type,'')) AS typ, "
+            " (SELECT kae.user_id FROM tenant.att_employee kae WHERE kae.id=e.koordinator_employee_id AND kae.tenant_id=2) AS koord_user "
             "FROM tenant.engagement e "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
             "LEFT JOIN public.users su ON su.id=ae.user_id "
@@ -10811,7 +10813,9 @@ async def app_hr_orgman(req: Request):
             if not n:
                 n = {"user_id": int(u), "jmeno": (r[1] or "").strip(),
                      "pozice": (r[2] or ""), "oddeleni": (r[3] or ""),
-                     "firmy": [], "nadr_user": (int(r[5]) if r[5] is not None else None)}
+                     "firmy": [], "nadr_user": (int(r[5]) if r[5] is not None else None),
+                     "typ": (r[6] or ""),
+                     "koord_user": (int(r[7]) if r[7] is not None else None)}
                 by[u] = n
             if r[4] and int(r[4]) not in n["firmy"]:
                 n["firmy"].append(int(r[4]))
@@ -10819,6 +10823,10 @@ async def app_hr_orgman(req: Request):
                 n["oddeleni"] = r[3]
             if n["nadr_user"] is None and r[5] is not None:
                 n["nadr_user"] = int(r[5])
+            if n.get("koord_user") is None and r[7] is not None:
+                n["koord_user"] = int(r[7])
+            if (not n.get("typ")) and r[6]:
+                n["typ"] = r[6]
         lide = list(by.values())
         # jednatelé (statutární, pro výpovědní linii) — Control=1 → Mózer+Pašek, System=2 → Pašek.
         # Výkonný ředitel (provozní vrchol) = Marti Pašek (user 1).

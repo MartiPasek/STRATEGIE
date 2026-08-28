@@ -57,7 +57,9 @@ function load(){
       $('title').textContent=j.title||'Kontrolní přehled';
       document.title=j.title||'Kontrolní přehled';
       $('sub').textContent=({
-        fpd:'Kdo za měsíc nedosáhl svého fondu (jen HPP). FPD = co se má proplatit: '
+        fpd:'Kdo za měsíc nedosáhl svého fondu. Hlídají se HPP i OSVČ (DPP ne); '
+            +'kdo má v kartě podmínku „Bez docházky", ten v přehledu není. '
+            +'Podle druhu smlouvy se dá filtrovat ve sloupci. FPD = co se má proplatit: '
             +'kancelář = odpracováno + absence + dopíchnuto do fondu − nad fond; '
             +'dílna a hodinoví = odpracováno + absence (nezarovnává se, přesčas se neodečítá). '
             +'Drobné schodky do 0,5 h za měsíc se NEZOBRAZUJÍ — vznikají tím, že automat '

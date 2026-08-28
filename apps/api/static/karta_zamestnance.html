@@ -1184,7 +1184,7 @@ function omRender(){
   reditele.forEach(dir=>{
     h+='<div class="omcol" style="align-items:center">'+omBox(dir,'Výkonný ředitel')+'</div>';
     // vedoucí oddělení = HPP děti ředitele + OSVČ, kteří vedou tým a nemají nad sebou koordinátora (Šárka 29.8.: OSVČ-vedoucí s odznakem)
-    const osvcLeads=lidi.filter(p=> isOsvc(p) && isHead(p.user_id) && (p.koord_user==null || !byU[p.koord_user]));
+    const osvcLeads=lidi.filter(p=> isOsvc(p) && isHead(p.user_id) && (p.koord_user==null || p.koord_user===dir.user_id || !byU[p.koord_user]));
     const reps=(kidsEmp[dir.user_id]||[]).concat(osvcLeads)
       .filter((p,i,a)=>a.findIndex(q=>q.user_id===p.user_id)===i)
       .sort((a,b)=>((isHead(b.user_id)?1:0)-(isHead(a.user_id)?1:0))||omSortPZ(a,b));

@@ -1141,7 +1141,8 @@ function omTeamChip(t, osvc){
 function omRender(){
   const box=document.getElementById('omtree'), cnt=document.getElementById('omcnt');
   const inF=(p)=> OM_FILTER==='all' || (p.firmy||[]).indexOf(Number(OM_FILTER))>=0;
-  const lidi=(OM_DATA||[]).filter(inF);
+  // DPP se v organigramu nezobrazují (Šárka 29.8.2026) — marginální poměry (např. uklízečka, externí právník).
+  const lidi=(OM_DATA||[]).filter(inF).filter(p=>(p.typ||'')!=='dpp');
   const byU={}; lidi.forEach(p=>byU[p.user_id]=p);
   const isOsvc=(p)=> (p.typ||'')==='osvc';
   // Zaměstnanci tvoří linii vedení (nadřízený). OSVČ = dodavatelé pod koordinátorem (ne podřízení, švarc).
@@ -1190,7 +1191,9 @@ function omRender(){
   }
   // Zaměstnanci mimo linii
   const dirSet=new Set(reditele.map(d=>d.user_id));
-  const nez=lidi.filter(p=> !isOsvc(p) && !dirSet.has(p.user_id) && (p.nadr_user==null || !byU[p.nadr_user]) && !isHead(p.user_id));
+  // jednatelé (Mózer, Marti) patří do vrcholové linie nahoře — ne mezi „nezařazené"
+  const jedIds=new Set(); ['1','2'].forEach(k=>(OM_JEDN[k]||[]).forEach(x=>jedIds.add(x.user_id)));
+  const nez=lidi.filter(p=> !isOsvc(p) && !dirSet.has(p.user_id) && !jedIds.has(p.user_id) && (p.nadr_user==null || !byU[p.nadr_user]) && !isHead(p.user_id));
   if(nez.length){
     h+='<div style="margin-top:16px;border-top:1px solid #1e2730;padding-top:10px"><div style="color:#7f8ea0;font-size:12px;margin-bottom:6px">🗂️ Zaměstnanci zatím nezařazení do linie ('+nez.length+') — doplní se nadřízeným v kartě (Pracovní údaje → Zařazení):</div>'+
       '<div style="display:flex;flex-wrap:wrap;gap:6px">'+nez.slice().sort(omSortPZ).map(p=>'<span class="omchip" style="display:inline-block;margin:0" onclick="openCardFromOrg('+p.user_id+')">'+esc(p.jmeno)+'</span>').join('')+'</div></div>';

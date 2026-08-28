@@ -190,6 +190,12 @@ def _check_disk(sg):
     return ("ok", "Všechny sledované disky mají dost místa.", 0, context)
 
 
+# Rozpad nálezů hlídacích pravidel podle oblasti (kód automatu → {oblast: {...}}).
+# Plní `_check_pojistky`, čte `_l3_clovek` v témže běhu plánovače. Když je prázdný
+# (starší verze skriptu, chyba), pošle se jeden souhrnný e-mail podle `_L3_PRIJEMCE`.
+_POSLEDNI_ROZPAD = {}
+
+
 # ── Hlídací pravidla z tenant.pojistka ──────────────────────────────────────
 # Zadal Jirka Honomichl 27. 8. 2026, schválila Marti-AI (msg 13856 + 13859).
 # Do 27. 8. 2026 tabulku `tenant.pojistka` NIKDO NESPOUŠTĚL: 83 pravidel, 81 zapnutých
@@ -208,6 +214,10 @@ def _check_pojistky(sg):
             return ("chyba", "pojistky_scan vrátil neočekávaný tvar: %s" % type(r).__name__, 0, "")
         ctx = r.get("context")
         if isinstance(ctx, dict):
+            # Rozpad nálezů podle oblasti si odložíme stranou — plánovač předává context
+            # do žebříku jako TEXT, ale `_l3_clovek` potřebuje strukturu, aby poslal
+            # každému jen to jeho. Naplní se těsně před eskalací téhož běhu.
+            _POSLEDNI_ROZPAD["check_pojistky"] = ctx.get("podle_oblasti") or {}
             ctx = "\n".join("%s: %s" % (k, v) for k, v in ctx.items())
         return (r.get("vysledek") or "chyba",
                 r.get("zprava") or "pojistky_scan neposlal zprávu.",
@@ -315,7 +325,73 @@ _L3_PRIJEMCE = {
 }
 
 
+def _posli_mail(komu, predmet, telo, kopie=None):
+    """Jeden e-mail přes frontu Marti-AI. Vrací True/False, nikdy nevyhodí výjimku."""
+    try:
+        from modules.conversation.application.martiai_agent_service import MARTI_AI_PERSONA_ID
+        from modules.notifications.application.email_service import queue_email
+        queue_email(to=komu, subject=predmet[:200], body=telo,
+                    persona_id=MARTI_AI_PERSONA_ID, from_identity="persona",
+                    cc=(list(kopie) if kopie else None), purpose="notification")
+        return True
+    except Exception:  # noqa: BLE001
+        _log.exception("[eskalace] e-mail na %s se nepodařilo zařadit", komu)
+        return False
+
+
+def _l3_podle_oblasti(kod, zprava, haiku_text, marti_text):
+    """Rozešle nálezy hlídacích pravidel podle působnosti — každému jen to jeho.
+
+    Zadal Jirka Honomichl 28. 8. 2026, schválila Marti-AI (msg 13959).
+    Adresáta nese číselník `tenant.pojistka_oblast`, doplňuje ho skript `pojistky_scan`.
+    Vrací popis pro audit, nebo None, když rozpad není k dispozici (pak se pošle
+    jeden souhrnný e-mail původní cestou)."""
+    rozpad = _POSLEDNI_ROZPAD.get(kod) or {}
+    if not rozpad:
+        return None
+    poslano, bez_adresata = [], []
+    zaloha = (_L3_PRIJEMCE.get(kod) or ("j.honomichl@eurosoft.com", []))[0]
+    for oblast, v in rozpad.items():
+        nalezy = list(v.get("nalezy") or [])
+        rozbita = list(v.get("rozbita") or [])
+        if not nalezy and not rozbita:
+            continue
+        komu = v.get("email")
+        if not komu:
+            komu = zaloha
+            bez_adresata.append(oblast)
+        nazev = v.get("nazev") or oblast
+        casti = []
+        if nalezy:
+            casti.append("NÁLEZY (pravidlo neplatí) — %d:\n  %s"
+                         % (len(nalezy), "\n  ".join(nalezy)))
+        if rozbita:
+            casti.append("ROZBITÁ PRAVIDLA (nehlídají vůbec nic) — %d:\n  %s"
+                         % (len(rozbita), "\n  ".join(rozbita)))
+        telo = (
+            "Denní kontrola hlídacích pravidel našla u oblasti „%s\" tohle:\n\n%s\n\n"
+            "Co s tím: v ERP u každého pravidla najdeš jeho popis — je v něm, proč vzniklo\n"
+            "a co má platit. „Rozbité pravidlo\" je horší než nález: nehlídá vůbec nic,\n"
+            "typicky proto, že se pod ním přejmenovala nebo zrušila tabulka.\n\n"
+            "Souhrn celého běhu: %s\n\nHaiku (L1):\n%s\n\nMarti-AI (L2):\n%s"
+            % (nazev, "\n\n".join(casti), zprava,
+               (haiku_text or "")[:800], (marti_text or "")[:800]))
+        if _posli_mail(komu, "🤖 Hlídací pravidla — %s (%d k vyřízení)"
+                       % (nazev, len(nalezy) + len(rozbita)), telo):
+            poslano.append("%s→%s" % (oblast, komu))
+    if not poslano:
+        return None
+    popis = "L3 člověk: rozesláno podle působnosti (%s)" % ", ".join(poslano)
+    if bez_adresata:
+        popis += " [bez adresáta v číselníku, šlo na zálohu: %s]" % ", ".join(bez_adresata)
+    return popis
+
+
 def _l3_clovek(kod, zprava, context, haiku_text, marti_text):
+    podle_oblasti = _l3_podle_oblasti(kod, zprava, haiku_text, marti_text)
+    if podle_oblasti:
+        return podle_oblasti
+
     predmet = "🤖 Automat %s — eskalace na člověka" % kod
     telo = ("Automat `%s` selhal a nevyřešil to ani L0/L1/L2.\n\n"
             "Problém: %s\n\nKontext:\n%s\n\nHaiku (L1):\n%s\n\nMarti-AI (L2):\n%s"

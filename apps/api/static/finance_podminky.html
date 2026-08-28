@@ -504,7 +504,7 @@ function tColsToggle(){ TSHOWALL=!TSHOWALL; const b=document.getElementById('tco
 function tpozToggle(e){ if(e)e.stopPropagation(); const m=document.getElementById('tpozMenu'); if(m)m.style.display=(m.style.display==='none'?'block':'none'); }
 function tpozFill(){ const m=document.getElementById('tpozMenu'); if(!m)return;
   let h='<label style="display:flex;gap:7px;align-items:center;padding:4px 6px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #222c3a;margin-bottom:4px"><input type="checkbox" '+(TPOZ_SEL.size===0?'checked':'')+' onchange="tpozAll(this.checked)"> <b>Všechny pozice</b></label>';
-  h+=(POZ||[]).map(o=>'<label style="display:flex;gap:7px;align-items:center;padding:4px 6px;cursor:pointer;font-size:12.5px"><input type="checkbox" value="'+esc(o.label)+'" '+(TPOZ_SEL.has(o.label)?'checked':'')+' onchange="tpozPick(this)"> '+esc(o.label)+'</label>').join('');
+  h+=(POZ||[]).slice().sort((a,b)=>String(a.label||'').localeCompare(String(b.label||''),'cs')).map(o=>'<label style="display:flex;gap:7px;align-items:center;padding:4px 6px;cursor:pointer;font-size:12.5px"><input type="checkbox" value="'+esc(o.label)+'" '+(TPOZ_SEL.has(o.label)?'checked':'')+' onchange="tpozPick(this)"> '+esc(o.label)+'</label>').join('');
   m.innerHTML=h; }
 function tpozPick(cb){ if(cb.checked)TPOZ_SEL.add(cb.value); else TPOZ_SEL.delete(cb.value); tpozSync(); renderTab(); }
 function tpozAll(on){ if(on)TPOZ_SEL.clear(); tpozFill(); tpozSync(); renderTab(); }

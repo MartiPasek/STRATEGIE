@@ -3,6 +3,21 @@
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+> ## ⚠️ POZOR — cesta k souboru už neplatí (doplněno 28. 8. 2026)
+>
+> Věta níž odkazuje na `apps/api/static/dochazka-opravy.html`. Tam už soubor **není**.
+> Od 5. 8. 2026 žije jako artefakt **`apps/api/static_db/dochazka-opravy.html` v `g2007.soubor`**
+> a na disk se dostává materializací při startu — viz
+> [[doc-system-strategie-staticke-artefakty-db-materializace-vyrazeni-z-gitu]].
+> **Needituj ho na disku ani ho necommituj do gitu.**
+>
+> Dále: záložka **„Najít člověka“** ukazuje přehled dnů člověka, který je od **28. 8. 2026**
+> postavený na standardní komponentě `ErpDataGrid` — filtrování po sloupcích, řazení, export,
+> sestavy sloupců. Dřívější políčka Od/Do a tlačítka Zobrazit / Jen jeden den / Celý rok
+> zanikla, filtruje se přímo v gridu. Postup a pasti:
+> [[doc-system-strategie-erp-grid-na-samostatne-strance-mimo-erp]].
+>
+> Zbytek dokumentu platí beze změny.
 Modul **Opravy docházky** (`apps/api/static/dochazka-opravy.html` + endpointy `/app/attendance/fix/*` v `modules/erp/api/router.py`). Editor opravuje cizí docházku ve své působnosti. Tento dokument = chování UI po vlně úprav Peťa+Claude‑26 21.–22. 7. 2026. Vše NASAZENO.
 
 ## Fronta „K vyřešení" (levý sloupec)

@@ -1181,32 +1181,45 @@ function omRender(){
     }
     return omTeamChip(t,false);
   }
+  // vykreslí jednu kartu oddělení (hlava + Zaměstnanci + Spolupracující OSVČ)
+  function omDeptCol(headP, title, osvcBadge, emps, osvc){
+    let c='<div class="omcol" style="min-width:230px;max-width:300px">'+omBox(headP,title,osvcBadge);
+    if(emps.length||osvc.length){
+      c+='<div class="omstem"></div><div style="width:100%;max-width:300px;max-height:360px;overflow:auto;padding-right:2px">';
+      if(emps.length) c+='<div style="color:#7f9bb5;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px">Zaměstnanci ('+emps.length+')</div>'+emps.map(t=>omMember(t)).join('');
+      if(osvc.length) c+='<div style="color:#c8a24a;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:'+(emps.length?'8px':'0')+' 0 4px">Spolupracující OSVČ / dodavatelé ('+osvc.length+')</div>'+osvc.map(t=>omTeamChip(t,true)).join('');
+      c+='</div>';
+    }
+    return c+'</div>';
+  }
   reditele.forEach(dir=>{
     h+='<div class="omcol" style="align-items:center">'+omBox(dir,'Výkonný ředitel')+'</div>';
-    // vedoucí oddělení = HPP děti ředitele + OSVČ, kteří vedou tým a nemají nad sebou koordinátora (Šárka 29.8.: OSVČ-vedoucí s odznakem)
+    // ředitelovy vlastní pojmenované pod-týmy (má-li člen nastavené oddělení, např. IT — ředitel je zároveň vedoucí)
+    const dirTeam=(kidsEmp[dir.user_id]||[]).concat(kidsOsvc[dir.user_id]||[]).filter(p=>!isHead(p.user_id) && (p.oddeleni||'').trim());
+    const dirTeamIds=new Set(dirTeam.map(p=>p.user_id));
+    const byOdd={}; dirTeam.forEach(p=>{ const k=p.oddeleni.trim(); (byOdd[k]=byOdd[k]||[]).push(p); });
+    // vedoucí oddělení = HPP děti ředitele + OSVČ-vedoucí; ředitelovy pojmenované pod-týmy mají vlastní kartu
     const osvcLeads=lidi.filter(p=> isOsvc(p) && isHead(p.user_id) && (p.koord_user==null || p.koord_user===dir.user_id || !byU[p.koord_user]));
     const reps=(kidsEmp[dir.user_id]||[]).concat(osvcLeads)
       .filter((p,i,a)=>a.findIndex(q=>q.user_id===p.user_id)===i)
+      .filter(p=>!dirTeamIds.has(p.user_id))
       .sort((a,b)=>((isHead(b.user_id)?1:0)-(isHead(a.user_id)?1:0))||omSortPZ(a,b));
-    if(reps.length){
+    const oddKeys=Object.keys(byOdd).sort((a,b)=>a.localeCompare(b,'cs'));
+    if(reps.length || oddKeys.length){
       h+='<div class="omstem"></div><div class="omrow" style="flex-wrap:wrap;justify-content:center;gap:14px;align-items:flex-start">';
       reps.forEach(r=>{
         headSet.add(r.user_id);
         const emps=(kidsEmp[r.user_id]||[]).slice().sort(omSortPZ);
         const osvc=(kidsOsvc[r.user_id]||[]).slice().sort(omSortPZ);
         osvc.forEach(x=>shownOsvc.add(x.user_id));
-        h+='<div class="omcol" style="min-width:230px;max-width:300px">'+omBox(r,null,isOsvc(r));
-        if(emps.length||osvc.length){
-          h+='<div class="omstem"></div><div style="width:100%;max-width:300px;max-height:360px;overflow:auto;padding-right:2px">';
-          if(emps.length){
-            h+='<div style="color:#7f9bb5;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px">Zaměstnanci ('+emps.length+')</div>'+emps.map(t=>omMember(t)).join('');
-          }
-          if(osvc.length){
-            h+='<div style="color:#c8a24a;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:'+(emps.length?'8px':'0')+' 0 4px">Spolupracující OSVČ / dodavatelé ('+osvc.length+')</div>'+osvc.map(t=>omTeamChip(t,true)).join('');
-          }
-          h+='</div>';
-        }
-        h+='</div>';
+        h+=omDeptCol(r, null, isOsvc(r), emps, osvc);
+      });
+      oddKeys.forEach(odd=>{
+        const list=byOdd[odd];
+        const emps=list.filter(x=>!isOsvc(x)).slice().sort(omSortPZ);
+        const osvc=list.filter(x=>isOsvc(x)).slice().sort(omSortPZ);
+        osvc.forEach(x=>shownOsvc.add(x.user_id));
+        h+=omDeptCol(dir, odd, false, emps, osvc);
       });
       h+='</div>';
     }

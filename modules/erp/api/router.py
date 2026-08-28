@@ -9382,6 +9382,74 @@ def _stredisko_label(smap, kod):
     return (kod + " — " + nz) if nz else kod
 
 
+@api_router.get("/app/hr/audit/list")
+async def app_hr_audit_list(req: Request) -> JSONResponse:
+    """Roční audity (výroční audit L TAX apod.) + jejich soubory. Jen HR.
+    Šárka 28.8.2026 — uzel „Audit pracovních procesů", řád: metadata roku →
+    soubory roku (tenant.hr_audit + hr_audit_soubor) → dopad v kartě."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        arows = s.execute(_t(
+            "SELECT id, rok, nadpis, typ, auditor, to_char(datum_auditu,'DD.MM.YYYY'), "
+            " shrnuti, slozka_archiv FROM tenant.hr_audit "
+            "WHERE tenant_id=2 ORDER BY rok DESC")).fetchall()
+        frows = s.execute(_t(
+            "SELECT id, audit_id, nazev, mime, velikost, kategorie, (obsah IS NOT NULL) "
+            "FROM tenant.hr_audit_soubor WHERE tenant_id=2 "
+            "ORDER BY kategorie NULLS LAST, nazev")).fetchall()
+        soubory = {}
+        for f in frows:
+            soubory.setdefault(int(f[1]), []).append({
+                "id": int(f[0]), "nazev": f[2], "mime": f[3],
+                "velikost": int(f[4] or 0), "kategorie": f[5],
+                "ke_stazeni": bool(f[6])})
+        audity = [{
+            "id": int(a[0]), "rok": int(a[1]), "nadpis": a[2], "typ": a[3],
+            "auditor": a[4], "datum": a[5], "shrnuti": a[6],
+            "slozka_archiv": a[7], "soubory": soubory.get(int(a[0]), [])
+        } for a in arows]
+        return JSONResponse({"ok": True, "audity": audity})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/audit/file/{fid}")
+async def app_hr_audit_file(fid: int, req: Request):
+    """Stažení souboru ročního auditu z DB (bytea). Jen HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return Response(content="unauthorized", media_type="text/plain", status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return Response(content="forbidden", media_type="text/plain", status_code=403)
+        row = s.execute(_t(
+            "SELECT nazev, mime, obsah FROM tenant.hr_audit_soubor "
+            "WHERE tenant_id=2 AND id=:i"), {"i": fid}).fetchone()
+        if not row or row[2] is None:
+            return Response(content="Soubor není k dispozici ke stažení.",
+                            media_type="text/plain", status_code=404)
+        import urllib.parse as _up
+        fn = _up.quote(row[0] or ("audit_%d" % fid))
+        return Response(content=bytes(row[2]), media_type=(row[1] or "application/octet-stream"),
+                        headers={"Content-Disposition": "attachment; filename*=UTF-8''%s" % fn})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/people")
 async def app_hr_people(req: Request) -> JSONResponse:
     """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""

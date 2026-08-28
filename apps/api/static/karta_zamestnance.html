@@ -492,6 +492,16 @@
     <div id="kallist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="auditcard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">🔍 Roční audity</b>
+      <span id="auditcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Výroční audity (1× ročně) na jednom místě — rok, závěr a soubory ke stažení. Nesoulad pozic z auditu vidíš u člověka v kartě (příznak „Nutno narovnat“).</div>
+    <div id="auditlist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -545,6 +555,7 @@ function setView(v){
   const tbc=document.getElementById('tabulecard'); if(tbc) tbc.style.display=(v==='tabule')?'':'none';
   const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
+  const adc=document.getElementById('auditcard'); if(adc) adc.style.display=(v==='audit')?'':'none';
   const ddc=document.getElementById('dodavatelecard'); if(ddc) ddc.style.display=(v==='dodavatele')?'':'none';
   const inc=document.getElementById('inspiracecard'); if(inc) inc.style.display=(v==='inspirace')?'':'none';
   const nbc=document.getElementById('naborcard'); if(nbc) nbc.style.display=(v==='nabor')?'':'none';
@@ -558,6 +569,7 @@ function setView(v){
   if(v==='tabule'){ loadTabule(); return; }
   if(v==='podminky'){ loadPodminky(); return; }
   if(v==='kalendar'){ loadKalendar(); return; }
+  if(v==='audit'){ loadAudit(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -3506,6 +3518,33 @@ async function dokAudit(uid){
   }
   det.innerHTML=h;
 }
+// Roční audity (Šárka 28.8.2026) — přehled uzlu „Audit pracovních procesů".
+async function loadAudit(){
+  const box=document.getElementById('auditlist'), cnt=document.getElementById('auditcnt');
+  let d; try{ d=await j(API+'/app/hr/audit/list'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'')+'</div>'; return; }
+  const A=d.audity||[];
+  if(cnt) cnt.textContent = A.length ? ('• '+A.length+(A.length===1?' rok':(A.length<5?' roky':' let'))) : '';
+  if(!A.length){ box.innerHTML='<div class="empty">Zatím žádný audit.</div>'; return; }
+  const kb=n=>{ n=+n||0; return n<1024?n+' B':(n<1048576?(n/1024).toFixed(0)+' kB':(n/1048576).toFixed(1)+' MB'); };
+  box.innerHTML=A.map(function(a){
+    const files=(a.soubory||[]).map(function(f){
+      const meta='<span style="color:var(--muted);font-size:11.5px">'+esc(f.kategorie||'')+(f.velikost?' · '+kb(f.velikost):'')+'</span>';
+      const act=f.ke_stazeni
+        ? '<a href="'+API+'/app/hr/audit/file/'+f.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ '+esc(f.nazev)+'</a>'
+        : '<span title="Zatím jen v archivu, ke stažení přes upload (Fáze 2)" style="color:#8f9aa8">📄 '+esc(f.nazev)+' <span style="font-size:11px">(v archivu)</span></span>';
+      return '<tr><td style="padding:5px 12px">'+act+'</td><td style="padding:5px 12px;text-align:right;white-space:nowrap">'+meta+'</td></tr>';
+    }).join('');
+    return '<div style="margin:0 0 16px;border:1px solid #23303f;border-radius:10px;overflow:hidden">'
+      +'<div style="padding:9px 13px;background:#16202c">'
+      +'<b style="font-size:14px">'+esc(a.nadpis||('Audit '+a.rok))+'</b> '
+      +'<span style="color:var(--muted);font-size:12px">rok '+a.rok+(a.auditor?' · '+esc(a.auditor):'')+(a.datum?' · '+esc(a.datum):'')+'</span></div>'
+      +(a.shrnuti?'<div style="padding:8px 13px;color:#cdd6e2;font-size:12.5px;line-height:1.5">'+esc(a.shrnuti)+'</div>':'')
+      +(files?'<table style="width:100%;border-collapse:collapse;border-top:1px solid #23303f">'+files+'</table>':'<div style="padding:8px 13px;color:var(--muted);font-size:12px">Žádné soubory.</div>')
+      +(a.slozka_archiv?'<div style="padding:7px 13px;color:var(--muted);font-size:11px;border-top:1px solid #23303f">📁 Archiv: '+esc(a.slozka_archiv)+'</div>':'')
+      +'</div>';
+  }).join('');
+}
 // Deep-link + embed režim. embedsec=pracovni|finance|podminky + uid → vloží JEN tu sekci
 // jako izolované okno (pro sloučenou dlaždici „Personální a finanční podmínky").
 (async function initBoot(){ try{
@@ -3522,7 +3561,7 @@ async function dokAudit(uid){
     return;
   }
   const v=qs.get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor' || v==='audit'){ setView(v); }
 }catch(e){} })();
 
 // ── Kalendář u VŠECH datumových polí (Jirka 24. 8. 2026) ─────────────────────

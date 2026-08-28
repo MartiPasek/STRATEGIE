@@ -175,6 +175,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Audit pracovních procesů (Šárka 28.8.2026): jádro hr.audit = přehled ročních
+      // auditů (výroční audit L TAX 1×/rok) — rok, závěr, soubory ke stažení. Jen HR.
+      if (String(coreCode) === 'hr.audit') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=audit" title="Audit pracovních procesů" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Kalendář (Šárka 13.8.2026): jádro hr.kalendar = agenda událostí ze STRATEGIE
       // (akce, narozeniny, výročí, konce zkušebek/smluv). Jen ke čtení.
       if (String(coreCode) === 'hr.kalendar') {

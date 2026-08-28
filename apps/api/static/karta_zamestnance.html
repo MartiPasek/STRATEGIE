@@ -1102,14 +1102,14 @@ async function loadOrganigram(){
   orgRender();
 }
 // Manažerský organigram (Šárka 14.8.2026) — reálná linie vedení z person→person
-let OM_DATA=null, OM_FILTER='all', OM_JEDN={};
+let OM_DATA=null, OM_FILTER='all', OM_JEDN={}, OM_PROK=[];
 async function loadOrgman(){
   const box=document.getElementById('omtree');
   if(OM_DATA){ omRender(); return; }
   box.innerHTML='<div class="empty">Načítám…</div>';
   let d; try{ const r=await fetch(API+'/app/hr/orgman-live?_='+Date.now(),{credentials:'same-origin',cache:'no-store'}); d=await r.json(); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
   if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>'; return; }
-  OM_DATA=d.lide||[]; OM_JEDN=d.jednatele||{}; omRender();
+  OM_DATA=d.lide||[]; OM_JEDN=d.jednatele||{}; OM_PROK=d.prokura||[]; omRender();
 }
 function omFilter(f){
   OM_FILTER=f;
@@ -1141,8 +1141,9 @@ function omTeamChip(t, osvc){
 function omRender(){
   const box=document.getElementById('omtree'), cnt=document.getElementById('omcnt');
   const inF=(p)=> OM_FILTER==='all' || (p.firmy||[]).indexOf(Number(OM_FILTER))>=0;
-  // DPP se v organigramu nezobrazují (Šárka 29.8.2026) — marginální poměry (např. uklízečka, externí právník).
-  const lidi=(OM_DATA||[]).filter(inF).filter(p=>(p.typ||'')!=='dpp');
+  // DPP se v organigramu nezobrazují (Šárka 29.8.2026). Prokura = zmocnění, ne řídící stupeň → z linie ven, jen řádek nahoře.
+  const prokIds=new Set((OM_PROK||[]).map(x=>x.user_id).filter(x=>x!=null));
+  const lidi=(OM_DATA||[]).filter(inF).filter(p=>(p.typ||'')!=='dpp' && !prokIds.has(p.user_id));
   const byU={}; lidi.forEach(p=>byU[p.user_id]=p);
   const isOsvc=(p)=> (p.typ||'')==='osvc';
   // Zaměstnanci tvoří linii vedení (nadřízený). OSVČ = dodavatelé pod koordinátorem (ne podřízení, švarc).
@@ -1160,6 +1161,12 @@ function omRender(){
   else if(OM_FILTER==='2') jed='⚖️ Jednatel (System): '+jn(OM_JEDN['2']);
   else jed='⚖️ Jednatelé — Control: '+jn(OM_JEDN['1'])+' &nbsp;·&nbsp; System: '+jn(OM_JEDN['2']);
   let h='<div style="text-align:center;margin-bottom:14px"><span style="display:inline-block;color:#9fb3cc;font-size:12px;padding:6px 14px;background:#12181f;border:1px dashed #2a3a4d;border-radius:8px">'+jed+'</span></div>';
+  if((OM_PROK||[]).length){
+    const pk=OM_PROK.map(x=> x.user_id!=null
+      ? '<b style="color:#e8eef5;cursor:pointer" onclick="openCardFromOrg('+x.user_id+')">'+esc(x.jmeno)+'</b>'
+      : '<b style="color:#e8eef5">'+esc(x.jmeno)+'</b>').join(' · ');
+    h+='<div style="text-align:center;margin:-8px 0 14px"><span style="display:inline-block;color:#c9a6d8;font-size:11.5px;padding:4px 12px;background:#181320;border:1px dashed #4a2f52;border-radius:8px" title="Prokura = zákonné zmocnění jednat za firmu, ne řídící stupeň">✒️ Prokura: '+pk+'</span></div>';
+  }
   reditele.forEach(dir=>{
     h+='<div class="omcol" style="align-items:center">'+omBox(dir,'Výkonný ředitel')+'</div>';
     const reps=(kidsEmp[dir.user_id]||[]).slice().sort((a,b)=>((isHead(b.user_id)?1:0)-(isHead(a.user_id)?1:0))||omSortPZ(a,b));

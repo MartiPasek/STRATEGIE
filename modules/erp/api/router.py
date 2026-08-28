@@ -10834,7 +10834,19 @@ async def app_hr_orgman(req: Request):
             "1": [{"user_id": 96, "jmeno": "Branislav Mózer"}, {"user_id": 1, "jmeno": "Marti Pašek"}],
             "2": [{"user_id": 1, "jmeno": "Marti Pašek"}],
         }
-        return JSONResponse({"ok": True, "lide": lide, "jednatele": jednatele, "reditel_user": 1},
+        # Prokura (Šárka 29.8.2026) — zákonné zmocnění, ne řídící stupeň. K vrcholu vedle
+        # jednatelů; z reportovací linie se vyřazuje (prokurista ve firmě provozně není).
+        prok = s.execute(_t(
+            "SELECT ae.user_id, COALESCE(NULLIF(TRIM(su.first_name||' '||su.last_name),''),ae.full_name) AS jmeno "
+            "FROM tenant.engagement e "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.tenant_id=2 "
+            "LEFT JOIN public.users su ON su.id=ae.user_id "
+            "LEFT JOIN tenant.job_position jp ON jp.id=e.position_id AND jp.tenant_id=2 "
+            "WHERE e.tenant_id=2 AND e.is_current=true "
+            "  AND COALESCE(jp.label, e.pozice_text, '') ILIKE '%prokur%'"), {}).fetchall()
+        prokura = [{"user_id": (int(r[0]) if r[0] is not None else None), "jmeno": (r[1] or "").strip()} for r in prok]
+        return JSONResponse({"ok": True, "lide": lide, "jednatele": jednatele,
+                             "prokura": prokura, "reditel_user": 1},
                             headers={"Cache-Control": "no-store, max-age=0"})
     except Exception as exc:
         logger.exception("[hr_orgman] %s", exc)

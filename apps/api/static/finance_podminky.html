@@ -64,16 +64,16 @@
   .dtbl tbody tr{cursor:pointer}
   .dtbl tbody tr:hover{background:#1b232d}
   /* Seznam-zaměstnanců styl (Pinya) pro finanční tabulku — Šárka 6.8.2026 */
-  .ptbl{border-collapse:collapse;width:100%;font-size:13px}
-  .ptbl thead th{position:sticky;top:0;background:#12181f;color:var(--accent);text-align:left;font-weight:700;font-size:11px;letter-spacing:.03em;text-transform:uppercase;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1;cursor:pointer}
+  .ptbl{border-collapse:collapse;width:100%;font-size:12px;table-layout:auto}
+  .ptbl thead th{position:sticky;top:0;background:#12181f;color:var(--accent);text-align:left;font-weight:700;font-size:11px;letter-spacing:.02em;text-transform:uppercase;padding:6px 7px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1;cursor:pointer}
   .ptbl thead th:hover{color:var(--title)}
   .ptbl thead th.num{text-align:right}
-  .ptbl tbody td{padding:9px 12px;border-bottom:1px solid var(--line2);vertical-align:middle;white-space:nowrap}
+  .ptbl tbody td{padding:5px 7px;border-bottom:1px solid var(--line2);vertical-align:middle;white-space:nowrap}
   .ptbl tbody td.num{text-align:right;font-variant-numeric:tabular-nums}
   .ptbl tbody tr{cursor:pointer}
   .ptbl tbody tr:hover td{background:#1b232d}
-  .ptbl .tavatar{width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;background:#1f2a37}
-  .ptbl .tini{width:34px;height:34px;border-radius:50%;background:#1f2a37;color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+  .ptbl .tavatar{width:28px;height:28px;border-radius:50%;object-fit:cover;display:block;background:#1f2a37}
+  .ptbl .tini{width:28px;height:28px;border-radius:50%;background:#1f2a37;color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
   .ptbl .tnm{font-weight:700;color:var(--title)}
   .schip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:20px;padding:2px 9px}
   .schip.ok{background:#16281c;color:#7fe0a0;border:1px solid #2b4a36}
@@ -132,7 +132,6 @@
     <select id="tdruh" class="flt"><option value="">Všechny typy</option><option value="HPP">HPP</option><option value="OSVC">OSVČ</option><option value="DPP">DPP</option></select>
     <span style="position:relative;display:inline-block"><button id="tpozBtn" class="flt" style="cursor:pointer" onclick="tpozToggle(event)">Pozice: vše ▾</button><div id="tpozMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:20;background:#141b29;border:1px solid #2a3547;border-radius:8px;padding:6px;max-height:320px;overflow:auto;min-width:250px;box-shadow:0 10px 28px rgba(0,0,0,.5)"></div></span>
     <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tbyv" style="margin:0"> i bývalé</label>
-    <button class="sbtn" id="tcolsBtn" onclick="tColsToggle()">+ ostatní složky</button>
     <button class="sbtn" onclick="exportTab()">⬇ Export (CSV)</button>
     <button class="sbtn" onclick="printTab()">🖨 Tisk</button>
     <span class="ph" id="tcnt"></span>
@@ -468,7 +467,7 @@ function renderTab(){
   const f=tabFiltered();
   const c=document.getElementById('tcnt'); if(c)c.textContent=f.length+' z '+TAB.length;
   const arr=sk=>tsort.col===sk?(tsort.dir>0?' ▲':' ▼'):'';
-  const VC=TCOLS.filter(c=>!(c.opt&&!TSHOWALL));
+  const VC=TCOLS;
   let h='<thead><tr>'+VC.map(c=>{
     if(c.nosort) return '<th></th>';
     const sk=c.sk||c.k;
@@ -487,20 +486,20 @@ function renderTab(){
       '<td>'+esc(p.typy||'')+'</td>'+
       '<td>'+esc(p.pozice||'—')+'</td>'+
       '<td class="num">'+(p.uvazek!=null?p.uvazek:'—')+'</td>'+
-      '<td class="num">'+(p.zaklad!=null?kc(p.zaklad):'—')+'</td>'+
-      '<td class="num">'+(p.os_ohod!=null?kc(p.os_ohod):'—')+'</td>'+
-      (TSHOWALL?('<td class="num">'+(p.premie!=null?kc(p.premie):'—')+'</td>'+
-      '<td class="num">'+(p.vedeni!=null?kc(p.vedeni):'—')+'</td>'+
-      '<td class="num">'+(p.jednatel!=null?kc(p.jednatel):'—')+'</td>'+
-      '<td class="num">'+(p.individ!=null?kc(p.individ):'—')+'</td>'):'')+
-      '<td class="num">'+(p.hruba!=null?kc(p.hruba):'—')+'</td>'+
+      '<td class="num">'+nkc(p.zaklad)+'</td>'+
+      '<td class="num">'+nkc(p.os_ohod)+'</td>'+
+      '<td class="num">'+nkc(p.premie)+'</td>'+
+      '<td class="num">'+nkc(p.vedeni)+'</td>'+
+      '<td class="num">'+nkc(p.jednatel)+'</td>'+
+      '<td class="num">'+nkc(p.individ)+'</td>'+
+      '<td class="num">'+nkc(p.hruba)+'</td>'+
       '<td>'+stav+'</td></tr>';
   });
   document.getElementById('dtbl').innerHTML=h+'</tbody>';
 }
 function printTab(){ window.print(); }
 function tsortBy(k){ if(tsort.col===k)tsort.dir*=-1; else {tsort.col=k;tsort.dir=1;} renderTab(); }
-function tColsToggle(){ TSHOWALL=!TSHOWALL; const b=document.getElementById('tcolsBtn'); if(b)b.textContent=TSHOWALL?'− ostatní složky':'+ ostatní složky'; renderTab(); }
+function nkc(n){ return n==null?'—':Math.round(n).toLocaleString('cs-CZ'); }
 function tpozToggle(e){ if(e)e.stopPropagation(); const m=document.getElementById('tpozMenu'); if(m)m.style.display=(m.style.display==='none'?'block':'none'); }
 function tpozFill(){ const m=document.getElementById('tpozMenu'); if(!m)return;
   let h='<label style="display:flex;gap:7px;align-items:center;padding:4px 6px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #222c3a;margin-bottom:4px"><input type="checkbox" '+(TPOZ_SEL.size===0?'checked':'')+' onchange="tpozAll(this.checked)"> <b>Všechny pozice</b></label>';

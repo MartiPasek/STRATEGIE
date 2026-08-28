@@ -2242,7 +2242,7 @@ function renderPU(edit){
   const rIN=(lab,k,val,eid)=>'<div style="padding:3px 10px"><div style="color:#7f8ea0;font-size:11px;margin-bottom:1px">'+lab+'</div><input data-eid="'+eid+'" data-k="'+k+'" value="'+esc(val||'')+'" style="width:100%;box-sizing:border-box;background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 6px;font:inherit"></div>';
   const grp=(t)=>'<div style="padding:10px 16px 3px;color:#aac8ec;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em">'+t+'</div>';
   const tbl=(rows)=>'<table style="width:100%;border-collapse:collapse;font-size:13px">'+rows+'</table>';
-  const cardW=(t,inner)=>'<div style="border:1px solid #1e2730;border-radius:8px;background:#12181f;overflow:hidden;break-inside:avoid"><div style="font-weight:800;color:#e8eef5;font-size:12px;padding:5px 10px;background:#161c24;border-bottom:1px solid #233040">'+t+'</div><div style="padding:3px 0">'+inner+'</div></div>';
+  const cardW=(t,inner)=>'<div style="break-inside:avoid"><div style="color:#8fa6c4;font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:0 4px 5px">'+t+'</div><div>'+inner+'</div></div>';
   const puZdroj=(po)=>(po.zmenil||po.zmeneno)
     ? '<span title="Naposledy upravil: '+esc((po.zmenil||'—')+(po.zmeneno?(' · '+po.zmeneno):''))+'" style="color:#E0A94A;font-size:10px;white-space:nowrap">· HR '+esc((po.zmenil||'').split(' ')[0])+(po.zmeneno?(' '+esc(po.zmeneno)):'')+'</span>'
     : '<span title="Původní údaj z importu, needitováno" style="color:#5d6b7c;font-size:10px;white-space:nowrap">· Import</span>';
@@ -2294,12 +2294,15 @@ function renderPU(edit){
     const uva = rRO('Velikost úvazku', po.velikost) + rRO('Týdenní fond', po.uvazek?(po.uvazek+' h/týden'):'') + rRO('Odměňování', po.hodinovka?'hodinová mzda':'měsíční mzda');
     const pozn = edit?rIN('Poznámka','note',po.note,po.id):rRO('Poznámka', po.note);
     h+='<div style="margin:4px 0 2px;border-top:1px solid #1e2730">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 16px 4px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 16px 6px">'+
         '<span style="font-weight:800;color:#e8eef5">'+esc(po.firma)+' · '+esc(po.typ)+' '+puZdroj(po)+'</span>'+
         (edit?'':'<a href="#" onclick="pomerOpen('+po.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✏️ Změna / prodloužení</a>')+
       '</div>'+
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;padding:0 12px 8px;font-size:13px;align-items:start">'+
-        cardW('Zařazení',zar)+cardW('Smlouva',sml)+cardW('Úvazek',uva)+cardW('Poznámka',pozn)+
+      '<div style="margin:0 14px 10px;border:1px solid #233040;border-radius:12px;background:#12181f;padding:12px 16px">'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px 22px;font-size:13px;align-items:start">'+
+          cardW('Zařazení',zar)+cardW('Smlouva',sml)+cardW('Úvazek',uva)+
+        '</div>'+
+        '<div style="margin-top:10px;border-top:1px solid #1b2430;padding-top:8px">'+cardW('Poznámka',pozn)+'</div>'+
       '</div></div>';
   }
   if(!(d.pomery||[]).length) h+='<div class="empty">Žádný aktuální pracovní poměr.</div>';

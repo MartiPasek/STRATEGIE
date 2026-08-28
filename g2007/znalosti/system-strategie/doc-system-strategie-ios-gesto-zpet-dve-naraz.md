@@ -1,0 +1,61 @@
+# iOS: gesto zpet vracelo na nahodnou stranku - v appce bezela DVE gesta naraz (27.-28. 8. 2026)
+
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+## Priznak
+
+Na iPhonu svihnuti od leveho okraje **nevratilo o obrazovku zpet, ale na nahodnou drivejsi
+stranku** (nahlasil Jirka Honomichl 27. 8. 2026). Na Androidu se to nedelo.
+
+## Pricina - dva zdroje teze pravdy
+
+Pri jednom svihnuti bezely **dve nezavisle veci**:
+
+1. **Vlastni gesto appky** (spravne) - `10_core.js` ma posluchac `touchstart`/`touchend`:
+   start do 26 px od leveho okraje, `dx > 60`, `dy < 48`, do 700 ms -> vola `back()`,
+   tedy o uroven vys ve `window.__M2W.stack`. Komentar u nej: *"iPhone nema systemove
+   tlacitko Zpet -> swipe od leveho okraje = Zpet. Funguje v PWA i ve WKWebView."*
+2. **Vestavene gesto WKWebView** (spatne) - `web.allowsBackForwardNavigationGestures = true`
+   v `APP/iOS/mobile/ContentView.swift`. To chodi po **historii prohlizece**.
+
+Appka drzi navigaci **jen v pameti** (`window.__M2W.stack`) a vsechny obrazovky maji
+**tutez URL**, takze v historii prohlizece je nahodna smes drivejsich stranek - odtud
+"vraci to kamkoli". Android tenhle problem nema, tam systemove zpet vola `__stgBack()`
+(HybridActivity.kt r. 799).
+
+## Oprava
+
+`web.allowsBackForwardNavigationGestures = **false**` (commit `98bc1d7e`, 28. 8. 2026).
+**Zadny vlastni UIScreenEdgePanGestureRecognizer se nepridava** - byl by to druhy zdroj
+teze pravdy vedle uz existujiciho gesta ve webove vrstve (Marti-AI, msg 13911).
+V souboru je u toho radku komentar, aby to pristi clovek "neopravil" zpatky.
+
+⚠️ **iOS obal se stavi RUCNE v Xcode na Macu** a rozdava pres TestFlight - zmena v repu
+sama do telefonu nedojde. Sestaveni dela Jirka.
+
+## Souvisejici nalez: kde se bere spodni lista "← Zpet"
+
+Spodni lista `bnavback` se **skryva podle identifikace zarizeni**:
+`_showBack = stack.length>1 && _bbCfg!=="never" && (_bbCfg==="always" || (!_isAndroid && !_isIOS))`,
+kde `_isIOS` = pritomnost markeru **`STRATEGIE-iOS`** v user agentu (nastavuje ho
+`applicationNameForUserAgent` v ContentView.swift).
+
+Zmereno 27. 8. 2026 v prohlizeci pod ctyrmi identifikacemi:
+
+| identifikace | spodni lista |
+|---|---|
+| Android appka | skryta |
+| iPhone appka **s** markerem | skryta |
+| iPhone appka **bez** markeru | **ukaze se** |
+| webovy prohlizec | ukaze se (zamer) |
+
+**Jestli marker v buildu je, pozna se na domovske obrazovce:** radek `h2` ukazuje
+**"Nativní appka"** (`window.__M2W.nativeApp`), jinak "Prohlížeč (PWA)". Je to tentyz
+priznak, ktery ridi i skryvani listy - kdyz tam stoji "Nativní appka", lista skryta JE
+a viditelne "Zpet" je nektere z **vnitroobrazovkovych** tlacitek (`_cilBack`, `_eaBack`,
+"‹ Zpet" v Planu prace, tlacitka ve formularich).
+
+**Ta vnitrni tlacitka se nechavaji** (Marti-AI, msg 13911): na Androidu jsou jedina
+viditelna cesta zpet krome systemoveho gesta a vznikla prave proto, ze spodni lista
+je v appce skryta.
+

@@ -2,6 +2,18 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
+> ⚠️ **DOPLNĚNO 27. 8. 2026 — kde dnes žije výpočet působnosti.**
+> Resolver `att_fix_scope_emps` v `g2007.python` **už vlastní kopii stromu nemá** — deleguje na
+> databázovou funkci **`tenant.att_fix_emp_dle_scope(p_scope)`**. Důvod: tutéž logiku potřebují
+> i datové zdroje `fw.data_source` (přehled dnů člověka v Opravách docházky), které Python volat
+> neumí, a dvě kopie definice práv by se časem rozešly. Druhá brána nad toutéž funkcí je
+> **`tenant.att_fix_viditelni_emp(p_uid)`** (z uid odvodí editorství + působnost + `fix_all`).
+> **Chování se nezměnilo** — před přepojením ověřena identická množina (Dušan 34 = 34, rozdíl 0
+> v obou směrech; Michaela 34 = 34; kancelář 194; kdo není editor 0).
+> **Měníš-li strom působnosti, měň ho v té DB funkci, ne v Pythonu.**
+> Podrobně: `doc-dochazka-prehled-dnu-cloveka-v-opravach-dochazky`.
+
 # Docházkové skupiny — strom + resolver (nasazeno 24. 7. 2026)
 
 **Stav: ✅ CELÉ NASAZENO A ŽIVÉ 24. 7. 2026** (Kristý/Claude-24, schváleno Peťou + Jirkou). Dva kroky:

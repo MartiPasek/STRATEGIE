@@ -2,17 +2,24 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-
 # Absence se vede BEZ ČASU — jedinou výjimkou je Lékař
 
 **Rozhodla Peťa 18. 8. 2026. Poslední díra dořešena 25. 8. 2026 (Peťa + Claude-26).**
 
+> ⚠️ **OPRAVENO 27. 8. 2026 — jedna věta níže platila jen do 27. 8.**
+> Původně tu stálo, že se **sick day vede na celý nebo půl dne**. **NEPLATÍ.**
+> Sick day se zadává **po hodinách, na celé hodiny** (1, 2, 3, 4… nikdy 2,5).
+> Bez času se vede dál — mění se jen povolená délka.
+> Rozhodla Peťa 27. 8. 2026, nahlásil Dušan Havlát; detail v
+> `doc-dochazka-sickday-se-zadava-po-hodinach-ne-na-pulden`.
+
 ## Co platí
 
-- Dovolená, dovolená navíc, sick day, OČR, nemoc, neplacené volno i ostatní absence se vedou
+- Dovolená, dovolená navíc, OČR, nemoc, neplacené volno i ostatní absence se vedou
   **na celý nebo půl dne, BEZ ČASU**. Sloupce `started_at` a `ended_at` zůstávají prázdné.
-- **Jediná výjimka je Lékař** — leží uvnitř pracovního dne mezi píchnutími a čas se mu dopočítává
-  z mezery v docházce (`/app/dochazka-abs/najdi-mezeru`, Peťa 12. 8. 2026).
+- **Sick day** se vede taky bez času, ale na **CELÉ HODINY** (Peťa 27. 8. 2026).
+- **Čas má jedině Lékař** — leží uvnitř pracovního dne mezi píchnutími a čas se mu dopočítává
+  z mezery v docházce (`/app/dochazka-abs/najdi-mezeru`, Peťa 12. 8. 2026). Smí být i na minuty.
 - Na hodiny, FPD ani mzdy to nemá vliv — sdílený výpočet `tenant.att_den_hodiny` u absencí časy
   vůbec nečte, sčítá jen `hours`.
 
@@ -31,6 +38,8 @@ vede na den nebo půl dne, ne na čas.
    podepsaný „Peta 12.8.2026", který zněl „Bereme rámec jako v Centrále, 8.00 až 8.00 + denní
    úvazek (typicky 8-16)" — **NEPLATÍ**, přepsáno 25. 8. 2026. Peťa k tomu 25. 8. výslovně
    uvedla, že časy nezadáváme vůbec, a ne kvůli sobotě.
+4. **„Sick day jen na celý nebo půl dne"** (25.–27. 8. 2026) — **ZRUŠENO 27. 8. 2026**,
+   sick day jde na celé hodiny.
 
 ## Kde to bylo rozbité (nález 25. 8. 2026)
 

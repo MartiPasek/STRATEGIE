@@ -3260,29 +3260,38 @@ async function pmfUdaje(){
     mUva=(po.uvazek!=null?po.uvazek+' h/týd':'—');
     let s=0; (po.slozky||[]).forEach(c=>{ if(!c.per_hour) s+=Number(c.real)||0; });
     mMzda=s?_kc(s):'—';
-    mSml=(po.typ||'—')+(po.smlouva_od?(' · od '+po.smlouva_od):'');
+    const dsml=(typeof _dcz==='function'&&po.smlouva_od)?_dcz(po.smlouva_od):(po.smlouva_od||'');
+    mSml=(po.typ||'—')+(dsml?(' · od '+dsml):'');
   }
   if(lv&&lv.ok&&lv.has){
     mDov=(lv.dovolena.zbytek)+' z '+(lv.dovolena.narok)+' dní';
     mSick=(lv.sick.zbytek_h)+' z '+(lv.sick.narok_h)+' h';
   }
   const mcard=(lab,val)=>'<div style="background:#12181f;border:1px solid #233040;border-radius:10px;padding:8px 12px;min-width:0"><div style="color:#8595a8;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+lab+'</div><div style="color:#e8eef5;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(val)+'</div></div>';
-  const souhrn='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:12px 16px 4px">'+
+  const souhrn='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:12px 16px 6px">'+
     mcard('Úvazek',mUva)+mcard('Hrubá mzda',mMzda)+mcard('Dovolená (zbývá)',mDov)+mcard('Sick days (zbývá)',mSick)+mcard('Smlouva',mSml)+'</div>';
-  const blok=(ic,title,src,h)=>'<div style="margin:0 14px 14px">'+
-    '<div style="display:flex;align-items:center;gap:8px;padding:10px 4px 6px;color:#aac8ec;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid #233040">'+
-      '<span style="font-size:14px">'+ic+'</span><span>'+esc(title)+'</span></div>'+
-    '<iframe src="'+src+'" style="width:100%;height:'+h+';border:0;background:#0f141a;display:block" title="'+esc(title)+'"></iframe></div>';
+  const SECS=[
+    {ic:'💼',t:'Poměr a smlouva',src:'/karta-zamestnance?embedsec=pracovni&uid='+uid},
+    {ic:'💰',t:'Mzdové podmínky',src:'/finance-podminky?uid='+uid+'&embed=1'},
+    {ic:'📋',t:'Podmínky a bonusy',src:'/karta-zamestnance?embedsec=podminky&uid='+uid},
+  ];
+  window.PMF_SECS=SECS;
+  const tabs=SECS.map((s,i)=>'<button id="pmfTab'+i+'" onclick="pmfTab('+i+')" style="border:1px solid #233040;border-bottom:0;border-radius:9px 9px 0 0;background:transparent;color:#aac8ec;font:inherit;font-weight:700;font-size:12.5px;padding:8px 15px;cursor:pointer">'+s.ic+' '+esc(s.t)+'</button>').join('');
   let html=pheadHTML(p)+
-    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730;position:sticky;top:0;background:#0f141a;z-index:2">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730">'+
     '<span style="font-weight:800;color:#e8eef5;font-size:15px">💼 Personální a finanční podmínky</span>'+back+'</div>'+
     souhrn+
-    '<div style="padding:6px 0 6px">'+
-      blok('💼','Poměr a smlouva','/karta-zamestnance?embedsec=pracovni&uid='+uid,'360px')+
-      blok('💰','Mzdové podmínky','/finance-podminky?uid='+uid+'&embed=1','540px')+
-      blok('📋','Podmínky a bonusy','/karta-zamestnance?embedsec=podminky&uid='+uid,'540px')+
-    '</div>';
+    '<div style="display:flex;gap:5px;padding:6px 16px 0;flex-wrap:wrap;border-bottom:1px solid #233040">'+tabs+'</div>'+
+    '<iframe id="pmfFrame" data-i="-1" src="about:blank" style="width:100%;height:calc(100vh - 300px);min-height:360px;border:0;background:#0f141a;display:block"></iframe>';
   det.innerHTML=html;
+  pmfTab(0);
+}
+function pmfTab(i){
+  const SECS=window.PMF_SECS||[]; const f=document.getElementById('pmfFrame'); if(!f||!SECS[i]) return;
+  if(f.getAttribute('data-i')!==String(i)){ f.src=SECS[i].src; f.setAttribute('data-i',String(i)); }
+  SECS.forEach((s,k)=>{ const b=document.getElementById('pmfTab'+k); if(!b)return; const on=(k===i);
+    b.style.background=on?'#12181f':'transparent'; b.style.color=on?'#eaf2ff':'#aac8ec';
+    b.style.borderColor=on?'#3a6aa8':'#233040'; b.style.marginBottom=on?'-1px':'0'; });
 }
 
 // Šárka 21.7.2026: Dokumenty = digitální šanon (nahrát/stáhnout/smazat, uloženo v DB mimo git).

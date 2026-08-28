@@ -2,6 +2,19 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! NEPLATI k 28. 8. 2026 v jednom bodu: fragmenty NEJSOU jedna spolecna closure
+> 
+> Sekce "Souvisejici, at se na to nezapomene" nize tvrdi, ze fragmenty jsou "hole deklarace
+> funkci uvnitr JEDNE obalove funkce" a sdileji `el`, `topbar`, `go`, `api` pres closure.
+> **Dnes to tak neni.** Kazdy dilek je **vlastni `<script>` blok s vlastni IIFE**, ktera si
+> zavislosti bere z `window.__M2W`, a konci `} catch(e){...}` + registraci pres `__setImpl`.
+> Funkce z jednoho dilku proto **neni videt z jineho**, dokud se nezaregistruje do `window.__M2W`.
+> Zjisteno naostro 27. 8. 2026 (pad `_mojeHlavicka is not defined` pri presunu fotky a Novinek
+> mezi dilky 48 a 60; `node --check` pri publikaci prosel, chyba se ukazala az v prohlizeci).
+> Detail a postup: [[doc-system-strategie-mobil-dilky-nejsou-jedna-closure]].
+> **Zbytek dokumentu plati beze zmeny** - puvodni veta je nize schvalne ponechana, at je videt,
+> co se zmenilo.
+
 > ## !! ROZPOR S PRAVIDLY VYRESEN 26. 8. 2026
 >
 > Rozpor nahlasil Claude-28: `STRATEGIE_PRAVIDLA_PRACE.md` bod 4 do 26. 8. rikal

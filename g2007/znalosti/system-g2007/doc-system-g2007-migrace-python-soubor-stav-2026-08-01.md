@@ -2,6 +2,17 @@
 
 > oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! NEPLATI k 28. 8. 2026 v jednom bodu: fragmenty mobilu maji KAZDY vlastni IIFE
+> 
+> Veta nize "fragmenty 20+ NEJSOU nezavisle IIFE, jsou to hole function deklarace uvnitr JEDNE
+> obalove funkce ... pres closure, ne pres window" **uz neplati**. Dnes je kazdy dilek mobilu
+> **vlastni `<script>` blok s vlastni IIFE**, ktera si zavislosti bere z `window.__M2W`
+> a na konci registruje sve funkce pres `__setImpl` / prime prirazeni do `window.__M2W`.
+> Funkce z jednoho dilku **neni videt z jineho**, dokud se nezaregistruje.
+> Zjisteno naostro 27. 8. 2026 (pad `_mojeHlavicka is not defined` pri presunu fotky a Novinek
+> mezi dilky 48 a 60). Detail: [[doc-system-strategie-mobil-dilky-nejsou-jedna-closure]].
+> **Zbytek dokumentu plati beze zmeny** - puvodni veta je nize schvalne ponechana.
+
 # Migrace router.py/web do g2007.python a g2007.soubor — stav a jak pokracovat (1.8.2026)
 
 Napsal Claude-23 na zaklad zadosti Martiho, aby byl system srozumitelny pro ostatni

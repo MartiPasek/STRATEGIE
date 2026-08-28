@@ -130,8 +130,9 @@
     <input id="tsrch" class="flt" style="width:200px" placeholder="🔎 Hledat jméno…">
     <select id="tfirma" class="flt"><option value="">Všechny firmy</option><option value="EC">EUROSOFT-Control (EC)</option><option value="ES">EUROSOFT-System (ES)</option></select>
     <select id="tdruh" class="flt"><option value="">Všechny typy</option><option value="HPP">HPP</option><option value="OSVC">OSVČ</option><option value="DPP">DPP</option></select>
-    <select id="tpoz" class="flt"><option value="">Všechny pozice</option></select>
+    <span style="position:relative;display:inline-block"><button id="tpozBtn" class="flt" style="cursor:pointer" onclick="tpozToggle(event)">Pozice: vše ▾</button><div id="tpozMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:20;background:#141b29;border:1px solid #2a3547;border-radius:8px;padding:6px;max-height:320px;overflow:auto;min-width:250px;box-shadow:0 10px 28px rgba(0,0,0,.5)"></div></span>
     <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="tbyv" style="margin:0"> i bývalé</label>
+    <button class="sbtn" id="tcolsBtn" onclick="tColsToggle()">+ ostatní složky</button>
     <button class="sbtn" onclick="exportTab()">⬇ Export (CSV)</button>
     <button class="sbtn" onclick="printTab()">🖨 Tisk</button>
     <span class="ph" id="tcnt"></span>
@@ -373,15 +374,15 @@ async function savePozice(eg,pid){
 }
 
 /* ── Tabulkový přehled (Šárka 6.8.2026) — jako Centrála: řádek na člověka, řazení dle sloupců ── */
-let TAB=[], TABLOADED=false, tsort={col:'prijmeni',dir:1};
+let TAB=[], TABLOADED=false, tsort={col:'prijmeni',dir:1}, TSHOWALL=false, TPOZ_SEL=new Set();
 const TCOLS=[
   {k:'foto',t:'',nosort:1},
   {k:'jmeno',t:'Zaměstnanec',sk:'prijmeni'},
   {k:'firmy',t:'Firma'},{k:'typy',t:'Druh'},{k:'pozice',t:'Pozice'},
   {k:'uvazek',t:'Úvazek',num:1},{k:'zaklad',t:'Základ',num:1,kc:1},
-  {k:'os_ohod',t:'Os. ohod.',num:1,kc:1},{k:'premie',t:'Prémie',num:1,kc:1},
-  {k:'vedeni',t:'Vedení lidí',num:1,kc:1},{k:'jednatel',t:'Odm. jednatele',num:1,kc:1},
-  {k:'individ',t:'Individ.',num:1,kc:1},{k:'hruba',t:'Hrubá',num:1,kc:1},
+  {k:'os_ohod',t:'Os. ohod.',num:1,kc:1},{k:'premie',t:'Prémie',num:1,kc:1,opt:1},
+  {k:'vedeni',t:'Vedení lidí',num:1,kc:1,opt:1},{k:'jednatel',t:'Odm. jednatele',num:1,kc:1,opt:1},
+  {k:'individ',t:'Individ.',num:1,kc:1,opt:1},{k:'hruba',t:'Hrubá',num:1,kc:1},
   {k:'stav',t:'Stav'}
 ];
 function setView(v){
@@ -444,16 +445,15 @@ async function loadTabulka(){
     if(pd && pd.ok){ const m={}; (pd.radky||[]).forEach(function(r){ m[r.uid]=r; });
       TAB.forEach(function(p){ const r=m[p.user_id]; if(r){ p.dov_dny=r.dov_dny; p.sd_dny=r.sd_dny; p.vernost=r.vernost; } }); }
   }catch(e){}
-  const tp=document.getElementById('tpoz');
-  if(tp && POZ.length) tp.innerHTML='<option value="">Všechny pozice</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join('');
+  tpozFill();
   renderTab();
 }
 function tabFiltered(){
-  const q=_val('tsrch').toLowerCase(), ff=_val('tfirma').toUpperCase(), fd=_val('tdruh').toUpperCase(), fp=_val('tpoz');
+  const q=_val('tsrch').toLowerCase(), ff=_val('tfirma').toUpperCase(), fd=_val('tdruh').toUpperCase();
   let f=TAB.filter(p=>(p.jmeno||'').toLowerCase().includes(q)
     && (!ff||(p.firmy||'').toUpperCase().includes(ff))
     && (!fd||(p.typy||'').toUpperCase().includes(fd))
-    && (!fp||(p.pozice||'')===fp));
+    && (TPOZ_SEL.size===0 || TPOZ_SEL.has(p.pozice||'')));
   const col=tsort.col, dir=tsort.dir, isnum=(TCOLS.find(c=>c.k===col)||{}).num;
   f=f.slice().sort((a,b)=>{
     let x,y;
@@ -468,12 +468,13 @@ function renderTab(){
   const f=tabFiltered();
   const c=document.getElementById('tcnt'); if(c)c.textContent=f.length+' z '+TAB.length;
   const arr=sk=>tsort.col===sk?(tsort.dir>0?' ▲':' ▼'):'';
-  let h='<thead><tr>'+TCOLS.map(c=>{
+  const VC=TCOLS.filter(c=>!(c.opt&&!TSHOWALL));
+  let h='<thead><tr>'+VC.map(c=>{
     if(c.nosort) return '<th></th>';
     const sk=c.sk||c.k;
     return '<th onclick="tsortBy(\''+sk+'\')"'+(c.num?' class="num"':'')+'>'+esc(c.t)+arr(sk)+'</th>';
   }).join('')+'</tr></thead><tbody>';
-  if(!f.length){ h+='<tr><td colspan="'+TCOLS.length+'" style="text-align:center;color:var(--muted);padding:20px">Nic nenalezeno.</td></tr>'; }
+  if(!f.length){ h+='<tr><td colspan="'+VC.length+'" style="text-align:center;color:var(--muted);padding:20px">Nic nenalezeno.</td></tr>'; }
   f.forEach(p=>{
     const ini=esc((((p.prijmeni||' ').trim()[0])||'')+(((p.krestni||' ').trim()[0])||''));
     const foto=p.user_id?('<div class="tini"><img class="tavatar" src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" onerror="this.remove();this.parentNode.textContent=\''+ini+'\'"></div>'):('<div class="tini">'+ini+'</div>');
@@ -488,10 +489,10 @@ function renderTab(){
       '<td class="num">'+(p.uvazek!=null?p.uvazek:'—')+'</td>'+
       '<td class="num">'+(p.zaklad!=null?kc(p.zaklad):'—')+'</td>'+
       '<td class="num">'+(p.os_ohod!=null?kc(p.os_ohod):'—')+'</td>'+
-      '<td class="num">'+(p.premie!=null?kc(p.premie):'—')+'</td>'+
+      (TSHOWALL?('<td class="num">'+(p.premie!=null?kc(p.premie):'—')+'</td>'+
       '<td class="num">'+(p.vedeni!=null?kc(p.vedeni):'—')+'</td>'+
       '<td class="num">'+(p.jednatel!=null?kc(p.jednatel):'—')+'</td>'+
-      '<td class="num">'+(p.individ!=null?kc(p.individ):'—')+'</td>'+
+      '<td class="num">'+(p.individ!=null?kc(p.individ):'—')+'</td>'):'')+
       '<td class="num">'+(p.hruba!=null?kc(p.hruba):'—')+'</td>'+
       '<td>'+stav+'</td></tr>';
   });
@@ -499,6 +500,16 @@ function renderTab(){
 }
 function printTab(){ window.print(); }
 function tsortBy(k){ if(tsort.col===k)tsort.dir*=-1; else {tsort.col=k;tsort.dir=1;} renderTab(); }
+function tColsToggle(){ TSHOWALL=!TSHOWALL; const b=document.getElementById('tcolsBtn'); if(b)b.textContent=TSHOWALL?'− ostatní složky':'+ ostatní složky'; renderTab(); }
+function tpozToggle(e){ if(e)e.stopPropagation(); const m=document.getElementById('tpozMenu'); if(m)m.style.display=(m.style.display==='none'?'block':'none'); }
+function tpozFill(){ const m=document.getElementById('tpozMenu'); if(!m)return;
+  let h='<label style="display:flex;gap:7px;align-items:center;padding:4px 6px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #222c3a;margin-bottom:4px"><input type="checkbox" '+(TPOZ_SEL.size===0?'checked':'')+' onchange="tpozAll(this.checked)"> <b>Všechny pozice</b></label>';
+  h+=(POZ||[]).map(o=>'<label style="display:flex;gap:7px;align-items:center;padding:4px 6px;cursor:pointer;font-size:12.5px"><input type="checkbox" value="'+esc(o.label)+'" '+(TPOZ_SEL.has(o.label)?'checked':'')+' onchange="tpozPick(this)"> '+esc(o.label)+'</label>').join('');
+  m.innerHTML=h; }
+function tpozPick(cb){ if(cb.checked)TPOZ_SEL.add(cb.value); else TPOZ_SEL.delete(cb.value); tpozSync(); renderTab(); }
+function tpozAll(on){ if(on)TPOZ_SEL.clear(); tpozFill(); tpozSync(); renderTab(); }
+function tpozSync(){ const b=document.getElementById('tpozBtn'); if(b)b.textContent='Pozice: '+(TPOZ_SEL.size===0?'vše':(TPOZ_SEL.size+' vybráno'))+' ▾'; }
+document.addEventListener('click',function(e){ const m=document.getElementById('tpozMenu'), b=document.getElementById('tpozBtn'); if(m&&m.style.display==='block'&&!m.contains(e.target)&&e.target!==b){ m.style.display='none'; } });
 function openFromTab(uid){ setView('karty'); openP(uid); }
 function exportTab(){
   const rows=tabFiltered();
@@ -517,7 +528,7 @@ function exportTab(){
   a.download='financni_podminky_tabulka_'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
 }
-['tsrch','tfirma','tdruh','tpoz'].forEach(id=>{const e=document.getElementById(id); if(e)e.addEventListener(id==='tsrch'?'input':'change',renderTab);});
+['tsrch','tfirma','tdruh'].forEach(id=>{const e=document.getElementById(id); if(e)e.addEventListener(id==='tsrch'?'input':'change',renderTab);});
 {const b=document.getElementById('tbyv'); if(b)b.addEventListener('change',loadTabulka);}
 
 if(new URLSearchParams(location.search).get('embed'))document.body.classList.add('embed');

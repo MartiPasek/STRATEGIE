@@ -4,19 +4,29 @@
 <style>
   :root{color-scheme:dark}
   *{box-sizing:border-box}
-  body{margin:0;background:#0b0f16;color:#e8edf6;font:13px/1.4 -apple-system,Segoe UI,Roboto,Arial,sans-serif}
-  h2{margin:10px 14px 2px;font-size:18px}
-  .sub{margin:0 14px 8px;color:#8fa3bd;font-size:12px}
-  #info{margin:0 14px 6px;color:#a9bad0;font-size:12px}
-  .tw{margin:0 12px 14px;border:1px solid #2a3546;border-radius:8px;overflow:auto;max-height:calc(100vh - 90px)}
-  table.dokl{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
-  table.dokl thead th{position:sticky;top:0;z-index:5;background:#1c2636;color:#fff;font-weight:700;text-transform:uppercase;
-    font-size:11px;letter-spacing:.02em;border-bottom:2px solid #34506f;padding:5px 8px;text-align:left;white-space:nowrap;cursor:pointer}
-  table.dokl thead tr.frow td{position:sticky;background:#08090c;z-index:4;padding:2px 4px;border-bottom:1px solid #2a3546}
-  table.dokl thead tr.frow input{width:100%;background:#0b0d10;border:1px solid #363b43;border-radius:4px;color:#e9eef5;padding:4px 6px;font-size:12px}
+  /* Standard vzhledu přehledů (Marti + Peťa, závazný — g2007
+     doc-system-strategie-prehledy-tabulky-standard). Srovnáno 28. 8. 2026:
+     pozadí #0f1420, hlavička BEZ velkých písmen, mřížka i vpravo, scrollbar. */
+  body{margin:0;padding:8px 12px 6px;background:#0f1420;color:#e8edf6;font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  h2{margin:2px 2px 2px;font-size:18px}
+  .sub{margin:0 2px 8px;color:#8fa3bd;font-size:12px}
+  #info{margin:0 2px 6px;color:#a9bad0;font-size:12px}
+  .tw{overflow:auto;max-height:calc(100vh - 52px);border:1px solid #2a3546;border-radius:8px;background:#0f1420}
+  .tw::-webkit-scrollbar{width:13px;height:13px}
+  .tw::-webkit-scrollbar-track{background:#131b26}
+  .tw::-webkit-scrollbar-thumb{background:#33445c;border-radius:7px;border:2px solid #131b26}
+  table.dokl{table-layout:fixed;border-collapse:collapse;font-size:12.5px;width:auto}
+  table.dokl th,table.dokl td{border-right:1px solid #2a3546;border-bottom:1px solid #232c3b;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px}
+  table.dokl thead th{position:sticky;top:0;z-index:5;background:#1c2636;color:#fff;font-weight:700;
+    font-size:11px;border-bottom:2px solid #34506f;text-align:left;cursor:pointer}
+  table.dokl thead tr.frow td{position:sticky;background:#08090c;z-index:4;padding:3px 4px;
+    border-right:1px solid #24344f;border-bottom:1px solid #24344f}
+  table.dokl thead tr.frow input{width:100%;box-sizing:border-box;background:#0b0d10;border:1px solid #363b43;
+    border-radius:4px;color:#e9eef5;padding:2px 6px;font-size:11px}
   th.r,td.r{text-align:right}
-  td{padding:4px 8px;border-bottom:1px solid #16202e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  tbody tr:hover{background:#111b28}
+  table.dokl tbody td{color:#f4f7fc}
+  tbody tr:hover{background:#131d2b}
   tbody tr.sel{background:rgba(37,99,235,.20)}
   td.mk{width:20px;text-align:center;color:#5aa0ff;font-weight:700;padding:2px 0}
   .fx{width:20px;text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700}
@@ -96,7 +106,9 @@ function hlavicka(){
   tab.insertAdjacentHTML('afterbegin',cg);
   var th=tab.getElementsByTagName('thead')[0]; th.innerHTML=h+'</tr>'+f+'</tr>';
   var hh=th.getElementsByTagName('tr')[0].offsetHeight||24;
-  [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=hh+'px';});
+  /* Standard (dodatek 22.7.2026): filtrovací řádek se přisadí o 1px pod hlavičku,
+     jinak mezi nimi při rolování prosvítá 1px. */
+  [].forEach.call(th.querySelectorAll('.frow td'),function(td){td.style.top=(hh-1)+'px';});
   if(!th._w){th._w=true;
     th.addEventListener('input',function(e){var k=e.target.getAttribute('data-k');if(k==null)return;delete FILMODE[k];FIL[k]=(e.target.value||'').trim().toLowerCase();render();});
     th.addEventListener('contextmenu',function(e){var inp=e.target.closest?e.target.closest('.frow input[data-k]'):null;if(!inp)return;e.preventDefault();openFilterMenu(e.clientX,e.clientY,inp.getAttribute('data-k'),inp);});

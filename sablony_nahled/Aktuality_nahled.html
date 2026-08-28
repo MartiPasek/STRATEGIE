@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR · Aktuality — náhled</title>
+<style>
+  :root{
+    --bg:#0f1220; --panel:#171b2e; --panel2:#1e2338; --line:#2a3050;
+    --txt:#e8eaf2; --mut:#9aa2c0; --accent:#5b8cff; --accent2:#7c5cff;
+    --ok:#37c98a; --warn:#f5b544; --dan:#ff6b7a; --pin:#f5b544;
+    --chip:#232a45;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    background:linear-gradient(160deg,#0b0e1a,#12162a);color:var(--txt);
+    display:flex;justify-content:center;min-height:100vh;padding:24px 12px}
+  .wrap{width:100%;max-width:460px}
+  .note{max-width:460px;margin:0 auto 14px;font-size:12.5px;color:var(--mut);
+    background:#141830;border:1px solid var(--line);border-radius:12px;padding:10px 12px;line-height:1.5}
+  .note b{color:var(--txt)}
+  .phone{background:var(--bg);border:1px solid var(--line);border-radius:26px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(0,0,0,.5)}
+  /* top bar */
+  .top{display:flex;align-items:center;gap:10px;padding:16px 16px 12px;
+    background:linear-gradient(120deg,#1a2036,#141830);border-bottom:1px solid var(--line)}
+  .top .ico{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:flex;align-items:center;justify-content:center;font-size:18px}
+  .top h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  .top .sub{font-size:11.5px;color:var(--mut);margin-top:1px}
+  .bell{margin-left:auto;position:relative;font-size:20px}
+  .bell .badge{position:absolute;top:-6px;right:-8px;background:var(--dan);color:#fff;
+    font-size:10px;font-weight:700;border-radius:10px;padding:1px 5px;min-width:16px;text-align:center}
+  /* tabs */
+  .tabs{display:flex;padding:8px;gap:6px;background:#12162a}
+  .tab{flex:1;text-align:center;padding:9px 6px;border-radius:10px;font-size:12.5px;font-weight:600;
+    color:var(--mut);cursor:pointer;user-select:none;border:1px solid transparent}
+  .tab.on{background:var(--panel2);color:var(--txt);border-color:var(--line)}
+  /* filter chips */
+  .chips{display:flex;gap:6px;padding:10px 14px 4px;overflow-x:auto;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{white-space:nowrap;font-size:11.5px;padding:6px 11px;border-radius:20px;background:var(--chip);
+    color:var(--mut);cursor:pointer;border:1px solid transparent}
+  .chip.on{background:rgba(91,140,255,.16);color:#bcd0ff;border-color:rgba(91,140,255,.5)}
+  /* feed */
+  .feed{padding:10px 14px 20px;max-height:560px;overflow-y:auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px;
+    position:relative;transition:.15s}
+  .card.unread{border-color:rgba(91,140,255,.55);box-shadow:0 0 0 1px rgba(91,140,255,.15)}
+  .card.pin{background:linear-gradient(180deg,#1c2136,#171b2e)}
+  .row1{display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap}
+  .cat{font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+    padding:3px 8px;border-radius:7px}
+  .cat.firma{background:rgba(91,140,255,.18);color:#a9c3ff}
+  .cat.hr{background:rgba(124,92,255,.18);color:#c3b3ff}
+  .cat.iso{background:rgba(55,201,138,.16);color:#8ee6bd}
+  .cat.udalost{background:rgba(245,181,68,.16);color:#f6cf86}
+  .cat.provoz{background:rgba(154,162,192,.16);color:#c3c9e0}
+  .pinbadge{font-size:11px;color:var(--pin);font-weight:700;display:flex;align-items:center;gap:3px}
+  .must{font-size:10.5px;font-weight:700;color:#ffd0d6;background:rgba(255,107,122,.16);
+    padding:3px 8px;border-radius:7px;border:1px solid rgba(255,107,122,.35)}
+  .unreaddot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:auto}
+  h3{margin:2px 0 4px;font-size:15px;line-height:1.3;font-weight:640}
+  .perex{font-size:13px;color:#c8cde4;line-height:1.5;margin:0 0 8px}
+  .meta{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mut);flex-wrap:wrap}
+  .av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#3a4266,#2a3050);
+    display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#cdd4ee}
+  .actions{display:flex;gap:8px;margin-top:11px}
+  .btn{font-size:12.5px;font-weight:600;padding:8px 12px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);cursor:pointer}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff}
+  .btn.done{background:rgba(55,201,138,.16);color:#8ee6bd;border-color:rgba(55,201,138,.4)}
+  .btn.ghost{background:transparent;color:var(--mut)}
+  /* admin */
+  .adminwrap{padding:12px 14px 20px;max-height:560px;overflow-y:auto}
+  .compose{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:13px;margin-bottom:14px}
+  .compose h4{margin:0 0 10px;font-size:13px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .fld{margin-bottom:9px}
+  .fld label{display:block;font-size:11px;color:var(--mut);margin-bottom:4px}
+  .fld input,.fld select,.fld textarea{width:100%;background:#0d1120;
+    border:1px solid var(--line);border-radius:9px;color:var(--txt);padding:9px 10px;font-size:13px;font-family:inherit}
+  .fld textarea{resize:vertical;min-height:52px}
+  .frow{display:flex;gap:8px}
+  .frow .fld{flex:1}
+  .togs{display:flex;gap:14px;margin:4px 0 10px;flex-wrap:wrap}
+  .tog{display:flex;align-items:center;gap:7px;font-size:12px;color:#c8cde4;cursor:pointer}
+  .switch{width:36px;height:20px;border-radius:20px;background:#2a3050;position:relative;transition:.15s}
+  .switch.on{background:var(--accent)}
+  .switch b{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s}
+  .switch.on b{left:18px}
+  .arow{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  .arow .r1{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .status{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:7px}
+  .status.pub{background:rgba(55,201,138,.16);color:#8ee6bd}
+  .status.draft{background:rgba(154,162,192,.16);color:#c3c9e0}
+  .status.arch{background:rgba(154,162,192,.1);color:#8189a8}
+  .arow h4{margin:0;font-size:14px;font-weight:620;flex:1}
+  .readbar{margin-top:8px}
+  .readbar .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--mut);margin-bottom:4px}
+  .bar{height:7px;border-radius:6px;background:#0d1120;overflow:hidden}
+  .bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ok),#5fe0a8)}
+  .amini{display:flex;gap:7px;margin-top:9px}
+  .amini .btn{padding:6px 10px;font-size:11.5px}
+  .empty{color:var(--mut);font-size:12.5px;text-align:center;padding:24px}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#222a45;
+    border:1px solid var(--line);color:var(--txt);padding:10px 16px;border-radius:12px;font-size:13px;
+    opacity:0;transition:.25s;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="note">🔎 <b>Náhled modulu Aktuality</b> (HR sekce, Claude‑25 pro Šárku). Klikací mockup — data jsou ukázková, nic se neukládá. Přepínej <b>Nástěnka</b> (zaměstnanec) × <b>Správa</b> (HR). Vzhled se doladí na styl <code>mobile.html</code> při reálné stavbě.</div>
+
+  <div class="phone">
+    <div class="top">
+      <div class="ico">📣</div>
+      <div>
+        <h1>Aktuality</h1>
+        <div class="sub" id="subline">Firemní nástěnka · EUROSOFT</div>
+      </div>
+      <div class="bell">🔔<span class="badge" id="bellBadge">3</span></div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab on" id="tabFeed" onclick="setView('feed')">📰 Nástěnka</div>
+      <div class="tab" id="tabAdmin" onclick="setView('admin')">📣 Správa (HR)</div>
+    </div>
+
+    <!-- ZAMĚSTNANEC -->
+    <div id="viewFeed">
+      <div class="chips" id="chips"></div>
+      <div class="feed" id="feed"></div>
+    </div>
+
+    <!-- ADMIN -->
+    <div id="viewAdmin" style="display:none">
+      <div class="adminwrap">
+        <div class="compose">
+          <h4>➕ Nový příspěvek</h4>
+          <div class="fld"><label>Titulek</label><input id="cTit" placeholder="Např. Změna otevírací doby recepce"></div>
+          <div class="fld"><label>Perex (krátký úvod)</label><textarea id="cPer" placeholder="Pár vět, co se zobrazí v náhledu…"></textarea></div>
+          <div class="frow">
+            <div class="fld"><label>Kategorie</label>
+              <select id="cCat"><option value="firma">Firma</option><option value="hr">HR</option><option value="iso">ISO / Bezpečnost</option><option value="udalost">Událost</option><option value="provoz">Provoz</option></select>
+            </div>
+            <div class="fld"><label>Cílení</label>
+              <select id="cCil"><option>Všichni</option><option>Skupina: Výroba</option><option>Skupina: IT</option><option>Tenant: EUROSOFT</option><option>Tenant: INTERSOFT</option></select>
+            </div>
+          </div>
+          <div class="togs">
+            <div class="tog" onclick="tgl(this)"><div class="switch"><b></b></div> 📌 Připnout nahoru</div>
+            <div class="tog" onclick="tgl(this)"><div class="switch"><b></b></div> ✅ Vyžadovat potvrzení</div>
+            <div class="tog" onclick="tgl(this)"><div class="switch on"><b></b></div> Publikovat hned</div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" onclick="publish()">Publikovat</button>
+            <button class="btn ghost" onclick="toast('Uloženo jako koncept')">Uložit koncept</button>
+          </div>
+        </div>
+        <div id="adminList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---- ukázková data ----
+let posts = [
+  {id:1, cat:'iso', catL:'ISO / Bezpečnost', tit:'Aktualizace směrnice o heslech (ISO 27001)',
+   per:'Od 1. 8. platí nová pravidla pro délku a obměnu hesel. Prosím o seznámení a potvrzení.',
+   autor:'Jirka N.', ini:'JN', kdy:'dnes 9:12', pin:true, must:true, read:false, confirmed:false,
+   status:'pub', cil:'Všichni', total:62, readCount:38, confCount:31},
+  {id:2, cat:'firma', catL:'Firma', tit:'Letní provoz a dovolené — srpen 2026',
+   per:'Kancelář jede v omezeném režimu 4.–15. 8. Recepce otevřená 8–14 h. Naléhavé věci přes vedoucí.',
+   autor:'Marti P.', ini:'MP', kdy:'včera 16:40', pin:true, must:false, read:false, confirmed:false,
+   status:'pub', cil:'Všichni', total:62, readCount:44, confCount:0},
+  {id:3, cat:'hr', catL:'HR', tit:'Spuštění E‑learningu — první kurzy dorazí příště',
+   per:'Připravujeme modul vzdělávání. Povinná školení BOZP/PO se vám objeví v „Moje kurzy".',
+   autor:'Šárka N.', ini:'ŠN', kdy:'22. 7. 11:05', pin:false, must:false, read:true, confirmed:false,
+   status:'pub', cil:'Všichni', total:62, readCount:51, confCount:0},
+  {id:4, cat:'udalost', catL:'Událost', tit:'Firemní grilování 30. 8. — přihlašte se',
+   per:'Zveme vás i rodiny na konec léta. Přihlášení u vedoucích do 20. 8., ať víme počty.',
+   autor:'Kristý', ini:'KR', kdy:'20. 7. 8:30', pin:false, must:false, read:true, confirmed:false,
+   status:'pub', cil:'Všichni', total:62, readCount:57, confCount:0},
+  {id:5, cat:'provoz', catL:'Provoz', tit:'Výpadek DNS/Mikrotik v pátek večer — plánovaná údržba',
+   per:'V pátek 22–23 h krátká nedostupnost interních systémů. Prosíme o trpělivost.',
+   autor:'Michal', ini:'MI', kdy:'18. 7. 15:00', pin:false, must:false, read:true, confirmed:false,
+   status:'arch', cil:'Skupina: IT', total:9, readCount:9, confCount:0}
+];
+
+const cats = [['vse','Vše'],['firma','Firma'],['hr','HR'],['iso','ISO / Bezpečnost'],['udalost','Událost'],['provoz','Provoz']];
+let filter='vse';
+
+function initChips(){
+  document.getElementById('chips').innerHTML = cats.map(c=>
+    `<div class="chip ${c[0]===filter?'on':''}" onclick="setFilter('${c[0]}')">${c[1]}</div>`).join('');
+}
+function setFilter(f){filter=f;initChips();renderFeed();}
+
+function renderFeed(){
+  const list = posts.filter(p=>p.status==='pub').filter(p=>filter==='vse'||p.cat===filter)
+    .sort((a,b)=> (b.pin?1:0)-(a.pin?1:0));
+  const el=document.getElementById('feed');
+  if(!list.length){el.innerHTML='<div class="empty">Žádné aktuality v této kategorii.</div>';return;}
+  el.innerHTML = list.map(p=>{
+    const needConfirm = p.must && !p.confirmed;
+    return `<div class="card ${(!p.read)?'unread':''} ${p.pin?'pin':''}">
+      <div class="row1">
+        <span class="cat ${p.cat}">${p.catL}</span>
+        ${p.pin?'<span class="pinbadge">📌 Připnuto</span>':''}
+        ${p.must?'<span class="must">✅ Vyžaduje potvrzení</span>':''}
+        ${!p.read?'<span class="unreaddot"></span>':''}
+      </div>
+      <h3>${p.tit}</h3>
+      <p class="perex">${p.per}</p>
+      <div class="meta"><span class="av">${p.ini}</span> ${p.autor} · ${p.kdy} · 🎯 ${p.cil}</div>
+      <div class="actions">
+        ${needConfirm
+          ? `<button class="btn primary" onclick="confirmRead(${p.id})">Beru na vědomí</button>`
+          : (p.confirmed?'<button class="btn done">✓ Potvrzeno</button>':'')}
+        ${!p.read && !needConfirm ? `<button class="btn" onclick="markRead(${p.id})">Označit přečtené</button>`:''}
+        ${p.read && !p.must ? '<button class="btn done">✓ Přečteno</button>':''}
+        <button class="btn ghost" onclick="toast('Detail příspěvku')">Otevřít</button>
+      </div>
+    </div>`;
+  }).join('');
+  updateBadge();
+}
+function markRead(id){const p=posts.find(x=>x.id===id);p.read=true;renderFeed();toast('Označeno jako přečtené');}
+function confirmRead(id){const p=posts.find(x=>x.id===id);p.read=true;p.confirmed=true;p.confCount++;p.readCount++;renderFeed();toast('Potvrzeno — děkuji ✅');}
+function updateBadge(){
+  const n=posts.filter(p=>p.status==='pub'&&!p.read).length;
+  const b=document.getElementById('bellBadge');
+  if(n>0){b.style.display='';b.textContent=n;}else{b.style.display='none';}
+}
+
+function renderAdmin(){
+  const el=document.getElementById('adminList');
+  el.innerHTML = posts.map(p=>{
+    const pct=Math.round(p.readCount/p.total*100);
+    return `<div class="arow">
+      <div class="r1">
+        <span class="status ${p.status}">${p.status==='pub'?'Publikováno':p.status==='draft'?'Koncept':'Archiv'}</span>
+        <span class="cat ${p.cat}">${p.catL}</span>
+        ${p.pin?'<span class="pinbadge">📌</span>':''}
+        ${p.must?'<span class="must">✅</span>':''}
+      </div>
+      <h4>${p.tit}</h4>
+      <div class="meta" style="margin-top:5px">${p.autor} · ${p.kdy} · 🎯 ${p.cil}</div>
+      <div class="readbar">
+        <div class="lbl"><span>Přečteno ${p.readCount}/${p.total}${p.must?` · potvrdilo ${p.confCount}`:''}</span><span>${pct}%</span></div>
+        <div class="bar"><span style="width:${pct}%"></span></div>
+      </div>
+      <div class="amini">
+        <button class="btn" onclick="toast('Editace příspěvku')">Upravit</button>
+        <button class="btn" onclick="togglePin(${p.id})">${p.pin?'Odepnout':'Připnout'}</button>
+        <button class="btn ghost" onclick="toast('Statistika: kdo četl / potvrdil')">Kdo četl</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function togglePin(id){const p=posts.find(x=>x.id===id);p.pin=!p.pin;renderAdmin();renderFeed();toast(p.pin?'Připnuto':'Odepnuto');}
+
+function publish(){
+  const tit=document.getElementById('cTit').value.trim();
+  if(!tit){toast('Doplň titulek');return;}
+  const catSel=document.getElementById('cCat');
+  posts.unshift({id:Date.now(),cat:catSel.value,catL:catSel.options[catSel.selectedIndex].text,
+    tit,per:document.getElementById('cPer').value||'—',autor:'Šárka N.',ini:'ŠN',kdy:'teď',
+    pin:false,must:false,read:false,confirmed:false,status:'pub',
+    cil:document.getElementById('cCil').value,total:62,readCount:0,confCount:0});
+  document.getElementById('cTit').value='';document.getElementById('cPer').value='';
+  renderAdmin();renderFeed();toast('Publikováno ✅');
+}
+function tgl(e){e.querySelector('.switch').classList.toggle('on');}
+
+function setView(v){
+  const f=v==='feed';
+  document.getElementById('viewFeed').style.display=f?'':'none';
+  document.getElementById('viewAdmin').style.display=f?'none':'';
+  document.getElementById('tabFeed').classList.toggle('on',f);
+  document.getElementById('tabAdmin').classList.toggle('on',!f);
+  document.getElementById('subline').textContent=f?'Firemní nástěnka · EUROSOFT':'Správa aktualit · HR';
+  if(!f)renderAdmin();
+}
+let toastT;
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1600);}
+
+initChips();renderFeed();
+</script>
+</body>
+</html>

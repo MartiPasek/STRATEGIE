@@ -59,3 +59,42 @@ a viditelne "Zpet" je nektere z **vnitroobrazovkovych** tlacitek (`_cilBack`, `_
 viditelna cesta zpet krome systemoveho gesta a vznikla prave proto, ze spodni lista
 je v appce skryta.
 
+---
+
+## ⚠️ DOPLNENO 28. 8. 2026 — tohle uz jednou vyresene BYLO, jen v jinem repu
+
+Pri zaverecne kontrole rozporu se naslo, ze **26. 8. 2026 uz stejny problem resila Macova
+session Claude-28** — znalost [[doc-system-strategie-ios-gesto-zpet-screen-edge-pan]].
+Tam je zvolene **jine reseni**: `allowsBackForwardNavigationGestures` vypnuto **a navic
+pridan `UIScreenEdgePanGestureRecognizer`** (hrana `.left`, `Coordinator` implementuje
+`UIGestureRecognizerDelegate`, `shouldRecognizeSimultaneouslyWith` -> `false`), ktery po
+dokonceni tazeni vola `window.__stgBack()`. Overeno naostro v simulatoru iPhone 17 / iOS 26.5.
+
+**Ta zmena ale NIKDY nedosla do repa STRATEGIE.** Doloženo 28. 8. 2026:
+- `grep UIScreenEdgePan APP/iOS/mobile/ContentView.swift` = **0 vyskytu**,
+- `git log -- APP/iOS/mobile/ContentView.swift` zadny takovy commit nema.
+
+Commit `5952e30` z 26. 8. lezi v **jinem repu** — `cz.strategie.mobile`
+(GitHub `GHubGeorge/strategie-mobile`) na Macu. Obsah se odtud do repa STRATEGIE prenasi
+**rucne** (viz commity `24e85a73`, `c3bddc90` — prenos obsahu PR pres most, protoze slouceni
+na GitHubu nejde: ucet nema pravo zapisu). U teto zmeny se to **nestalo**.
+
+### Co z toho plyne
+
+1. **Dva repozitare se rozesly.** V repu STRATEGIE je dnes (commit `42042088`, 28. 8.)
+   vypnuty priznak **bez** recognizeru; v Macovem repu je vypnuty priznak **s** recognizerem.
+   Kdo bude stavet appku, musi vedet, ze **stavi z Macoveho repa** - jinak vydá jinou verzi,
+   nez kterou nekdo odzkousel.
+2. **Obe reseni funguji, ale nejsou totez.** Bez recognizeru se gesto opira **vyhradne**
+   o webovou vrstvu (`10_core.js`, touchstart/touchend na levem okraji) - ta v appce je
+   a overil jsem ji 27. 8. na zive `/mobile`. S recognizerem jede gesto nativne pres
+   `window.__stgBack()`. **Ktere z nich ma platit, rozhoduje clovek**, ne instance.
+3. **Zadna z tech oprav zatim NENI v telefonech.** Znalost z 26. 8. vyslovne uvadi, ze
+   verze ani build appky **nebyly zvyseny** (Jirka chtel vydat az po vyreseni banneru
+   s aktualizaci). Proto Jirka 27. 8. porad hlasil, ze gesto na iPhonu vraci na nahodnou
+   stranku - **v jeho nainstalovane appce zadna z uprav neni.**
+
+**Ponauceni pro pristi instanci:** nez zacnes resit cokoli kolem nativni iOS appky,
+**projdi znalosti na `iOS` a `gesto`** a **over `git log` prislusneho souboru** - iOS zije
+ve dvou repech a to, ze neco neni v repu STRATEGIE, neznamena, ze to nikdo neudelal.
+

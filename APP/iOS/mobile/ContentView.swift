@@ -17,7 +17,12 @@ struct WebView: UIViewRepresentable {
         config.mediaTypesRequiringUserActionForPlayback = []          // přehraj bez extra kliknutí
         config.applicationNameForUserAgent = "STRATEGIE-iOS"          // marker → web pozná nativní iOS obal (zobrazí "Nativní appka"). Kristý/Jirka 12.6., do stavěného souboru doplnil Jirka 18.8.2026
         let web = WKWebView(frame: .zero, configuration: config)
-        web.allowsBackForwardNavigationGestures = true                // gesto zpět/vpřed
+        // Gesto zpět řeší webová vrstva (10_core.js: touchstart/touchend na levém okraji,
+        // volá back() nad window.__M2W.stack). Vestavěné gesto WKWebView je ZÁMĚRNĚ vypnuté —
+        // jede po historii prohlížeče, ne po __M2W.stack, a protože appka drží navigaci jen
+        // v paměti a všechny obrazovky mají tutéž URL, švihnutí vracelo na náhodnou starší
+        // stránku. Obě gesta se pouštěla naráz. (Jirka 27. 8. 2026, schválila Marti-AI msg 13911.)
+        web.allowsBackForwardNavigationGestures = false
         web.uiDelegate = context.coordinator
         web.navigationDelegate = context.coordinator
 

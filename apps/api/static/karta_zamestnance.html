@@ -458,7 +458,7 @@
 <div class="wrapfull" id="podminkycard" style="display:none">
   <div class="card">
     <div class="tbar">
-      <b style="font-size:14px">📑 Podmínky zaměstnanců</b>
+      <b style="font-size:14px">📑 Podmínky pracovníka</b>
       <span id="podmcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
       <input id="podmsrch" oninput="podminkyFilter()" placeholder="🔎 Hledat jméno…" style="margin-left:12px;min-width:220px">
       <select id="podmfirma" onchange="podminkyFilter()" style="margin-left:8px"><option value="">Firma: vše</option><option>Control</option><option>System</option></select>
@@ -1397,7 +1397,7 @@ function podminkyPrint(){
   const scc=x=>{const a=(x.sd_dny==null||x.sd_dny==='')?null:Number(x.sd_dny),b=(x.sd_navic==null||x.sd_navic==='')?null:Number(x.sd_navic);return (a==null&&b==null)?'':String((a||0)+(b||0)).replace('.',',');};
   const dt=new Date().toLocaleDateString('cs-CZ');
   const rows=r.map(x=>'<tr><td>'+e2(_pjmeno(x.jmeno))+'</td><td>'+e2(x.firma||'')+'</td><td>'+e2(x.typ||'')+'</td><td>'+(x.uvazek!=null?e2(''+x.uvazek)+' h':'')+'</td><td>'+(x.smlouva_do?('určitá do '+_dcz(x.smlouva_do)):'neurčitá')+'</td><td>'+e2(_dcz(x.nastup))+'</td><td>'+nn(x.dov_dny)+'</td><td>'+nn(x.dov_zakl)+'</td><td>'+nn(x.sd_dny)+'</td><td>'+nn(x.nepl)+'</td><td>'+nn(x.strav)+'</td><td>'+nn(x.home)+'</td><td>'+nn(x.lim)+'</td><td>'+e2(x.dano||'')+'</td></tr>').join('');
-  const html='<!doctype html><html><head><meta charset="utf-8"><title>Podmínky zaměstnanců</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Podmínky zaměstnanců</h1><p class="sub">EUROSOFT · '+r.length+' poměrů'+(ff?(' · '+e2(ff)):'')+(tf?(' · '+e2(tf)):'')+' · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma</th><th>Typ</th><th>Úvazek</th><th>Doba</th><th>Nástup</th><th>Dovolená celkem</th><th>Dovolená</th><th>Sick days</th><th>Nepl. přesčas</th><th>Stravenka</th><th>Home off.</th><th>Limit přesč.</th><th>Daň. HO</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Podmínky pracovníků</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}.sub{color:#555;font-size:12px;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left}th{background:#eee}tr:nth-child(even) td{background:#fafafa}@media print{body{margin:0}}</style></head><body><h1>Podmínky pracovníků</h1><p class="sub">EUROSOFT · '+r.length+' poměrů'+(ff?(' · '+e2(ff)):'')+(tf?(' · '+e2(tf)):'')+' · '+dt+'</p><table><thead><tr><th>Jméno</th><th>Firma</th><th>Typ</th><th>Úvazek</th><th>Doba</th><th>Nástup</th><th>Dovolená celkem</th><th>Dovolená</th><th>Sick days</th><th>Nepl. přesčas</th><th>Stravenka</th><th>Home off.</th><th>Limit přesč.</th><th>Daň. HO</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
   const w=window.open('','_blank'); if(!w){ alert('Povol prosím vyskakovací okna, ať se tisk otevře.'); return; }
   w.document.write(html); w.document.close(); setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} },300);
 }

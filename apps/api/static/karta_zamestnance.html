@@ -1176,10 +1176,10 @@ function omRender(){
       so.forEach(x=>shownOsvc.add(x.user_id));
       let s='<div style="border:1px solid #2a3a4d;border-radius:8px;margin:0 0 6px;padding:5px 7px;background:#111a24">';
       s+='<div onclick="openCardFromOrg('+t.user_id+')" style="cursor:pointer;color:#dfe7f0;font-size:12px;font-weight:700">'+esc(t.jmeno)+(isOsvc(t)?' <span style="font-size:9px;color:#c8a24a;font-weight:800">OSVČ</span>':'')+(t.pozice?'<span style="color:#7f8ea0;font-weight:400"> · '+esc(t.pozice)+'</span>':'')+' <span style="color:#7fb2e8;font-size:10px">▸ vede tým</span></div>';
-      s+='<div style="margin:4px 0 0 8px;border-left:2px solid #223042;padding-left:7px">'+se.map(x=>omMember(x)).join('')+so.map(x=>omTeamChip(x,true)).join('')+'</div></div>';
+      s+='<div style="margin:4px 0 0 8px;border-left:2px solid #223042;padding-left:7px">'+se.map(x=>omMember(x)).join('')+so.map(x=>omMember(x)).join('')+'</div></div>';
       return s;
     }
-    return omTeamChip(t,false);
+    return omTeamChip(t, isOsvc(t));
   }
   // vykreslí jednu kartu oddělení (hlava + Zaměstnanci + Spolupracující OSVČ)
   function omDeptCol(headP, title, osvcBadge, emps, osvc){
@@ -1188,7 +1188,7 @@ function omRender(){
     if(emps.length||osvc.length){
       c+='<div class="omstem"></div><div style="width:100%;max-width:300px;max-height:360px;overflow:auto;padding-right:2px">';
       if(emps.length) c+='<div style="color:#7f9bb5;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px">Zaměstnanci ('+emps.length+')</div>'+emps.map(t=>omMember(t)).join('');
-      if(osvc.length) c+='<div style="color:#c8a24a;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:'+(emps.length?'8px':'0')+' 0 4px">Spolupracující OSVČ / dodavatelé ('+osvc.length+')</div>'+osvc.map(t=>omTeamChip(t,true)).join('');
+      if(osvc.length) c+='<div style="color:#c8a24a;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin:'+(emps.length?'8px':'0')+' 0 4px">Spolupracující OSVČ / dodavatelé ('+osvc.length+')</div>'+osvc.map(t=>omMember(t)).join('');
       c+='</div>';
     }
     return c+'</div>';
@@ -1197,10 +1197,14 @@ function omRender(){
     h+='<div class="omcol" style="align-items:center">'+omBox(dir,'Výkonný ředitel')+'</div>';
     // ředitelovy vlastní pojmenované pod-týmy (má-li člen nastavené oddělení, např. IT — ředitel je zároveň vedoucí)
     const dirTeam=(kidsEmp[dir.user_id]||[]).concat(kidsOsvc[dir.user_id]||[]).filter(p=>!isHead(p.user_id) && (p.oddeleni||'').trim());
-    const dirTeamIds=new Set(dirTeam.map(p=>p.user_id));
-    const byOdd={}; dirTeam.forEach(p=>{ const k=p.oddeleni.trim(); (byOdd[k]=byOdd[k]||[]).push(p); });
+    const oddKeysSet=new Set(dirTeam.map(p=>p.oddeleni.trim()));
     // vedoucí oddělení = HPP děti ředitele + OSVČ-vedoucí; ředitelovy pojmenované pod-týmy mají vlastní kartu
     const osvcLeads=lidi.filter(p=> isOsvc(p) && isHead(p.user_id) && (p.koord_user==null || p.koord_user===dir.user_id || !byU[p.koord_user]));
+    // vedoucí, jejichž oddělení = některý ředitelův pod-tým (např. Svoboda→IT) → vnořit do té karty, ne samostatně
+    const nestedLeads=osvcLeads.filter(p=> (p.oddeleni||'').trim() && oddKeysSet.has(p.oddeleni.trim()));
+    const dirTeamAll=dirTeam.concat(nestedLeads);
+    const dirTeamIds=new Set(dirTeamAll.map(p=>p.user_id));
+    const byOdd={}; dirTeamAll.forEach(p=>{ const k=p.oddeleni.trim(); (byOdd[k]=byOdd[k]||[]).push(p); });
     const reps=(kidsEmp[dir.user_id]||[]).concat(osvcLeads)
       .filter((p,i,a)=>a.findIndex(q=>q.user_id===p.user_id)===i)
       .filter(p=>!dirTeamIds.has(p.user_id))

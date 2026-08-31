@@ -3,6 +3,16 @@
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+> ## AKTUALIZACE 28. 8. 2026 - spodni lista uz ma jen JEDEN pruh
+>
+> **Pravidlo teto znalosti PLATI DAL** (nikdy pevna rezerva, vzdy `var(--navh, 65px)`) -
+> a `--navh` se po zmene spravne prepocitalo, overeno zive.
+> Zmenil se ale **pocet pruhu**, ktere tabulka nize popisuje: pruh "<- Zpet" (`#bnavback`)
+> se uz nezobrazuje nikde (ani v prohlizeci) a extra pruhy zmizely z obrazovky Aplikace.
+> Spodek Aplikaci tim klesl ze 178 px na 65 px. Na Firme zustava lista skupin (`#bnavx2`)
+> a nad ni zatim i prazdny `#bnavx1`.
+> Detail, duvody a pasti: [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]]
+
 ## Problem (nalezeno 29.7.2026, podnet Jirka)
 
 Na obrazovce "Ukoly" (mobilni appka) bylo tlacitko "+ Novy" schovane pod spodni
@@ -17,8 +27,8 @@ Jenze `#navwrap` NENI vzdy 65 px vysoky - sklada se z 1 az 3 pruhu:
 | pruh | vyska | kdy |
 |---|---|---|
 | `#bnav` tab lista (Domu/Aplikace/Ukoly/Kontakty/Firma) | 65 px | vzdy |
-| `#bnavback` pruh "<- Zpet" | 52 px | jen kdyz `stack.length>1` A NENI Android (renderNav `_showBack`) |
-| `#bnavx1` + `#bnavx2` extra listy | ruzne | na obrazovce Aplikace / Firma |
+| `#bnavback` pruh "<- Zpet" | 52 px | ~~jen kdyz `stack.length>1` A NENI Android~~ -> **od 28. 8. 2026 NIKDE** (jen pri `stg_backbar='always'`) |
+| `#bnavx1` + `#bnavx2` extra listy | ruzne | ~~na obrazovce Aplikace / Firma~~ -> **od 28. 8. 2026 uz jen Firma** (lista skupin) |
 | safe-area-inset-bottom | 0-34 px | iOS home indikator, Android gesture nav |
 
 => na Androidu 65 px (pruh "Zpet" se skryva, ma systemove Zpet) -> vychazelo to

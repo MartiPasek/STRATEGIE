@@ -2,6 +2,20 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## Upresneni 28. 8. 2026 - duvod se zmenil, ROZHODNUTI PLATI DAL
+>
+> V sekci nize stalo, ze nalez sel do `att_anomaly_scan` a NE do `tenant.pojistka`, protoze
+> "pojistky nikdo nespousti". **Ta cast duvodu uz NEPLATI** - od 28. 8. 2026 hlidaci pravidla
+> spousti automat `check_pojistky` (jednou denne). Puvodni veta je nize ponechana skrtnuta,
+> at je videt, co se zmenilo.
+>
+> **Rozhodnuti dat tenhle nalez do fronty k vyrizeni zustava spravne**, a to ze silnejsiho
+> duvodu: `tenant.att_anomaly` nese dvojici clovek + den a lidi podle ni zasahuji, kdezto
+> pravidlo v `tenant.pojistka` vraci jen ano/ne - nema koho ani ktery den zapsat.
+> **Nalez vazany na konkretniho cloveka patri do fronty, ne mezi hlidaci pravidla.**
+>
+> Detail: [[doc-system-strategie-spoustec-hlidacich-pravidel-pojistka]]
+
 ## Co se delo
 
 Cloveku mohly v `tenant.att_entry` vzniknout **dva bezici zaznamy naraz** (`is_active=true`).
@@ -121,7 +135,8 @@ presne odpovida jeho WHERE.
 `e8c7d9cfb499c0c45bff1b2ac8b0d126`), vcetne vlastniho uklidu (nalez zmizi, jakmile clovek
 uz dva bezici zaznamy TEHOZ DNE nema - filtr na den si vyzadala Marti-AI msg 13826).
 `entry_id` je `min(e.id)`, aby nalez nevisel na radku, ktery A1 nebo B2 mezitim uzavre.
-Slo do `att_anomaly_scan`, NE do `tenant.pojistka` - pojistky nikdo nespousti, kdezto
+Slo do `att_anomaly_scan`, NE do `tenant.pojistka` - ~~pojistky nikdo nespousti~~
+(NEPLATI od 28. 8. 2026, viz ramecek nahore), kdezto
 notifikace z anomalii prokazatelne dojdou (26.8. 07:22 upozorneni -> 08:42 Petra zasahla).
 Overeno: kontrola po nasazeni probehla v 11:16:29 a uklidila 12 nalezu, takze v8 bezi.
 Zatizeni 200 behu = 72 ms.

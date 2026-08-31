@@ -182,6 +182,12 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Rozhodnutí z porad (Šárka 31.8.2026): jádro hr.rozhodnuti = zápisník rozhodnutí vedení. Jen vedení/HR.
+      if (String(coreCode) === 'hr.rozhodnuti') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=rozhodnuti" title="Rozhodnutí z porad" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Kalendář (Šárka 13.8.2026): jádro hr.kalendar = agenda událostí ze STRATEGIE
       // (akce, narozeniny, výročí, konce zkušebek/smluv). Jen ke čtení.
       if (String(coreCode) === 'hr.kalendar') {

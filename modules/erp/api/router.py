@@ -9450,6 +9450,134 @@ async def app_hr_audit_file(fid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+def _rozh_jmeno_sub(col):
+    return ("(SELECT COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) FROM public.users u "
+            " LEFT JOIN tenant.att_employee ae ON ae.user_id=u.id AND ae.tenant_id=2 WHERE u.id=" + col + ")")
+
+
+@api_router.get("/app/hr/rozhodnuti/list")
+async def app_hr_rozhodnuti_list(req: Request) -> JSONResponse:
+    """Rozhodnutí z porad (vedení). Jen HR/vedení (Šárka 31.8.2026)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT r.id, to_char(r.datum_porady,'DD.MM.YYYY'), r.tema, r.rozhodl_text, r.rozhodnuti, r.zduvodneni, "
+            " r.tyka_se_user_id, " + _rozh_jmeno_sub("r.tyka_se_user_id") + " AS tyka_jmeno, "
+            " r.ukol_text, r.ukol_resitel_user_id, " + _rozh_jmeno_sub("r.ukol_resitel_user_id") + " AS resitel_jmeno, "
+            " to_char(r.ukol_termin,'DD.MM.YYYY'), r.stav, r.autor_text "
+            "FROM tenant.hr_rozhodnuti r WHERE r.tenant_id=2 AND r.aktivni=true "
+            "ORDER BY r.datum_porady DESC, r.id DESC")).fetchall()
+        data = [{"id": int(x[0]), "datum": x[1], "tema": x[2] or "", "rozhodl": x[3] or "",
+                 "rozhodnuti": x[4] or "", "zduvodneni": x[5] or "",
+                 "tyka_se_uid": (int(x[6]) if x[6] is not None else None), "tyka_jmeno": x[7] or "",
+                 "ukol": x[8] or "", "resitel_uid": (int(x[9]) if x[9] is not None else None),
+                 "resitel_jmeno": x[10] or "", "termin": x[11] or "", "stav": x[12] or "otevrene",
+                 "autor": x[13] or ""} for x in rows]
+        return JSONResponse({"ok": True, "rozhodnuti": data})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/rozhodnuti/save")
+async def app_hr_rozhodnuti_save(req: Request) -> JSONResponse:
+    """Nové / úprava rozhodnutí z porady. Jen HR/vedení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rozh = (b.get("rozhodnuti") or "").strip()
+        if not rozh:
+            return JSONResponse({"ok": False, "error": "Rozhodnutí nesmí být prázdné."}, status_code=400)
+        jmeno = s.execute(_t("SELECT COALESCE(NULLIF(TRIM(first_name||' '||last_name),''),'?') FROM public.users WHERE id=:i"), {"i": uid}).scalar() or "?"
+
+        def _d(v):
+            v = (v or "")
+            return v.strip() or None if isinstance(v, str) else v
+
+        def _i(v):
+            try:
+                return int(v) if v not in (None, "", "null") else None
+            except Exception:
+                return None
+        rid = _i(b.get("id"))
+        params = {
+            "dp": _d(b.get("datum")), "tm": _d(b.get("tema")), "ro": _d(b.get("rozhodl")) or "Martin Pašek",
+            "rz": rozh, "zd": _d(b.get("zduvodneni")), "ts": _i(b.get("tyka_se_uid")),
+            "ut": _d(b.get("ukol")), "ur": _i(b.get("resitel_uid")), "utm": _d(b.get("termin")),
+            "st": _d(b.get("stav")) or "otevrene", "by": uid, "at": jmeno}
+        if rid:
+            s.execute(_t(
+                "UPDATE tenant.hr_rozhodnuti SET datum_porady=COALESCE(:dp,datum_porady), tema=:tm, rozhodl_text=:ro, "
+                "rozhodnuti=:rz, zduvodneni=:zd, tyka_se_user_id=:ts, ukol_text=:ut, ukol_resitel_user_id=:ur, "
+                "ukol_termin=:utm, stav=:st, updated_at=now() WHERE tenant_id=2 AND id=:id"),
+                {**params, "id": rid})
+            new_id = rid
+        else:
+            new_id = s.execute(_t(
+                "INSERT INTO tenant.hr_rozhodnuti (tenant_id,datum_porady,tema,rozhodl_text,rozhodnuti,zduvodneni,"
+                "tyka_se_user_id,ukol_text,ukol_resitel_user_id,ukol_termin,stav,autor_text,created_by) "
+                "VALUES (2,COALESCE(:dp,CURRENT_DATE),:tm,:ro,:rz,:zd,:ts,:ut,:ur,:utm,:st,:at,:by) RETURNING id"),
+                params).scalar()
+        s.commit()
+        return JSONResponse({"ok": True, "id": int(new_id)})
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/rozhodnuti/delete")
+async def app_hr_rozhodnuti_delete(req: Request) -> JSONResponse:
+    """Smazání (soft) rozhodnutí. Jen HR/vedení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rid = int(b.get("id") or 0)
+        if not rid:
+            return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+        s.execute(_t("UPDATE tenant.hr_rozhodnuti SET aktivni=false, updated_at=now() WHERE tenant_id=2 AND id=:i"), {"i": rid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/people")
 async def app_hr_people(req: Request) -> JSONResponse:
     """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""

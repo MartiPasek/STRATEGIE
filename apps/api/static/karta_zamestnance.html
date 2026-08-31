@@ -502,6 +502,19 @@
     <div id="auditlist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="rozhodnuticard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">🗒️ Rozhodnutí z porad</b>
+      <span id="rozhcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <button onclick="rozhNew()" style="margin-left:auto;border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:8px;padding:5px 13px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer">➕ Nové rozhodnutí</button>
+      <input id="rozhsrch" oninput="rozhRender()" placeholder="🔎 Hledat…" style="margin-left:8px;min-width:160px">
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Rozhodnutí z porad — kdo rozhodl, co se rozhodlo, koho se týká, a volitelně úkol s řešitelem a termínem. Jen vedení a HR.</div>
+    <div id="rozhForm" style="display:none;margin:0 14px 8px"></div>
+    <div id="rozhlist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -556,6 +569,7 @@ function setView(v){
   const pmc=document.getElementById('podminkycard'); if(pmc) pmc.style.display=(v==='podminky')?'':'none';
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
   const adc=document.getElementById('auditcard'); if(adc) adc.style.display=(v==='audit')?'':'none';
+  const rzc=document.getElementById('rozhodnuticard'); if(rzc) rzc.style.display=(v==='rozhodnuti')?'':'none';
   const ddc=document.getElementById('dodavatelecard'); if(ddc) ddc.style.display=(v==='dodavatele')?'':'none';
   const inc=document.getElementById('inspiracecard'); if(inc) inc.style.display=(v==='inspirace')?'':'none';
   const nbc=document.getElementById('naborcard'); if(nbc) nbc.style.display=(v==='nabor')?'':'none';
@@ -570,6 +584,7 @@ function setView(v){
   if(v==='podminky'){ loadPodminky(); return; }
   if(v==='kalendar'){ loadKalendar(); return; }
   if(v==='audit'){ loadAudit(); return; }
+  if(v==='rozhodnuti'){ loadRozhodnuti(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -3658,6 +3673,79 @@ async function loadAudit(){
       +'</div>';
   }).join('');
 }
+// Rozhodnutí z porad (Šárka 31.8.2026) — vedení/HR.
+let ROZH_DATA=[], ROZH_LIDE=[];
+function _rozhIso(s){ if(!s) return ''; const p=String(s).split('.'); return p.length===3?(p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0')):''; }
+async function loadRozhodnuti(){
+  const box=document.getElementById('rozhlist');
+  let d; try{ d=await j(API+'/app/hr/rozhodnuti/list'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'')+'</div>'; return; }
+  ROZH_DATA=d.rozhodnuti||[]; rozhRender();
+}
+function rozhRender(){
+  const box=document.getElementById('rozhlist'), cnt=document.getElementById('rozhcnt');
+  const q=(document.getElementById('rozhsrch').value||'').trim().toLowerCase();
+  let A=ROZH_DATA;
+  if(q) A=A.filter(r=>((r.rozhodnuti+' '+r.tema+' '+r.rozhodl+' '+r.tyka_jmeno+' '+r.ukol+' '+r.resitel_jmeno).toLowerCase().indexOf(q)>=0));
+  if(cnt) cnt.textContent=ROZH_DATA.length?('• '+ROZH_DATA.length):'';
+  if(!A.length){ box.innerHTML='<div class="empty">Zatím žádná rozhodnutí.</div>'; return; }
+  box.innerHTML=A.map(function(r){
+    const tyka=r.tyka_jmeno?'<span style="color:#7fb2e8">👤 '+esc(r.tyka_jmeno)+'</span> · ':'';
+    const ukol=r.ukol?('<div style="margin-top:5px;padding:5px 9px;background:#141c26;border-left:3px solid #2e7d46;border-radius:5px;font-size:12px">✅ <b>Úkol:</b> '+esc(r.ukol)+(r.resitel_jmeno?' — '+esc(r.resitel_jmeno):'')+(r.termin?' · do '+esc(r.termin):'')+'</div>'):'';
+    return '<div style="border:1px solid #23303f;border-radius:10px;margin:0 0 10px;padding:9px 12px">'
+      +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">'
+      +'<div><b style="font-size:13.5px">'+esc(r.tema||'(bez tématu)')+'</b> <span style="color:var(--muted);font-size:12px">· '+esc(r.datum)+' · '+esc(r.rozhodl)+'</span></div>'
+      +'<div style="white-space:nowrap"><a href="#" onclick="rozhEdit('+r.id+');return false;" style="color:#aac8ec;text-decoration:none;font-size:12px">✎ Upravit</a> &nbsp; <a href="#" onclick="rozhDel('+r.id+');return false;" style="color:#e08a8a;text-decoration:none;font-size:12px">✕</a></div></div>'
+      +'<div style="margin-top:4px;font-size:13px;color:#dfe7f0;line-height:1.5">'+tyka+esc(r.rozhodnuti)+'</div>'
+      +(r.zduvodneni?'<div style="margin-top:3px;font-size:12px;color:#9fb3cc">Proč: '+esc(r.zduvodneni)+'</div>':'')
+      +ukol+'</div>';
+  }).join('');
+}
+async function rozhPeople(){
+  if(ROZH_LIDE.length) return ROZH_LIDE;
+  try{ const d=await j(API+'/app/hr/people'); ROZH_LIDE=(d.lide||[]).map(x=>({id:x.id,jmeno:x.jmeno})); }catch(e){}
+  return ROZH_LIDE;
+}
+async function rozhNew(){ await rozhForm(null); }
+async function rozhEdit(id){ await rozhForm(ROZH_DATA.filter(r=>r.id===id)[0]||null); }
+async function rozhForm(r){
+  const lide=await rozhPeople();
+  const opt=(sel)=>'<option value="">— nikdo —</option>'+lide.map(x=>'<option value="'+x.id+'"'+(sel===x.id?' selected':'')+'>'+esc(x.jmeno)+'</option>').join('');
+  const f=document.getElementById('rozhForm'); f.style.display='';
+  const gv=(v)=>esc(v||'');
+  f.innerHTML='<div style="border:1px solid #2a3a4d;border-radius:10px;padding:12px;background:#111a24">'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+    +'<label style="font-size:12px;color:#9fb3cc">Datum porady<br><input id="rf_datum" type="date" value="'+_rozhIso(r&&r.datum)+'"></label>'
+    +'<label style="font-size:12px;color:#9fb3cc">Téma<br><input id="rf_tema" value="'+gv(r&&r.tema)+'" style="min-width:240px"></label>'
+    +'<label style="font-size:12px;color:#9fb3cc">Rozhodl<br><input id="rf_rozhodl" value="'+(r?gv(r.rozhodl):'Martin Pašek')+'"></label>'
+    +'</div>'
+    +'<label style="font-size:12px;color:#9fb3cc">Rozhodnutí *<br><textarea id="rf_rozh" rows="2" style="width:100%;box-sizing:border-box">'+gv(r&&r.rozhodnuti)+'</textarea></label>'
+    +'<label style="font-size:12px;color:#9fb3cc">Zdůvodnění (proč) — volitelně<br><textarea id="rf_zd" rows="1" style="width:100%;box-sizing:border-box">'+gv(r&&r.zduvodneni)+'</textarea></label>'
+    +'<div style="margin:6px 0"><label style="font-size:12px;color:#9fb3cc">Týká se osoby (volitelně)<br><select id="rf_tyka">'+opt(r&&r.tyka_se_uid)+'</select></label></div>'
+    +'<div style="border-top:1px solid #23303f;margin-top:6px;padding-top:8px"><div style="color:#7fd0a0;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Úkol z rozhodnutí (volitelně)</div>'
+    +'<label style="font-size:12px;color:#9fb3cc">Co udělat<br><input id="rf_ukol" value="'+gv(r&&r.ukol)+'" style="width:100%;box-sizing:border-box"></label>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:5px"><label style="font-size:12px;color:#9fb3cc">Řešitel<br><select id="rf_res">'+opt(r&&r.resitel_uid)+'</select></label>'
+    +'<label style="font-size:12px;color:#9fb3cc">Termín<br><input id="rf_termin" type="date" value="'+_rozhIso(r&&r.termin)+'"></label></div></div>'
+    +'<div style="margin-top:11px"><button onclick="rozhSave('+(r?r.id:0)+')" style="border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:8px;padding:6px 15px;font:inherit;font-weight:700;cursor:pointer">💾 Uložit</button> <button onclick="document.getElementById(\'rozhForm\').style.display=\'none\'" style="border:1px solid #33445a;background:#1a2430;color:#cdd6e2;border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer">Zrušit</button> <span id="rf_msg" style="margin-left:8px;font-size:12px"></span></div></div>';
+}
+async function rozhSave(id){
+  const g=x=>document.getElementById(x);
+  const body={id:id||null, datum:g('rf_datum').value||null, tema:g('rf_tema').value, rozhodl:g('rf_rozhodl').value,
+    rozhodnuti:g('rf_rozh').value, zduvodneni:g('rf_zd').value, tyka_se_uid:g('rf_tyka').value||null,
+    ukol:g('rf_ukol').value, resitel_uid:g('rf_res').value||null, termin:g('rf_termin').value||null};
+  if(!body.rozhodnuti.trim()){ g('rf_msg').innerHTML='<span style="color:#ff8a7a">Vyplň rozhodnutí.</span>'; return; }
+  g('rf_msg').textContent='Ukládám…';
+  const r=await fetch(API+'/app/hr/rozhodnuti/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({ok:false}));
+  if(!d.ok){ g('rf_msg').innerHTML='<span style="color:#ff8a7a">Chyba: '+esc(d.error||'')+'</span>'; return; }
+  document.getElementById('rozhForm').style.display='none'; loadRozhodnuti();
+}
+async function rozhDel(id){
+  if(!confirm('Opravdu smazat toto rozhodnutí?')) return;
+  const r=await fetch(API+'/app/hr/rozhodnuti/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
+  const d=await r.json().catch(()=>({ok:false}));
+  if(d.ok) loadRozhodnuti(); else alert('Nepovedlo se smazat.');
+}
 // Deep-link + embed režim. embedsec=pracovni|finance|podminky + uid → vloží JEN tu sekci
 // jako izolované okno (pro sloučenou dlaždici „Personální a finanční podmínky").
 (async function initBoot(){ try{
@@ -3674,7 +3762,7 @@ async function loadAudit(){
     return;
   }
   const v=qs.get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor' || v==='audit'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor' || v==='audit' || v==='rozhodnuti'){ setView(v); }
 }catch(e){} })();
 
 // ── Kalendář u VŠECH datumových polí (Jirka 24. 8. 2026) ─────────────────────

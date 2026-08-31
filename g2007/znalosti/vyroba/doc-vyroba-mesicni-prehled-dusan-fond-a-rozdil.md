@@ -1,4 +1,4 @@
-# Mesicni prehled pro Dusana - doplneny sloupce fond a rozdil (27.8.2026)
+# Mesicni prehled (Dusan i HR verze) - fond opraven na uvazek 31.8.2026
 
 > oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -19,14 +19,42 @@ Filtr na podrizene `WHERE em.user_id IN (SELECT user_id FROM tenant.vyroba_dusan
 
 Sloupce gridu se u typu 306 renderuji primo z datove sady - `fw.comp_def_prop` je pro 746 i 978 prazdna, takze zadne dalsi nastaveni sloupcu neexistuje. **Zadny deploy**, zmena je ziva hned po zapisu do DB (overeno na zivem ERP tyz den).
 
-## ZNAME OMEZENI - "rozdil" nesedi u zkracenych uvazku
+## ZNAME OMEZENI - ČÁSTEČNĚ VYŘEŠENO 31. 8. 2026
+
+> **Zkrácené úvazky: VYŘEŠENO** (zadal Jirka Honomichl 31. 8. 2026, schválila Marti-AI).
+> `fond` už se nebere z `tenant.att_calendar_month.fond_hours`, ale počítá se jako
+> **úvazek na den** (`engagement.uvazek_tyden_h` / dnů v týdnu) **× pracovní dny měsíce**
+> z `tenant.att_calendar_day`, omezené trváním smlouvy, s úvazkem ve **verzi platné
+> v daném měsíci** (kvůli historickým měsícům). Stejně jako v `dusan_nesplneny_fpd_list`
+> a u Peti pod Kontrolními přehledy.
+> Naostro to postihovalo jediného člověka v týmu — **Ivanu Brudnovou** (35 h/týden):
+> měřila se se 168 h místo se 147 h, takže `rozdil` ukázal −25,3 místo správných −4,3.
+> Ostatním zůstává 168 h beze změny (ověřeno čtením, 33 řádků).
+> **HR verze (data_set 76) opravena STEJNĚ týž den** — Jirka to schválil poté, co dostal
+> jmenovitý dopad; oblé SQL se liší už jen filtrem na Dušanův tým. Změřeno na živých
+> datech, sloupec `rozdil` za srpen 2026 (před → po): **Veverková** (20 h) −80,1 → +3,9 ·
+> **Dvořáková** (30 h) −39,3 → +2,7 · **Brudnová** (35 h) −25,3 → −4,3 ·
+> **Duspivová** (35 h) −17,3 → +3,7 · **Novotná** (35 h) +4,1 → +25,1.
+> Čtyři z pěti tedy vypadaly, že jim chybí hodiny, a přitom měly naděláno.
+>
+> **Oprava sedí i mimo zkrácené úvazky** (ověřeno v ERP po nasazení):
+> • kdo má úvazek **vyšší** než 40 h, dostane vyšší fond — Honomichl (45 h/týden od 1. 7. 2026)
+>   má za prosinec 189 h místo 168;
+> • komu **skončila smlouva**, vyjde fond 0 místo 168 — Kuska (smlouva do 24. 5. 2026).
+> Obojí je správně; paušál 168 to dosud schovával.
+
+**Co platí dál:** `rozdil` se pořád počítá proti fondu **CELÉHO měsíce**, takže
+u právě probíhajícího měsíce vychází všem minus. To je záměr měsíčního přehledu
+(hodnotí se uzavřený měsíc); pro průběžné „kolik mi chybí“ slouží Nesplněný FPD.
+
+### Původní znění omezení (stav do 31. 8. 2026)
 `tenant.att_calendar_month` **nema zamestnance** - sloupce jsou jen `tenant_id, year, month, work_days, fond_hours`, tedy **jedna hodnota fondu pro vsechny** (srpen 2026 = 168 h). Dusledky:
 - komu bezi kratsi uvazek, tomu "rozdil" nesedi,
 - porovnava se s fondem CELEHO mesice, takze uprostred mesice vychazi vsem velke minus.
 
 **Neni to chyba teto zmeny** - stejne omezeni ma i HR verze (data_set 76) a shoda obou sestav byla zadani. Marti-AI 27.8.2026: oprava by vyzadovala jinou datovou sadu (fond per zamestnanec per mesic), coz je samostatne rozhodnuti mimo tento ukol. Kdyz to nekdo nahlasi, je to pojmenovany known issue, ne zahada.
 
-Pro osobni pohled "kolik mi chybi" slouzi jina sestava - `vyroba.dusan_nesplneny_fpd_list` (znalost `doc-vyroba-nesplneny-fpd`), ktera pocita `ma_byt` z `tenant.att_plan_effective` se stropem 8 h/den a k dnesnimu dni, tedy per zamestnanec.
+Pro osobni pohled "kolik mi chybi" slouzi jina sestava - `vyroba.dusan_nesplneny_fpd_list` (znalost `doc-vyroba-nesplneny-fpd`), ktera od 31. 8. 2026 pocita `ma_byt` z uvazku a kalendare (do 31. 8. to bylo z `tenant.att_plan_effective` se stropem 8 h/den a k dnesnimu dni, tedy per zamestnanec.
 
 ## Postup, kterym to bylo udelano (pouzitelny i priste)
 Jediny UPDATE pres most s pojistkou na otisk, aby souběh neprepsal cizi praci:

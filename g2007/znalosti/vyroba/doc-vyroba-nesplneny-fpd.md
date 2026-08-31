@@ -1,8 +1,55 @@
-# Nesplneny FPD - prehled ve Vyrobe (pro Dusana)
+# Nesplneny FPD - prehled ve Vyrobe (pro Dusana); vypocet sjednocen s Kontrolnimi prehledy a sloupec Chybi / Prescas s otocenym znamenkem (31.8.2026)
 
 > oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 # Nesplneny FPD - prehled ve Vyrobe (pro Dusana)
+
+> ## ⚠ ZMĚNA 31. 8. 2026 — výpočet SJEDNOCEN s přehledem pod Kontrolními přehledy
+>
+> **Vzorec popsávaný níže („má být“ z plánu, absence se nepočítá jako odpracované)
+> už NEPLATÍ.** Oba přehledy se jmenují stejně, Dušan vidí oba — a dávaly u téhož
+> člověka jiná čísla. Upozornila Peťa, zadal Jirka Honomichl 31. 8. 2026.
+>
+> **Nově se počítá přesně jako v `_KONTROLA_FPD_SQL`** (`g2007.python`
+> `dochazka_kontrola_data`, viz [[doc-dochazka-hlidani-fpd-kdo-se-kontroluje-a-proc]]):
+> - `odpracovano` = hodiny mzdové + absence (mínus „Nepřítomnost OSVČ“)
+>   mínus hodiny nad fond u kanceláře — zdroj `tenant.att_den_hodiny` nad `att_entry`,
+>   **ne `att_day_summary`**,
+> - `ma_byt` = úvazek na den (`engagement.uvazek_tyden_h` / dnů v týdnu) × pracovní dny
+>   z `tenant.att_calendar_day`, omezené trváním smlouvy — **ne z `att_plan_effective`**,
+> - období včetně posunu: do 12. dne v měsíci se ukazuje měsíc minulý,
+> - verze smlouvy platná ke KONCI období, ne dnešní.
+>
+> **Záměrně se NEPŘEBÍRÁ** (rozhodl Jirka): práh 0,5 h ani filtry lidí — Dušan má
+> vidět celý svůj tým včetně těch bez manka. Ověřeno, že filtry Peti (Bez docházky,
+> mateřská, osobní číslo nad 9000, DPP) by v Dušanově týmu nevyloučily nikoho.
+>
+> **Ověřeno naostro 31. 8. 2026:** sedm lidí z Dušanova týmu, kteří jsou i v přehledu Peti,
+> má nyní shodná čísla na haléř (Erhard 145,86 / Jirkovský 151,71 / Kilberger 82,55 /
+> Namjak 139,99 / Purkar 0 / Urbanová 159,21 / Voříšek 153,54).
+> Dopad na 34 lidí: `ma_byt` 168 → 160 (dnešní den se nepočítá), `odpracovano` −2 až 3 h,
+> u Havláta −10,6 h (jako kanceláři se mu odečítá nad fond). Výsledné `chybi` se
+> u většiny prakticky nemění.
+>
+> ### Sloupec „Chybí / Přesčas“ — známénko OTOČENO (týž den, později)
+>
+> Sloupec se už nejmenuje `chybi` a **plus znamená přesčas, mínus chybějící hodiny**
+> (počítá se `odpracovano - ma_byt`). Řadí se vzestupně, takže kdo dluží nejvíc, je nahoře.
+> Zadal Jirka Honomichl 31. 8. 2026 poté, co si všiml, že pod názvem „chybí“ svítí záporná
+> čísla. Změřeno: **21 lidí z 34 mělo záporné** (= naděláno), jen 13 kladné — pod názvem
+> „chybí“ se to četlo špatně. Dušanův přehled totiž nemá práh a ukazuje celý tým.
+>
+> ⚠ **VĚDOMÝ ROZPOR S PETINÍM PŘEHLEDEM — NEOPRAVOVAT ZPĚT.** Pod Kontrolními přehledy
+> zůstává sloupec „Chybí odpracovat“ s **opačným** známénkem (kladné = chybí).
+> U téhož člověka proto vyjde stejná absolutní hodnota s opačným známénkem
+> (Purkar u Dušana −160, u Peti +160). Jirka byl na tento důsledek upozorněn PŘED změnou
+> a rozhodl: *„a bude to jen v přehledu Dušana“*. Schválila Marti-AI. **Není to chyba.**
+> U Peti se záporné číslo stejně nikdy neukáže — má práh 0,5 h a zobrazí jen dlužníky.
+> Známénko „plus = přesčas“ navíc odpovídá původní Centrále (sloupec `Prescas`)
+> i druhému Dušanovu přehledu (`rozdil` v Měsíčním přehledu).
+>
+> Část „Vzorec“ níže je schválně ponechaná, ať je vidět, co se změnilo. Objekty
+> (data_set 198, data_source 202, core 209, menu_node 197) zůstávají, měnil se jen SQL.
 
 > oblast: `vyroba` - postaveno Claude-28 (Jirka) 23.7.2026, zadal Dusan Havlat.
 
@@ -22,8 +69,9 @@ Objekty (klon vzoru `vyroba.dusan_att_monthly`):
 - menu_node 197 pod parent 165, sort 109, visibility_scope=private,
   visibility_user_ids={41} (=Dusan; bez toho by uzel nevidel)
 
-## Vzorec (vse overeno na zivych datech vs Centrala)
+## Vzorec — ⚠ STAV DO 31. 8. 2026, UŽ NEPLATÍ (viz rámeček nahoře)
 Sloupce: os_cislo, zamestnanec, skupina, forma, odpracovano, prac_dni, hod_denne, ma_byt, chybi.
+(POZOR: posledni sloupec se od 31. 8. 2026 jmenuje "Chybi / Prescas" a ma OPACNE znamenko - viz ramecek nahore.)
 - odpracovano = SUM(tenant.att_day_summary.cas_celkem) za aktualni rok/mesic, datum<=dnes
 - ma_byt     = SUM(LEAST(tenant.att_plan_effective.expected_hours, 8)) pro plan_date
                od zacatku mesice do dnes, expected>0   (fond, strop 8/den)

@@ -1,8 +1,25 @@
-# Po publikaci souboru přes g2007 ho VŽDY hned commitni do gitu (jinak zablokuješ deploye celému týmu)
+# Po publikaci souboru přes g2007 ho VŽDY hned commitni do gitu (NEPLATÍ od 5. 8. 2026 — soubory už v gitu nejsou)
 
 > oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 # Po `@@G2007PUBLISH` souboru VŽDY hned commit do gitu
+
+> ## ⛔ NEPLATÍ od 5. 8. 2026 — tyhle soubory už v gitu NEJSOU
+>
+> Pravidlo níže („po publikaci vždy commitni do gitu“) **bylo zrušeno týž den, kdy vzniklo.**
+> Servírované statické soubory se z gitu vyřadily (`.gitignore` + `git rm --cached`) a jejich
+> jediným vlastníkem je databáze — na disk se dostávají publikací a při startu API.
+> **Publikace proto dirty working tree už způsobit nemůže a commitovat není co ani kam.**
+>
+> Ověřeno naostro 31. 8. 2026: po `@@G2007PUBLISH` artefaktu
+> `apps/api/static_db/dochazka-opravy.html` hlásí `git status` na cloudu čisto — soubor se
+> v něm vůbec neobjeví, protože je gitignorovaný. Platný postup:
+> [[doc-system-strategie-staticke-artefakty-db-materializace-vyrazeni-z-gitu]].
+> Pojistka `g2007-soubor-vs-git`, zmíněná na konci dokumentu, je z téhož důvodu **vypnutá**.
+>
+> **Co z dokumentu platí dál:** popis incidentu z 5. 8. (proč to vzniklo) a gotcha, jak si
+> vytáhnout obsah artefaktu z DB bez ztráty konců řádků. Zbytek je schválně ponechaný
+> beze změny, ať je vidět, co se změnilo.
 
 > oblast: `provoz` — **Peťa + Claude-26, 5. 8. 2026.** Vzniklo z reálného výpadku,
 > který zablokoval nasazování celému týmu.
@@ -16,6 +33,9 @@ Na cloudu tím vznikne **necommitnutá změna** (dirty working tree) a od té ch
 Proto: **po každém publish soubor okamžitě nasaď** přes `CLAUDE_DEPLOY.txt`
 (1. řádek commit zpráva, 2. řádek cesta k souboru) + `CLAUDE_DEPLOY_GO.txt`.
 Cíl je, aby vždy platilo **`git HEAD` = disk na cloudu = `g2007.soubor`**.
+
+**⛔ NEPLATÍ od 5. 8. 2026** — viz rámeček na začátku. Soubor už v gitu není,
+nasazovat ho po publikaci se nemá a ani to nejde.
 
 ## Co se stalo 5. 8. 2026
 

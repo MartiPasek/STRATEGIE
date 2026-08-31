@@ -1,6 +1,6 @@
 # Doc marti ai cilovy rezim mobil ui
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 > ***ZRUSENA DUPLICITA (31. 8. 2026).** Tento dokument vznikl omylem - zapisovacy nastroj pridal ke kodu prefix oblasti a misto opravy puvodni znalosti zalozil novou. **Platna je [[doc-marti-ai-cilovy-rezim-mobil-ui]].** Tento zaznam se nepouZiva.
 
@@ -40,5 +40,5 @@ Příčina (ověřeno v `_resolve_uid_raw`, router.py): **nativní appka se aute
 ## Stav
 Ověřeno end-to-end: PC (cookie) i mobil (token) — seznam, detail, přechody, vlastní Zpět. Backend endpointy beze změny (viz workflow-api doc).
 
-_Souvisí:_ doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje,doc-marti-ai-cilovy-rezim-workflow-api,doc-system-strategie-ios-gesto-zpet-dve-naraz
+_Souvisí:_ doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje,doc-marti-ai-cilovy-rezim-workflow-api,doc-system-strategie-ios-gesto-zpet-dve-naraz,doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28
 

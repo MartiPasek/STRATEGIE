@@ -1,6 +1,28 @@
-# Mobil, karta "Moje hodiny": ZAMERNE nuly, dokud neni potvrzeny zdroj odpracovanych hodin (27. 8. 2026)
+# Moje hodiny v mobilu - nuly dokud neni zdroj; tri definice odpracovano (dva prehledy zmeneny 31.8.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ⚠ AKTUALIZACE 31. 8. 2026 — dva ze tří přehledů v tabulce níž se ZMĚNILY
+>
+> Tabulka „tři různé definice“ níže popisuje **stav do 31. 8. 2026**. Ten den se dva z nich
+> sjednotily s výpočtem Peti pod Kontrolními přehledy (zadal Jirka Honomichl, upozornila Peťa,
+> schválila Marti-AI):
+>
+> - **`vyroba.dusan_nesplneny_fpd_list`** (data_set 198) — už nebere hodiny z `att_day_summary`
+>   ani fond z `att_plan_effective`. Nově: hodiny z `att_den_hodiny` (mzdové + absence mínus
+>   Nepřítomnost OSVČ, u kanceláře mínus nad fond), fond = úvazek na den × pracovní dny
+>   z `att_calendar_day` omezené smlouvou. Sloupec se jmenuje **„Chybí / Přesčas“**
+>   a má **opačné známénko** než u Peti (plus = přesčas) — vědomě, viz
+>   [[doc-vyroba-nesplneny-fpd]].
+> - **`system_new.hr_att_monthly_list`** (data_set 76) a **`vyroba.dusan_att_monthly_list`**
+>   (data_set 136) — fond už **není** paušální `att_calendar_month.fond_hours` stejný pro všechny,
+>   ale počítá se z úvazku každého člověka. Opravilo to čísla pěti lidem se zkráceným
+>   úvazkem (u Veverkové zmizelo 84 h neexistujícího manka), viz
+>   [[doc-vyroba-mesicni-prehled-dusan-fond-a-rozdil]].
+>
+> **Paušální fond `att_calendar_month.fond_hours` už nepoužívá žádný živý přehled** — ověřeno
+> skenem `fw.data_set` + `g2007.python` + `g2007.soubor` týž den. Tabulka níž se schválně
+> nemění, ať je vidět, co se změnilo.
 
 ## Co je v aplikaci
 

@@ -2,6 +2,26 @@
 
 > oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## ➕ PŘIDÁNO 1. 9. 2026 (odpoledne) — přehled je BEZ pruhu „Hledat ve všech sloupcích"
+>
+> **Zadal Jirka Honomichl 1. 9. 2026:** *„to v tomto přehledu nechci."*
+>
+> Globální hledání nad tabulkou je jinak zapnuté ve **všech** přehledech s napojeným
+> datovým zdrojem (Kristý 16. 7. 2026). Aby šlo vypnout jen tady, přibyl v
+> `apps/api/static/erp/components/page_render.js` seznam výjimek
+> `_BEZ_GLOBALNIHO_HLEDANI = ["209"]`, o který se opírá volba `enableQuickFilter`.
+> Další přehled se vyřadí přidáním čísla jádra do seznamu — ostatních se to nedotkne.
+> Podrobněji: [[doc-system-strategie-globalni-hledani-nad-prehledem-vypnuti]]
+>
+> ⚠ **Je to záměr, nevracet zpět.** Kdyby se pruh někdy objevil znovu, není to oprava
+> chyby, ale ztráta Jirkova rozhodnutí. Pruh s volbou měsíce nad tabulkou zůstává.
+>
+> **Jak ověřeno:** v kódu — je to jediné místo, kde se pruh vykresluje (`datagrid.js`
+> ho staví jen při `enableQuickFilter`), plus kontrola syntaxe souboru. **Na živé
+> obrazovce neověřeno:** uzel je viditelný jen pro Dušana Havláta (`visibility_user_ids={41}`),
+> ostatní ho ve stromu nemají. Nasazeno commitem `a2da6fef`; je to soubor, který si
+> prohlížeč drží v paměti, takže se změna projeví až po tvrdém obnovení (Ctrl+F5).
+
 > ## ➕ PŘIDÁNO 1. 9. 2026 — přepínání měsíců (aktuální + 12 zpět)
 >
 > **Zadal Jirka Honomichl 1. 9. 2026 pro Dušana Havláta, schválila Marti-AI (msg 14071).**

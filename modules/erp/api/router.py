@@ -61275,6 +61275,11 @@ def _render_workspace_page(user_id: int) -> str:
          (jádro 235). window.PodminkySkupinPult.mount, gated v page_render.js.
          (Jirka Honomichl 24.8.2026, schválila Marti-AI msg 13558 + 13568) -->
     <script src="/static/erp/components/podminky_skupin_pult.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Pruh s volbou měsíce nad přehledem „Nesplněný FPD" ve Výrobě (jádro 209).
+         window.FpdMesicPult.mount, gated v page_render.js. Dušan Havlát potřebuje
+         vidět i uplynulé měsíce (12 zpět), nic do budoucna.
+         (Jirka Honomichl 1.9.2026, schválila Marti-AI msg 14071) -->
+    <script src="/static/erp/components/fpd_mesic_pult.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
          Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
          logs every step do fw.diag_log via _erpLogToDb. -->

@@ -408,6 +408,41 @@
         return;
       }
 
+      // Doplněk adresy dat pro pruh nad tabulkou (volba měsíce u „Nesplněný FPD",
+      // jádro 209). Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14071).
+      // Drží se ZDE, ne v pruhu: tlačítko Obnovit i automatické obnovení pak
+      // použijí TENTÝŽ dotaz. Kdyby si volbu držel jen pruh, Obnovit by tiše
+      // skočilo zpátky na výchozí měsíc a Dušan by si toho nemusel všimnout.
+      // Pro ostatní přehledy zůstává prázdný → jejich adresa se nemění.
+      // Věší se na PANEL ZÁLOŽKY, ne globálně na okno: kdyby měl uživatel
+      // otevřených víc záložek, globální proměnná by ukazovala na naposledy
+      // vykreslenou tabulku a pruh by pak obnovoval cizí přehled.
+      let _extraQuery = '';
+      const _gridQuery = {
+        set: function (qs) { _extraQuery = (qs || ''); },
+        get: function () { return _extraQuery; },
+        reload: function () { return null; },  // doplní se, až tabulka existuje
+      };
+      try { mainContent._erpGridQuery = _gridQuery; } catch (_eGq) { /* fail-safe */ }
+
+      // Pruh s volbou měsíce NAD přehledem „Nesplněný FPD" ve Výrobě (jádro 209).
+      // Zadal Jirka Honomichl 1.9.2026 pro Dušana Havláta, schválila Marti-AI
+      // (msg 14071): Dušan potřebuje vidět i uplynulé měsíce (12 zpět), nic
+      // do budoucna. Stejný gated/fail-safe vzor jako pulty 124/136/137/235 →
+      // ostatních přehledů se to NETÝKÁ, při chybě tabulka jede dál.
+      try {
+        if (String(coreId) === '209'
+            && window.FpdMesicPult && typeof window.FpdMesicPult.mount === 'function'
+            && !document.getElementById('fpd-mesic-pult')) {
+          var _fpdEl = document.createElement('div');
+          _fpdEl.id = 'fpd-mesic-pult';
+          mainContent.insertBefore(_fpdEl, gridHost);
+          window.FpdMesicPult.mount(_fpdEl);
+        }
+      } catch (_fpdErr) {
+        console.warn('[page_render] FPD mesic pult band failed (grid jede dál):', _fpdErr);
+      }
+
       // A.3 (Pavlovy připomínky, Kristý 25.6.2026): souhrnný pruh „Moje CRM čísla"
       // NAD přehledem Aktivity obchodníka (jádro 124). GATED na coreId → jiných
       // přehledů se NETÝKÁ. Fail-safe: chyba jen zaloguje, grid jede dál.
@@ -505,9 +540,13 @@
 
       // Phase 38.4 Krok 5.R-D+1 (18.5.2026 rano, Marti's "refactor code na ID"):
       // Prefer /data-by-id/{id} over /data/{code}. Drop code='29' workaround.
-      const fetchUrl = rootCd.data_source_id
+      const fetchUrlBase = rootCd.data_source_id
         ? '/api/v1/erp/data-by-id/' + rootCd.data_source_id + '?limit=500'
         : '/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) + '?limit=500';
+      // Jirka 1.9.2026: adresa se skládá až v okamžiku volání, aby se do ní
+      // promítla volba z pruhu nad tabulkou (viz _erpGridQuery výše).
+      // Bez pruhu je _extraQuery prázdný → adresa je stejná jako dřív.
+      const fetchUrlNow = function () { return fetchUrlBase + _extraQuery; };
       const isDesignMode = (typeof window !== "undefined" && window._erpDesignMode === true);
 
       // Faze 2-C cleanup (25.5.2026 rano, Marti's volba A "cleanup Faze 1 +
@@ -533,7 +572,7 @@
       // set width, reorder). Pixel-perfect restore bez timing flicker.
       // Bez initialLayout jde cesta B (post-create _applyLayout) ktera ma
       // znamé problemy s AG Grid v32+ (Marti's "po reload se zmeny neprojevily").
-      const dataFetch = fetch(fetchUrl, { credentials: 'include' }).then(r => r.json());
+      const dataFetch = fetch(fetchUrlNow(), { credentials: 'include' }).then(r => r.json());
       // Krok 5.U Fáze H+ (23.5.2026): polymorphic scope path prefix —
       // backend _parse_scope_key regex čeká "core_<id>" nebo "ds_<id>".
       // Page_render obsluhuje jen core scope (main screen grids vázané
@@ -849,7 +888,7 @@
               autoRefreshMs: (rootCd && rootCd.refresh_type === 'interval') ? 5000 : 0,
               onRefresh: async function () {
                 try {
-                  const r = await fetch(fetchUrl, { credentials: 'include' });
+                  const r = await fetch(fetchUrlNow(), { credentials: 'include' });
                   const d = await r.json();
                   if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
                     try {
@@ -1039,6 +1078,15 @@
                 window.activeErpDataGrid = gridInst;
               }
             } catch (_eAssign) { /* never crash render */ }
+
+            // Jirka 1.9.2026: teprve teď tabulka existuje, takže pruh nad ní
+            // (volba měsíce) má čím vyvolat znovunačtení. Stejná cesta jako
+            // tlačítko Obnovit → jedno chování, jeden dotaz.
+            try {
+              _gridQuery.reload = function () {
+                try { return gridInst.refreshFromSource(); } catch (_e) { return null; }
+              };
+            } catch (_eReload) { /* never crash render */ }
 
 // Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper refactor"):
             // External toolbar host (#erpGridActionsHost) DROPPED. CRUD buttons

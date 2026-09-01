@@ -29401,6 +29401,13 @@ def _mirror_run_job(job_key):
         # Chodí těm, kdo mají právo „neschopenky" (dnes Peťa a Michelle), ne podle jmen.
         "att_doklady_pripomenuti": lambda: __import__("modules.erp.api.erp_registry",
                                                       fromlist=["call"]).call("att_doklady_pripomenuti"),
+        # Peta 25. 8. 2026: tydenni souhrn odbavenych nalezu v utery za minuly tyden.
+        # Chodi skupine DOCHAZKA - OPRAVY, skript si sam hlida den.
+        # Kod zije v g2007.python (erp_registry), zde jen delegat.
+        # C24/Kristy 1.9.2026: zapsano do repa z necommitnute zmeny na cloudu — bezelo
+        # jen na produkci a blokovalo deploy VSEM (dirty working tree). Kod beze zmeny.
+        "att_odbavene_pripomenuti": lambda: __import__("modules.erp.api.erp_registry",
+                                                       fromlist=["call"]).call("att_odbavene_pripomenuti"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

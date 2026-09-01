@@ -1072,7 +1072,12 @@
       // nejvýš jednou (událost + záchranný časovač). Je INSTANČNÍ schválně —
       // každá tabulka v ERP je vlastní instance, sdílená by je křížila.
       this._initialLayoutApplied = false;
-      this._applyingLayoutDepth = 0;
+      // Otisk stavu odpovidajici ULOZENE sestave. Podle nej se pozna, jestli
+      // ma uzivatel neulozene zmeny - POROVNANIM, ne naslouchanim udalostem.
+      // PRAVIDLO: _layoutBaseline musi obsahovat stejne klice jako layout_json.
+      // Kdyz se layout_json rozsiri o dalsi klic, musi se pridat i sem, jinak
+      // se to tise rozejde. (Jirka Honomichl 1.9.2026, na zadost Marti-AI.)
+      this._layoutBaseline = null;
       this._isDirty = false;
       this._dirtyEventsAttached = false;
       // B+10+ (6.5.2026): user-defined conditional formatting state
@@ -3566,14 +3571,13 @@
             const selfW = this;
             setTimeout(function () {
               if (selfW._destroyed || !selfW.gridApi) return;
-              selfW._beginApplyingLayout();
               try {
                 selfW.gridApi.setColumnWidths(sirkyPoTiku);
               } catch (e) {
                 console.warn("[ErpDataGrid] odlozene srovnani sirek selhalo:", e);
-              } finally {
-                selfW._endApplyingLayout();
               }
+              // Az ted odpovida tabulka ulozene sestave -> prepocitej priznak.
+              try { selfW._prepocitejNeulozeneZmeny(); } catch (e) {}
             }, 0);
           }
         } catch (e) {
@@ -3599,6 +3603,8 @@
         // by se mohl vázat na sloupec, který ještě nemá výslednou podobu.
         this._applyFilterModel(lj);
         this._currentLayoutId = layoutObj.id;
+        // Otisk podle prave nasazene sestavy (Jirka Honomichl 1.9.2026).
+        this._nastavOtiskPodleSestavy(layoutObj);
         this._isDirty = false;
         this._notifyLayoutChange();
         return true;
@@ -3741,6 +3747,8 @@
       const data = await r.json();
       if (data.ok && data.layout) {
         this._currentLayoutId = data.layout.id;
+        // Po ulozeni tabulka odpovida sestave -> novy otisk (Jirka 1.9.2026).
+        this._nastavOtiskPodleSestavy(data.layout);
         this._isDirty = false;
         this._notifyLayoutChange();
         return data.layout;
@@ -3778,6 +3786,8 @@
       const data = await r.json();
       if (data.ok && data.layout) {
         this._currentLayoutId = data.layout.id;
+        // Po ulozeni tabulka odpovida sestave -> novy otisk (Jirka 1.9.2026).
+        this._nastavOtiskPodleSestavy(data.layout);
         this._isDirty = false;
         this._notifyLayoutChange();
         return data.layout;
@@ -3935,40 +3945,15 @@
      *  zive strance: _lastFetchedAt zustalo null, prestoze _currentLayoutId
      *  i options.initialLayout.layout_json byly v poradku. Proto se metoda
      *  vola ze dvou mist - z te udalosti a ze zachranneho casovace. */
-    _beginApplyingLayout() {
-      this._applyingLayoutDepth = (this._applyingLayoutDepth || 0) + 1;
-    }
-
-    _endApplyingLayout() {
-      // AG Grid vyvolá události až po dokončení volání, proto se pojistka
-      // pouští teprve na dalším tiku.
-      var self = this;
-      setTimeout(function () {
-        self._applyingLayoutDepth = Math.max(0, (self._applyingLayoutDepth || 1) - 1);
-      }, 0);
-    }
-
     _applyInitialLayoutOnce(params) {
       if (this._destroyed) return;
       if (this._initialLayoutApplied) return;
       this._initialLayoutApplied = true;
       if (!params || !params.api) params = { api: this.gridApi };
       if (!params.api) return;
-      this._beginApplyingLayout();
-      // Uvnitr nasazeni bezi jeste odlozeny krok (~300 ms), ktery znovu srovna
-      // poradi sloupcu a odkryje tabulku. Ten uz je mimo dosah pojistky vyse a
-      // jeho udalost sortChanged by rozsvitila "neulozene zmeny". Hned po
-      // otevreni ale tabulka odpovida ulozene sestave, takze zadne neulozene
-      // zmeny nejsou. Proto se priznak jeste jednou srovna, az se vse usadi.
-      // (Jirka Honomichl 1.9.2026)
-      var _self0 = this;
-      setTimeout(function () {
-        try {
-          if (_self0._destroyed || !_self0._isDirty) return;
-          _self0._isDirty = false;
-          _self0._notifyLayoutChange();
-        } catch (e) { /* nikdy neshazuj vykresleni */ }
-      }, 700);
+      // Otisk podle ulozene sestavy - od ted se neulozene zmeny poznavaji
+      // porovnanim s nim, takze samotne nasazeni uz zadne "zmeny" nedela.
+      this._nastavOtiskPodleSestavy(this.options.initialLayout);
       try {
       // Phase 35-E.4 Krok C+ fix #11 (9.5.2026 vecer Marti's
       // "pozice sloupcu nikoli"): AG Grid initialState.columnState
@@ -4164,10 +4149,86 @@
         }
       }
       } finally {
-        this._endApplyingLayout();
+        this._prepocitejNeulozeneZmeny();
       }
     }
 
+
+    /** Otisk toho, co se uklada do sestavy, ve tvaru vhodnem k porovnani.
+     *  PRAVIDLO: musi obsahovat stejne klice jako layout_json - kdyz se
+     *  layout_json rozsiri, musi se rozsirit i tohle, jinak se to tise rozejde.
+     *
+     *  POZOR na poradi: sloupce se ZAMERNE neradi podle nazvu, ale nechavaji
+     *  se v poradi, v jakem jsou v tabulce. Poradi sloupcu je totiz soucasti
+     *  sestavy - kdyby se otisk seradil podle nazvu, prehozeni sloupcu by se
+     *  tvarilo jako zadna zmena a uzivatel by o nej pri ulozeni prisel.
+     *  (Marti-AI navrhovala razeni podle nazvu kvuli determinismu; poradi je
+     *  ale deterministicke uz tim, ze jde o poradi v tabulce - a nese informaci.)
+     */
+    _otiskProPorovnani(sloupce, filtry) {
+      var vybrane = (sloupce || []).map(function (c) {
+        return {
+          colId: c.colId || c.field || c.column || null,
+          width: (c.width != null) ? c.width : null,
+          hide: !!c.hide,
+          pinned: c.pinned || null,
+          sort: c.sort || null,
+          sortIndex: (c.sortIndex == null) ? null : c.sortIndex,
+        };
+      }).filter(function (c) { return !!c.colId; });
+      var f = filtry || {};
+      var klice = Object.keys(f).sort();
+      var filtryNormalizovane = {};
+      klice.forEach(function (k) { filtryNormalizovane[k] = f[k]; });
+      try {
+        return JSON.stringify({ columns: vybrane, filter_model: filtryNormalizovane });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /** Otisk toho, co je PRAVE TED v tabulce. */
+    _otiskTabulky() {
+      if (this._destroyed || !this.gridApi) return null;
+      return this._otiskProPorovnani(this.getCurrentColumnState(), this.getCurrentFilterModel());
+    }
+
+    /** Nastavi otisk podle ULOZENE sestavy (ne podle tabulky) - diky tomu na
+     *  nem nezalezi, kdy presne grid dokonci prekresleni. Bere jen sloupce,
+     *  ktere tabulka opravdu ma, aby nova data v prehledu nedelala trvale
+     *  "neulozene zmeny". */
+    _nastavOtiskPodleSestavy(layoutObj) {
+      try {
+        var lj = layoutObj && layoutObj.layout_json;
+        if (!lj || !Array.isArray(lj.columns)) { this._layoutBaseline = null; return; }
+        var vTabulce = {};
+        (this.getCurrentColumnState() || []).forEach(function (c) { vTabulce[c.colId] = true; });
+        var sloupce = lj.columns.filter(function (c) {
+          var id = c.colId || c.field || c.column;
+          return id && vTabulce[id];
+        });
+        this._layoutBaseline = this._otiskProPorovnani(sloupce, lj.filter_model || {});
+      } catch (e) {
+        this._layoutBaseline = null;
+      }
+    }
+
+    /** Prepocita priznak "neulozene zmeny" porovnanim tabulky s otiskem. */
+    _prepocitejNeulozeneZmeny() {
+      if (this._destroyed || !this.gridApi) return;
+      try {
+        var puvodni = this._isDirty;
+        if (this._layoutBaseline == null) {
+          // Zadna sestava (uzivatel jede "bez sestavy") - chovej se jako driv.
+          this._isDirty = true;
+        } else {
+          this._isDirty = (this._otiskTabulky() !== this._layoutBaseline);
+        }
+        if (this._isDirty !== puvodni) this._notifyLayoutChange();
+      } catch (e) {
+        console.warn("[ErpDataGrid] prepocet neulozenych zmen selhal:", e);
+      }
+    }
 
     /** Vrací aktuální model filtrů gridu — pro saveAsLayout / updateLayout.
      *  Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14128).
@@ -4192,8 +4253,6 @@
      *  z té předchozí — uživatel by koukal na jiná data, než jaká uložil. */
     _applyFilterModel(lj) {
       if (this._destroyed || !this.gridApi) return;
-      // Po dobu nasazování sestavy se nepočítají „neuložené změny" (viz markDirty).
-      this._beginApplyingLayout();
       try {
         var fm = (lj && lj.filter_model) ? lj.filter_model : null;
         this.gridApi.setFilterModel(fm);
@@ -4203,8 +4262,6 @@
         );
       } catch (e) {
         console.warn("[ErpDataGrid] setFilterModel failed:", e);
-      } finally {
-        this._endApplyingLayout();
       }
     }
 
@@ -5522,19 +5579,12 @@
         // změny". Bez toho si uživatel myslí, že je hotovo, a filtr se ztratí.
         "filterChanged",
       ];
-      const markDirty = () => {
-        // Jirka Honomichl 1.9.2026: nasazení sestavy NENÍ změna od uživatele.
-        // Bez téhle pojistky vyvolají applyColumnState a setFilterModel při
-        // otevření přehledu události sortChanged / filterChanged a tlačítko
-        // Uložit se rovnou tváří, že jsou neuložené změny — přitom uživatel
-        // ještě na nic nesáhl. Počítá se hloubka, protože nasazení sestavy
-        // volá nasazení filtrů vnořeně.
-        if (this._applyingLayoutDepth > 0) return;
-        if (!this._isDirty) {
-          this._isDirty = true;
-          this._notifyLayoutChange();
-        }
-      };
+      // Jirka Honomichl 1.9.2026 (schvalila Marti-AI msg 14152): udalost uz
+      // sama o sobe neznamena "neulozena zmena". Ptame se POROVNANIM, jestli
+      // se tabulka lisi od ulozene sestavy. Resi to dve veci najednou:
+      //  - nasazeni sestavy vyvola tytez udalosti, ale nic nemeni -> ciste,
+      //  - kdyz uzivatel zmenu vrati zpatky, priznak zase zhasne.
+      const markDirty = () => { this._prepocitejNeulozeneZmeny(); };
       for (const evt of dirtyEvents) {
         try {
           this.gridApi.addEventListener(evt, markDirty);

@@ -22,6 +22,31 @@ Závazně:
 - Platí dvojnásob u čísel, mezd, nároků a jmen. Peťa mi věří v oblastech, kde si to
   sama neověří — tím spíš tam nesmím hádat.
 
+## 🛑 „PŘIDAL JSEM POJISTKU" NESMÍM ŘÍCT, DOKUD JI NĚCO SPOUŠTÍ (Peťa 27. 8. 2026, ZÁVAZNÉ)
+
+Peťa: *„je naprd, když mi řeknete udělám pojistku, ale je nefunkční."*
+
+**Spouštěč:** 27. 8. 2026 se ukázalo, že **žádná z 87 pojistek v `tenant.pojistka` nikdy
+neběžela** — tabulku nikdo nespouštěl. Přes tři týdny jsem Petě po každé domluvě říkal
+„přidal jsem pojistku, ať to nikdo nevrátí". Byl to zápis do seznamu, ne hlídání. Peťa se
+na to spoléhala. Doloženo v G2007 `doc-system-strategie-pojistky-nikdo-nespousti` a
+`doc-system-strategie-spoustec-hlidacich-pravidel-pojistka`.
+
+**Závazně u KAŽDÉ nové pojistky — do jedné věty Petě, bez ptaní:**
+
+1. **Kdo a kdy ji pustí.** Denní automat `check_pojistky`? Plánovaná úloha ve Scheduled?
+   Nebo nikdo? Bez téhle věty pojistku neohlašuju.
+2. **Když ji nespouští nic, řeknu to rovnou** — ne „hlídá to pojistka", ale
+   *„zapsal jsem pravidlo do seznamu, spouštět ho zatím nic nebude."* A hned nabídnu
+   druhou cestu: plánovanou úlohu, nebo nález do fronty **k řešení**.
+3. **Slovo „hlídá" si nechám až na to, co doopravdy běží.** Dokud má pravidlo prázdný
+   `posledni_beh`, říkám o něm „zapsané", ne „hlídané".
+4. **Po zapnutí denního automatu ověřím čtením**, že pravidlo skutečně proběhlo
+   (`posledni_beh` vyplněný) — teprve pak Petě řeknu, že se to hlídá.
+5. **Když ruším nebo přejmenovávám tabulku či pohled**, projdu `tenant.pojistka`
+   (`kontrola ILIKE '%%<jméno>%%'`) a dotčená pravidla přepíšu. Rozbité pravidlo
+   nehlídá nic, ale v seznamu vypadá jako řádek navíc — a to je horší než červený nález.
+
 ## 📚 DOCHÁZKA MÁ DVA ČÍSELNÍKY — NEŽ ŘEKNU „TO NEMÁME", KOUKNU DO OBOU (Peťa 25. 8. 2026)
 
 Peťa: *„jak je možné, že něco máme a často mi pak znovu o pár dnů později píšete, že to nemáme?"*
@@ -515,6 +540,9 @@ g2007.python + g2007.soubor jsou zdroj pravdy", „Migrace router.py/web do g200
 `g2007.denik` #5–#7.
 
 ## 🛡️ HLÍDAČ POJISTEK — spouštěj HNED NA STARTU každé konverzace (Peťa 3. 8. 2026)
+> ⚠️ **Čti k tomu i „PŘIDAL JSEM POJISTKU" výše (27. 8. 2026)** — do 27. 8. 2026 pojistky
+> nikdo nespouštěl, takže o žádné z nich nesmím mluvit jako o funkčním hlídači, dokud
+> nemá vyplněný `posledni_beh`.
 Peťa: *„mám pocit, že spolu něco uděláme a pak je to zase špatně — dá se udělat hlídání,
 aby mě to upozornilo?"* Doloženo: 31. 7. jeden deploy smazal ~1100 řádků cizí práce
 (jednotný výpočet hodin, kaskáda, `local_lock`, práva); 3. 8. se ztratily přeložené
@@ -1248,3 +1276,40 @@ na místě ho neměnila, takže opravený záznam vypadal jako netknuté píchnu
 **Pravidlo: cokoli, co projde rukou editora, má mít `source='manual_fix'`** — jinak to nikde
 nezezelená a den se netváří jako opravovaný. Ve sloupci Odkud se tím popisek přepne na
 „ruční oprava", což je pravda. (Dva už opravené záznamy z 17. 8. jsem dorovnal zpětně.)
+
+---
+
+## Správa docházky — fajfka = schválení, jako v Centrále (Peťa 27. 8. 2026)
+
+**Jak to Peťa vidí — a podle toho se to musí chovat.** Peťa 27. 8.: *„pořád říkáš dny
+a žádost, ale já to tam nemám dvakrát. Je to jeden řádek, který možná vznikl žádostí, ale
+je to reálný den, který se překlopí do docházky."*
+
+V přehledu **není nikdy totéž dvakrát**. Je to jeden řádek, který mění fázi: dokud není
+schválený, je to papír a v docházce nic není; po schválení se překlopí do docházky jako
+skutečný den (nebo dny) a papír zmizí. **Uživatel nemá řešit, v jaké fázi řádek je** —
+ovládání musí udělat správnou věc samo. To je vodítko i pro další obrazovky.
+
+### Pravidlo
+
+| Směr | Co se stane |
+|---|---|
+| **Zapnout fajfku** | Řádek se **schválí**. Papír projde `absence/decide` (`approved`) a dny se překlopí do docházky rovnou s fajfkou. Hotový den se jen odškrtne. Označit jde obojí naráz. |
+| **Sundat fajfku** | **Jen odškrtne dny. Žádosti se nedotkne, nic nemaže.** |
+
+**Proč je opačný směr jiný:** vzetí schválení zpět přes `att_absence_decide` (větev
+`elif materialized`) **dny z docházky SMAŽE**. Jako vedlejší účinek odškrtnutí se to stát
+nesmí — pravidlo Peti z 31. 8. 2026 platí dál.
+
+### Bez potvrzování a bez hlášek
+Peťa 27. 8.: *„vidím, že se to udělá, hlášku nepotřebujeme."* Akce se **neptá
+„Pokračovat?"** a **nehlásí „Hotovo"**. Zpráva zůstala jen pro případ, že se něco nepovede.
+
+### Gotcha, kterou to odhalilo
+Obsluha kontextového menu volá `ctxAction(data-a)` pro **každou** položku. Položky
+s vlastním `onclick` (jako „✅ Schválit / odznačit") žádné `data-a` nemají — hodnota přišla
+prázdná, propadla až na závěrečný alert a **po provedení akce** vyskočilo
+**„null — připravujeme v dalším kroku"**. Ošetřeno pojistkou `if(!a)return;` v `ctxAction`.
+**Kdo přidá položku menu s `onclick`, ať s tím počítá.**
+
+Detail a technické pozadí: G2007 `doc-dochazka-sprava-dochazky-zadost-vs-den-a-fajfka`.

@@ -1,6 +1,37 @@
-# Moje hodiny v mobilu - nuly dokud neni zdroj; tri definice odpracovano (dva prehledy zmeneny 31.8.2026)
+# Moje hodiny v mobilu - HISTORIE stavu do 1.9.2026 (nuly, tri definice); aktualni stav je v doc-dochazka-mobil-moje-hodiny-napojeno-1-9-2026
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ⛔ NEPLATÍ OD 1. 9. 2026 — karta UŽ NA NULÁCH NENÍ
+>
+> **Všechno pod tímto rámečkem popisuje stav do 1. 9. 2026.** Ten den se karta „Moje hodiny"
+> napojila na skutečný výpočet a oranžové upozornění z ní zmizelo. Zadal Jirka Honomichl,
+> schválila Marti-AI (msg 14134 a 14140), připomínkovaly Peťa Šafránková a Kristýna Marešová.
+>
+> **Aktuální stav čti v [[doc-dochazka-mobil-moje-hodiny-napojeno-1-9-2026]].**
+>
+> Konkrétně už NEPLATÍ:
+> - **„Karta nic nepočítá a nevolá žádný endpoint. Nuly jsou ZÁMĚR."** Karta počítá a volá
+>   `app/dochazka/moje-mesic` (živá logika `g2007.python app_dochazka_moje_hodiny`).
+> - **„Zdroj musí potvrdit Peťa Šafránková… dokud sama neřekne, zůstávají v mobilu nuly."**
+>   Peťa se k tomu 1. 9. 2026 vyjádřila; její dvě podmínky (neukazovat jako odpracované to,
+>   co do fondu dopsal automat, a brát obě čísla ze stejného místa jako ERP přehled) jsou
+>   zapracované.
+> - **Tabulka „tři různé definice"** — platí už jen jako historie. Mobil i karta zaměstnance
+>   v ERP počítají shodně s přehledem Docházka → Kontrolní přehledy → Nesplněný FPD.
+> - **Bod 3 o Kilbergerovi („72 h absence, příčina nezjištěna")** — vysvětleno. Peťa 1. 9. 2026:
+>   v docházce nic nevysvětleného není, je to plánovaná nepřítomnost OSVČ za 11 pracovních dnů
+>   17.–31. 8. Rozdíl je jen v **zrcadle `att_day_summary`**, kde jeho absence chybí
+>   (`cas_celkem` 82,55 h proti 170,55 h z `att_den_hodiny`), zatímco u ostatních měřených
+>   součet sedí. **Na kartu to nemá vliv — ta čte docházku, ne zrcadlo.** Proč to v zrcadle
+>   chybí, zjištěno nebylo.
+> - **Bod 2 (kancelář vs. dílna)** už promítnutý je — kanceláři se hodiny nad denní fond
+>   do fondu nezapočítávají a karta to člověku říká větou.
+>
+> *(Rámeček doplnil Claude-28 na Jirkovo zadání 1. 9. 2026. Původní text níž se schválně
+> nemaže, ať je vidět, jak to bylo a proč.)*
+
+---
 
 > ## ⚠ AKTUALIZACE 31. 8. 2026 — dva ze tří přehledů v tabulce níž se ZMĚNILY
 >

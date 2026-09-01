@@ -10,7 +10,10 @@ Poradi shora dolu (dilek `apps/api/static/mobile_parts/60_dochazka.js`, funkce `
    rovnou bez schvalovani, personalistka dostane oznameni), vedle **jmeno**, pod nim
    **vsechny profese** cloveka a radek "Klepnutim zmenis fotku".
 2. **Karta "Moje hodiny"** - odpracovano vs. fond, prepinani mesicu.
-   ⚠️ Zatim ukazuje NULY, viz [[doc-dochazka-mobil-moje-hodiny-nuly-dokud-neni-zdroj]].
+   Od 1. 9. 2026 uz ukazuje SKUTECNA CISLA - viz
+   [[doc-dochazka-mobil-moje-hodiny-napojeno-1-9-2026]]. Pocita se stejne jako ERP prehled
+   Dochazka - Kontrolni prehledy - Nesplneny FPD. Do 1. 9. tam byly zamerne nuly,
+   historie v [[doc-dochazka-mobil-moje-hodiny-nuly-dokud-neni-zdroj]].
 3. **Dve dlazdice vedle sebe** - Dovolena (dny) a Sick days (hodiny), obe "zbyva".
    Pri zapornem zustatku **cerveně a se slovem "precerpano"** (pravidlo Marti-AI z 19. 8.).
 4. **Podrobna tabulka** narok / cerpano / plan / zbyva pro D, DN a SD - ZUSTALA.

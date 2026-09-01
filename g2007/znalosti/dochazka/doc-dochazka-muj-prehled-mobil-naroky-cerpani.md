@@ -1,4 +1,4 @@
-# Můj přehled v mobilu — nároky D/DN/SD a jejich čerpání
+# Můj přehled v mobilu — nároky D/DN/SD a jejich čerpání (sick days se od 1. 9. 2026 vedou ve dnech, hodiny jsou jen zobrazení)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -95,4 +95,20 @@ Souvisí- [[doc-dochazka-hlidani-stropu-dovolene-a-sick-day]] ·
 [[doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy]] ·
 [[doc-dochazka-rozpad-dovolene-zakladni-a-navic]] ·
 [[doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje]]
+
+## KOREKCE 1. 9. 2026 — sick days se v hodinách jen ZOBRAZUJÍ, nevedou
+
+Věta výše *„a totéž pro sick days v hodinách"* platí pro **zobrazení**, ne pro výpočet.
+Od 1. 9. 2026 se **nárok i zbytek sick days vedou ve DNECH** a na hodiny se přepočítávají
+až na výstupu z aktuálního denního fondu. Čerpat se dál dá po hodinách.
+
+Důvod (Peťa 1. 9. 2026): komu se během roku změnil úvazek, tomu starý hodinový výpočet
+zbytek ukrajoval — Duspivová měla ukázáno 6 h místo správného 1 dne = 7 h.
+
+**Pro tuhle obrazovku se nemění nic v kódu appky** — řetěz
+`muj_prehled_narok → att_narok_osoba → att_narok_cerpani` je jednosměrný a oprava
+proběhla na jeho konci, takže mobil ukazuje správné číslo automaticky. Ověřeno
+1. 9. 2026: Duspivová `{"narok_h": 14.0, "cerpano_h": 8.0, "zbyva_h": 7.0}`.
+
+Detail a pravidlo: `doc-dochazka-sick-days-narok-ve-dnech-cerpani-v-hodinach`.
 

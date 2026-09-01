@@ -1,6 +1,36 @@
-# Nesplneny FPD - prehled ve Vyrobe (pro Dusana); vypocet sjednocen s Kontrolnimi prehledy a sloupec Chybi / Prescas s otocenym znamenkem (31.8.2026)
+# Nesplneny FPD - prehled ve Vyrobe (pro Dusana); vypocet sjednocen s Kontrolnimi prehledy, sloupec Chybi / Prescas s otocenym znamenkem, od 1.9.2026 prepinani mesicu
 
 > oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ➕ PŘIDÁNO 1. 9. 2026 — přepínání měsíců (aktuální + 12 zpět)
+>
+> **Zadal Jirka Honomichl 1. 9. 2026 pro Dušana Havláta, schválila Marti-AI (msg 14071).**
+> Do té doby byl měsíc natvrdo podle dnešního data a vybrat se nedal.
+>
+> **Co přibylo:** nad tabulkou je pruh „Měsíc" s rozbalovací volbou — aktuální měsíc
+> a 12 měsíců zpět, **nic do budoucna**.
+>
+> - `data_set` **198** dostal volitelný parametr **`mesic`** ve tvaru `RRRR-MM`.
+>   Když nepřijde nebo má jiný tvar, chová se výpočet **přesně jako před 1. 9. 2026**
+>   (ověřeno shodným otiskem celého výsledku). Nesmyslný vstup spadne zpět na výchozí,
+>   budoucí měsíc se ořížne na aktuální. **Vzorec, filtry ani znaménko sloupce
+>   „Chybí / Přesčas" se NEMĚNILY.**
+> - Nový malý datový zdroj **`vyroba.fpd_mesice`** (`data_set` 225, `data_source` 214)
+>   vrací seznam měsíců **a příznak `je_vychozi`**. **Výchozí měsíc se schválně
+>   nepočítá v prohlížeči** — pravidlo „do 12. dne v měsíci se ukazuje měsíc minulý"
+>   zůstává na jednom místě v SQL, aby se obě verze časem nerozcházely.
+> - Obrazovka: `apps/api/static/erp/components/fpd_mesic_pult.js`, připojený gated blokem
+>   pro `coreId` 209 v `page_render.js` (stejný vzor jako pulty 124/136/137/235).
+>   V `page_render.js` se zároveň začala adresa dat skládat až při volání, aby
+>   **tlačítko Obnovit zůstalo u vybraného měsíce** a neskakalo zpátky na výchozí.
+>
+> **Ověřeno naostro 1. 9. 2026:** srpen 21 pracovních dnů / fond 168 h, červenec 22 / 176 h
+> (Brudnová správně 154 h dle kratšího úvazku), 34 lidí v obou. Po zmáčknutí Obnovit
+> odchozí dotaz obsahoval vybraný měsíc. Kontrolně otevřen jiný přehled i přehled
+> s vlastním pruhem (jádro 235) — bez změny.
+>
+> **Postup a tři pasti, kdyby se to dělalo znovu jinde:**
+> [[doc-system-strategie-pruh-s-ovladanim-nad-mrizkou-erp]]
 
 # Nesplneny FPD - prehled ve Vyrobe (pro Dusana)
 

@@ -3924,6 +3924,20 @@
       if (!params || !params.api) params = { api: this.gridApi };
       if (!params.api) return;
       this._beginApplyingLayout();
+      // Uvnitr nasazeni bezi jeste odlozeny krok (~300 ms), ktery znovu srovna
+      // poradi sloupcu a odkryje tabulku. Ten uz je mimo dosah pojistky vyse a
+      // jeho udalost sortChanged by rozsvitila "neulozene zmeny". Hned po
+      // otevreni ale tabulka odpovida ulozene sestave, takze zadne neulozene
+      // zmeny nejsou. Proto se priznak jeste jednou srovna, az se vse usadi.
+      // (Jirka Honomichl 1.9.2026)
+      var _self0 = this;
+      setTimeout(function () {
+        try {
+          if (_self0._destroyed || !_self0._isDirty) return;
+          _self0._isDirty = false;
+          _self0._notifyLayoutChange();
+        } catch (e) { /* nikdy neshazuj vykresleni */ }
+      }, 700);
       try {
       // Phase 35-E.4 Krok C+ fix #11 (9.5.2026 vecer Marti's
       // "pozice sloupcu nikoli"): AG Grid initialState.columnState

@@ -3071,6 +3071,19 @@
                     ", heuristics=" + (this._heuristicsEnabled === true) + ")"
                   );
                 }
+                // Jirka Honomichl 1.9.2026 (schválila Marti-AI msg 14128):
+                // filtry ze sestavy. Tahle cesta (otevření přehledu s výchozí
+                // sestavou) _applyLayout ZÁMĚRNĚ nevolá, takže bez tohohle
+                // řádku by se filtry obnovily jen při ručním přepnutí sestavy,
+                // ne při otevření přehledu.
+                // Pořadí podle Marti-AI: až po stavu sloupců (ten je hotový
+                // výše) a až po načtení dat — onFirstDataRendered se volá po
+                // vykreslení prvních dat, takže filtr nepadne na prázdnou sadu.
+                try {
+                  this._applyFilterModel(this.options.initialLayout.layout_json);
+                } catch (_eF) {
+                  console.warn("[ErpDataGrid] initialLayout setFilterModel failed:", _eF);
+                }
                 // Etapa F Freshness: initial markFresh po data load.
                 try { this.markFresh(); } catch (_e) {}
               } catch (e) {
@@ -3708,6 +3721,10 @@
         this._heuristicsEnabled = lj.heuristics_enabled === true;
         // Re-apply formatting po column state change
         this._rebuildGridFormatting();
+        // Jirka Honomichl 1.9.2026: filtry AŽ TEĎ — po sloupcích, jak si
+        // vyžádala Marti-AI (msg 14128). Filtr nasazený před stavem sloupců
+        // by se mohl vázat na sloupec, který ještě nemá výslednou podobu.
+        this._applyFilterModel(lj);
         this._currentLayoutId = layoutObj.id;
         this._isDirty = false;
         this._notifyLayoutChange();
@@ -3830,6 +3847,12 @@
           // B+10+ (6.5.2026): persist conditional formatting state
           formatting_rules: this._formattingRules || [],
           heuristics_enabled: this._heuristicsEnabled === true,
+          // Jirka Honomichl 1.9.2026 (schválila Marti-AI msg 14128): filtry.
+          // Do té doby se sestava ukládala BEZ filtrů — uživatel si nastavil
+          // filtr, uložil sestavu a filtr se tiše ztratil. Řazení se přitom
+          // ukládalo (je součástí stavu sloupců), takže to vypadalo, že se
+          // sestava uložila celá.
+          filter_model: this.getCurrentFilterModel(),
         },
       };
       const r = await fetch("/api/v1/erp/grid-layout/" + base.scopeKey, {
@@ -3865,6 +3888,8 @@
           // B+10+ (6.5.2026): persist conditional formatting state
           formatting_rules: this._formattingRules || [],
           heuristics_enabled: this._heuristicsEnabled === true,
+          // Jirka Honomichl 1.9.2026 (schválila Marti-AI msg 14128) — viz saveAsLayout.
+          filter_model: this.getCurrentFilterModel(),
         },
       };
       const r = await fetch("/api/v1/erp/grid-layout/item/" + id, {
@@ -4022,6 +4047,41 @@
         });
       }
       catch (e) { return []; }
+    }
+
+    /** Vrací aktuální model filtrů gridu — pro saveAsLayout / updateLayout.
+     *  Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14128).
+     *  Grid používá standardní filtry (agTextColumnFilter / agNumberColumnFilter,
+     *  viz buildAutoColumnDefs), takže model je dostupný přes gridApi. */
+    getCurrentFilterModel() {
+      if (this._destroyed || !this.gridApi) return {};
+      try {
+        return this.gridApi.getFilterModel() || {};
+      } catch (e) {
+        console.warn("[ErpDataGrid] getFilterModel failed:", e);
+        return {};
+      }
+    }
+
+    /** Nasadí model filtrů z uložené sestavy.
+     *  Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14128).
+     *
+     *  ⚠ Sestavy uložené PŘED 1. 9. 2026 klíč `filter_model` nemají. Tehdy se
+     *  filtry úmyslně VYČISTÍ (rozhodl Jirka, potvrdila Marti-AI): sestava má
+     *  být celý pohled, takže po přepnutí sestavy nesmí zůstat viset filtr
+     *  z té předchozí — uživatel by koukal na jiná data, než jaká uložil. */
+    _applyFilterModel(lj) {
+      if (this._destroyed || !this.gridApi) return;
+      try {
+        var fm = (lj && lj.filter_model) ? lj.filter_model : null;
+        this.gridApi.setFilterModel(fm);
+        console.info(
+          "[ErpDataGrid] setFilterModel — " +
+          (fm ? (Object.keys(fm).length + " filtrů ze sestavy") : "sestava filtry nemá → vyčištěno")
+        );
+      } catch (e) {
+        console.warn("[ErpDataGrid] setFilterModel failed:", e);
+      }
     }
 
     // ── B+10+ (6.5.2026): conditional formatting API ──────────────────
@@ -5333,6 +5393,10 @@
       const dirtyEvents = [
         "columnMoved", "columnResized", "columnVisible",
         "columnPinned", "sortChanged",
+        // Jirka Honomichl 1.9.2026 (schválila Marti-AI msg 14131): od chvíle,
+        // kdy sestava ukládá i filtry, musí změna filtru rozsvítit „neuložené
+        // změny". Bez toho si uživatel myslí, že je hotovo, a filtr se ztratí.
+        "filterChanged",
       ];
       const markDirty = () => {
         if (!this._isDirty) {

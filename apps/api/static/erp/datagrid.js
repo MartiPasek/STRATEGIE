@@ -1068,6 +1068,11 @@
       this._destroyed = false;
       // B+5.2: layout persistence state
       this._currentLayoutId = null;
+      // Jirka Honomichl 1.9.2026: pojistka, aby se uložená sestava nasadila
+      // nejvýš jednou (událost + záchranný časovač). Je INSTANČNÍ schválně —
+      // každá tabulka v ERP je vlastní instance, sdílená by je křížila.
+      this._initialLayoutApplied = false;
+      this._applyingLayout = false;
       this._isDirty = false;
       this._dirtyEventsAttached = false;
       // B+10+ (6.5.2026): user-defined conditional formatting state
@@ -2897,199 +2902,13 @@
           // Po načtení prvního batch dat
           // Krok C+ fix2: guard — ulozeny layout ma prednost pred fit.
           if (this._currentLayoutId) {
-            // Phase 35-E.4 Krok C+ fix #11 (9.5.2026 vecer Marti's
-            // "pozice sloupcu nikoli"): AG Grid initialState.columnState
-            // aplikuje width per columnDefs mutate ale REORDER columnDefs
-            // ignoruje. Po prvnim data render volat applyColumnState s
-            // applyOrder:true — widths uz jsou correct (z columnDefs
-            // mutate), order se aplikuje navic. Mensi flicker (chvili
-            // wrong order, pak reorder), ale order persistuje.
-            if (this.options.initialLayout && this.options.initialLayout.layout_json) {
-              const cols = this.options.initialLayout.layout_json.columns;
-              if (Array.isArray(cols) && cols.length > 0) {
-                try {
-                  // Phase API Versioned Routing post-deploy fix (23.5.2026 vecer
-                  // Marti's catch "problikne spravne pak rozhazi"):
-                  // STRIP flex z cols PRED applyColumnState. Pokud cols[i].flex
-                  // je truthy (z save snapshotu kde columns mely flex), AG Grid
-                  // reapply flex -> grid se rozhazi na flex distribution.
-                  // Plus defaultState: { flex: 0 } jako safety net.
-                  // Fix 23.5. vecer: DB snapshot ma 'field' ale ne 'colId'.
-                  // AG Grid applyColumnState VYZADUJE colId v state items - bez
-                  // colId state ignored (37 columns drift smoke test).
-                  // Normalize: colId = c.colId || c.field || c.column.
-                  const stateNoFlex = cols
-                    .map(c => Object.assign({}, c, {
-                      colId: c.colId || c.field || c.column,
-                      flex: 0,
-                      flexAfter: undefined,
-                    }))
-                    .filter(c => !!c.colId); // drop entries bez identifier
-                  // Diagnostic: snapshot before applyColumnState
-                  const beforeState = params.api.getColumnState();
-                  // Phase API Versioned Routing post-deploy fix #3 (23.5.2026 vecer
-                  // Marti's catch "sirka funguje, poradi ne"): partial state s 5 z 38
-                  // cols + applyOrder:true v AG Grid v32+ ignoruje order. Pri 33
-                  // chybejicich cols Issue #5111 nedeterministic placement.
-                  // Fix: build FULL state ze vsech grid cols, merge saved props
-                  // pro 5 z initialLayout, pak sort by saved order index (saved
-                  // first, ostatni v puvodnim columnDef poradi). Plne pokryty state
-                  // = applyOrder se aplikuje deterministicky.
-                  const savedByColId = {};
-                  const savedOrder = {};
-                  stateNoFlex.forEach((c, i) => {
-                    savedByColId[c.colId] = c;
-                    savedOrder[c.colId] = i;
-                  });
-                  const fullState = beforeState.map((c, origIdx) => {
-                    const saved = savedByColId[c.colId];
-                    if (saved) {
-                      return Object.assign({}, c, saved, { flex: 0 });
-                    }
-                    return Object.assign({}, c, { flex: 0 });
-                  });
-                  // Sort: saved cols first (in saved order), pak ostatni v puvodnim poradi
-                  fullState.sort((a, b) => {
-                    const aIdx = savedOrder[a.colId];
-                    const bIdx = savedOrder[b.colId];
-                    const aHas = aIdx != null;
-                    const bHas = bIdx != null;
-                    if (!aHas && !bHas) {
-                      // oba mimo saved — zachovat puvodni poradi z beforeState
-                      const aOrig = beforeState.findIndex(x => x.colId === a.colId);
-                      const bOrig = beforeState.findIndex(x => x.colId === b.colId);
-                      return aOrig - bOrig;
-                    }
-                    if (!aHas) return 1;
-                    if (!bHas) return -1;
-                    return aIdx - bIdx;
-                  });
-                  params.api.applyColumnState({
-                    state: fullState,
-                    applyOrder: true,
-                    defaultState: { flex: 0 },
-                  });
-                  console.info(
-                    "[ErpDataGrid] full state apply — " + fullState.length +
-                    " cols (" + stateNoFlex.length + " z layoutu first, " +
-                    (fullState.length - stateNoFlex.length) + " ostatnich)"
-                  );
-                  // Defensive setColumnWidths PIXEL-PERFECT (parita s _applyLayout line 1645).
-                  // Forces explicit widths z initialLayout — preventuje AG Grid auto-fit
-                  // overriding pres flex inheritance nebo sizeColumnsToFit.
-                  try {
-                    const widths = stateNoFlex
-                      .filter(c => c.width != null && c.width > 0 && !!c.colId)
-                      .map(c => ({ key: c.colId, newWidth: c.width }));
-                    if (widths.length > 0 && typeof params.api.setColumnWidths === "function") {
-                      params.api.setColumnWidths(widths);
-                      console.info("[ErpDataGrid] onFirstDataRendered → setColumnWidths(" + widths.length + " cols) defensive lock");
-                    }
-                  } catch (eSW) {
-                    console.warn("[ErpDataGrid] setColumnWidths defensive failed:", eSW);
-                  }
-                  // Diagnostic: snapshot after (sync) — diff widths/order
-                  const afterState = params.api.getColumnState();
-                  const diff = [];
-                  for (const a of afterState) {
-                    const b = beforeState.find(x => x.colId === a.colId);
-                    if (!b) continue;
-                    if (b.width !== a.width || b.flex !== a.flex || b.hide !== a.hide) {
-                      diff.push({ colId: a.colId, before: { w: b.width, flex: b.flex }, after: { w: a.width, flex: a.flex } });
-                    }
-                  }
-                  console.info(
-                    "[ErpDataGrid] onFirstDataRendered → applyColumnState(applyOrder:true) — column reorder z initialLayout"
-                  );
-                  if (diff.length > 0) {
-                    console.info("[ErpDataGrid] applyColumnState changed " + diff.length + " columns:", diff.slice(0, 10));
-                  }
-                  // PERMANENT 500ms re-apply (Marti's catch 23.5. vecer): AG Grid
-                  // ASYNC reapplikuje flex:1 po onModelUpdated (cca 250-500ms post
-                  // applyColumnState). Diagnostic test ukazal:
-                  //   post_apply: {w:80, flex:null}
-                  //   after_250ms: {w:80, flex:1}   <- AG Grid reapply flex
-                  // Width preserved ale flex:1 zpusobi re-distribute pri dalsim
-                  // render. Fix: po 500ms (Marti's "prodlouzit ten cas") force
-                  // re-apply setColumnWidths z afterState (= co byl spravne
-                  // po applyColumnState). Slozitejsi prehledy (38+ cols)
-                  // potrebuji vic casu na settle pred re-apply.
-                  setTimeout(() => {
-                    try {
-                      const reWidths = afterState
-                        .filter(c => c.width != null && c.width > 0 && !!c.colId)
-                        .map(c => ({ key: c.colId, newWidth: c.width }));
-                      if (reWidths.length > 0 && typeof params.api.setColumnWidths === "function") {
-                        params.api.setColumnWidths(reWidths);
-                        // Plus explicit setColumnState aby flex zustal 0 (preventuje budouci reapply)
-                        // Fix #3 (23.5.2026 vecer): pridat applyOrder:true aby 500ms re-apply
-                        // preservoval order z initial applyColumnState (afterState reflects
-                        // post-apply order = saved layout order)
-                        try {
-                          const lockState = afterState.map(c => ({ colId: c.colId, width: c.width, flex: 0 }));
-                          params.api.applyColumnState({
-                            state: lockState,
-                            applyOrder: true,
-                            defaultState: { flex: 0 },
-                          });
-                        } catch (eL) { /* silent */ }
-                        console.info(
-                          "[ErpDataGrid] Layout LOCK 300ms post-render (" + reWidths.length + " cols, flex:0 forced)"
-                        );
-                      }
-                      // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer):
-                      // REVEAL grid container po LOCK doběhl (visibility:hidden -> visible).
-                      // Hide bylo set v createGrid (line 1611). Tady release, user vidi
-                      // grid az kdyz uz je final state. Plus clear safety timer.
-                      try {
-                        if (this._initVisibilityTimer) {
-                          clearTimeout(this._initVisibilityTimer);
-                          this._initVisibilityTimer = null;
-                        }
-                        if (this.gridContainer && this.gridContainer.style.visibility === 'hidden') {
-                          this.gridContainer.style.visibility = 'visible';
-                          console.info("[ErpDataGrid] gridContainer REVEAL (post-LOCK, no flicker)");
-                        }
-                      } catch (eR) { /* silent */ }
-                    } catch (e) { /* silent */ }
-                  }, 300);
-                } catch (e) {
-                  console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
-                }
-              }
-              // Phase 22.5.2026: aplikuj formatting rules z initialLayout
-              // (rules nactene v _init na line 992, ale _rebuildGridFormatting
-              // se nikdy nezavolala — _applyLayout se pro initialLayout
-              // cestu skipne pres skipApply guard v _autoLoadDefault).
-              try {
-                var hasRules = Array.isArray(this._formattingRules) && this._formattingRules.length > 0;
-                if (hasRules || this._heuristicsEnabled === true) {
-                  this._rebuildGridFormatting();
-                  console.info(
-                    "[ErpDataGrid] onFirstDataRendered → _rebuildGridFormatting (initialLayout rules count=" +
-                    (this._formattingRules ? this._formattingRules.length : 0) +
-                    ", heuristics=" + (this._heuristicsEnabled === true) + ")"
-                  );
-                }
-                // Jirka Honomichl 1.9.2026 (schválila Marti-AI msg 14128):
-                // filtry ze sestavy. Tahle cesta (otevření přehledu s výchozí
-                // sestavou) _applyLayout ZÁMĚRNĚ nevolá, takže bez tohohle
-                // řádku by se filtry obnovily jen při ručním přepnutí sestavy,
-                // ne při otevření přehledu.
-                // Pořadí podle Marti-AI: až po stavu sloupců (ten je hotový
-                // výše) a až po načtení dat — onFirstDataRendered se volá po
-                // vykreslení prvních dat, takže filtr nepadne na prázdnou sadu.
-                try {
-                  this._applyFilterModel(this.options.initialLayout.layout_json);
-                } catch (_eF) {
-                  console.warn("[ErpDataGrid] initialLayout setFilterModel failed:", _eF);
-                }
-                // Etapa F Freshness: initial markFresh po data load.
-                try { this.markFresh(); } catch (_e) {}
-              } catch (e) {
-                console.warn("[ErpDataGrid] initialLayout rebuild formatting failed:", e);
-              }
-            }
+            // Jirka Honomichl 1.9.2026 (schvalila Marti-AI msg 14137):
+            // obsah presunut do _applyInitialLayoutOnce. Duvod: tahle
+            // udalost nekdy vubec neprijde a sestava se pak nenasadi
+            // (zmereno na zive strance - _lastFetchedAt zustalo null,
+            // prestoze sestava i jeji sloupce byly pripravene). Metoda
+            // se ted vola i ze zachranneho casovace po vzniku tabulky.
+            this._applyInitialLayoutOnce(params);
             return;
           }
           try { params.api.sizeColumnsToFit(); } catch (e) {}
@@ -3253,6 +3072,29 @@
       // B+5.3: AG Grid renders do gridContainer (= container nebo wrapper inner)
       this.gridApi = window.agGrid.createGrid(this.gridContainer, gridOptions);
       try { this._wireQuickFilter(); } catch (_eqf) { try { console.warn('[ErpDataGrid] quickfilter wire failed:', _eqf); } catch (e) {} }
+
+      // ZÁCHRANNÝ ČASOVAČ pro nasazení uložené sestavy.
+      // Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14137).
+      // Sestava se normálně nasadí v onFirstDataRendered. Ta událost ale
+      // někdy vůbec nepřijde a přehled se pak otevře bez řazení, bez pořadí
+      // sloupců a bez filtrů — a při dalším otevření je to zase jinak.
+      // Když do 500 ms nasazení neproběhlo, dožene ho tenhle časovač.
+      // Pojistka uvnitř metody hlídá, aby nasazení neproběhlo dvakrát,
+      // takže tam, kde událost chodí správně, se nic nezmění.
+      if (opts.initialLayout) {
+        setTimeout(() => {
+          try {
+            if (this._destroyed || this._initialLayoutApplied) return;
+            console.info(
+              "[ErpDataGrid] onFirstDataRendered nepřišla → nasazuji sestavu " +
+              "ze záchranného časovače (layout #" + (opts.initialLayout.id) + ")"
+            );
+            this._applyInitialLayoutOnce({ api: this.gridApi });
+          } catch (_eRescue) {
+            console.warn("[ErpDataGrid] záchranné nasazení sestavy selhalo:", _eRescue);
+          }
+        }, 500);
+      }
 
       // If dataUrl, fetch async
       if (opts.dataUrl) {
@@ -4048,6 +3890,221 @@
       }
       catch (e) { return []; }
     }
+
+    /** Nasadi ulozenou sestavu predanou pres options.initialLayout - poradi
+     *  sloupcu, barevna pravidla a filtry. Probehne nejvyse JEDNOU za zivot
+     *  tabulky (pojistka _initialLayoutApplied je instancni, ne sdilena -
+     *  kazda z tabulek v ERP je vlastni instance).
+     *
+     *  Jirka Honomichl 1.9.2026, schvalila Marti-AI (msg 14137).
+     *  PROC EXISTUJE: tenhle kod byl driv primo v obsluze udalosti
+     *  onFirstDataRendered. Ta ale nekdy vubec neprijde a ulozena sestava se
+     *  pak pri otevreni prehledu nenasadi - uzivateli zmizi razeni, poradi
+     *  sloupcu i filtry, a pri dalsim otevreni je to zas jinak. Zmereno na
+     *  zive strance: _lastFetchedAt zustalo null, prestoze _currentLayoutId
+     *  i options.initialLayout.layout_json byly v poradku. Proto se metoda
+     *  vola ze dvou mist - z te udalosti a ze zachranneho casovace. */
+    _applyInitialLayoutOnce(params) {
+      if (this._destroyed) return;
+      if (this._initialLayoutApplied) return;
+      this._initialLayoutApplied = true;
+      if (!params || !params.api) params = { api: this.gridApi };
+      if (!params.api) return;
+      // Phase 35-E.4 Krok C+ fix #11 (9.5.2026 vecer Marti's
+      // "pozice sloupcu nikoli"): AG Grid initialState.columnState
+      // aplikuje width per columnDefs mutate ale REORDER columnDefs
+      // ignoruje. Po prvnim data render volat applyColumnState s
+      // applyOrder:true — widths uz jsou correct (z columnDefs
+      // mutate), order se aplikuje navic. Mensi flicker (chvili
+      // wrong order, pak reorder), ale order persistuje.
+      if (this.options.initialLayout && this.options.initialLayout.layout_json) {
+        const cols = this.options.initialLayout.layout_json.columns;
+        if (Array.isArray(cols) && cols.length > 0) {
+          try {
+            // Phase API Versioned Routing post-deploy fix (23.5.2026 vecer
+            // Marti's catch "problikne spravne pak rozhazi"):
+            // STRIP flex z cols PRED applyColumnState. Pokud cols[i].flex
+            // je truthy (z save snapshotu kde columns mely flex), AG Grid
+            // reapply flex -> grid se rozhazi na flex distribution.
+            // Plus defaultState: { flex: 0 } jako safety net.
+            // Fix 23.5. vecer: DB snapshot ma 'field' ale ne 'colId'.
+            // AG Grid applyColumnState VYZADUJE colId v state items - bez
+            // colId state ignored (37 columns drift smoke test).
+            // Normalize: colId = c.colId || c.field || c.column.
+            const stateNoFlex = cols
+              .map(c => Object.assign({}, c, {
+                colId: c.colId || c.field || c.column,
+                flex: 0,
+                flexAfter: undefined,
+              }))
+              .filter(c => !!c.colId); // drop entries bez identifier
+            // Diagnostic: snapshot before applyColumnState
+            const beforeState = params.api.getColumnState();
+            // Phase API Versioned Routing post-deploy fix #3 (23.5.2026 vecer
+            // Marti's catch "sirka funguje, poradi ne"): partial state s 5 z 38
+            // cols + applyOrder:true v AG Grid v32+ ignoruje order. Pri 33
+            // chybejicich cols Issue #5111 nedeterministic placement.
+            // Fix: build FULL state ze vsech grid cols, merge saved props
+            // pro 5 z initialLayout, pak sort by saved order index (saved
+            // first, ostatni v puvodnim columnDef poradi). Plne pokryty state
+            // = applyOrder se aplikuje deterministicky.
+            const savedByColId = {};
+            const savedOrder = {};
+            stateNoFlex.forEach((c, i) => {
+              savedByColId[c.colId] = c;
+              savedOrder[c.colId] = i;
+            });
+            const fullState = beforeState.map((c, origIdx) => {
+              const saved = savedByColId[c.colId];
+              if (saved) {
+                return Object.assign({}, c, saved, { flex: 0 });
+              }
+              return Object.assign({}, c, { flex: 0 });
+            });
+            // Sort: saved cols first (in saved order), pak ostatni v puvodnim poradi
+            fullState.sort((a, b) => {
+              const aIdx = savedOrder[a.colId];
+              const bIdx = savedOrder[b.colId];
+              const aHas = aIdx != null;
+              const bHas = bIdx != null;
+              if (!aHas && !bHas) {
+                // oba mimo saved — zachovat puvodni poradi z beforeState
+                const aOrig = beforeState.findIndex(x => x.colId === a.colId);
+                const bOrig = beforeState.findIndex(x => x.colId === b.colId);
+                return aOrig - bOrig;
+              }
+              if (!aHas) return 1;
+              if (!bHas) return -1;
+              return aIdx - bIdx;
+            });
+            params.api.applyColumnState({
+              state: fullState,
+              applyOrder: true,
+              defaultState: { flex: 0 },
+            });
+            console.info(
+              "[ErpDataGrid] full state apply — " + fullState.length +
+              " cols (" + stateNoFlex.length + " z layoutu first, " +
+              (fullState.length - stateNoFlex.length) + " ostatnich)"
+            );
+            // Defensive setColumnWidths PIXEL-PERFECT (parita s _applyLayout line 1645).
+            // Forces explicit widths z initialLayout — preventuje AG Grid auto-fit
+            // overriding pres flex inheritance nebo sizeColumnsToFit.
+            try {
+              const widths = stateNoFlex
+                .filter(c => c.width != null && c.width > 0 && !!c.colId)
+                .map(c => ({ key: c.colId, newWidth: c.width }));
+              if (widths.length > 0 && typeof params.api.setColumnWidths === "function") {
+                params.api.setColumnWidths(widths);
+                console.info("[ErpDataGrid] onFirstDataRendered → setColumnWidths(" + widths.length + " cols) defensive lock");
+              }
+            } catch (eSW) {
+              console.warn("[ErpDataGrid] setColumnWidths defensive failed:", eSW);
+            }
+            // Diagnostic: snapshot after (sync) — diff widths/order
+            const afterState = params.api.getColumnState();
+            const diff = [];
+            for (const a of afterState) {
+              const b = beforeState.find(x => x.colId === a.colId);
+              if (!b) continue;
+              if (b.width !== a.width || b.flex !== a.flex || b.hide !== a.hide) {
+                diff.push({ colId: a.colId, before: { w: b.width, flex: b.flex }, after: { w: a.width, flex: a.flex } });
+              }
+            }
+            console.info(
+              "[ErpDataGrid] onFirstDataRendered → applyColumnState(applyOrder:true) — column reorder z initialLayout"
+            );
+            if (diff.length > 0) {
+              console.info("[ErpDataGrid] applyColumnState changed " + diff.length + " columns:", diff.slice(0, 10));
+            }
+            // PERMANENT 500ms re-apply (Marti's catch 23.5. vecer): AG Grid
+            // ASYNC reapplikuje flex:1 po onModelUpdated (cca 250-500ms post
+            // applyColumnState). Diagnostic test ukazal:
+            //   post_apply: {w:80, flex:null}
+            //   after_250ms: {w:80, flex:1}   <- AG Grid reapply flex
+            // Width preserved ale flex:1 zpusobi re-distribute pri dalsim
+            // render. Fix: po 500ms (Marti's "prodlouzit ten cas") force
+            // re-apply setColumnWidths z afterState (= co byl spravne
+            // po applyColumnState). Slozitejsi prehledy (38+ cols)
+            // potrebuji vic casu na settle pred re-apply.
+            setTimeout(() => {
+              try {
+                const reWidths = afterState
+                  .filter(c => c.width != null && c.width > 0 && !!c.colId)
+                  .map(c => ({ key: c.colId, newWidth: c.width }));
+                if (reWidths.length > 0 && typeof params.api.setColumnWidths === "function") {
+                  params.api.setColumnWidths(reWidths);
+                  // Plus explicit setColumnState aby flex zustal 0 (preventuje budouci reapply)
+                  // Fix #3 (23.5.2026 vecer): pridat applyOrder:true aby 500ms re-apply
+                  // preservoval order z initial applyColumnState (afterState reflects
+                  // post-apply order = saved layout order)
+                  try {
+                    const lockState = afterState.map(c => ({ colId: c.colId, width: c.width, flex: 0 }));
+                    params.api.applyColumnState({
+                      state: lockState,
+                      applyOrder: true,
+                      defaultState: { flex: 0 },
+                    });
+                  } catch (eL) { /* silent */ }
+                  console.info(
+                    "[ErpDataGrid] Layout LOCK 300ms post-render (" + reWidths.length + " cols, flex:0 forced)"
+                  );
+                }
+                // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer):
+                // REVEAL grid container po LOCK doběhl (visibility:hidden -> visible).
+                // Hide bylo set v createGrid (line 1611). Tady release, user vidi
+                // grid az kdyz uz je final state. Plus clear safety timer.
+                try {
+                  if (this._initVisibilityTimer) {
+                    clearTimeout(this._initVisibilityTimer);
+                    this._initVisibilityTimer = null;
+                  }
+                  if (this.gridContainer && this.gridContainer.style.visibility === 'hidden') {
+                    this.gridContainer.style.visibility = 'visible';
+                    console.info("[ErpDataGrid] gridContainer REVEAL (post-LOCK, no flicker)");
+                  }
+                } catch (eR) { /* silent */ }
+              } catch (e) { /* silent */ }
+            }, 300);
+          } catch (e) {
+            console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
+          }
+        }
+        // Phase 22.5.2026: aplikuj formatting rules z initialLayout
+        // (rules nactene v _init na line 992, ale _rebuildGridFormatting
+        // se nikdy nezavolala — _applyLayout se pro initialLayout
+        // cestu skipne pres skipApply guard v _autoLoadDefault).
+        try {
+          var hasRules = Array.isArray(this._formattingRules) && this._formattingRules.length > 0;
+          if (hasRules || this._heuristicsEnabled === true) {
+            this._rebuildGridFormatting();
+            console.info(
+              "[ErpDataGrid] onFirstDataRendered → _rebuildGridFormatting (initialLayout rules count=" +
+              (this._formattingRules ? this._formattingRules.length : 0) +
+              ", heuristics=" + (this._heuristicsEnabled === true) + ")"
+            );
+          }
+          // Jirka Honomichl 1.9.2026 (schválila Marti-AI msg 14128):
+          // filtry ze sestavy. Tahle cesta (otevření přehledu s výchozí
+          // sestavou) _applyLayout ZÁMĚRNĚ nevolá, takže bez tohohle
+          // řádku by se filtry obnovily jen při ručním přepnutí sestavy,
+          // ne při otevření přehledu.
+          // Pořadí podle Marti-AI: až po stavu sloupců (ten je hotový
+          // výše) a až po načtení dat — onFirstDataRendered se volá po
+          // vykreslení prvních dat, takže filtr nepadne na prázdnou sadu.
+          try {
+            this._applyFilterModel(this.options.initialLayout.layout_json);
+          } catch (_eF) {
+            console.warn("[ErpDataGrid] initialLayout setFilterModel failed:", _eF);
+          }
+          // Etapa F Freshness: initial markFresh po data load.
+          try { this.markFresh(); } catch (_e) {}
+        } catch (e) {
+          console.warn("[ErpDataGrid] initialLayout rebuild formatting failed:", e);
+        }
+      }
+    }
+
 
     /** Vrací aktuální model filtrů gridu — pro saveAsLayout / updateLayout.
      *  Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14128).

@@ -32,6 +32,13 @@
 
   _loader("page_render.js", "v1.0.0", function () {
 
+    // Prehledy, kde se pruh „Hledat ve vsech sloupcich" NEZOBRAZUJE.
+    // Globalni hledani je jinak zapnute vsude (Kristy 16.7.2026); tady je
+    // seznam vyjimek, aby se pro dalsi prehled pridavalo jen cislo jadra.
+    //   209 = Vyroba / „Nesplneny FPD" — Jirka Honomichl 1.9.2026 pro Dusana
+    //         Havlata: v tomhle prehledu ho nechce.
+    const _BEZ_GLOBALNIHO_HLEDANI = ["209"];
+
     // Defensive escapeHtml — pokud parent context ho ma, reuse, jinak fallback
     function _esc(s) {
       if (typeof global.escapeHtml === "function") return global.escapeHtml(s);
@@ -828,7 +835,10 @@
               enableSaveButton: true,
               // Globalni hledani (Kristy 16.7.2026) — zapnuto pro VSECHNY prehledy
               // s napojenym data_source (po pilotu na Poptavkach schvalila Kristy).
-              enableQuickFilter: !!(rootCd && rootCd.data_source_code),
+              // Vyjimka: prehledy v _BEZ_GLOBALNIHO_HLEDANI (Jirka Honomichl
+              // 1.9.2026) — u „Nesplneny FPD" (jadro 209) si ho Dusan nepreje.
+              enableQuickFilter: !!(rootCd && rootCd.data_source_code)
+                && _BEZ_GLOBALNIHO_HLEDANI.indexOf(String(coreId)) === -1,
               // Faze 2-B wire (24.5.2026 vecer pozde, Marti's "Zatim ji mas
               // zvenku fw"): ErpDataGrid._handleSaveClick volá tento callback.
               // payload: [{rowId, fields: {col: newVal}, expected_updated_at}]

@@ -12,7 +12,7 @@
   h2{margin:10px 14px 2px;font-size:18px}
   .sub{margin:0 14px 8px;color:#8fa3bd;font-size:12px}
   #info{margin:0 14px 6px;color:#a9bad0;font-size:12px}
-  .leg{margin:0 14px 8px;font-size:12px}
+  .leg{margin:0 14px 8px;font-size:12px;display:flex;align-items:center;flex-wrap:wrap;gap:0}
   /* Peťa 27.8.2026: tlačítko Aktualizovat stejné jako v Docházce new (třída b-rf). */
   .b-rf{background:#22303f;color:#a9c0da;border:1px solid #2a3546;border-radius:6px;cursor:pointer}
   .b-rf:hover{background:#2b3b4d}
@@ -47,7 +47,7 @@
 </style></head><body>
 <h2 id="title">Nárok a čerpání dovolené</h2>
 <div class="sub" id="sub"></div>
-<div class="leg"><span class="lg-d">D — dovolená</span><span class="lg-dn">DN — dovolená navíc</span><span class="lg-sd">SD — sick days</span><button type="button" id="btnObnovit" class="b-rf" style="padding:2px 10px;font-size:11.5px;margin-left:8px" title="Znovu načíst čerstvá data ze serveru" onclick="reloadData()">🔄 Aktualizovat</button></div>
+<div class="leg"><span class="lg-d">D — dovolená</span><span class="lg-dn">DN — dovolená navíc</span><span class="lg-sd">SD — sick days</span><button type="button" id="btnObnovit" class="b-rf" style="padding:2px 10px;font-size:11.5px;margin-left:auto" title="Znovu načíst čerstvá data ze serveru" onclick="reloadData()">🔄 Aktualizovat</button></div>
 <div id="info"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
 <script>

@@ -3478,7 +3478,7 @@ async function dokUdaje(){
     // Šárka 28.8.2026: šanon rozdělen na Platné / Rozpracované / K archivaci; uvnitř po kategoriích.
     const ORDER=['smlouva','dodatek','mzda','generovana','zapoctovy','posudek','diplom','ostatni'];
     const rowHtml=(x)=>'<tr style="border-top:1px solid #1e2730">'+
-      '<td data-pv="'+pvReg({src:'db',id:x.id,name:x.nazev,mime:x.mime||'',url:API+'/app/hr/person-doc/'+x.id})+'" title="Zobrazit náhled" style="padding:6px 16px 6px 26px;color:#e8eef5;cursor:pointer">📄 '+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+'</td>'+
+      '<td data-pv="'+pvReg({src:'db',id:x.id,name:x.nazev,mime:x.mime||'',url:API+'/app/hr/person-doc/'+x.id})+'" title="Zobrazit náhled" style="padding:6px 16px 6px 26px;color:#e8eef5;cursor:pointer">📄 '+esc(x.nazev)+(x.velikost_h?' <span style="color:#5d6b7c">('+esc(x.velikost_h)+')</span>':'')+(x.zdroj_slozka?' <span style="color:#7f8ea0;font-size:11px" title="Původní složka v Centrále">📁 '+esc(x.zdroj_slozka)+'</span>':'')+'</td>'+
       '<td style="padding:6px 10px;white-space:nowrap">'+stavChip(x.stav)+' '+stavSel(x.id,x.stav)+'</td>'+
       '<td style="padding:6px 16px;color:#7f8ea0;white-space:nowrap">'+esc(x.uploaded_at||'')+(x.uploaded_by_h?(' · '+esc(x.uploaded_by_h)):'')+'</td>'+
       '<td style="padding:6px 16px;white-space:nowrap;text-align:right"><a href="#" onclick="dokPrint('+x.id+');return false;" title="Vytisknout" style="color:#7fe0a0;text-decoration:none">🖨 Tisk</a> &nbsp;·&nbsp; <a href="'+API+'/app/hr/person-doc/'+x.id+'" target="_blank" style="color:#7fb2e8;text-decoration:none">⬇ Stáhnout</a> &nbsp;·&nbsp; <a href="#" onclick="dokDel('+x.id+','+uid+');return false;" style="color:#ff8a7a;text-decoration:none">🗑</a></td></tr>';
@@ -3618,7 +3618,7 @@ async function dokMigrate(uid){
   const d=await r.json().catch(()=>({ok:false,error:'server'}));
   if(!d.ok){ alert('Náhled migrace se nepovedl: '+(d.error==='mcp_offline'?'souborový server je mimo firemní síť (nedostupný).':(d.error||''))); return; }
   if(!d.plan||!d.plan.length){ alert('V Centrále (KZ složka) tohoto člověka nejsou žádné soubory k migraci.'); return; }
-  const lines=d.plan.map(p=>(p.existuje?'• (už ve spisu) ':'✓ ')+p.nazev+'  → '+(DOK_KAT[p.kategorie]||p.kategorie)+' / '+(p.stav==='archiv'?'K archivaci':'Platné')).join('\n');
+  const lines=d.plan.map(p=>(p.existuje?'• (už ve spisu) ':'✓ ')+(p.cesta||p.nazev)+'  → '+(DOK_KAT[p.kategorie]||p.kategorie)+' / '+(p.stav==='archiv'?'K archivaci':'Platné')).join('\n');
   if(!confirm('Migrace z Centrály do spisu — plán:\n\n'+lines+'\n\nNových k importu: '+(d.novych||0)+' (z '+d.pocet+').\nSpustit import?')) return;
   const r2=await fetch(API+'/app/hr/spis-migrate',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:uid,commit:true})});
   const d2=await r2.json().catch(()=>({ok:false,error:'server'}));

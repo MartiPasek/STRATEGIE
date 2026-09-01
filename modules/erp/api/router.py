@@ -13945,8 +13945,8 @@ def _doc_log(s, doc_id, owner_uid, akce, by_uid):
 
 @api_router.get("/app/hr/person-docs")
 async def app_hr_person_docs(req: Request):
-    """Seznam dokumentů člověka (jen HR). Bez binárního obsahu."""
-    from sqlalchemy import text as _t
+    """Seznam dokumentů člověka (jen HR). Bez binárního obsahu.
+    DB-driven delegate → g2007.python 'hr_person_docs' (C24/Kristý 1.9.2026)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -13954,30 +13954,10 @@ async def app_hr_person_docs(req: Request):
         tuid = int(req.query_params.get("uid") or 0)
     except Exception:
         tuid = 0
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT d.id, d.kategorie, d.nazev, d.velikost, d.uploaded_at, "
-            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '') AS kdo, "
-            " COALESCE(d.stav,'platny') AS stav, COALESCE(d.mime,'') AS mime "
-            "FROM tenant.employee_document d LEFT JOIN public.users u ON u.id=d.uploaded_by "
-            "WHERE d.tenant_id=2 AND d.user_id=:u AND d.is_active=true "
-            "ORDER BY d.uploaded_at DESC"), {"u": tuid}).fetchall()
-        dokumenty = [{
-            "id": r[0], "kategorie": (r[1] or "ostatni"), "nazev": (r[2] or ""),
-            "velikost_h": _velikost_h(r[3]),
-            "uploaded_at": (r[4].strftime("%d.%m.%Y") if r[4] else ""),
-            "uploaded_by_h": (r[5] or ""), "stav": (r[6] or "platny"),
-            "mime": (r[7] or ""),
-        } for r in rows]
-        return JSONResponse({"ok": True, "dokumenty": dokumenty})
-    except Exception as exc:
-        logger.exception("[hr_person_docs] %s", exc)
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_person_docs", uid, tuid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/hr/person-leave")
@@ -14152,11 +14132,9 @@ def _mig_mime(name):
 async def app_hr_spis_migrate(req: Request):
     """Migrace dokumentů z Centrály (KZ složka) do spisu (employee_document). HR only.
     Body {uid, commit}. commit=false → jen náhled plánu; true → čte a ukládá nové (idempotentně).
-    Podsložka 'Archiv' → stav 'archiv' (K archivaci); ostatní → 'platny' (Platné)."""
-    import datetime as _dt, base64 as _b64, posixpath as _pp
-    from sqlalchemy import text as _t
-    from modules.erp.api.directories import (resolve as _dres, _eu_list, _eu_read,
-                                             _cloud_list, _cloud_read_file)
+    Podsložka s 'Archiv' kdekoli v cestě → stav 'archiv' (K archivaci); ostatní → 'platny'.
+    DB-driven delegate → g2007.python 'hr_spis_migrate' (C24/Kristý 1.9.2026): rekurze přes
+    celý strom (dřív jen 1 úroveň) + deduplikace na (zdroj_slozka, nazev) místo jen názvu."""
     me = _uid_from_token_or_cookie(req)
     if not me:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -14164,96 +14142,10 @@ async def app_hr_spis_migrate(req: Request):
         b = await req.json()
     except Exception:
         b = {}
-    cil = int((b or {}).get("uid") or 0)
-    commit = bool((b or {}).get("commit"))
-    if not cil:
-        return JSONResponse({"ok": False, "error": "chybí uid"}, status_code=400)
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, me):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        r = _dres(s, "osoba_hr", str(cil))
-        if not r.get("ok"):
-            return JSONResponse({"ok": False, "error": r.get("error", "resolve_failed")})
-        paths = r.get("paths") or []
-        prim = next((p for p in paths if p.get("role") == "primary"), (paths[0] if paths else None))
-        if not prim:
-            return JSONResponse({"ok": False, "error": "no_storage"})
-        root = prim["root"]; sub = r.get("sub") or ""
-        is_eu = (prim.get("backend") == "eurosoft_unc")
-
-        def _list(sb):
-            res = _eu_list(root, sb) if is_eu else _cloud_list(root, sb)
-            if not isinstance(res, dict):
-                return [], res
-            if res.get("ok") is False:
-                return [], res.get("error", "list_failed")
-            items = res.get("items") or res.get("result") or []
-            return (items if isinstance(items, list) else []), None
-
-        def _isdir(x):
-            return bool(x.get("is_dir") or x.get("dir") or x.get("type") == "dir")
-
-        top, err = _list(sub)
-        if err:
-            return JSONResponse({"ok": False, "error": str(err)})
-        # kandidáti: (nazev, obsahujici_sub, stav, slozka, velikost)
-        cand = []
-        for it in top:
-            nm = it.get("name")
-            if not nm:
-                continue
-            if _isdir(it):
-                stav = "archiv" if "archiv" in nm.lower() else "platny"
-                subrel = _pp.join(sub, nm) if sub else nm
-                inner, _e = _list(subrel)
-                for it2 in inner:
-                    nm2 = it2.get("name")
-                    if nm2 and not _isdir(it2):
-                        cand.append((nm2, subrel, stav, nm, it2.get("size")))
-            else:
-                cand.append((nm, sub, "platny", "", it.get("size")))
-        existing = set(x[0] for x in s.execute(_t(
-            "SELECT nazev FROM tenant.employee_document WHERE tenant_id=2 AND user_id=:u AND is_active=true"),
-            {"u": cil}).fetchall())
-        plan = [{"nazev": c[0], "kategorie": _mig_kategorie(c[0]), "stav": c[2],
-                 "slozka": (c[3] or "(kořen)"), "velikost": c[4], "existuje": (c[0] in existing)}
-                for c in cand]
-        if not commit:
-            return JSONResponse({"ok": True, "preview": True, "plan": plan,
-                                 "pocet": len(plan), "novych": sum(1 for p in plan if not p["existuje"])})
-        imported = 0; errors = []
-        for (nazev, contsub, stav, slozka, size) in cand:
-            if nazev in existing:
-                continue
-            relpath = _pp.join(contsub, nazev) if contsub else nazev
-            rd = _eu_read(root, relpath) if is_eu else _cloud_read_file(root, contsub, nazev)
-            if not (isinstance(rd, dict) and rd.get("ok", True) and rd.get("content")):
-                errors.append(nazev); continue
-            try:
-                raw = _b64.b64decode(rd.get("content"))
-            except Exception:
-                errors.append(nazev); continue
-            new_id = s.execute(_t(
-                "INSERT INTO tenant.employee_document (tenant_id,user_id,kategorie,nazev,mime,obsah,velikost,uploaded_by,uploaded_at,stav) "
-                "VALUES (2,:u,:k,:n,:m,:o,:v,:by,:at,:st) RETURNING id"),
-                {"u": cil, "k": _mig_kategorie(nazev), "n": nazev, "m": _mig_mime(nazev),
-                 "o": raw, "v": len(raw), "by": me, "at": _dt.datetime.now(), "st": stav}).scalar()
-            try:
-                _doc_log(s, new_id, cil, "migroval", me)
-            except Exception:
-                pass
-            existing.add(nazev); imported += 1
-        s.commit()
-        return JSONResponse({"ok": True, "preview": False, "importovano": imported,
-                             "preskoceno": len(cand) - imported - len(errors), "chyby": errors})
-    except Exception as exc:
-        try: s.rollback()
-        except Exception: pass
-        logger.exception("[hr_spis_migrate] %s", exc)
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_spis_migrate", me, (b or {}).get("uid"), bool((b or {}).get("commit")))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/hr/person-doc/{doc_id}")

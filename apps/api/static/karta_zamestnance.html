@@ -2801,13 +2801,20 @@ async function absUdaje(){
       row('Fond (má být odpracováno za den)', nm(dm.fond_den)+' h')+
       row('Má být odpracováno '+_kdy, nm(dm.ma_byt_k_dnesku)+' h')+
       row('Odpracováno '+_kdy, nm(dm.odpracovano)+' h','#e8eef5')+
+      // Bez radku s absenci cisla na obrazovce nedavala dohromady: clovek videl
+      // odpracovano 72,69 proti fondu 168 a k tomu "prescas 8,69" (Marešová, srpen).
+      // Doplneno 1. 9. 2026 spolu s napojenim karty Moje hodiny v mobilu.
+      (dm.absence!=null&&Number(dm.absence)>0 ? row('Dovolená a nemoc', nm(dm.absence)+' h','#9fb4d0')
+        + row('Dohromady se počítá', nm(dm.zapocteno)+' h','#e8eef5') : '')+
       row(rlbl, rval, rcol)+
       '</div>'+
       '<div style="font-size:11px;color:#8090a0;margin-top:7px;line-height:1.55;max-width:660px">'+
-        '<b style="color:#9fb4d0">Odpracováno</b> = skutečně napíchané hodiny včetně dneška i přesčasů · '+
-        '<b style="color:#9fb4d0">Má být</b> = fond za pracovní dny k dnešku (dnešek se nepočítá) · '+
+        '<b style="color:#9fb4d0">Odpracováno</b> = hodiny, které člověk skutečně odpracoval (bez toho, co do fondu dopsal automat, a bez dneška) · '+
+        '<b style="color:#9fb4d0">Dovolená a nemoc</b> se do bilance počítá, jako by se pracovalo · '+
+        '<b style="color:#9fb4d0">Má být</b> = úvazek na den × pracovní dny · '+
         '<b style="color:#9fb4d0">Přesčas / Chybí</b> = rozdíl.<br>'+
-        '⚠️ Dny s <b>dovolenou / nemocí</b> se zatím počítají jako neodpracované, takže u lidí s absencí je „chybí" nadsazené — omluvená absence se do bilance teprve dopočítává (řeší se).'+
+        'Počítá se stejně jako přehled <b>Docházka → Kontrolní přehledy → Nesplněný FPD</b> a jako karta „Moje hodiny“ v mobilu, aby se to nemohlo rozejít. '+
+        'U lidí s <b>volnou pracovní dobou bez přesčasů</b> se hodiny nad denní fond do fondu nezapočítávají.'+
       '</div></div>';
   }
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; }

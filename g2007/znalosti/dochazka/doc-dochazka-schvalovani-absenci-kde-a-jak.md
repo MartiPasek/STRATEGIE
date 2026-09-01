@@ -1,4 +1,4 @@
-# Schvalovani absenci a dokladu: kde to vedouci a HR najdou (mobil i ERP)
+# Schvalovani absenci a dokladu: kde to vedouci a HR najdou (mobil i ERP) - mobilni cesty aktualizovany 1.9.2026
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -8,9 +8,19 @@
 **Zadost o absenci (dovolena, home office, lekar, OCR, nemoc, neplacene) - rozhoduje vedouci:**
 
 *V mobilni appce:*
-1. **Dochazka → zeleny pruh „Ke schvaleni: N"** - viditelny **i kdyz vedouci zrovna maka**.
-2. **Dochazka → PODMINKY & FINANCE → dlazdice 🗓️ Nepritomnosti** - jen kdyz **nemaka**
-   (dlazdice je v bloku `dochTools`, ktery se pri praci schovava).
+1. **Dochazka → SPRAVA DOCHAZKY → dlazdice 📥 Ke schvaleni** (odznak = pocet cekajicich)
+   - viditelna **vzdy, i kdyz vedouci zrovna maka**.
+2. **Dochazka → PODMINKY & FINANCE → dlazdice 🗓️ Nepritomnosti** - take **vzdy**,
+   i behem prace.
+
+> **Zmena 1. 9. 2026 - obe cesty vypadaly do te doby jinak.** Bod 1 byl **zeleny pruh**
+> "Ke schvaleni: N", ktery se kreslil **jen pri praci**; nahradila ho dlazdice v sekci
+> SPRAVA DOCHAZKY, ktera se ridi poctem zadosti k rozhodnuti (ne pravy k opravam dochazky).
+> Bod 2 byl dostupny **jen kdyz clovek nemakal** - skryvani dlazdic pri praci bylo
+> **uplne zruseno z pravnich duvodu** (dovolenou ma zamestnanec hlasit v pracovni dobe,
+> ne mimo ni). Rozhodl Jiri Honomichl, schvalila Marti-AI. Viz
+> [[doc-dochazka-dlazdice-ke-schvaleni-misto-zeleneho-pruhu]] a
+> [[doc-dochazka-dlazdice-vzdy-viditelne-pravni-duvod]].
 3. **Tlacitko „✅ Otevrit schvalovani →" primo ve zprave** o nove zadosti.
 4. Pro HR/vedeni navic: *🔒 HR → Absence — schvalovani* a *Vedeni firmy → Absence*.
 

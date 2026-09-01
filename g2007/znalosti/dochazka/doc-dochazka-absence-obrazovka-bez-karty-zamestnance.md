@@ -1,4 +1,4 @@
-# Mobil: formular vlastni zadosti o absenci se skryva schvalovatelum i lidem BEZ karty zamestnance (obrazovka Absence + chip na tydennim planu) + TestovaciSkupina (25.8.2026)
+# Mobil: formular vlastni zadosti o absenci se skryva schvalovatelum i lidem BEZ karty zamestnance (obrazovka Absence + chip na tydennim planu) + TestovaciSkupina (25.8.2026; dvere pres zeleny pruh nahrazeny dlazdici 1.9.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -15,9 +15,17 @@ V mobilu **neexistuje zvlastni schvalovaci obrazovka absenci**. Funkce `absence(
 | kde | nazev polozky |
 |---|---|
 | Dochazka - dlazdice (`dochTools`) | **Nepritomnosti** |
-| zeleny pruh pri praci (`dochApprBar`) | **Ke schvaleni: N** |
+| dlazdice v sekci SPRAVA DOCHAZKY | **Ke schvaleni** (odznak = pocet) |
 | HR hub | **Absence - zadosti a schvalovani** |
 | Vedeni firmy | **Absence - schvalovani** |
+
+> **Zmena 1. 9. 2026:** druhy radek tabulky byl **zeleny pruh pri praci** (`dochApprBar`).
+> Ten byl zrusen a nahrazen **dlazdici "Ke schvaleni"** v sekci SPRAVA DOCHAZKY, ktera je
+> videt **vzdy** (ne jen pri praci) a ridi se poctem zadosti k rozhodnuti, ne pravy k opravam.
+> Zaroven se tyz den zrusilo skryvani dlazdic pri praci, takze prvni radek tabulky
+> (Nepritomnosti) plati i behem prace. Rozhodl Jiri Honomichl, schvalila Marti-AI.
+> Viz [[doc-dochazka-dlazdice-ke-schvaleni-misto-zeleneho-pruhu]] a
+> [[doc-dochazka-dlazdice-vzdy-viditelne-pravni-duvod]].
 
 Vsechny volaji `go("absence")`. **Nazev dveri nema na obsah zadny vliv** - proto clovek, ktery neni schvalovatel, vidi pod nadpisem "Absence - schvalovani" formular na VLASTNI dovolenou.
 

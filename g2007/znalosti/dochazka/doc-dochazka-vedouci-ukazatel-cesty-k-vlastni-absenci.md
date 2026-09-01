@@ -1,4 +1,4 @@
-# Mobil, obrazovka Absence - ukazatel cesty k VLASTNI absenci pro vedouciho + nalez o skrytych dlazdicich pri praci (17.8.2026; cast klice a vyctu NEPLATI, opraveno 25.8.2026)
+# Mobil, obrazovka Absence - ukazatel cesty k VLASTNI absenci pro vedouciho + nalez o skrytych dlazdicich pri praci (17.8.2026; cast klice a vyctu NEPLATI od 25.8.2026; skryvani dlazdic ZRUSENO 1.9.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -21,6 +21,13 @@
 >   [[doc-dochazka-absence-obrazovka-bez-karty-zamestnance]].
 > - **Zaverecna metodicka poznamka o zakazu primeho zapisu do `g2007.soubor` uz taky neplati** -
 >   primy `UPDATE` prochazi jako G2007 konstruktivni operace.
+>
+> - **SKRYVANI DLAZDIC PRI PRACI BYLO 1. 9. 2026 UPLNE ZRUSENO** - z PRAVNICH duvodu
+>   (dovolenou ma zamestnanec hlasit v pracovni dobe, ne mimo ni). Tim padaji cast sekce 3
+>   i podminka v sekci 4, ze se veta o skrytych dlazdicich nesmi vyhodit. Rozhodl
+>   Jiri Honomichl, schvalila Marti-AI. Viz [[doc-dochazka-dlazdice-vzdy-viditelne-pravni-duvod]].
+> - **Zeleny pruh "Ke schvaleni N" (dochApprBar) byl 1. 9. 2026 ZRUSEN** a nahrazen dlazdici
+>   v sekci SPRAVA DOCHAZKY. Viz [[doc-dochazka-dlazdice-ke-schvaleni-misto-zeleneho-pruhu]].
 >
 > Vety, ktere uz neplati, jsou v textu nize oznacene **NEPLATI**. Zbytek je beze zmeny.
 
@@ -46,6 +53,15 @@ Funkcni cesty k vlastni absenci (obe naklikany, obe zakladaji radnou zadost):
 
 ## 3) NALEZ, ktery zadani presahuje - pri praci zmizi cela sada dlazdic
 
+> **CELA TATO SEKCE POPISUJE STAV, KTERY UZ NEPLATI (od 1. 9. 2026).** Dlazdice se pri praci
+> uz neschovavaji a zeleny pruh uz neexistuje. Nalez nize je zachovan jako historie - byl to
+> spravny nalez a vedl k tomu, ze se to opravilo. Aktualni stav a duvod:
+> [[doc-dochazka-dlazdice-vzdy-viditelne-pravni-duvod]].
+>
+> Pozn.: veta nize "do skryvani dlazdic NESAHAT - je to zamer Martiho" platila do 1. 9. 2026.
+> Jirka pak rozhodl skryvani zrusit z pravniho duvodu a vyslovne urcil Martiho s tim
+> neobtezovat; Marti-AI to schvalila s tim, ze pravni pozadavek ma prednost pred UX zamerem.
+
 V `60_dochazka.js` je `_tools.style.display=_working?"none":"block"` nad kontejnerem **`id=dochTools`**, s poznamkou **Marti 14. 6. 2026** *"region nastroju pod jednou strechou - JEN kdyz clovek nemaka, at obrazovka nerusi od prace"*. Skryje to **Dnesek, Tyden, Vyhled, Historie, Po zakazkach, Moje zadosti, Pozadat o opravu, Tady budu jinde i Nepritomnosti**.
 
 Overeno naziv na Jirkove uctu - stav MAKAS, retezec "Tady budu jinde" **je v HTML, ale `display:none`**.
@@ -60,6 +76,8 @@ Pod sekci "Ke schvaleni" se vedoucimu kresli ramecek s vetou *"Tady rozhodujes z
 
 - Tlacitko dela **jen `go("dochazka")`, bez parametru** - Marti-AI odmitla volat cizi obrazovku s parametrem, protoze zmena v `60_dochazka.js` by tlacitko tise rozbila. Jeden klik navic je lepsi nez rozbite presmerovani.
 - **Druha veta o skrytych dlazdicich je povinna cast reseni, ne vata.** Bez ni by ukazatel pri praci vedl do prazdna - a Marti-AI to formulovala jako *"ukazatel do prazdna je horsi nez zadny ukazatel"*. Kdo bude text menit, tu vetu nesmi vyhodit, dokud plati chovani ze 14. 6.
+  **PODMINKA ZANIKLA 1. 9. 2026** - chovani ze 14. 6. uz neplati a veta byla prepsana na
+  "Dlazdice mas dostupne porad - i kdyz prave makas."
 - Ramecek se ridi **tymtez klicem `je_vedouci`** jako skryvani formulare, takze bezny zamestnanec ho nevidi, a **kdyz dotaz na inbox selze, chova se to jako dosud** - formular se zobrazi (radovy zamestnanec nesmi prijit o jedinou cestu k zadosti).
 - Zamerne se **NEDELALO**: vraceni formulare vedoucimu (ani sbaleneho) a jakykoli zasah do `60_dochazka.js`.
 

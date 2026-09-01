@@ -1,4 +1,4 @@
-# fw.mobile_command: payload.screen = rezervovany klic pro navigaci v mobilni appce
+# fw.mobile_command: payload.screen = rezervovany klic pro navigaci v mobilni appce (reseni skryvani dlazdic z 5.8.2026 NEPLATI od 1.9.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -56,8 +56,21 @@ prave v dobe, kdy zpravu dostal. Jirka: *„nelze vedoucimu v prubehu prace nedo
 zadosti o dovolenou jeho podrizeneho. Lide si sami nesmi schvalovat dovolenou, ale jejich
 vedouci ano i pri praci."* Reseni: `dochTools` se pri praci skryva dal, ale kdo ma neco
 k rozhodnuti, dostane nad nim samostatny pruh „Ke schvaleni: N" (zdroj poctu:
-`GET /app/attendance/absence/inbox`, throttle 30 s). Vlastni zadost se v inboxu nikdy
-neobjevi - vraci jen radky, kde je clovek `manager_user_id` (rodic vidi vse).
+`GET /app/attendance/absence/inbox`, throttle 30 s).
+
+> **NEPLATI od 1. 9. 2026 - zmenilo se OBOJI.** Skryvani `dochTools` pri praci bylo
+> **uplne zruseno** z pravnich duvodu (dovolenou ma zamestnanec hlasit v pracovni dobe),
+> takze dlazdice vcetne "Nepritomnosti" jsou videt i behem prace. Samostatny pruh
+> "Ke schvaleni: N" byl **zrusen** a nahrazen **dlazdici "Ke schvaleni"** v sekci
+> SPRAVA DOCHAZKY, ktera se ridi poctem zadosti k rozhodnuti (tyz zdroj poctu, ale cte se
+> vzdy, ne jen pri praci a bez omezeni 30 s). Rozhodl Jiri Honomichl, schvalila Marti-AI.
+> Zadani z 5. 8. 2026 ("vedouci musi moci schvalovat i pri praci") tim plati **tim spis** -
+> nove ma pri praci pristup i k vlastni absenci. Viz
+> [[doc-dochazka-dlazdice-vzdy-viditelne-pravni-duvod]] a
+> [[doc-dochazka-dlazdice-ke-schvaleni-misto-zeleneho-pruhu]].
+
+Vlastni zadost se v inboxu nikdy neobjevi - vraci jen radky, kde je clovek
+`manager_user_id` (rodic vidi vse).
 
 ## Pasti
 

@@ -405,6 +405,25 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
    Poznávací znamení v datech: v řadě 501 jsou i faktury, kde je **dodavatelem sám
    EUROSOFT-Control** (nájemné) — to je právě proto, že odběratelem je System.
 
+6. **📅 SPLATNOST U NAŠICH OSVČ SE POČÍTÁ Z PLATEBNÍHO DNE — kratší, a je to záměr**
+   (Peťa 1. 9. 2026). Našim OSVČ dáváme **kratší splatnost** než uvádí jejich faktura.
+   Pravidlo: **platební dny jsou úterý a čtvrtek**; splatnost se dá na **den po následujícím
+   pracovním dni**.
+   Příklad 2179 (Radek Hellmayer, OSVČ): doklad pořízen **31. 8. = pondělí** → následující
+   pracovní den **1. 9. (úterý, platební den)** → splatnost **2. 9.**, přestože na faktuře
+   je 14. 9. **Není to nález, nehlásit.**
+
+7. **💧 VODY OD PAPERY — perlivá se zadává VČETNĚ DPH, neperlivá bez DPH** (Peťa 1. 9. 2026).
+   - **neperlivá** → cena **bez DPH + DPH** zvlášť (v Centrále řádek „Režijní materiál", 501002),
+   - **perlivá** → **celková částka včetně DPH** (řádek „Reprezentace", 513100).
+
+   Proto u takové faktury **NESEDÍ základ ani rozpis DPH** proti dokladu, zatímco celková
+   částka k úhradě sedí přesně. **Je to záměr — nehlásit.**
+   Příklad 2181 (Papera 261029677): celkem 10 425,83 Kč sedí; základ v Centrále 9 194,56
+   proti 8 616,39 na faktuře (rozdíl 578,17 Kč) — a je to správně.
+   ⚠️ Tohle je **výjimka z pravidla o toleranci 5 Kč v DPH** — tady může být rozdíl velký
+   a stejně se neřeší. Rozhoduje celková cena.
+
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 
 - bez nabídky: `2065 - faktura ok`

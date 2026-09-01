@@ -1,4 +1,4 @@
-# Datagrid sestavy tri nalezy 2026 09 01
+# Sestavy gridu v ERP - ctyri nalezy z 1.9.2026 (filtry, nenasazeni sestavy, sirky sloupcu, falesne neulozene zmeny)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -47,15 +47,35 @@ Stávající logika `_applyLayout` nezměněna (komentáře v kódu varují pře
 
 **Příčina:** V `_applyLayout` trojice operací: (1) `setGridOption("columnDefs", newDefs)`, (2) `applyColumnState`, (3) `setColumnWidths`. `setGridOption` s novými `columnDefs` přestavuje sloupce až po dokončení funkce a zahazuje šířky nastavené synchronně uvnitř. Ověřeno: `setColumnWidths` volané synchronně nemá účinek; totéž `setColumnWidths` odložené o jeden tik (`setTimeout 0`) funguje spolehlivě.
 
-**Oprava:** Stávající synchronní volání ponecháno beze změny, přidáno odložené srovnání šířek (`setTimeout 0`) obalené pojistkou `_beginApplyingLayout/_endApplyingLayout` (zabrání falešným "neuloženým změnám" při přepínání).
+**Oprava:** Stávající synchronní volání ponecháno beze změny, přidáno odložené srovnání šířek (`setTimeout 0`).
+
+> ⚠ UPŘESNĚNO 1. 9. 2026 večer: původně bylo odložené volání obalené pojistkou
+> `_beginApplyingLayout` / `_endApplyingLayout`. **Ty pojistky už v kódu NEJSOU** —
+> byly smazány při řešení nálezu 4 (viz níž), protože porovnávací přístup je
+> nahradil. Nehledej je.
 
 Dopad jen na přepínání sestav uživatelem — při otevření přehledu se šířky berou z `columnDefs` před vznikem tabulky a fungují správně.
 
 ---
 
-## Otevřené — falešné "neuložené změny" při otevření přehledu
+## Nález 4 — falešné „neuložené změny" (VYŘEŠENO 1. 9. 2026 večer)
 
-Kosmetická vada, data se neztrácejí. Tlačítko Uložit se někdy tváří jako "jsou neuložené změny" hned po otevření přehledu, i když uživatel na nic nesáhl. Dva pokusy o potlačení časovačem — jednou z pěti to proklouzne. Správné řešení: porovnávat skutečný stav tabulky proti uložené sestavě místo naslouchání událostem. Čeká na Jirkovo rozhodnutí (hned nebo later).
+**Příznak:** Tlačítko Uložit se hned po otevření přehledu někdy tvářilo, že jsou neuložené změny, i když uživatel na nic nesáhl. Navíc: když uživatel změnu udělal a zase ji vrátil zpět, příznak zůstal rozsvícený.
+
+**Příčina:** `_isDirty` se nastavoval podle UDÁLOSTÍ (`columnMoved`, `columnResized`, `columnVisible`, `columnPinned`, `sortChanged`, `filterChanged`). Jenže nasazení sestavy vyvolá tytéž události — takže se sestava nasadila a vzápětí se sama označila za změnu. Potlačování časovačem je závod s časem: dva pokusy, přibližně jednou z pěti to proklouzlo.
+
+**Oprava (rozhodl Jirka Honomichl, schválila Marti-AI msg 14152):** přestat se ptát „stala se událost?" a začít se ptát **„liší se tabulka od uložené sestavy?"**.
+- `_layoutBaseline` = otisk podle ULOŽENÉ sestavy (ne podle tabulky) — proto na něm nezáleží, kdy grid dokončí překreslování. Nastavuje se při nasazení sestavy i po uložení.
+- V obsluze událostí se místo `_isDirty = true` volá `_prepocitejNeulozeneZmeny()`, které porovná otisk tabulky s otiskem sestavy.
+- **Smazány** obě dřívější pojistky: počítadlo `_applyingLayoutDepth` i dodatečné srovnání příznaku po 700 ms. Mrtvé pojistky matou příští čtení.
+
+**PRAVIDLO do budoucna:** `_layoutBaseline` musí obsahovat **stejné klíče jako `layout_json`**. Když se `layout_json` rozšíří o další klíč, musí se přidat i do otisku — jinak se to tiše rozejde.
+
+**PAST, na kterou jsem u toho narazil (stála jedno nasazení navíc):** uložený filtr má klíče v pořadí `type / filter / filterType`, zatímco tentýž filtr vrácený z tabulky je má jako `filterType / type / filter`. **Obsah shodný, text jiný** — a porovnání proto hlásilo změnu po každém přepnutí sestavy. Řešení: porovnávat přes JSON, ve kterém na pořadí klíčů nezáleží (`_stabilniJson`, rekurzivní seřazení klíčů). Kdo bude porovnávat jakýkoli jiný stav z AG Gridu, narazí na totéž.
+
+**Poznámka k pořadí sloupců:** otisk se ZÁMĚRNĚ neřadí podle názvu sloupce, ale nechává pořadí z tabulky. Pořadí sloupců je totiž součástí sestavy — kdyby se otisk seřadil podle názvu, přeházení sloupců by se tvářilo jako žádná změna a uživatel by o ně při uložení přišel.
+
+**Ověřeno naostro** (přehled Nesplněný FPD, jádro 209): po otevření čisto · po přepnutí sestavy čisto · změna šířky rozsvítí · **vrácení změny zpět zase zhasne** · změna řazení rozsvítí.
 
 _Souvisí:_ doc-module-registry, doc-strategie-erp
 

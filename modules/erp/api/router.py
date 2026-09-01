@@ -9450,6 +9450,98 @@ async def app_hr_audit_file(fid: int, req: Request):
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/smernice/list")
+async def app_hr_smernice_list(req: Request) -> JSONResponse:
+    """Prohlížeč směrnic (jen čtení) — zrcadlo z Centrály (tenant.kb_smernice + _soubor).
+    Jen HR/vedení. Šárka 1.9.2026 — chtěla směrnice ve STRATEGII vidět (dřív měla na
+    starost jejich rozesílání). Rozesílání/seznámení zaměstnanců = fáze 2 s Kristý (ISO)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    q = (req.query_params.get("q") or "").strip()
+    kat = (req.query_params.get("kategorie") or "").strip()
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        where = ["1=1"]
+        params = {}
+        if q:
+            where.append("(sm.nazev ILIKE :q OR COALESCE(sm.popis_text,'') ILIKE :q "
+                         "OR COALESCE(sm.kategorie,'') ILIKE :q OR COALESCE(sm.autor,'') ILIKE :q)")
+            params["q"] = "%" + q + "%"
+        if kat:
+            where.append("sm.kategorie = :kat")
+            params["kat"] = kat
+        rows = s.execute(_t(
+            "SELECT sm.id, sm.ec_id, sm.cislo, sm.nazev, sm.kategorie, sm.status_text, "
+            " to_char(sm.platnost_od,'DD.MM.YYYY'), to_char(sm.platnost_do,'DD.MM.YYYY'), sm.autor, "
+            " (SELECT count(*) FROM tenant.kb_smernice_soubor f WHERE f.ec_smernice_id=sm.ec_id) "
+            "FROM tenant.kb_smernice sm WHERE " + " AND ".join(where) +
+            " ORDER BY sm.kategorie NULLS LAST, sm.nazev"), params).fetchall()
+        smernice = [{
+            "id": int(x[0]), "ec_id": (int(x[1]) if x[1] is not None else None),
+            "cislo": (int(x[2]) if x[2] is not None else None),
+            "nazev": x[3] or "", "kategorie": x[4] or "", "status": x[5] or "",
+            "platnost_od": x[6], "platnost_do": x[7], "autor": x[8] or "",
+            "pocet_priloh": int(x[9] or 0)} for x in rows]
+        katrows = s.execute(_t(
+            "SELECT DISTINCT kategorie FROM tenant.kb_smernice "
+            "WHERE kategorie IS NOT NULL AND kategorie<>'' ORDER BY kategorie")).fetchall()
+        kategorie = [k[0] for k in katrows]
+        return JSONResponse({"ok": True, "smernice": smernice, "kategorie": kategorie,
+                             "celkem": len(smernice)})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/smernice/detail")
+async def app_hr_smernice_detail(req: Request) -> JSONResponse:
+    """Detail směrnice: popis + čitelný text z příloh (text_extract z DB) + seznam příloh.
+    Binárka příloh v DB není (jen cesta na share), proto ukazujeme extrahovaný text. Jen HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    try:
+        ec_id = int(req.query_params.get("ec_id") or "0")
+    except Exception:
+        ec_id = 0
+    if not ec_id:
+        return JSONResponse({"ok": False, "error": "missing ec_id"}, status_code=400)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        hdr = s.execute(_t(
+            "SELECT nazev, kategorie, status_text, popis_text, urceni_text, pristupnost_text, autor, "
+            " to_char(platnost_od,'DD.MM.YYYY'), to_char(platnost_do,'DD.MM.YYYY'), cislo "
+            "FROM tenant.kb_smernice WHERE ec_id=:e"), {"e": ec_id}).fetchone()
+        if not hdr:
+            return JSONResponse({"ok": False, "error": "nenalezeno"}, status_code=404)
+        frows = s.execute(_t(
+            "SELECT id, nazev_souboru, pripona, velikost, extract_ok, text_extract "
+            "FROM tenant.kb_smernice_soubor WHERE ec_smernice_id=:e "
+            "ORDER BY nazev_souboru"), {"e": ec_id}).fetchall()
+        soubory = [{"id": int(f[0]), "nazev": f[1] or "", "pripona": f[2] or "",
+                    "velikost": int(f[3] or 0), "extract_ok": bool(f[4]),
+                    "text": (f[5] or "")} for f in frows]
+        return JSONResponse({"ok": True, "smernice": {
+            "nazev": hdr[0] or "", "kategorie": hdr[1] or "", "status": hdr[2] or "",
+            "popis": hdr[3] or "", "urceni": hdr[4] or "", "pristupnost": hdr[5] or "",
+            "autor": hdr[6] or "", "platnost_od": hdr[7], "platnost_do": hdr[8],
+            "cislo": (int(hdr[9]) if hdr[9] is not None else None), "soubory": soubory}})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _rozh_jmeno_sub(col):
     return ("(SELECT COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''), ae.full_name) FROM public.users u "
             " LEFT JOIN tenant.att_employee ae ON ae.user_id=u.id AND ae.tenant_id=2 WHERE u.id=" + col + ")")

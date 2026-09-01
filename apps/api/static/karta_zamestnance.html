@@ -515,6 +515,27 @@
     <div id="rozhlist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+<div class="wrapfull" id="smernicecard" style="display:none">
+  <div class="card">
+    <div class="tbar">
+      <b style="font-size:14px">📚 Směrnice</b>
+      <span id="smcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
+      <select id="smkat" onchange="smernFilter()" style="margin-left:auto;min-width:190px"><option value="">Všechny kategorie</option></select>
+      <input id="smsrch" oninput="smernFilter()" placeholder="🔎 Hledat…" style="margin-left:8px;min-width:180px">
+    </div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Směrnice firmy — zrcadleno z Centrály (jen čtení). Obsah si přečteš jako text; editace probíhá v Centrále. Rozesílání a evidence seznámení zaměstnanců připravujeme s Kristý.</div>
+    <div id="smlist" style="padding:6px 14px 18px"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
+<div id="smmodal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;padding:24px;overflow:auto" onclick="if(event.target===this)smernClose()">
+  <div style="max-width:820px;margin:0 auto;background:#0f1720;border:1px solid #2a3a4d;border-radius:12px;overflow:hidden">
+    <div style="padding:12px 16px;background:#16202c;display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div id="smmhead"></div>
+      <button onclick="smernClose()" style="border:1px solid #33445a;background:#1a2430;color:#cdd6e2;border-radius:8px;padding:5px 11px;font:inherit;cursor:pointer;white-space:nowrap">✕ Zavřít</button>
+    </div>
+    <div id="smmbody" style="padding:14px 16px;max-height:72vh;overflow:auto"></div>
+  </div>
+</div>
 <script>
 const API="/api/v1/erp";
 let LIDE=[];
@@ -570,6 +591,7 @@ function setView(v){
   const klc=document.getElementById('kalendarcard'); if(klc) klc.style.display=(v==='kalendar')?'':'none';
   const adc=document.getElementById('auditcard'); if(adc) adc.style.display=(v==='audit')?'':'none';
   const rzc=document.getElementById('rozhodnuticard'); if(rzc) rzc.style.display=(v==='rozhodnuti')?'':'none';
+  const smc=document.getElementById('smernicecard'); if(smc) smc.style.display=(v==='smernice')?'':'none';
   const ddc=document.getElementById('dodavatelecard'); if(ddc) ddc.style.display=(v==='dodavatele')?'':'none';
   const inc=document.getElementById('inspiracecard'); if(inc) inc.style.display=(v==='inspirace')?'':'none';
   const nbc=document.getElementById('naborcard'); if(nbc) nbc.style.display=(v==='nabor')?'':'none';
@@ -585,6 +607,7 @@ function setView(v){
   if(v==='kalendar'){ loadKalendar(); return; }
   if(v==='audit'){ loadAudit(); return; }
   if(v==='rozhodnuti'){ loadRozhodnuti(); return; }
+  if(v==='smernice'){ loadSmernice(); return; }
   if(v==='contracts' && !SMLOUVY_LOADED){ loadContracts(); return; }
   if(v==='create'){ if(!CREATE_META) loadCreateMeta(); return; }
   if(v==='terminated' && !TERM_LOADED){ loadTerminated(); return; }
@@ -3746,6 +3769,72 @@ async function rozhDel(id){
   const d=await r.json().catch(()=>({ok:false}));
   if(d.ok) loadRozhodnuti(); else alert('Nepovedlo se smazat.');
 }
+// Směrnice (Šárka 1.9.2026) — prohlížeč, jen čtení, zrcadlo z Centrály. Jen HR/vedení.
+let SMERN_DATA=[];
+async function loadSmernice(){
+  const box=document.getElementById('smlist');
+  let d; try{ d=await j(API+'/app/hr/smernice/list'); }catch(e){ box.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="empty">🔒 '+esc(d.error||'')+'</div>'; return; }
+  SMERN_DATA=d.smernice||[];
+  const sel=document.getElementById('smkat');
+  if(sel && sel.options.length<=1){ (d.kategorie||[]).forEach(function(k){ const o=document.createElement('option'); o.value=k; o.textContent=k; sel.appendChild(o); }); }
+  smernRender();
+}
+function smernFilter(){ smernRender(); }
+function smernRender(){
+  const box=document.getElementById('smlist'), cnt=document.getElementById('smcnt');
+  const q=(document.getElementById('smsrch').value||'').trim().toLowerCase();
+  const kat=document.getElementById('smkat').value||'';
+  let A=SMERN_DATA;
+  if(kat) A=A.filter(s=>s.kategorie===kat);
+  if(q) A=A.filter(s=>((s.nazev+' '+(s.kategorie||'')+' '+(s.autor||'')).toLowerCase().indexOf(q)>=0));
+  if(cnt) cnt.textContent = SMERN_DATA.length?('• '+A.length+' / '+SMERN_DATA.length):'';
+  if(!A.length){ box.innerHTML='<div class="empty">Nic nenalezeno.</div>'; return; }
+  const groups={};
+  A.forEach(function(s){ const g=s.kategorie||'— bez kategorie —'; (groups[g]=groups[g]||[]).push(s); });
+  const kb=n=>{ n=+n||0; return n<1024?n+' B':(n<1048576?(n/1024).toFixed(0)+' kB':(n/1048576).toFixed(1)+' MB'); };
+  box.innerHTML=Object.keys(groups).sort().map(function(g){
+    const rows=groups[g].map(function(s){
+      const pl=s.platnost_od?('platí od '+esc(s.platnost_od)):'';
+      const pr=s.pocet_priloh?('<span style="color:#7fb2e8">📎 '+s.pocet_priloh+'</span>'):'<span style="color:#5a6675">—</span>';
+      const nm=(s.ec_id!=null)
+        ? '<a href="#" onclick="smernDetail('+s.ec_id+');return false;" style="color:#cfe0f5;text-decoration:none;font-weight:600">'+esc(s.nazev)+'</a>'
+        : '<span style="font-weight:600">'+esc(s.nazev)+'</span>';
+      const stat=(s.status && s.status.toLowerCase().indexOf('aktiv')<0)?' <span style="color:#c9a24a;font-size:11px">('+esc(s.status)+')</span>':'';
+      return '<tr style="border-top:1px solid #1e2836">'
+        +'<td style="padding:6px 10px">'+nm+stat+'</td>'
+        +'<td style="padding:6px 10px;color:var(--muted);font-size:12px;white-space:nowrap">'+esc(pl)+'</td>'
+        +'<td style="padding:6px 10px;color:var(--muted);font-size:12px;white-space:nowrap">'+(s.autor?esc(s.autor):'')+'</td>'
+        +'<td style="padding:6px 10px;text-align:center">'+pr+'</td></tr>';
+    }).join('');
+    return '<div style="margin:0 0 14px;border:1px solid #23303f;border-radius:10px;overflow:hidden">'
+      +'<div style="padding:8px 12px;background:#16202c;font-weight:700;font-size:13px">'+esc(g)+' <span style="color:var(--muted);font-weight:400;font-size:12px">· '+groups[g].length+'</span></div>'
+      +'<table style="width:100%;border-collapse:collapse">'+rows+'</table></div>';
+  }).join('');
+}
+async function smernDetail(ec){
+  const m=document.getElementById('smmodal'), h=document.getElementById('smmhead'), b=document.getElementById('smmbody');
+  h.innerHTML=''; b.innerHTML='<div class="empty">Načítám…</div>'; m.style.display='';
+  let d; try{ d=await j(API+'/app/hr/smernice/detail?ec_id='+ec); }catch(e){ b.innerHTML='<div class="empty">✗ síť</div>'; return; }
+  if(!d.ok){ b.innerHTML='<div class="empty">🔒 '+esc(d.error||'')+'</div>'; return; }
+  const s=d.smernice||{};
+  h.innerHTML='<b style="font-size:14.5px">'+esc(s.nazev||'')+'</b><div style="color:var(--muted);font-size:12px;margin-top:2px">'+esc(s.kategorie||'')+(s.platnost_od?' · platí od '+esc(s.platnost_od):'')+(s.autor?' · '+esc(s.autor):'')+(s.status?' · '+esc(s.status):'')+'</div>';
+  const kb=n=>{ n=+n||0; return n<1024?n+' B':(n<1048576?(n/1024).toFixed(0)+' kB':(n/1048576).toFixed(1)+' MB'); };
+  let html='';
+  if(s.urceni) html+='<div style="font-size:12px;color:#9fb3cc;margin-bottom:6px">👥 Určeno: '+esc(s.urceni)+'</div>';
+  if(s.popis) html+='<div style="font-size:13px;color:#dfe7f0;line-height:1.55;margin-bottom:12px;white-space:pre-wrap">'+esc(s.popis)+'</div>';
+  const files=s.soubory||[];
+  if(!files.length) html+='<div class="empty">Bez příloh — detail je v Centrále.</div>';
+  files.forEach(function(f){
+    html+='<div style="border:1px solid #23303f;border-radius:9px;margin:0 0 10px;overflow:hidden">'
+      +'<div style="padding:7px 11px;background:#141c26;font-size:12.5px"><b>📄 '+esc(f.nazev)+'</b> <span style="color:var(--muted)">'+esc(f.pripona||'')+(f.velikost?' · '+kb(f.velikost):'')+'</span></div>';
+    if(f.text && f.text.trim()) html+='<div style="padding:10px 12px;font-size:12.5px;color:#cdd6e2;line-height:1.5;white-space:pre-wrap;max-height:360px;overflow:auto">'+esc(f.text)+'</div>';
+    else html+='<div style="padding:9px 12px;color:var(--muted);font-size:12px">Text není k dispozici (jen v Centrále / na sdíleném úložišti).</div>';
+    html+='</div>';
+  });
+  b.innerHTML=html;
+}
+function smernClose(){ document.getElementById('smmodal').style.display='none'; }
 // Deep-link + embed režim. embedsec=pracovni|finance|podminky + uid → vloží JEN tu sekci
 // jako izolované okno (pro sloučenou dlaždici „Personální a finanční podmínky").
 (async function initBoot(){ try{
@@ -3762,7 +3851,7 @@ async function rozhDel(id){
     return;
   }
   const v=qs.get('view');
-  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor' || v==='audit' || v==='rozhodnuti'){ setView(v); }
+  if(v==='table' || v==='contracts' || v==='create' || v==='terminated' || v==='odpovednost' || v==='ukoly' || v==='organigram' || v==='orgman' || v==='posty' || v==='tabule' || v==='podminky' || v==='kalendar' || v==='dodavatele' || v==='inspirace' || v==='nabor' || v==='audit' || v==='rozhodnuti' || v==='smernice'){ setView(v); }
 }catch(e){} })();
 
 // ── Kalendář u VŠECH datumových polí (Jirka 24. 8. 2026) ─────────────────────

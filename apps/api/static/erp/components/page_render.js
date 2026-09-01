@@ -188,6 +188,13 @@
           + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
         return;
       }
+      // Směrnice (Šárka 1.9.2026): jádro hr.smernice = prohlížeč firemních směrnic
+      // (zrcadlo z Centrály, jen čtení). Jen vedení/HR.
+      if (String(coreCode) === 'hr.smernice') {
+        mainContent.innerHTML = '<iframe src="/karta-zamestnance?view=smernice" title="Směrnice" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // Kalendář (Šárka 13.8.2026): jádro hr.kalendar = agenda událostí ze STRATEGIE
       // (akce, narozeniny, výročí, konce zkušebek/smluv). Jen ke čtení.
       if (String(coreCode) === 'hr.kalendar') {

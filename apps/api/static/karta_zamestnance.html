@@ -338,9 +338,11 @@
     <div class="tbar">
       <b style="font-size:14px">✅ Úkoly pro HR</b>
       <span id="ukcnt" style="color:var(--muted);font-size:12.5px;margin-left:10px"></span>
-      <button onclick="loadUkoly()" style="margin-left:auto;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">↻ Obnovit</button>
+      <button onclick="ukNew()" style="margin-left:auto;border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:8px;padding:5px 13px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer">➕ Přidat úkol</button>
+      <button onclick="loadUkoly()" style="margin-left:8px;border:1px solid #3a5a8a;background:#26527a;color:#e8eef5;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;cursor:pointer">↻ Obnovit</button>
     </div>
-    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Otevřené úkoly, které máš na starosti (stejné jako v aplikaci Úkoly). Automaticky sem padají i upozornění z HR — konec zkušební doby (měsíc dopředu) a konec smlouvy (2 měsíce dopředu).</div>
+    <div style="padding:2px 14px 8px;color:var(--muted);font-size:12px">Otevřené úkoly, které máš na starosti (stejné jako v aplikaci Úkoly). Automaticky sem padají i upozornění z HR — konec zkušební doby (měsíc dopředu) a konec smlouvy (2 měsíce dopředu). Úkol můžeš přidat i <b>namluvením</b> (🎤).</div>
+    <div id="ukForm" style="display:none;margin:0 14px 8px" data-open="0"></div>
     <div id="uklist" style="padding:6px 14px 16px"><div class="empty">Načítám…</div></div>
   </div>
 </div>
@@ -821,6 +823,85 @@ async function ukolHotovo(id, cb){
     if(!d.ok){ cb.disabled=false; cb.checked=false; alert('Nepovedlo se: '+(d.error||'chyba')); return; }
     if(row){ row.style.transition='opacity .3s'; row.style.opacity='.35'; row.querySelector('span:nth-of-type(2) div').style.textDecoration='line-through'; setTimeout(function(){ row.remove(); const c=document.getElementById('ukcnt'); const n=document.querySelectorAll('#uklist .ukrow').length; if(c) c.textContent='('+n+')'; if(!n){ document.getElementById('uklist').innerHTML='<div class="empty">Žádné otevřené úkoly. 🎉</div>'; } }, 320); }
   }catch(e){ cb.disabled=false; cb.checked=false; alert('✗ síť'); }
+}
+// Přidání úkolu + diktování (Šárka 1.9.2026). Backend už existuje: POST /app/task + /app/transcribe.
+let UK_LIDE=[];
+async function ukPeople(){
+  if(UK_LIDE.length) return UK_LIDE;
+  try{ const d=await j(API+'/app/task-lide'); UK_LIDE=((d.lide||d.osoby||[])).map(x=>({id:(x.id||x.user_id),jmeno:(x.jmeno||x.label||'')})); }catch(e){}
+  return UK_LIDE;
+}
+async function ukNew(){
+  const f=document.getElementById('ukForm'); if(!f) return;
+  if(f.dataset.open==='1'){ f.style.display='none'; f.dataset.open='0'; return; }
+  const lide=await ukPeople();
+  const opt='<option value="">— já (výchozí) —</option>'+lide.map(x=>'<option value="'+x.id+'">'+esc(x.jmeno)+'</option>').join('');
+  f.dataset.open='1'; f.style.display='';
+  f.innerHTML='<div style="border:1px solid #2a3a4d;border-radius:10px;padding:12px;background:#111a24">'
+    +'<label style="font-size:12px;color:#9fb3cc">Úkol (první řádek = název) *<br>'
+    +'<textarea id="uf_text" rows="2" placeholder="Co je potřeba udělat…" style="width:100%;box-sizing:border-box"></textarea></label>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0">'
+    +'<button type="button" onclick="ukRecToggle()" id="uf_rec" style="border:1px solid #7a4a9a;background:#3a2452;color:#efe0f7;border-radius:8px;padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer">🎤 Namluvit</button>'
+    +'<span id="uf_recst" style="font-size:12px;color:#9fb3cc"></span></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+    +'<label style="font-size:12px;color:#9fb3cc">Termín<br><input id="uf_termin" type="date"></label>'
+    +'<label style="font-size:12px;color:#9fb3cc">Priorita<br><select id="uf_pri"><option value="0">Běžná</option><option value="1">🟠 Vyšší</option><option value="2">🔴 Vysoká</option></select></label>'
+    +'<label style="font-size:12px;color:#9fb3cc">Řešitel<br><select id="uf_res">'+opt+'</select></label>'
+    +'</div>'
+    +'<div><button onclick="ukSave()" style="border:1px solid #2e7d46;background:#1b4a2c;color:#dff7e6;border-radius:8px;padding:6px 15px;font:inherit;font-weight:700;cursor:pointer">💾 Uložit úkol</button> '
+    +'<button onclick="var f=document.getElementById(\'ukForm\');f.style.display=\'none\';f.dataset.open=\'0\'" style="border:1px solid #33445a;background:#1a2430;color:#cdd6e2;border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer">Zrušit</button> '
+    +'<span id="uf_msg" style="margin-left:8px;font-size:12px"></span></div></div>';
+  const ta=document.getElementById('uf_text'); if(ta) ta.focus();
+}
+let UK_REC={mr:null,chunks:[],on:false,stream:null,mime:'audio/webm'};
+async function ukRecToggle(){
+  const btn=document.getElementById('uf_rec'), stt=document.getElementById('uf_recst');
+  if(UK_REC.on){ if(stt) stt.textContent='⏳ zpracovávám…'; try{ UK_REC.mr.stop(); }catch(e){} return; }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){ alert('Tenhle prohlížeč neumí nahrávat zvuk. Otevři STRATEGII v Chrome (strategie-ai.com).'); return; }
+  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(e){ alert('Mikrofon se nepodařilo zapnout ('+((e&&e.name)||e)+'). Povol mikrofon pro stránku a zkus znovu.'); return; }
+  UK_REC.stream=stream; UK_REC.chunks=[];
+  let want='audio/webm';
+  try{ if(MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported('audio/webm')){ want=(MediaRecorder.isTypeSupported('audio/ogg')?'audio/ogg':''); } }catch(e){}
+  let mr; try{ mr= want? new MediaRecorder(stream,{mimeType:want}) : new MediaRecorder(stream); }
+  catch(e){ try{ mr=new MediaRecorder(stream); }catch(e2){ alert('Nahrávání nelze spustit.'); try{stream.getTracks().forEach(t=>t.stop());}catch(_){}; return; } }
+  UK_REC.mr=mr; UK_REC.on=true; UK_REC.mime=((mr.mimeType||want||'audio/webm').split(';')[0])||'audio/webm';
+  mr.ondataavailable=e=>{ if(e.data&&e.data.size) UK_REC.chunks.push(e.data); };
+  mr.onstop=async()=>{
+    UK_REC.on=false;
+    try{ UK_REC.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    if(btn) btn.textContent='🎤 Namluvit';
+    const blob=new Blob(UK_REC.chunks,{type:UK_REC.mime});
+    if(!blob||blob.size<800){ if(stt) stt.textContent=''; alert('Nenahrálo se audio (nebo bylo moc krátké). Mluv aspoň pár sekund.'); return; }
+    if(stt) stt.textContent='⏳ Přepisuji…';
+    let b64; try{ b64=await new Promise((res,rej)=>{ const rd=new FileReader(); rd.onerror=()=>rej('read'); rd.onloadend=()=>res((rd.result||'').toString().split(',')[1]||''); rd.readAsDataURL(blob); }); }
+    catch(e){ if(stt) stt.textContent=''; alert('Nepodařilo se zpracovat nahrávku.'); return; }
+    try{
+      const rr=await fetch(API+'/app/transcribe',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_b64:b64,mime:UK_REC.mime,filename:'ukol.'+(UK_REC.mime.indexOf('ogg')>=0?'ogg':'webm')})});
+      let d={}; try{ d=await rr.json(); }catch(e){}
+      if(d.ok&&(d.text||'').trim()){ const ta=document.getElementById('uf_text'); if(ta){ ta.value=(ta.value?ta.value.trim()+' ':'')+d.text.trim(); ta.focus(); } if(stt) stt.textContent='✓ přepsáno'; }
+      else if(d.ok){ if(stt) stt.textContent=''; alert('Přepis se vrátil prázdný — zkus mluvit hlasitěji a blíž.'); }
+      else { if(stt) stt.textContent=''; alert('Přepis selhal: '+((d&&d.error)||('HTTP '+rr.status))); }
+    }catch(e){ if(stt) stt.textContent=''; alert('Síťová chyba při přepisu.'); }
+  };
+  try{ mr.start(1000); }catch(e){ try{ mr.start(); }catch(e2){} }
+  if(btn) btn.textContent='⏹ Zastavit a přepsat'; if(stt) stt.textContent='🔴 nahrávám… (mluv, pak Zastavit a přepsat)';
+}
+async function ukSave(){
+  const g=x=>document.getElementById(x);
+  const text=((g('uf_text')||{}).value||'').trim();
+  const msg=g('uf_msg');
+  if(!text){ if(msg) msg.innerHTML='<span style="color:#ff8a7a">Napiš nebo namluv text úkolu.</span>'; return; }
+  const body={text:text, termin:(g('uf_termin').value||null), priorita:parseInt(g('uf_pri').value||'0',10)};
+  const res=g('uf_res').value; if(res) body.resitele=[parseInt(res,10)];
+  if(msg) msg.textContent='Ukládám…';
+  try{
+    const r=await fetch(API+'/app/task',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json().catch(()=>({ok:false}));
+    if(!d.ok){ if(msg) msg.innerHTML='<span style="color:#ff8a7a">Chyba: '+esc(d.error||'')+'</span>'; return; }
+    const f=document.getElementById('ukForm'); if(f){ f.style.display='none'; f.dataset.open='0'; }
+    loadUkoly();
+  }catch(e){ if(msg) msg.innerHTML='<span style="color:#ff8a7a">✗ síť</span>'; }
 }
 // ── Inspirace Marti — sbírka rad (Šárka 21.8.2026), jen HR ──
 const INSP_KAT=[['firma','Fungování firmy'],['vztahy','Vztahy a lidé'],['vedeni','Vedení'],['hodnoty','Hodnoty'],['jine','Jiné']];

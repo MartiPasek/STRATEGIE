@@ -4072,6 +4072,8 @@
      *  z té předchozí — uživatel by koukal na jiná data, než jaká uložil. */
     _applyFilterModel(lj) {
       if (this._destroyed || !this.gridApi) return;
+      // Po dobu nasazování sestavy se nepočítají „neuložené změny" (viz markDirty).
+      this._applyingLayout = true;
       try {
         var fm = (lj && lj.filter_model) ? lj.filter_model : null;
         this.gridApi.setFilterModel(fm);
@@ -4081,6 +4083,11 @@
         );
       } catch (e) {
         console.warn("[ErpDataGrid] setFilterModel failed:", e);
+      } finally {
+        // AG Grid může filterChanged vyvolat až po dokončení téhle funkce,
+        // proto se pojistka pouští až na dalším tiku, ne hned ve finally.
+        var self = this;
+        setTimeout(function () { self._applyingLayout = false; }, 0);
       }
     }
 
@@ -5399,6 +5406,11 @@
         "filterChanged",
       ];
       const markDirty = () => {
+        // Jirka Honomichl 1.9.2026: nasazení sestavy NENÍ změna od uživatele.
+        // Bez téhle pojistky vyvolá setFilterModel při otevření přehledu
+        // událost filterChanged a tlačítko Uložit se rovnou tváří, že jsou
+        // neuložené změny — přitom uživatel ještě na nic nesáhl.
+        if (this._applyingLayout) return;
         if (!this._isDirty) {
           this._isDirty = true;
           this._notifyLayoutChange();

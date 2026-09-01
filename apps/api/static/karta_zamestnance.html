@@ -1967,7 +1967,7 @@ async function loadLeave(uid){
   if(dm&&dm.ok&&dm.has){ const chyb=dm.chybi; const pres=(chyb!=null&&chyb<0);
     cols.push(bigcard('🕐',(chyb==null?'—':num(Math.abs(chyb))),(pres?'h přesčas':'h do fondu zbývá'),
       (chyb==null?'#eaf2ff':(chyb>0?'#ff8a7a':'#7fe0a0')),
-      esc(dm.mesic||'')+' k dnešku · detail v dlaždici Docházka'));
+      esc(dm.mesic||'')+(dm.cely_mesic?' (celý měsíc)':' k dnešku')+' · detail v dlaždici Docházka'));
   }
   if(!cols.length){ box.style.display='none'; return; }
   box.style.display='';
@@ -2791,15 +2791,16 @@ async function absUdaje(){
   let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">🕐 Docházka</span>'+back+'</div>';
   if(dm&&dm.ok&&dm.has){
     const chyb=dm.chybi, prescas=(chyb!=null&&chyb<0);
-    const rlbl=prescas?'Přesčas k dnešku':'Chybí odpracovat k dnešku';
+    const _kdy=(dm.cely_mesic?'za celý měsíc':'k dnešku');
+    const rlbl=prescas?('Přesčas '+_kdy):('Chybí odpracovat '+_kdy);
     const rval=(chyb==null?'—':nm(Math.abs(chyb))+' h'), rcol=(chyb==null?'#e8eef5':(chyb>0?'#ff8a7a':'#7fe0a0'));
     const row=(l,v,c)=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid #1e2730"><span style="color:#8fa6c4">'+l+'</span><span style="color:'+(c||'#e8eef5')+';font-weight:700;white-space:nowrap">'+v+'</span></div>';
-    h+='<div style="padding:6px 16px 10px"><div style="font-weight:800;color:#e8eef5;margin-bottom:2px">📊 Souhrn '+esc(dm.mesic||'')+' <span style="color:#5d6b7c;font-weight:400">(k dnešku)</span></div>'+
+    h+='<div style="padding:6px 16px 10px"><div style="font-weight:800;color:#e8eef5;margin-bottom:2px">📊 Souhrn '+esc(dm.mesic||'')+' <span style="color:#5d6b7c;font-weight:400">('+_kdy+')</span></div>'+
       '<div style="max-width:460px">'+
-      row('Počet pracovních dní k dnešku', nm(dm.prac_dni_k_dnesku))+
+      row('Počet pracovních dní '+_kdy, nm(dm.prac_dni_k_dnesku))+
       row('Fond (má být odpracováno za den)', nm(dm.fond_den)+' h')+
-      row('Má být odpracováno k dnešku', nm(dm.ma_byt_k_dnesku)+' h')+
-      row('Odpracováno k dnešku', nm(dm.odpracovano)+' h','#e8eef5')+
+      row('Má být odpracováno '+_kdy, nm(dm.ma_byt_k_dnesku)+' h')+
+      row('Odpracováno '+_kdy, nm(dm.odpracovano)+' h','#e8eef5')+
       row(rlbl, rval, rcol)+
       '</div>'+
       '<div style="font-size:11px;color:#8090a0;margin-top:7px;line-height:1.55;max-width:660px">'+

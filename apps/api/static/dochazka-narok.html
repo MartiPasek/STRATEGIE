@@ -13,6 +13,9 @@
   .sub{margin:0 14px 8px;color:#8fa3bd;font-size:12px}
   #info{margin:0 14px 6px;color:#a9bad0;font-size:12px}
   .leg{margin:0 14px 8px;font-size:12px}
+  /* Peťa 27.8.2026: tlačítko Aktualizovat stejné jako v Docházce new (třída b-rf). */
+  .b-rf{background:#22303f;color:#a9c0da;border:1px solid #2a3546;border-radius:6px;cursor:pointer}
+  .b-rf:hover{background:#2b3b4d}
   .leg span{display:inline-block;border-radius:5px;padding:2px 9px;margin-right:8px;font-weight:700}
   .lg-d{background:#123527;color:#7fe3b0;border:1px solid #2f7d5c}
   .lg-dn{background:#3a2a10;color:#f0b866;border:1px solid #8a6520}
@@ -44,7 +47,7 @@
 </style></head><body>
 <h2 id="title">Nárok a čerpání dovolené</h2>
 <div class="sub" id="sub"></div>
-<div class="leg"><span class="lg-d">D — dovolená</span><span class="lg-dn">DN — dovolená navíc</span><span class="lg-sd">SD — sick days</span></div>
+<div class="leg"><span class="lg-d">D — dovolená</span><span class="lg-dn">DN — dovolená navíc</span><span class="lg-sd">SD — sick days</span><button type="button" id="btnObnovit" class="b-rf" style="padding:2px 10px;font-size:11.5px;margin-left:8px" title="Znovu načíst čerstvá data ze serveru" onclick="reloadData()">🔄 Aktualizovat</button></div>
 <div id="info"></div>
 <div class="tw"><table class="dokl" id="tab"><thead></thead><tbody><tr><td class="ld">Načítám…</td></tr></tbody></table></div>
 <script>
@@ -55,16 +58,25 @@ function normNum(v){return String(v==null?'':v).replace(/\s/g,'').replace(',','.
 var COLS=[], ROWS=[], FILT=[], FIL={}, FILMODE={}, VFILT=null, SORT={k:null,dir:1}, SELSET={}, CUR=null;
 var _VOPS=[['has','Obsahuje'],['nhas','Neobsahuje'],['eq','Rovná se'],['ne','Nerovná se']];
 
-function load(){
-  fetch('/api/v1/erp/app/dochazka-narok/data',{credentials:'include'})
+// Peťa 27.8.2026: „potřebuju tlačítko aktualizovat, udělej to stejně jako v Docházce new."
+// Stejně jako tam = znovu natáhnout čerstvá data ze serveru. Filtry, řazení i označení
+// řádků žijí v proměnných nad tímhle, load() je nepřepisuje, takže po obnovení zůstanou.
+function reloadData(){
+  var b=$('btnObnovit');
+  if(b){b.disabled=true;b.textContent='🔄 Načítám…';}
+  load(function(){ if(b){b.disabled=false;b.textContent='🔄 Aktualizovat';} });
+}
+function load(hotovo){
+  fetch('/api/v1/erp/app/dochazka-narok/data?_t='+Date.now(),{credentials:'include',cache:'no-store'})
     .then(function(r){return r.json();}).then(function(j){
-      if(!j||!j.ok){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">'+esc((j&&j.error)||'Nepodařilo se načíst.')+'</td></tr>';return;}
+      if(!j||!j.ok){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">'+esc((j&&j.error)||'Nepodařilo se načíst.')+'</td></tr>';if(hotovo)hotovo();return;}
       COLS=j.columns||[]; ROWS=j.rows||[];
       $('title').textContent=j.title||'Nárok a čerpání dovolené';
       document.title=j.title||'Nárok a čerpání dovolené';
       $('sub').textContent=j.podtitul||'';
       hlavicka(); render();
-    }).catch(function(){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">Chyba spojení.</td></tr>';});
+      if(hotovo)hotovo();
+    }).catch(function(){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">Chyba spojení.</td></tr>';if(hotovo)hotovo();});
 }
 function _gcls(c){return c&&c.grp?(' g-'+c.grp):'';}
 function hlavicka(){

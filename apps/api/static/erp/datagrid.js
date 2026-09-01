@@ -4176,15 +4176,30 @@
           sortIndex: (c.sortIndex == null) ? null : c.sortIndex,
         };
       }).filter(function (c) { return !!c.colId; });
-      var f = filtry || {};
-      var klice = Object.keys(f).sort();
-      var filtryNormalizovane = {};
-      klice.forEach(function (k) { filtryNormalizovane[k] = f[k]; });
       try {
-        return JSON.stringify({ columns: vybrane, filter_model: filtryNormalizovane });
+        return this._stabilniJson({ columns: vybrane, filter_model: filtry || {} });
       } catch (e) {
         return null;
       }
+    }
+
+    /** JSON, ve kterem NEZALEZI na poradi klicu v objektech.
+     *  Jirka Honomichl 1.9.2026. Bez tohohle porovnani selhavalo: ulozeny filtr
+     *  mel klice v poradi type/filter/filterType, zatimco tentyz filtr z tabulky
+     *  je vracel jako filterType/type/filter. Obsah shodny, text jiny - a grid
+     *  proto po kazdem prepnuti sestavy hlasil neulozene zmeny. */
+    _stabilniJson(hodnota) {
+      var self = this;
+      if (Array.isArray(hodnota)) {
+        return '[' + hodnota.map(function (v) { return self._stabilniJson(v); }).join(',') + ']';
+      }
+      if (hodnota && typeof hodnota === 'object') {
+        var klice = Object.keys(hodnota).sort();
+        return '{' + klice.map(function (k) {
+          return JSON.stringify(k) + ':' + self._stabilniJson(hodnota[k]);
+        }).join(',') + '}';
+      }
+      return JSON.stringify(hodnota === undefined ? null : hodnota);
     }
 
     /** Otisk toho, co je PRAVE TED v tabulce. */

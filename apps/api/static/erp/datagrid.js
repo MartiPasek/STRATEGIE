@@ -3548,6 +3548,37 @@
         } catch (e) {
           console.warn("[ErpDataGrid] setColumnWidths failed:", e);
         }
+        // ⚠ SIRKY SLOUPCU PRI PREPNUTI SESTAVY (Jirka Honomichl 1.9.2026,
+        // schvalila Marti-AI msg 14146). Volani vyse SAMO O SOBE NESTACI.
+        // Zmereno v prohlizeci: setGridOption("columnDefs", ...) vyse prestavi
+        // sloupce az PO dokonceni teto funkce, takze sirky nastavene synchronne
+        // se pri te prestavbe zahodi. applyColumnState sirky neaplikuje vubec.
+        // Vysledek pro uzivatele: po prepnuti sestavy zustaly sloupce v sirkach
+        // te predchozi a vypadalo to, ze se sirky do sestavy neukladaji -
+        // pritom v databazi ulozene byly. Proto se stejne srovnani zopakuje
+        // na dalsim tiku, kdy uz je prestavba hotova. Overeno: 185 -> 300
+        // a drzi. Pojistka kolem = aby z toho nebyla falesna "neulozena zmena".
+        try {
+          const sirkyPoTiku = cols
+            .filter(c => c.width != null && c.width > 0)
+            .map(c => ({ key: c.colId, newWidth: c.width }));
+          if (sirkyPoTiku.length > 0 && typeof this.gridApi.setColumnWidths === "function") {
+            const selfW = this;
+            setTimeout(function () {
+              if (selfW._destroyed || !selfW.gridApi) return;
+              selfW._beginApplyingLayout();
+              try {
+                selfW.gridApi.setColumnWidths(sirkyPoTiku);
+              } catch (e) {
+                console.warn("[ErpDataGrid] odlozene srovnani sirek selhalo:", e);
+              } finally {
+                selfW._endApplyingLayout();
+              }
+            }, 0);
+          }
+        } catch (e) {
+          console.warn("[ErpDataGrid] priprava odlozenych sirek selhala:", e);
+        }
         // Po-apply state pro porovnani
         try {
           const after = this.gridApi.getColumnState();

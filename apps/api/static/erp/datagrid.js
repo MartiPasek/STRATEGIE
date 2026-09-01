@@ -1072,7 +1072,7 @@
       // nejvýš jednou (událost + záchranný časovač). Je INSTANČNÍ schválně —
       // každá tabulka v ERP je vlastní instance, sdílená by je křížila.
       this._initialLayoutApplied = false;
-      this._applyingLayout = false;
+      this._applyingLayoutDepth = 0;
       this._isDirty = false;
       this._dirtyEventsAttached = false;
       // B+10+ (6.5.2026): user-defined conditional formatting state
@@ -3904,12 +3904,27 @@
      *  zive strance: _lastFetchedAt zustalo null, prestoze _currentLayoutId
      *  i options.initialLayout.layout_json byly v poradku. Proto se metoda
      *  vola ze dvou mist - z te udalosti a ze zachranneho casovace. */
+    _beginApplyingLayout() {
+      this._applyingLayoutDepth = (this._applyingLayoutDepth || 0) + 1;
+    }
+
+    _endApplyingLayout() {
+      // AG Grid vyvolá události až po dokončení volání, proto se pojistka
+      // pouští teprve na dalším tiku.
+      var self = this;
+      setTimeout(function () {
+        self._applyingLayoutDepth = Math.max(0, (self._applyingLayoutDepth || 1) - 1);
+      }, 0);
+    }
+
     _applyInitialLayoutOnce(params) {
       if (this._destroyed) return;
       if (this._initialLayoutApplied) return;
       this._initialLayoutApplied = true;
       if (!params || !params.api) params = { api: this.gridApi };
       if (!params.api) return;
+      this._beginApplyingLayout();
+      try {
       // Phase 35-E.4 Krok C+ fix #11 (9.5.2026 vecer Marti's
       // "pozice sloupcu nikoli"): AG Grid initialState.columnState
       // aplikuje width per columnDefs mutate ale REORDER columnDefs
@@ -4103,6 +4118,9 @@
           console.warn("[ErpDataGrid] initialLayout rebuild formatting failed:", e);
         }
       }
+      } finally {
+        this._endApplyingLayout();
+      }
     }
 
 
@@ -4130,7 +4148,7 @@
     _applyFilterModel(lj) {
       if (this._destroyed || !this.gridApi) return;
       // Po dobu nasazování sestavy se nepočítají „neuložené změny" (viz markDirty).
-      this._applyingLayout = true;
+      this._beginApplyingLayout();
       try {
         var fm = (lj && lj.filter_model) ? lj.filter_model : null;
         this.gridApi.setFilterModel(fm);
@@ -4141,10 +4159,7 @@
       } catch (e) {
         console.warn("[ErpDataGrid] setFilterModel failed:", e);
       } finally {
-        // AG Grid může filterChanged vyvolat až po dokončení téhle funkce,
-        // proto se pojistka pouští až na dalším tiku, ne hned ve finally.
-        var self = this;
-        setTimeout(function () { self._applyingLayout = false; }, 0);
+        this._endApplyingLayout();
       }
     }
 
@@ -5464,10 +5479,12 @@
       ];
       const markDirty = () => {
         // Jirka Honomichl 1.9.2026: nasazení sestavy NENÍ změna od uživatele.
-        // Bez téhle pojistky vyvolá setFilterModel při otevření přehledu
-        // událost filterChanged a tlačítko Uložit se rovnou tváří, že jsou
-        // neuložené změny — přitom uživatel ještě na nic nesáhl.
-        if (this._applyingLayout) return;
+        // Bez téhle pojistky vyvolají applyColumnState a setFilterModel při
+        // otevření přehledu události sortChanged / filterChanged a tlačítko
+        // Uložit se rovnou tváří, že jsou neuložené změny — přitom uživatel
+        // ještě na nic nesáhl. Počítá se hloubka, protože nasazení sestavy
+        // volá nasazení filtrů vnořeně.
+        if (this._applyingLayoutDepth > 0) return;
         if (!this._isDirty) {
           this._isDirty = true;
           this._notifyLayoutChange();

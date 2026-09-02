@@ -1,6 +1,21 @@
-# Mobil, obrazovka Absence: poradi sekci pro vedouciho + uzavirani notifikace po rozhodnuti (16.8.2026)
+# Mobil, obrazovka Absence: poradi sekci pro vedouciho + uzavirani notifikace
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ⚠️ NEPLATI JEDEN RADEK NIZE (doplneno 2. 9. 2026)
+>
+> V tabulce "Prvotni zjisteni" stoji u nativni appky: *"nabizi jen Otevrit chat / Zavrit
+> a z payloadu cte jen klic `url`, `screen` ignoruje - NEOPRAVENO, odlozeno"*.
+> **To uz neplati.** Nativni appka cte `payload.screen` **od verze 1.81** (vydana 16. 8. 2026,
+> tedy tyz den, kdy tenhle dokument vznikl) a od **1.82** cte i hotovy popisek `payload.label`
+> ze serveru. Radek popisuje stav TESNE PRED tim vydanim a od te doby nebyl aktualizovan.
+>
+> Zbytek dokumentu plati. Aktualni popis rezervovanych klicu `screen`, `req_id` a `label`,
+> vcetne seznamu obrazovek a toho, ktere verze appky co umi, drzi
+> **`doc-dochazka-mobile-command-payload-screen`**.
+>
+> *(Nalezeno pri kontrole rozporu 2. 9. 2026, kdy k hodnotam `absence` a `dochazka`
+> pribyla treti obrazovka `doch_opravy`.)*
 
 ## Co se resilo
 

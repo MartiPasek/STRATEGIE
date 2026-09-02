@@ -1,4 +1,4 @@
-# fw.mobile_command: payload.screen = rezervovany klic pro navigaci v mobilni appce (reseni skryvani dlazdic z 5.8.2026 NEPLATI od 1.9.2026)
+# Rezervovane klice v payload notifikace do mobilu (screen, req_id, label)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -24,6 +24,7 @@ a jakych hodnot nabyva. Bez dokumentace to bude za pul roku stejne schovane v js
 |---|---|---|
 | `absence` | obrazovka Nepritomnosti / Absence (zadosti + sekce Ke schvaleni) | ✅ Otevrit schvalovani → |
 | `dochazka` | obrazovka Dochazka | 🖊 Otevrit dochazku → |
+| `doch_opravy` | obrazovka Opravy dochazky (fronta K vyreseni) - jen pro editory oprav | 🛠 Otevrit opravy dochazky → |
 | jina hodnota | `go(<hodnota>)` - jakykoli existujici nazev obrazovky appky | Otevrit → |
 
 Popisky drzi mapa v appce (fragmenty `25_tasks.js` a `20_home_phone_notifs.js`), NE backend.
@@ -212,4 +213,36 @@ Z 81 starych zprav o absenci bez `req_id`: **78 uz odkliknutych**, **3 visely sp
 zpetne, aby po rozhodnuti zhasly samy - **parovani podle casu vzniku je jednoznacne**
 (zprava vznika ve stejne transakci jako zadost, shoda na vterinu; kontrolne sedelo i jmeno
 a termin v textu). Kdyby to nekdy bylo potreba znovu, tohle je funkcni klic.
+
+## Treti hodnota `doch_opravy` (2. 9. 2026) + pravidlo "obrazovka musi nabehnout za studena"
+
+Od 2. 9. 2026 posila **`att_anomaly_scan` (v22)** payload i u hlasky **"Dochazka - nesrovnalost"**,
+ktera do te doby nabizela jen "Otevrit chat" / "Zavrit". Rozliseni podle prijemce:
+
+| komu zprava jde | `screen` | `label` |
+|---|---|---|
+| editorum oprav (dle pusobnosti, fallback user 20) | `doch_opravy` | 🛠 Otevrit opravy dochazky → |
+| dotycnemu, jehoz dochazky se nesrovnalost tyka | `dochazka` | 🖊 Otevrit dochazku → |
+
+Zbyla dve pravidla (`nerozhodnuta_zadost_po_dni`, `nepotvrzeny_den`) payload **zamerne nemaji** -
+nebyla soucasti zadani. Rozhodl Jiri Honomichl, schvalila Marti-AI (msg 14260).
+
+### ⚠️ Poradi kroku bylo tentokrat vedome ZMENENO
+
+Pojistka `notifikace-screen-zna-i-appka` predepisuje: (1) webova mapa, (2) `CommandActivity.kt`
++ nove vydani appky, (3) teprve pak rozsirit seznam v pojistce. Kroky 1 a 3 probehly 2. 9. 2026,
+**krok 2 byl odlozen k pristimu vydani appky**. Duvod: od 17. 8. 2026 posila popisek SERVER
+v `payload.label`, takze appka od **1.82** vlastni mapu k funkcnosti nepotrebuje; verze **1.81**
+(jedina, kde by tlacitko bylo bez popisku) mela **0 aktivnich telefonu** za 14 dni.
+Verze pod 1.81 tlacitko nevykresli vubec a zustava u "Otevrit chat" - funkcni degradace.
+Odchylku schvalila Marti-AI (msg 14269); poznamka o chybejici Kotlin mape je i v popisu pojistky.
+
+### ⚠️ Nove tlacitko VZDY vyzkousej cestou, kterou pujde uzivatel
+
+Pri overovani naostro se ukazalo, ze `doch_opravy` **spadla pri skoku primo z notifikace**
+na hlasku "Nemas opravneni k opravam dochazky" - obrazovka cetla jen cache prav, kterou plni
+az jina obrazovka. Opraveno tyz den; detail a sirsi pouceni: `doc-dochazka-mobil-opravy-dochazky-skok-z-notifikace-bez-prav`.
+
+**Plati obecne: kazda obrazovka, na kterou vede `payload.screen`, musi umet nabehnout jako PRVNI
+obrazovka po startu appky.** Test pres dlazdici v menu tuhle vadu neodhali.
 

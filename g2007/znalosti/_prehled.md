@@ -11,7 +11,7 @@
 | `ucetnictvi` | obor | 15 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 33 |  |
 | `mzdy` | obor | 49 | Oborova znalost pro personu mzdovou. |
-| `dochazka` | obor | 170 | Oborova znalost pro personu odpovednou za dochazku. |
+| `dochazka` | obor | 172 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 7 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 7 | Oborova znalost pro personu tvorici nabidky. |
 | `kalkulace-rozvadecu` | obor | 17 | Oborova znalost pro personu kalkulujici rozvadece. |

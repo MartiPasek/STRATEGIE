@@ -75,7 +75,7 @@ Dopad jen na přepínání sestav uživatelem — při otevření přehledu se �
 
 **Poznámka k pořadí sloupců:** otisk se ZÁMĚRNĚ neřadí podle názvu sloupce, ale nechává pořadí z tabulky. Pořadí sloupců je totiž součástí sestavy — kdyby se otisk seřadil podle názvu, přeházení sloupců by se tvářilo jako žádná změna a uživatel by o ně při uložení přišel.
 
-**Ověřeno naostro** (přehled Nesplněný FPD, jádro 209): po otevření čisto · po přepnutí sestavy čisto · změna šířky rozsvítí · **vrácení změny zpět zase zhasne** · změna řazení rozsvítí.
+**Ověřeno naostro** (přehled Odpracované hodiny komplet (dříve Nesplněný FPD), jádro 209): po otevření čisto · po přepnutí sestavy čisto · změna šířky rozsvítí · **vrácení změny zpět zase zhasne** · změna řazení rozsvítí.
 
 _Souvisí:_ doc-module-registry, doc-strategie-erp
 

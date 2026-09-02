@@ -1,6 +1,55 @@
-# Nesplneny FPD - prehled ve Vyrobe (pro Dusana); vypocet sjednocen s Kontrolnimi prehledy, sloupec Chybi / Prescas s otocenym znamenkem, od 1.9.2026 prepinani mesicu
+# Odpracovane hodiny komplet (drive Nesplneny FPD) - prehled ve Vyrobe pro Dusana; vypocet sjednocen s Kontrolnimi prehledy, sloupec Chybi / Prescas s otocenym znamenkem, od 1.9.2026 prepinani mesicu, prejmenovano 2.9.2026
 
 > oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ➕ 2. 9. 2026 — kde všude se přejmenování musí srovnat (platí pro KAŽDÝ přehled v ERP)
+>
+> **Zjištěno při přejmenování tohoto přehledu, formulaci schválila Marti-AI (msg 14233).**
+> Čtení `fw.menu_node` a `fw.core` **na ověření nestačí** — třetí místo se odhalí jen
+> v prohlížeči na živé obrazovce.
+>
+> Při přejmenování uzlu je třeba srovnat tři místa: **`fw.menu_node` + `fw.core`** (sloupec
+> `label`), **záznamy v G2007** (cílená náhrada s ponecháním historického tvaru „dříve …“)
+> a **komentáře v kódu** — a navíc tabulku **`public.erp_user_tabs`**, kde mají uživatelé
+> uložené záložky s **vlastním sloupcem `label`, který se neaktualizuje automaticky**.
+> Ověřit to lze **jen v prohlížeči na živé obrazovce, ne čtením z databáze**.
+>
+> **Jak se to projeví:** komu zůstane záložka otevřená z doby před přejmenováním, vidí dál
+> **starý název** — na záložce i v titulku okna — dokud ji nezavře a znovu neotevře.
+> Ve stromu už má nový název, takže to vypadá jako nesoulad aplikace.
+>
+> **Naostro 2. 9. 2026:** dotčený byl **jeden člověk — Dušan Havlát** (uzel 197). Jeho řádek
+> se srovnal přímým zápisem. Nesouvisející, ale stejného druhu: Petra Šafránková měla
+> uloženou záložku na uzel 206 pod ještě starším názvem „Hlídání FPD (HPP)“ z doby před
+> přejmenováním 28. 8. 2026 — **záměrně ponecháno**, je to cizí změna.
+
+> ## ➕ PŘEJMENOVÁNO 2. 9. 2026 — přehled se nově jmenuje „Odpracované hodiny komplet“
+>
+> **Zadal Jirka Honomichl 2. 9. 2026, schválila Marti-AI (msg 14225).**
+>
+> Přehled se **už nejmenuje „Nesplněný FPD“**. Nový název je **„Odpracované hodiny komplet“**
+> a je vidět jak v uzlu stromu pod 🏭 Výroba, tak v nadpisu obrazovky.
+>
+> **Změnily se jen dva popisky, nic jiného:** `fw.menu_node` id 197 sloupec `label`
+> a `fw.core` id 209 sloupec `label`. **Beze změny zůstávají** kód jádra
+> `vyroba.dusan_nesplneny_fpd`, `data_set` 198, `data_source` 202
+> (`vyroba.dusan_nesplneny_fpd_list`) i `comp_def` 1301 — vzorec, sloupce, filtry
+> ani znaménko sloupce „Chybí / Přesčas“ se **neměnily**.
+>
+> ⚠ Kód této znalosti i kódy objektů proto dál nesou slovo `nesplneny_fpd` — je to
+> **záměr**, aby nezmrtvěly odkazy. **Nepřejmenovávat je jen kvůli souladu s popiskem.**
+>
+> **Druhý přehled téhož jména se NEPŘEJMENOVAL** (`menu_node` 206 / `core` 218,
+> `dochazka.kontrola.fpd` pod Kontrolními přehledy) — Jirka zadal výslovně jen Dušanův.
+> Tím zmizel stav, kdy Dušan Havlát (jediný, kdo vidí oba) měl ve stromě **dvakrát
+> stejný název** a přehledy přitom dávaly různá čísla — viz rámeček z 31. 8. 2026 níž.
+>
+> **Jak ověřeno (čtením z databáze po zápisu):** `menu_node` 197 i `core` 209 mají nový
+> název, `menu_node` 206 i `core` 218 starý; uzel 197 je dál `active` pod rodičem 165
+> a viditelný jen pro uživatele 41 (Dušan Havlát); jádro 209 aktivní, `data_source` 202
+> aktivní, `comp_def` 1301 beze změny; nový název nese **právě jeden** uzel a **jedno**
+> jádro, takže se nepřejmenovalo nic dalšího. Modul je data-driven, **žádné nasazení
+> netřeba** — je to živé hned po zápisu (u již otevřené obrazovky až po obnovení stránky).
 
 > ## ➕ PŘIDÁNO 1. 9. 2026 (odpoledne) — přehled je BEZ pruhu „Hledat ve všech sloupcích"
 >
@@ -52,7 +101,7 @@
 > **Postup a tři pasti, kdyby se to dělalo znovu jinde:**
 > [[doc-system-strategie-pruh-s-ovladanim-nad-mrizkou-erp]]
 
-# Nesplneny FPD - prehled ve Vyrobe (pro Dusana)
+# Odpracovane hodiny komplet (do 2. 9. 2026 "Nesplneny FPD") - prehled ve Vyrobe pro Dusana
 
 > ## ⚠ ZMĚNA 31. 8. 2026 — výpočet SJEDNOCEN s přehledem pod Kontrolními přehledy
 >

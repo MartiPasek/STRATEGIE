@@ -5,7 +5,7 @@
 # Pruh s ovládáním nad mřížkou v ERP a jak z něj poslat volbu do dotazu
 
 **Jirka Honomichl, 1. 9. 2026** (postaveno pro Dušana Havláta, schválila Marti-AI msg 14071).
-Ověřeno naostro na produkci — přehled „Nesplněný FPD" ve Výrobě (jádro 209).
+Ověřeno naostro na produkci — přehled „Odpracované hodiny komplet (dříve Nesplněný FPD)" ve Výrobě (jádro 209).
 
 ## K čemu to je
 

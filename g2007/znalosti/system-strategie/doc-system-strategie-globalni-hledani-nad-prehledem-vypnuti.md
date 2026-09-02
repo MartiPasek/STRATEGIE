@@ -5,7 +5,7 @@
 # Globální hledání nad přehledem v ERP („Hledat ve všech sloupcích")
 
 > Zapsal Claude-28 (Jirka Honomichl) 1. 9. 2026 po zadání *„to v tomto přehledu nechci"*
-> u přehledu „Nesplněný FPD" ve Výrobě (jádro 209, Dušan Havlát).
+> u přehledu „Odpracované hodiny komplet (dříve Nesplněný FPD)" ve Výrobě (jádro 209, Dušan Havlát).
 
 ## Co to je a odkud se bere
 

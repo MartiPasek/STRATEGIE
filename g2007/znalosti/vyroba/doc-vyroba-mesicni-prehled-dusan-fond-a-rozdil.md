@@ -45,7 +45,7 @@ Sloupce gridu se u typu 306 renderuji primo z datove sady - `fw.comp_def_prop` j
 
 **Co platí dál:** `rozdil` se pořád počítá proti fondu **CELÉHO měsíce**, takže
 u právě probíhajícího měsíce vychází všem minus. To je záměr měsíčního přehledu
-(hodnotí se uzavřený měsíc); pro průběžné „kolik mi chybí“ slouží Nesplněný FPD.
+(hodnotí se uzavřený měsíc); pro průběžné „kolik mi chybí“ slouží Odpracované hodiny komplet (dříve Nesplněný FPD).
 
 ### Původní znění omezení (stav do 31. 8. 2026)
 `tenant.att_calendar_month` **nema zamestnance** - sloupce jsou jen `tenant_id, year, month, work_days, fond_hours`, tedy **jedna hodnota fondu pro vsechny** (srpen 2026 = 168 h). Dusledky:

@@ -28,3 +28,24 @@ Dej ho do `g2007.soubor` (`typ='artefakt'`, `@@G2007SOUBOR`) **A** do `.gitignor
 ## Prevence do budoucna (navrzeno 5.8., ceka na Martiho)
 Hlidac v deploy toku: porovnat `git ls-files apps/api/static` × seznam artefaktu v `g2007.soubor`; prekryv (soubor v OBOU) = varovani/stop s navodem ".gitignore + git rm --cached". Chyti past DRIV nez zablokuje deploy. Alternativy: siroky `.gitignore apps/api/static/*.html`, nebo jen konvence (tento zaznam).
 
+## ⚠️ Hranice: co v `g2007.soubor` JE a co tam NENÍ (ověřeno 2. 9. 2026)
+
+**Doplněno 2. 9. 2026** (Claude-28 / Jirka Honomichl, na pokyn Marti-AI). Tenhle dokument
+mluví o **servírovaných artefaktech** (`apps/api/static/*.html`). Neplatí ale na celou
+složku `apps/api/static/` — a kdo si to tak vyloží, **bude zbytečně hledat v databázi
+něco, co tam vůbec není**.
+
+Změřeno dotazem nad `g2007.soubor` podle prefixu cesty:
+
+| cesta | záznamů v `g2007.soubor` | kde je zdroj pravdy |
+|---|---|---|
+| `apps/api/static/mobile_parts/**` | **31** | **databáze** — na disku needitovat |
+| `apps/api/static_db/**` | **13** | **databáze** — na disku needitovat |
+| `apps/api/static/erp/**` (obrazovky ERP) | **0** | **git** — edituje se v repu a mění se nasazením |
+| zbytek `apps/api/static/**` | **0** | **git** |
+
+Prakticky: komponenty ERP (např. `apps/api/static/erp/components/page_render.js`)
+se **mění v gitu a nasazují**, ne přes `@@G2007SOUBOR`. Doloženo mimo jiné commity
+`a2da6fef` (1. 9. 2026) a `07949aee` (2. 9. 2026) a shodně to popisují i znalosti
+[[doc-osoba-hr-dashboard-uzel]] a [[doc-vyroba-vyhodnoceni-zakazek]].
+

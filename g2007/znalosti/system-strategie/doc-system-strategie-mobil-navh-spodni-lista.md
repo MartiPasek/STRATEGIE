@@ -3,6 +3,15 @@
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+> ## ⚠️ AKTUALIZACE 2. 9. 2026 — lišta má 61 px (ne 65) a dole umí i Android `--sab`
+>
+> **Pravidlo této znalosti PLATÍ DÁL** (nikdy pevná rezerva, vždy `var(--navh, 65px)`), ale dvě čísla níž už neplatí doslova:
+> 1. **Hlavní lišta `#bnav` má od 2. 9. 2026 výšku 61 px, ne 65.** Těch 65 dělala ikona Aplikace — je to obrázek (SVG), ne emoji, seděl na řádku jako písmeno a byl o 4 px vyšší; popisek „Aplikace" byl proto níž než ostatní. Opraveno ve stylech (`.tabbtn .i svg { display:block; width:21px; height:21px }`). `--navh` se dopočítá sama, obrazovky nic měnit nemusí; fallback `65px` v `:root` a v `calc()` klidně zůstává (jen první vykreslení).
+> 2. **Spodní bezpečná zóna už není jen `env(safe-area-inset-bottom)`.** Od Androidu 15 kreslí systém obsah až pod čárku gest a WebView hlásí `env()` = 0 — obal Android proto posílá výšku zóny jako CSS proměnnou **`--sab`** a čtyři místa lišty používají `max(env(safe-area-inset-bottom,0px), var(--sab,0px))`. Kdo přidává nový pruh do `#navwrap` nebo další pevný spodek, ať použije tentýž zápis. Detail a dopad jmenovitě: `doc-system-strategie-mobil-android-edge-to-edge-insety-sab`.
+> 3. Na iPhonu pod lištou zůstával prázdný pruh (35 bodů) — nebyl to `#bnavback`, ale obal iOS (`contentInsetAdjustmentBehavior`), oprava čeká na build 1.86: `doc-system-strategie-ios-1-86-spodni-pruh-build-na-macu`.
+>
+> *(Doplnil Claude-28 / Jirka Honomichl 2. 9. 2026; zbytek znalosti ponechán beze změny.)*
+
 > ## AKTUALIZACE 31. 8. 2026 - prazdny pruh pryc i z Firmy
 >
 > **Pravidlo teto znalosti PLATI DAL** (nikdy pevna rezerva, vzdy `var(--navh, 65px)`).

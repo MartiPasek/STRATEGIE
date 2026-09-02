@@ -1,4 +1,4 @@
-# Zapomenutý odchod: půlnoční automat musí uzavřít i položky rozpadu; konec se nezobrazuje a řádek je červený
+# Zapomenutý odchod: půlnoční automat uzavírá i položky rozpadu — a měsíc přitom umlčoval hlídač, který to měl hlásit (oprava 2. 9. 2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -59,4 +59,48 @@ v **zamčených** měsících — nesahat na ně bez rozhodnutí mzdové účetn
   z `att_entry`, ne se dopočítává vlastní.
 - Dopočtený čas se **nevydává za změřený**. Radši prázdno + červeně než číslo,
   kterému se dá uvěřit.
+
+## HLÍDAČ „zapomenutý odchod" BYL MĚSÍC MRTVÝ (Peťa + Claude‑26, 2. 9. 2026)
+
+Půlnoční automat neuzavíral jen rozpad — **umlčel i pravidlo, které to mělo hlásit.**
+
+`zapomenuty_odchod` v `att_anomaly_scan` hledal úsek **bez vyplněného konce**
+(`ended_at IS NULL`) z minulého dne. Jenže automat konec každou noc dopíše na 23:59,
+takže než se den stane „včerejším", je úsek zavřený a pravidlo nemá co najít.
+**Poslední nález padl 29. 7. 2026, pak už ani jeden** — zatímco `dlouha_smena` běžela dál.
+
+**Kdo tím propadl:** Jiří Hájek a Eliška Kolářová, oba 25. 8. 2026. Směna useknutá
+o půlnoci **není ani otevřená, ani dlouhá** (9,47 a 8,38 h, práh dlouhé směny je 12 h),
+takže ji nechytilo žádné pravidlo. Neodhalila to ani měsíční kontrola docházky před
+mzdami — našly se až ručním dotazem 2. 9.
+
+### Oprava (nasazeno 2. 9. 2026)
+
+Pravidlo se **řídí poznámkou, ne časem**. Důvod (Peťa): 23:59 může být i skutečný konec,
+takže čas sám o sobě nic neříká — proto se konec v detailu dne už ani nezobrazuje a svítí
+tam „⚠ neodhlášeno". Nález vznikne, když má úsek poznámku o **auto-odhlášení o půlnoci**
+a nikdo ho neopravil; zmizí, jakmile ho někdo opraví nebo potvrdí, že 23:59 sedí (oba
+případy přepíšou poznámku na „🛠 OPRAVA (kdo): …"). Je to **týž příznak**, jaký už používá
+kaskáda rozpadu (`auto_konec`) i detail dne — žádná nová definice.
+
+**Okno:** od začátku předchozího měsíce. Bez toho by při nasazení naskočilo 8 nálezů až
+z června a lidem by přišly zprávy o dnech, které jsou dva měsíce staré a zaplacené.
+
+**Ověřeno naostro týž den:** Kolářové nález vznikl a ve 13:07 se sám odbavil, protože ji
+Peťa mezitím opravila. Hájkovi nevznikl — byl opravený dřív, než pravidlo poprvé proběhlo.
+
+### ⚠ Past při psaní pravidel do `att_anomaly_scan`
+
+Velký dotaz, který nálezy zakládá, běží **bez parametrů**. Psycopg2 tedy neinterpoluje
+procenta, takže se v něm **nesmí použít `LIKE '%...%'`** — procenta by se musela zdvojit
+a pak by vzorec nesedl. Používá se `position('text' in COALESCE(sloupec,'')) > 0`, jak to
+má zbytek skriptu. Kdyby to člověk přehlédl, hlídač bude mlčet a vypadat funkčně —
+přesně ten stav, který se tu měsíc přehlížel.
+
+### Poučení
+
+**Pravidlo, které hlídá stav, jejž mezitím jiný automat opraví, přestane platit tiše.**
+Když se přidá nebo změní automat, projdi pravidla, která se opírají o týž sloupec.
+A u každého hlídače se hodí vědět, **kdy padl naposledy** — měsíc ticha není důkaz, že je
+čisto.
 

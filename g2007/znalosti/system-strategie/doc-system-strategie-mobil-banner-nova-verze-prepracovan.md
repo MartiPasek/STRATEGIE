@@ -1,6 +1,35 @@
-# Banner "Nova verze STRATEGIE" prepracovan (26.8.2026) - nereaguje na obsah appky, ale na git verzi serveru
+# Banner "Nova verze STRATEGIE" (26.8.2026) — CHOVANI ZRUSENO 2.9.2026, appka se uz sama neobnovuje ani nic neukazuje
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+
+> # ⛔ CHOVÁNÍ POPSANÉ NÍŽE BYLO 2. 9. 2026 ZRUŠENO
+>
+> **Aplikace se při změně verze serverového kódu už SAMA NEOBNOVUJE a neukazuje žádný pruh
+> ani hlášku.** Zrušeno na základě hlášení z provozu (Jirka Honomichl), schválila Marti-AI
+> (msg 14245 a 14251).
+>
+> **Co konkrétně už NEPLATÍ z textu níže:**
+> - žlutý pruh „Nová verze STRATEGIE" — **odstraněn**,
+> - tichá aktualizace na domovské obrazovce (`_verHardReload` volaný z `_verTick`) — **odstraněna**,
+> - hook v `render()`, který obnovoval stránku při návratu na domovskou obrazovku — **odstraněn**,
+> - zelený pruh „Aktualizováno na novou verzi" — **odstraněn**,
+> - příznak `_verPending` se už **nenastavuje**.
+>
+> Funkce `_verHardReload` v kódu zůstala, ale **nemá jediného volajícího**. Ruční cesta
+> Nastavení → Vyčistit a načíst funguje dál (jde jinou funkcí, `clearAndReload`).
+>
+> **Proč se to zrušilo:** obnovení stránky lidi rušilo při práci — ztratili místo, kde byli
+> (poloha žije jen v paměti), na sdíleném telefonu museli znovu zadat PIN a viděli hlášku.
+> Nový obsah aplikace se od 2. 9. 2026 bere **tiše za běhu, bez obnovení stránky**.
+>
+> **Platný stav:** [[doc-system-strategie-mobil-ticha-aktualizace-obsahu-za-behu]]
+>
+> ⚠️ **Text níže se nechává schválně** — je v něm doložené, jak se to chovalo do 2. 9. 2026,
+> a hlavně **gotcha o tom, že se hlídala verze serverového kódu, ne obsah appky**. Ta zůstává
+> platná jako popis příčiny, proč publikace obsahu dlouho neudělala v appce vůbec nic.
+
+---
 
 # Banner "Nova verze STRATEGIE" prepracovan (26.8.2026)
 

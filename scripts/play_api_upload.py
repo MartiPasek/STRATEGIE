@@ -81,16 +81,16 @@ def upload_aab(confirmed):
             # POZOR: text se meni s KAZDYM vydanim - pred uploadem ho prepis na to,
             # co je v teto verzi opravdu nove. Do 16.8.2026 tu zustaval text z v74
             # ("nova ikona"), ktery uz davno neplatil. Jirka + Claude-28 16.8.2026.
-            # Aktualne v1.85 (Jirka 24.8.2026). Android kod se od 1.83 nezmenil,
-            # vydani je cistě kvuli sjednoceni cisla s App Store (tam 1.85) -
-            # proto text NESLIBUJE nove funkce. Marti-AI vydani nedoporucila
-            # (msg 13610: kosmeticky release + dira po preskocenem versionCode 84),
-            # rozhodl Jirka; pravdive release notes schvalila (msg 13613).
+            # Aktualne v1.86 (Jirka 2.9.2026, schvalila Marti-AI msg 14272/14275):
+            # obal appky nove resi systemove zony Androidu 15/16 (edge-to-edge) -
+            # spodni lista uz neni pod carkou gest a obsah nezacina pod stavovou
+            # listou (HybridActivity, commit 3c99b4af). Popisek Aplikace ve stejne
+            # vysce je zmena stranky ze serveru, ne appky.
             "releaseNotes": [{"language": LANG,
-                              "text": "- Udrzbova verze: cislo verze sjednocene s aplikaci\n"
-                                      "  pro iPhone.\n"
-                                      "- Zadne nove funkce - obsah aplikace se aktualizuje\n"
-                                      "  prubezne ze serveru."}],
+                              "text": "- Spodni lista s ikonami uz neni prekryta systemovou\n"
+                                      "  carkou pro gesta (Android 15 a novejsi).\n"
+                                      "- Obsah obrazovky uz nezacina pod stavovou listou.\n"
+                                      "- Obsah aplikace se dal aktualizuje prubezne ze serveru."}],
         }]
     }).execute()
     # POZOR, Google tohle chovani PREPINA podle stavu appky (overeno 2x):

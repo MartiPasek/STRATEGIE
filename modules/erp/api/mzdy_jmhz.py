@@ -147,6 +147,14 @@ def _person_form(a, rok, mesic, dni_v_mesici):
     mstart = "%04d-%02d-01" % (rok, mesic)
     mend = "%04d-%02d-%02d" % (rok, mesic, dni_v_mesici)
     proh = "true" if bool(a.get("prohlaseni", True)) else "false"
+    # 40244 (červenec 2026): nebylo-li učiněno prohlášení poplatníka, NESMÍ formulář obsahovat
+    # atributy daňových slev (10299 zakladniSleva). ČSSZ nestačí nula — atribut musí chybět celý.
+    _proh_je = bool(a.get("prohlaseni", True))
+    proh_dane_ks = ("<form:prohlaseniPoplatnikaDane><form:zakladniSleva>%d</form:zakladniSleva>"
+                    "</form:prohlaseniPoplatnikaDane>" % a["zakladniSleva"]) if _proh_je else ""
+    proh_dane_xml = ("\t\t\t\t<form:prohlaseniPoplatnikaDane>\n"
+                     "\t\t\t\t\t<form:zakladniSleva>%d</form:zakladniSleva>\n"
+                     "\t\t\t\t</form:prohlaseniPoplatnikaDane>" % a["zakladniSleva"]) if _proh_je else ""
     obec = a.get("obec", "Plzeň")
     kod_obce = a.get("kodObce", "554791")
     fond_h = int(a.get("fond_hodin", 160) or 160)
@@ -209,7 +217,10 @@ def _person_form(a, rok, mesic, dni_v_mesici):
                        "\t\t\t\t\t<form:pismenoA>%d</form:pismenoA>\n"
                        "\t\t\t\t</form:vymerovaciZakladParagraf5>" % (a['vz_sp'], a['vz_sp']))
 
-    if str(a.get("ikMpsv", "")).strip() in JEDNATEL_OIC:
+    # 40343 (červenec 2026): druh činnosti S se pozná z kódu ELDP („S++"), ne z natvrdo
+    # zadaného seznamu osob — v tom chyběl Mózer (oič 1163295640), kterého ČSSZ eviduje
+    # s druhem S, a poslali jsme ho jako bezPriznaku. JEDNATEL_OIC zůstává jen jako pojistka.
+    if eldp_kod.strip().upper().startswith("S") or str(a.get("ikMpsv", "")).strip() in JEDNATEL_OIC:
         # cinnostKS = jednatel / člen orgánu PO (druh činnosti "S"). Struktura ověřena proti
         # produkčnímu validátoru ČSSZ 20.7.2026 (bez vymerovaciZakladParagraf5 a slevaZamestnavatele,
         # bez prubehZamestnani a mzda). Řeší chybu 40343.
@@ -222,7 +233,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
             "<form:prijmy><form:zuctovanoCelkem>%d</form:zuctovanoCelkem></form:prijmy>"
             "<form:zalohaNaDan><form:zakladDane>%d</form:zakladDane><form:vypoctenaZaloha>%d</form:vypoctenaZaloha><form:danZalohaPoSleve>%d</form:danZalohaPoSleve></form:zalohaNaDan>"
             "<form:prohlaseniPoplatnika>%s</form:prohlaseniPoplatnika>"
-            "<form:prohlaseniPoplatnikaDane><form:zakladniSleva>%d</form:zakladniSleva></form:prohlaseniPoplatnikaDane>"
+            "%s"
             "<form:zdravPojZamestnanec><form:zdravotniPojisteni>%d</form:zdravotniPojisteni></form:zdravPojZamestnanec>"
             "</form:souhrnDataZec>"
             "<form:pojisteni>"
@@ -237,7 +248,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
             "<form:prijem><form:dan><form:zakladDane>%d</form:zakladDane></form:dan></form:prijem>"
             "</form:cinnostKS>"
             "</n1:formularOsoby>"
-        ) % (uuid.uuid4(), a["ikMpsv"], a["idPpv"], h, h, a["vypoctenaZaloha"], a["danZalohaPoSleve"], proh, a["zakladniSleva"], a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
+        ) % (uuid.uuid4(), a["ikMpsv"], a["idPpv"], h, h, a["vypoctenaZaloha"], a["danZalohaPoSleve"], proh, proh_dane_ks, a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>
@@ -260,9 +271,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t\t<form:danZalohaPoSleve>{a['danZalohaPoSleve']}</form:danZalohaPoSleve>
 \t\t\t\t</form:zalohaNaDan>
 \t\t\t\t<form:prohlaseniPoplatnika>{proh}</form:prohlaseniPoplatnika>
-\t\t\t\t<form:prohlaseniPoplatnikaDane>
-\t\t\t\t\t<form:zakladniSleva>{a['zakladniSleva']}</form:zakladniSleva>
-\t\t\t\t</form:prohlaseniPoplatnikaDane>
+{proh_dane_xml}
 \t\t\t\t<form:mzdaCista>
 \t\t\t\t\t<form:mzdaCista>{a['cista']}</form:mzdaCista>
 \t\t\t\t\t<form:srazkyZeMzdyEvidovany>false</form:srazkyZeMzdyEvidovany>
@@ -348,8 +357,14 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None, opravne=False,
     amt = [compute_person_amounts(p) for p in persons]
     dan_celkem = sum(a["danZalohaPoSleve"] for a in amt)
     bonus_celkem = sum(a.get("danBonus", 0) for a in amt)
-    # ZMR / dohody bez účasti se nezapočítávají do vyměř. základu zaměstnavatele (PVPOJ)
-    zaklad_zam_a = sum(_r(float(a["hruba"])) for a in amt if not a.get("zmr"))
+    # 20008/20168 (červenec 2026): úhrn vyměřovacích základů v PVPOJ musí být součet
+    # ZakladSocPoj (vz_sp), NE hrubých mezd. Loňská oprava „VZ = ZakladSocPoj, ne HrubaMzda"
+    # se aplikovala jen na formuláře osob a do souhrnu se nepromítla. U dohod bez účasti na
+    # pojištění je vz_sp = 0, takže z úhrnu vypadnou i tehdy, když se nenastavil příznak zmr
+    # (ten závisí na tom, jestli Helios za dané období vygeneroval ELDP — v 07/2026 ne).
+    # Filtr na zmr zůstává: compute_person_amounts u nich nuluje pojistné, takže musí
+    # vypadnout i ze základu, jinak by obě strany kontroly zase nesouhlasily.
+    zaklad_zam_a = sum(int(a["vz_sp"]) for a in amt if not a.get("zmr"))
     poj_firma_a = sum(a["sp_firma"] for a in amt)
     poj_zam = sum(a["sp_zam"] for a in amt)
     poj_celkem = poj_firma_a + poj_zam
@@ -655,6 +670,49 @@ def attach_eldp(persons, firma, rok, mesic):
                 p["eldp_vd_celkem"] = a["vd_celkem"]
                 p["eldp_od_celkem"] = a["od_celkem"]
             p["eldp_zdroj"] = "helios"
+
+    # --- PŘENOS Z POSLEDNÍHO DOSTUPNÉHO OBDOBÍ (40087, 20008/20168 — červenec 2026) ---
+    # Když účetní za dané období JMHZ v Heliosu nevygeneruje, TabMzJmhzEldp je za ten měsíc
+    # PRÁZDNÁ a bez tohohle bychom všem poslali fallback "1++" a ztratili příznak ZMR.
+    # Přesně to se stalo v 07/2026: Mózer a Pašek (S++) i Herejtová a Senft (ZMR) dostali
+    # "1++" → 40087, a dohody bez účasti spadly do úhrnu vyměřovacích základů → 20008/20168.
+    # Stejný vzor už používají attach_identifikatory a attach_dane. Přenáší se POUZE kód —
+    # ten je pro pojistný vztah stálý; vyloučené a odečitatelné doby patří ke konkrétnímu
+    # měsíci a přenášet se NESMÍ.
+    chybi = [p for p in persons if not p.get("eldp_zdroj")]
+    if chybi:
+        obd = int(rok) * 100 + int(mesic)
+        qp = ("WITH latest AS ("
+              "SELECT e.CisZam_ID AS zid, ISNULL(RTRIM(e.Kod),'') AS kod, "
+              "ROW_NUMBER() OVER (PARTITION BY e.CisZam_ID ORDER BY o.Rok DESC, o.Mesic DESC, "
+              "CASE WHEN ISNULL(RTRIM(e.Kod),'')='' THEN 1 ELSE 0 END, e.ID) rn "
+              "FROM " + cloud_db + ".dbo.TabMzJmhzEldp e "
+              "JOIN " + cloud_db + ".dbo.TabMzdObd o ON o.IdObdobi=e.IdObdobi "
+              "WHERE (o.Rok*100+o.Mesic)<=" + str(obd) + ") "
+              "SELECT zid, kod FROM latest WHERE rn=1")
+        prev = {}
+        try:
+            rp = _r._mssql188_query(qp)
+            if rp.get("ok") and rp.get("rows"):
+                for v in rp["rows"]:
+                    prev[int(v[0] or 0)] = (v[1] or "").strip()
+        except Exception:
+            prev = {}
+        for p in chybi:
+            zid = int(p.get("zid") or 0)
+            if zid not in prev:
+                continue
+            kod = prev[zid]
+            if not kod:  # prázdný Kod = ZMR / dohoda bez účasti na pojištění
+                p["zmr"] = True
+                p["eldp_kod"] = ZMR_KOD.get((fu, int(p.get("cislo") or 0)), ZMR_KOD_DEFAULT)
+            else:
+                p["eldp_kod"] = kod
+            p["eldp_vd"] = {}
+            p["eldp_od"] = {}
+            p["eldp_vd_celkem"] = 0
+            p["eldp_od_celkem"] = 0
+            p["eldp_zdroj"] = "helios-prenos"
     return persons
 
 
@@ -708,6 +766,20 @@ def generate_and_validate(firma, rok, mesic, prod=False, opravne=False, id_podan
         _k = (p.get("eldp_kod") or "").strip() or "1++"
         _kod_dist[_k] = _kod_dist.get(_k, 0) + 1
     eldp_helios = sum(1 for p in ps if p.get("eldp_zdroj") == "helios")
+    # Hlídání tichého propadu do defaultů (příčina vad ČSSZ v 07/2026): když Helios za dané
+    # období JMHZ nevygeneroval, kód ELDP se bere přenosem z minula — a komu nesedne ani ten,
+    # tomu odchází fallback "1++" a nesprávné prohlášení. To se MUSÍ ohlásit, ne spolknout.
+    eldp_prenos = sum(1 for p in ps if p.get("eldp_zdroj") == "helios-prenos")
+    eldp_bez = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full")}
+                for p in ps if not p.get("eldp_zdroj")]
+    varovani = []
+    if eldp_helios == 0 and ps:
+        varovani.append("Helios nemá ELDP data za %d/%d — kódy ELDP jsou přenesené z posledního "
+                        "dostupného měsíce (%d osob)." % (mesic, rok, eldp_prenos))
+    if eldp_bez:
+        varovani.append("POZOR: %d osob nemá kód ELDP ani z přenosu — odchází fallback \"1++\", "
+                        "což ČSSZ odmítne (40087), pokud mají druh činnosti S nebo T: %s"
+                        % (len(eldp_bez), ", ".join(str(o["cislo"]) for o in eldp_bez)))
     zmr_osoby = [{"cislo": p.get("cislo"), "jmeno": p.get("jmeno_full"),
                   "kod": p.get("eldp_kod"), "hruba": p.get("hruba")}
                  for p in ps if p.get("zmr")]
@@ -721,7 +793,9 @@ def generate_and_validate(firma, rok, mesic, prod=False, opravne=False, id_podan
         "pocet": len(ps), "ok_pocet": ok_cnt, "chyb": len(ps) - ok_cnt,
         "ident_helios": ident_helios, "ident_placeholder": len(ps) - ident_helios,
         "ocr_pocet": len(ocr_osoby), "ocr_osoby": ocr_osoby,
-        "eldp_helios": eldp_helios, "eldp_kod_dist": _kod_dist,
+        "eldp_helios": eldp_helios, "eldp_prenos": eldp_prenos,
+        "eldp_bez_pocet": len(eldp_bez), "eldp_bez_osoby": eldp_bez,
+        "varovani": varovani, "eldp_kod_dist": _kod_dist,
         "vd_pocet": len(vd_osoby), "vd_osoby": vd_osoby,
         "zmr_pocet": len(zmr_osoby), "zmr_osoby": zmr_osoby,
         "vysledky": res.get("vysledky", []),

@@ -23344,7 +23344,14 @@ def _att_session():
 
 def _att_employee(sess, uid):
     from sqlalchemy import text as _t
-    r = sess.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
+    # Kristý/C24 2. 9. 2026: jeden člověk může mít víc docházkových karet (doktrína #24).
+    # Původní dotaz neměl ani is_active, ani ORDER BY → PostgreSQL vracel libovolnou z nich.
+    # 31. 8. 2026 se to přehodilo a Kristý (user 11) začala píchat na UKONČENOU OSVČ kartu
+    # č. 27 (att_employee 188) místo živé HPP karty č. 21 (id 41). Ohroženo i u Martiho (3 karty).
+    # Nově: preferuj AKTIVNÍ kartu s nejnižším id; když žádná aktivní není, vezmi nejnižší id
+    # (stejný výsledek jako dřív, jen deterministicky) — ať nevznikne nová karta "U<uid>".
+    r = sess.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u "
+                        "ORDER BY is_active DESC NULLS LAST, id LIMIT 1"),
                      {"t": _ATT_TENANT, "u": uid}).first()
     if r:
         return r[0]

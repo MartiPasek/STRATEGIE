@@ -1,0 +1,88 @@
+{
+  "name": "speak-claude",
+  "displayName": "Speak Claude",
+  "description": "Voice-to-text input using WhisperX for VS Code and Claude Code",
+  "version": "1.0.3",
+  "publisher": "slycreator",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SlyCreator/speak-claude"
+  },
+  "bugs": {
+    "url": "https://github.com/SlyCreator/speak-claude/issues"
+  },
+  "homepage": "https://github.com/SlyCreator/speak-claude#readme",
+  "keywords": [
+    "voice",
+    "speech-to-text",
+    "whisperx",
+    "claude",
+    "ai",
+    "transcription",
+    "voice-input",
+    "dictation"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "voice-to-text.record",
+        "title": "Voice to Text: Start Recording"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "voice-to-text.record",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c",
+        "when": "editorTextFocus || terminalFocus || inputFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Voice to Text",
+      "properties": {
+        "voiceToText.whisperxUrl": {
+          "type": "string",
+          "default": "http://localhost:48001",
+          "description": "WhisperX service URL"
+        },
+        "voiceToText.language": {
+          "type": "string",
+          "default": "",
+          "description": "Language code (e.g., 'en', 'es'). Leave empty for auto-detection."
+        },
+        "voiceToText.diarization": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable speaker diarization (requires HF_TOKEN in WhisperX service)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0"
+  }
+}

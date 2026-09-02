@@ -1,0 +1,42 @@
+# Node modules
+node_modules/
+*.vsix
+.vscode-test/
+package-lock.json
+
+# Python
+__pycache__/Thank you.
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Build artifacts
+out/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp

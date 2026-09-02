@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  whisperx:
+    build:
+      context: ./whisperx-service
+      dockerfile: Dockerfile
+    container_name: speak-claude-whisperx
+    ports:
+      - "48001:48001"
+    environment:
+      - WHISPERX_MODEL=${WHISPERX_MODEL:-base}
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - whisperx-models:/root/.cache/whisperx
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:48001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  whisperx-models:
+    name: speak-claude-models

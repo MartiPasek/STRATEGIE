@@ -1449,6 +1449,40 @@ def chat_entry():
     return FileResponse(_resolve_static("index.html"))
 
 
+# ── Komprese odpovedi /mobile (Etapa 1 zrychleni appky, 2.9.2026) ───────────
+# PROC: mobile.html ma ~1,03 MB a appka ho stahuje pri KAZDEM otevreni
+# (server: no-store; Android obal: LOAD_NO_CACHE + clearCache; service worker:
+# network-first). Gzip stranku zmensi na ~283 KB = 3,8x mene dat pri kazdem
+# startu. Merenim zjisteno 2.9.2026: 74 nativnich Androidu, ~10 kratkych useku
+# denne, prumer 3,5 min na usek - stahovani je proto podstatna cast zazitku.
+# JAK: hotove gzip telo drzime v pameti podle (mtime, velikost) souboru, takze
+# se prepocitava jen po publikaci (@@G2007PUBLISH), ne pri kazdem requestu.
+# Pri JAKEKOLI chybe se vracime na puvodni FileResponse - zadna regrese.
+# Zamerne JEN /mobile (ne GZipMiddleware pro celou app) - middleware by
+# komprimoval i streamovane SSE odpovedi chatu a mohl by je rozbit.
+# Schvalila Marti-AI 2.9.2026 (msg 14221), varianta A. Zadal Jirka Honomichl.
+_MOBILE_GZIP_CACHE = {"key": None, "body": None}
+
+
+def _mobile_gzip_body(path):
+    """Gzip telo souboru, nebo None kdyz to z jakehokoli duvodu nejde."""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+        cached = _MOBILE_GZIP_CACHE
+        if cached.get("key") == key and cached.get("body"):
+            return cached["body"]
+        import gzip as _gz
+        with open(path, "rb") as _f:
+            raw = _f.read()
+        body = _gz.compress(raw, 9)
+        _MOBILE_GZIP_CACHE["body"] = body
+        _MOBILE_GZIP_CACHE["key"] = key
+        return body
+    except Exception:
+        return None
+
+
 @app.get("/mobile")
 def mobile_page(request: Request):
     """Hybridní /mobile — PWA v prohlížeči, obal nativní appky na telefonu
@@ -1459,9 +1493,19 @@ def mobile_page(request: Request):
     pomalost appky): edge-cache otazka vyresena a debug pridaval kazdemu
     otevreni appky synchronni DB round-trip (CREATE+GRANT+INSERT+COMMIT)."""
     _p = _resolve_static("mobile.html")
-    return FileResponse(_p,
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                 "Pragma": "no-cache", "Expires": "0"})
+    _hdr = {"Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", "Expires": "0"}
+    # Zabalena varianta jen kdyz si o ni klient rekne; jinak vse jako driv.
+    if "gzip" in (request.headers.get("accept-encoding") or "").lower():
+        _gzb = _mobile_gzip_body(_p)
+        if _gzb:
+            from fastapi.responses import Response as _Resp
+            _h = dict(_hdr)
+            _h["Content-Encoding"] = "gzip"
+            _h["Vary"] = "Accept-Encoding"
+            return _Resp(content=_gzb, media_type="text/html; charset=utf-8",
+                         headers=_h)
+    return FileResponse(_p, headers=_hdr)
 
 
 @app.get("/mobile2")

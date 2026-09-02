@@ -1,0 +1,77 @@
+{
+ "_zdroj": "Protokol o kompletnosti JMH EC 07/2026 (ČSSZ, 2.9.2026) — chyby 40238",
+ "_popis": "Mapa oič -> typ formuláře a GUID součásti pro OPRAVNÉ podání. typ O = navázat na už přijatý řádný formulář (guid povinný, NEgenerovat nový). typ R = řádný formulář byl odmítnut, posílá se znovu jako řádný s NOVÝM guid.",
+ "firma": "EC",
+ "rok": 2026,
+ "mesic": 7,
+ "formulare": {
+  "1707659316": {
+   "typ": "O",
+   "guid": "3CE5437C-AF31-4F9B-A381-ECFC1B80FBE8"
+  },
+  "1742727679": {
+   "typ": "O",
+   "guid": "EAB60B86-42E9-4ABD-B0B7-6BBAC64756E6"
+  },
+  "1687857831": {
+   "typ": "O",
+   "guid": "77EA646A-F4F2-4056-B336-9E5FAEF7A237"
+  },
+  "1900953879": {
+   "typ": "O",
+   "guid": "D38CA33D-960E-4941-9F36-571787A25F85"
+  },
+  "1318779210": {
+   "typ": "O",
+   "guid": "D9E862C3-07AF-4C2C-99CE-933121E04A20"
+  },
+  "1881211519": {
+   "typ": "O",
+   "guid": "E5F8E904-55A3-4FB4-A99B-E01D03CAE440"
+  },
+  "1206657342": {
+   "typ": "O",
+   "guid": "855C864A-8014-4479-8DD1-B875FD1BFF53"
+  },
+  "1745404650": {
+   "typ": "O",
+   "guid": "E8BBFC53-36A2-4E77-B5B6-195C2E23A415"
+  },
+  "1923942867": {
+   "typ": "O",
+   "guid": "A9FEEBC4-E283-4241-ABAF-C31F445D3269"
+  },
+  "1122284229": {
+   "typ": "R",
+   "guid": null
+  },
+  "1499290595": {
+   "typ": "O",
+   "guid": "014F7136-F3AD-4649-A98A-0EBA9220B347"
+  },
+  "1571953724": {
+   "typ": "O",
+   "guid": "B4C3A39F-778F-4B32-82ED-DDAE793AFF54"
+  },
+  "1328922298": {
+   "typ": "R",
+   "guid": null
+  },
+  "1628688886": {
+   "typ": "R",
+   "guid": null
+  },
+  "1628612513": {
+   "typ": "R",
+   "guid": null
+  },
+  "1163295640": {
+   "typ": "R",
+   "guid": null
+  },
+  "1900990960": {
+   "typ": "O",
+   "guid": "9A6D03CA-1E67-4B4E-9C95-8FB7C6B0DFB0"
+  }
+ }
+}

@@ -1,0 +1,141 @@
+{
+ "_zdroj": "Protokol o kompletnosti JMH ES 07/2026 (ČSSZ, 2.9.2026) — chyby 40238",
+ "_popis": "Mapa oič -> typ formuláře a GUID součásti pro OPRAVNÉ podání. typ O = navázat na už přijatý řádný formulář (guid povinný, NEgenerovat nový). typ R = řádný formulář byl odmítnut, posílá se znovu jako řádný s NOVÝM guid.",
+ "firma": "ES",
+ "rok": 2026,
+ "mesic": 7,
+ "formulare": {
+  "1129959677": {
+   "typ": "O",
+   "guid": "D6BCBFFF-99F7-4785-A99C-238ED5A37CE4"
+  },
+  "1630953676": {
+   "typ": "O",
+   "guid": "26A7AB07-114F-4EE7-8671-384603EA941F"
+  },
+  "1187188960": {
+   "typ": "O",
+   "guid": "2DE040DD-2FCB-45CD-993A-0CE5E6AE2FF1"
+  },
+  "1791131650": {
+   "typ": "O",
+   "guid": "64BF718D-DD0D-4CA2-8572-734C874352AF"
+  },
+  "1745411470": {
+   "typ": "O",
+   "guid": "57EA132D-F237-40CE-AF60-C245BEE8B738"
+  },
+  "1139552568": {
+   "typ": "O",
+   "guid": "C6D6731F-0610-473B-A74D-04F5FE986F13"
+  },
+  "1122284229": {
+   "typ": "R",
+   "guid": null
+  },
+  "1122253616": {
+   "typ": "O",
+   "guid": "C17065D8-CDD4-4581-9803-58C061C97CF2"
+  },
+  "1639790273": {
+   "typ": "O",
+   "guid": "213B8E81-C350-4373-8109-7EB776E828A1"
+  },
+  "1393889244": {
+   "typ": "O",
+   "guid": "01F1B78A-DB60-48D0-9315-F62B79B4842D"
+  },
+  "1823495400": {
+   "typ": "O",
+   "guid": "E179FB2D-AB68-4F25-9237-582871B4F319"
+  },
+  "1923964460": {
+   "typ": "O",
+   "guid": "D733D20E-D0C7-4AA9-9348-986653C3033B"
+  },
+  "1775778983": {
+   "typ": "O",
+   "guid": "04A14FC1-097B-4191-8C4E-604852625411"
+  },
+  "1257826471": {
+   "typ": "O",
+   "guid": "832CA60F-D065-42F1-A0CE-CCCF4B4455FC"
+  },
+  "1618124486": {
+   "typ": "O",
+   "guid": "A3192061-4B3C-4EBC-AFAF-F6E0F0B65C5C"
+  },
+  "1982135342": {
+   "typ": "O",
+   "guid": "41B9893A-FA0B-4190-8AF5-918FEA456B01"
+  },
+  "1628697719": {
+   "typ": "O",
+   "guid": "15FB2303-0E36-47B6-9B36-FA140DFF5771"
+  },
+  "1900939810": {
+   "typ": "O",
+   "guid": "C1FE7BBB-5D75-4677-B3BF-1AD03381716E"
+  },
+  "1956649651": {
+   "typ": "O",
+   "guid": "FC126434-9003-491B-8CEB-562208B176BC"
+  },
+  "1457339390": {
+   "typ": "O",
+   "guid": "E35A8321-3018-4E00-A93B-8C690F0835BE"
+  },
+  "1368440271": {
+   "typ": "O",
+   "guid": "0E2942FD-FC05-4806-84CE-855ED825AC26"
+  },
+  "1923901287": {
+   "typ": "O",
+   "guid": "1BAEEAE6-0F41-4BB2-838A-09A1A63AFA64"
+  },
+  "1791151516": {
+   "typ": "O",
+   "guid": "3B36147E-88F5-4365-B437-5D11F1A4C0D5"
+  },
+  "1257826130": {
+   "typ": "O",
+   "guid": "4768018D-DF5B-4865-97AD-D52466EBBCA3"
+  },
+  "1561687116": {
+   "typ": "O",
+   "guid": "1F77E3A3-B18D-4CC9-9402-74F81A437F48"
+  },
+  "1953815963": {
+   "typ": "O",
+   "guid": "EC9A6CE5-0DA3-4133-9C9D-B527D342FAA7"
+  },
+  "1553613534": {
+   "typ": "O",
+   "guid": "E7A1C1FF-BC66-43EC-B907-D52C3171FE2A"
+  },
+  "1368498110": {
+   "typ": "O",
+   "guid": "0A4FEA39-ACCA-4D4D-88B8-66134971C031"
+  },
+  "1139555604": {
+   "typ": "O",
+   "guid": "26337D41-1B63-4FD1-BB59-FFD08F4E0C2E"
+  },
+  "1394334117": {
+   "typ": "O",
+   "guid": "447EEE0A-71DD-45B8-99DC-5F006D58E329"
+  },
+  "1394284353": {
+   "typ": "O",
+   "guid": "B010BF2C-A086-4CE9-B2B2-741C6A1801A4"
+  },
+  "1338116351": {
+   "typ": "O",
+   "guid": "DCFAD9AC-A185-4371-B77C-250F7C8B9FBF"
+  },
+  "1923911990": {
+   "typ": "O",
+   "guid": "706EC7FE-F3AC-433C-9B5C-A26343745743"
+  }
+ }
+}

@@ -138,6 +138,13 @@ def compute_person_amounts(p):
 
 
 def _person_form(a, rok, mesic, dni_v_mesici):
+    # 40238 (2.9.2026): každý formulář má vlastní GUID (`idFormulare`) a ČSSZ podle něj páruje
+    # opravný formulář na už PŘIJATÝ řádný. Nový náhodný GUID = "nebyl nalezen GUID součásti"
+    # a formulář se odmítne. Typ i GUID proto určuje volající (build_jmhz z mapy oič→{typ,guid});
+    # jedno opravné podání může legitimně míchat O (navázání na přijatý) i R (řádný formulář
+    # byl odmítnut, posílá se znovu jako řádný s novým GUID).
+    typ_form = (a.get("_typ_form") or "R").upper()
+    id_form = a.get("_id_form") or str(uuid.uuid4())
     h = _r(float(a["hruba"]))
     mzda_rozpad_xml = "" if h == 0 else ("<form:mzdaRozpad>"
         "<form:tarif>%d</form:tarif>"
@@ -226,7 +233,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
         # bez prubehZamestnani a mzda). Řeší chybu 40343.
         return (
             "\t<n1:formularOsoby>"
-            "<n1:hlavicka><n1:idFormulare>%s</n1:idFormulare><n1:typFormulare>R</n1:typFormulare><n1:primarniPpv>true</n1:primarniPpv></n1:hlavicka>"
+            "<n1:hlavicka><n1:idFormulare>%s</n1:idFormulare><n1:typFormulare>%s</n1:typFormulare><n1:primarniPpv>true</n1:primarniPpv></n1:hlavicka>"
             "<form:cinnostKS>"
             "<form:identifikace><form:ikMpsv>%s</form:ikMpsv><form:idPpv>%s</form:idPpv></form:identifikace>"
             "<form:souhrnDataZec>"
@@ -248,12 +255,12 @@ def _person_form(a, rok, mesic, dni_v_mesici):
             "<form:prijem><form:dan><form:zakladDane>%d</form:zakladDane></form:dan></form:prijem>"
             "</form:cinnostKS>"
             "</n1:formularOsoby>"
-        ) % (uuid.uuid4(), a["ikMpsv"], a["idPpv"], h, h, a["vypoctenaZaloha"], a["danZalohaPoSleve"], proh, proh_dane_ks, a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
+        ) % (id_form, typ_form, a["ikMpsv"], a["idPpv"], h, h, a["vypoctenaZaloha"], a["danZalohaPoSleve"], proh, proh_dane_ks, a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>
-\t\t\t<n1:idFormulare>{uuid.uuid4()}</n1:idFormulare>
-\t\t\t<n1:typFormulare>R</n1:typFormulare>
+\t\t\t<n1:idFormulare>{id_form}</n1:idFormulare>
+\t\t\t<n1:typFormulare>{typ_form}</n1:typFormulare>
 \t\t\t<n1:primarniPpv>true</n1:primarniPpv>
 \t\t</n1:hlavicka>
 \t\t<form:bezPriznaku>
@@ -350,7 +357,8 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t</n1:formularOsoby>"""
 
 
-def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None, opravne=False, id_podani=None):
+def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None, opravne=False, id_podani=None,
+               forms_map=None):
     """Sestaví celé JMHZ podání z listu osob (každá s 'hruba' + identifikátory)."""
     vs = vs or DEFAULT_VS
     dni = calendar.monthrange(rok, mesic)[1]
@@ -370,9 +378,15 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None, opravne=False,
     poj_celkem = poj_firma_a + poj_zam
     if datum_vyplneni is None:
         datum_vyplneni = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Typ a GUID KAŽDÉHO formuláře zvlášť (40238). Mapa oič → {"typ": "O"|"R", "guid": ...}
+    # pochází z protokolu ČSSZ; kdo v ní není, dostane výchozí chování (opravné = O, nový GUID).
+    # Dřívější globální replace R→O byl špatně: opravné podání smí a musí míchat O i R.
+    _fm = forms_map or {}
+    for a in amt:
+        _f = _fm.get(str(a.get("ikMpsv", "")).strip()) or {}
+        a["_typ_form"] = (_f.get("typ") or ("O" if opravne else "R")).upper()
+        a["_id_form"] = _f.get("guid") or str(uuid.uuid4())
     forms = "\n".join(_person_form(a, rok, mesic, dni) for a in amt)
-    if opravne:
-        forms = forms.replace("<n1:typFormulare>R</n1:typFormulare>", "<n1:typFormulare>O</n1:typFormulare>")
     _typ_podani = "O" if opravne else "R"
     _id_podani = id_podani or str(uuid.uuid4())
     n = len(amt)
@@ -731,10 +745,30 @@ def prepare_persons(firma, rok, mesic):
     return ps
 
 
+def load_forms_map(firma, rok, mesic):
+    """Mapa oič → {"typ": "O"|"R", "guid": ...} pro opravné podání (chyba 40238).
+    Zdroj = `modules/erp/api/jmhz_maps/forms_map_<FIRMA>_<rok>-<mesic>.json`, sestavená
+    z protokolu ČSSZ o kompletnosti (ten u každé osoby říká, jestli navázat na existující
+    GUID formuláře, nebo poslat nový řádný). Soubor nemusí existovat — pak výchozí chování.
+    (Pozor: `docs/jmhz/` je v .gitignore — tam se ukládají generovaná XML, mapy tam nepatří.)"""
+    import json as _js, os as _osfm
+    try:
+        _p = _osfm.path.join(_osfm.path.dirname(_osfm.path.abspath(__file__)), "jmhz_maps",
+                             "forms_map_%s_%d-%02d.json" % ((firma or "").upper(), int(rok), int(mesic)))
+        if not _osfm.path.exists(_p):
+            return {}
+        with open(_p, "r", encoding="utf-8") as _fh:
+            return (_js.load(_fh) or {}).get("formulare") or {}
+    except Exception:
+        return {}
+
+
 def generate_xml(firma, rok, mesic, opravne=False, id_podani=None):
     ps = prepare_persons(firma, rok, mesic)
     vs = VS_ZAMESTNAVATELE.get((firma or "").upper(), DEFAULT_VS)
-    xml = build_jmhz(rok, mesic, ps, vs=vs, opravne=opravne, id_podani=id_podani)
+    # Mapu typů/GUIDů formulářů má smysl použít jen u opravného podání.
+    fm = load_forms_map(firma, rok, mesic) if opravne else {}
+    xml = build_jmhz(rok, mesic, ps, vs=vs, opravne=opravne, id_podani=id_podani, forms_map=fm)
     return xml, ps
 
 

@@ -22,6 +22,25 @@ Závazně:
 - Platí dvojnásob u čísel, mezd, nároků a jmen. Peťa mi věří v oblastech, kde si to
   sama neověří — tím spíš tam nesmím hádat.
 
+## 👤 „TÝNKA" = KRISTÝ = KRISTÝNA MAREŠOVÁ = CLAUDE‑24 (Peťa 2. 9. 2026)
+
+Peťa: *„zapiš si, že Týnka je Kristy (Kristýna Marešová), Claude 24."*
+
+**Je to JEDEN člověk se třemi jmény**, která se v našich zápisech i v G2007 střídají:
+
+| Jak se objevuje | Kde |
+|---|---|
+| **Týnka** | v chatu, v poznámkách („Týnka 26. 8. 2026", „podklad od Týnky") |
+| **Kristý** | v CLAUDE.md a v týmových zápisech (rodič Marti‑AI) |
+| **Kristýna Marešová** | v datech — `tenant.att_employee`, **osobní číslo 21** (ověřeno 2. 9. 2026) |
+| **Claude‑24** | její instance Clauda |
+
+- **Nepiš o nich jako o dvou lidech** a nerozděluj mezi ně úkoly. Do 2. 9. 2026 jsem to
+  dělal — v připomínce otevřených bodů jsem měl zvlášť „čeká se na Týnku" a zvlášť
+  „čeká se na Kristý", což vypadalo jako dvě nezávislá čekání. Bylo to jedno.
+- **Nepleť si ji s Miroslavem Marešem** (osobní číslo 22, na seznamu lidí bez docházky).
+  Podobné příjmení, jiný člověk.
+
 ## 🛑 „PŘIDAL JSEM POJISTKU" NESMÍM ŘÍCT, DOKUD JI NĚCO SPOUŠTÍ (Peťa 27. 8. 2026, ZÁVAZNÉ)
 
 Peťa: *„je naprd, když mi řeknete udělám pojistku, ale je nefunkční."*

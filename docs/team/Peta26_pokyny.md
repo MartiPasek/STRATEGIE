@@ -443,6 +443,21 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
    ⚠️ Tohle je **výjimka z pravidla o toleranci 5 Kč v DPH** — tady může být rozdíl velký
    a stejně se neřeší. Rozhoduje celková cena.
 
+8. **💱 KURZ — jinak u tuzemského a jinak u zahraničního dodavatele. ROZDÍL JE NÁLEZ**
+   (Peťa 2. 9. 2026). ⚠️ **Tolerance 5 Kč se na kurz NEVZTAHUJE** — i pár haléřů rozdílu
+   v DPH je nález, protože kurz je určený pravidlem, ne zaokrouhlením.
+
+   | Dodavatel | Jaký kurz má být v Centrále |
+   |---|---|
+   | **Tuzemský** (český, s českým DUZP) | **kurz podle faktury** — buď ten, který je na ní uvedený, nebo se musí **dopočítat** |
+   | **Zahraniční** | kurz k **prvnímu pracovnímu dni v měsíci** (v Centrále je zadaný) |
+
+   Příklad 2229 (JUMO Měření a regulace, český dodavatel, faktura v EUR): na faktuře
+   **24,125**, v Centrále **24,16** → **nález**, i když rozdíl v DPH je jen 0,61 Kč.
+   Naopak 2230 (LAPP, 24,125) a 2231 (Michálek, 24,08) měly kurz podle faktury správně.
+   Zahraniční faktury ze srpna 2026 (Eberhard DE, Adamczewski DE, UAB LT, Mózer SK)
+   mají shodně 24,205 — to je právě ten kurz k 1. pracovnímu dni měsíce.
+
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 
 - bez nabídky: `2065 - faktura ok`

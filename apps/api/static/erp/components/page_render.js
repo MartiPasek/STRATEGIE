@@ -35,8 +35,9 @@
     // Prehledy, kde se pruh „Hledat ve vsech sloupcich" NEZOBRAZUJE.
     // Globalni hledani je jinak zapnute vsude (Kristy 16.7.2026); tady je
     // seznam vyjimek, aby se pro dalsi prehled pridavalo jen cislo jadra.
-    //   209 = Vyroba / „Nesplneny FPD" — Jirka Honomichl 1.9.2026 pro Dusana
-    //         Havlata: v tomhle prehledu ho nechce.
+    //   209 = Vyroba / „Odpracovane hodiny komplet" (do 2.9.2026 „Nesplneny
+    //         FPD") — Jirka Honomichl 1.9.2026 pro Dusana Havlata: v tomhle
+    //         prehledu ho nechce.
     const _BEZ_GLOBALNIHO_HLEDANI = ["209"];
 
     // Defensive escapeHtml — pokud parent context ho ma, reuse, jinak fallback
@@ -422,8 +423,9 @@
         return;
       }
 
-      // Doplněk adresy dat pro pruh nad tabulkou (volba měsíce u „Nesplněný FPD",
-      // jádro 209). Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14071).
+      // Doplněk adresy dat pro pruh nad tabulkou (volba měsíce u „Odpracované
+      // hodiny komplet", do 2. 9. 2026 „Nesplněný FPD", jádro 209).
+      // Jirka Honomichl 1.9.2026, schválila Marti-AI (msg 14071).
       // Drží se ZDE, ne v pruhu: tlačítko Obnovit i automatické obnovení pak
       // použijí TENTÝŽ dotaz. Kdyby si volbu držel jen pruh, Obnovit by tiše
       // skočilo zpátky na výchozí měsíc a Dušan by si toho nemusel všimnout.
@@ -439,7 +441,8 @@
       };
       try { mainContent._erpGridQuery = _gridQuery; } catch (_eGq) { /* fail-safe */ }
 
-      // Pruh s volbou měsíce NAD přehledem „Nesplněný FPD" ve Výrobě (jádro 209).
+      // Pruh s volbou měsíce NAD přehledem „Odpracované hodiny komplet"
+      // (do 2. 9. 2026 „Nesplněný FPD") ve Výrobě (jádro 209).
       // Zadal Jirka Honomichl 1.9.2026 pro Dušana Havláta, schválila Marti-AI
       // (msg 14071): Dušan potřebuje vidět i uplynulé měsíce (12 zpět), nic
       // do budoucna. Stejný gated/fail-safe vzor jako pulty 124/136/137/235 →
@@ -836,7 +839,8 @@
               // Globalni hledani (Kristy 16.7.2026) — zapnuto pro VSECHNY prehledy
               // s napojenym data_source (po pilotu na Poptavkach schvalila Kristy).
               // Vyjimka: prehledy v _BEZ_GLOBALNIHO_HLEDANI (Jirka Honomichl
-              // 1.9.2026) — u „Nesplneny FPD" (jadro 209) si ho Dusan nepreje.
+              // 1.9.2026) — u „Odpracovane hodiny komplet" (do 2.9.2026
+              // „Nesplneny FPD", jadro 209) si ho Dusan nepreje.
               enableQuickFilter: !!(rootCd && rootCd.data_source_code)
                 && _BEZ_GLOBALNIHO_HLEDANI.indexOf(String(coreId)) === -1,
               // Faze 2-B wire (24.5.2026 vecer pozde, Marti's "Zatim ji mas

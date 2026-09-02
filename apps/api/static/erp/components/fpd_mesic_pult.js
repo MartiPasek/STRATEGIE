@@ -1,4 +1,5 @@
-/* Nesplněný FPD (Výroba, jádro 209) — pruh s volbou měsíce nad tabulkou.
+/* Odpracované hodiny komplet (do 2. 9. 2026 „Nesplněný FPD"; Výroba, jádro 209)
+ * — pruh s volbou měsíce nad tabulkou.
  *
  * ZADÁNÍ (Jirka Honomichl 1.9.2026 pro Dušana Havláta, schválila Marti-AI msg 14071):
  *   Dušan potřebuje u přehledu přepínat mezi měsíci — aktuální a 12 měsíců zpět,

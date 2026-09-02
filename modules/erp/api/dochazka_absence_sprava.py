@@ -973,6 +973,13 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
             bad = _smi(s, uid, emp)
             if bad:
                 return _chyba(bad[0], bad[1])
+            # ÚPRAVA: prázdné pole „Hodin za den" = NECH, CO TAM JE (Peťa 2. 9. 2026).
+            # Doplnění podle úvazku (`_fond_den`) je rozhodnutí z 18. 8. 2026 a patří
+            # k NOVÉ absenci — tam se ta hodnota teprve rodí. Při úpravě ale záznam
+            # svoje hodiny už nese, takže dosazení fondu je tiše přepíše.
+            # Fond zůstává jako poslední záchrana, když žádost hodiny vůbec nemá.
+            if hpd is None and r[5] is not None:
+                hpd = float(r[5])
             if hpd is None:
                 hpd = _fond_den(s, emp, d_od)
             chyba_sd = _sd_check(emp, typ, hpd, d_od)
@@ -1015,8 +1022,13 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
                 s.rollback()
             return JSONResponse({"ok": True, "typ": "zadost", "id": zid, "zustatky": zust})
         # ── B) denní záznamy ────────────────────────────────────────────────
-        rows = s.execute(_t("SELECT id, employee_id, entry_date FROM tenant.att_entry "
-                            "WHERE tenant_id=:t AND id = ANY(:ids)"),
+        # `hours` a kód druhu potřebujeme kvůli dvěma věcem níž: zachování původních
+        # hodin při prázdném poli a kontrole nároku při úpravě.
+        rows = s.execute(_t("SELECT e.id, e.employee_id, e.entry_date, e.hours, "
+                            "       COALESCE(ty.code,'') "
+                            "FROM tenant.att_entry e "
+                            "LEFT JOIN tenant.att_entry_type ty ON ty.id = e.entry_type_id "
+                            "WHERE e.tenant_id=:t AND e.id = ANY(:ids)"),
                          {"t": _TEN, "ids": ids}).fetchall()
         if not rows:
             return _chyba("Záznamy nenalezeny — obnov přehled.", 404)
@@ -1027,6 +1039,17 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         bad = _smi(s, uid, emp)
         if bad:
             return _chyba(bad[0], bad[1])
+        # ÚPRAVA: prázdné pole „Hodin za den" = NECH, CO TAM JE (Peťa 2. 9. 2026).
+        # Stejný důvod jako u větve A výše. Sem prázdno chodí BĚŽNĚ: formulář pole
+        # předvyplní jen tehdy, když přehled hodiny nese (`HodinDen`) — jinak zůstane
+        # prázdné a server dosud dosadil denní fond a tiše přepsal, co v záznamu bylo.
+        # Přesně tak vznikly obě osmičky u sick daye Dušana Havláta z 5. 8. 2026.
+        # Když mají dotčené dny hodin RŮZNĚ, není co zachovat a fond je jediná
+        # rozumná hodnota — proto ta podmínka na jedinou hodnotu.
+        if hpd is None:
+            _puvodni = {round(float(r[3]), 2) for r in rows if r[3] is not None}
+            if len(_puvodni) == 1:
+                hpd = _puvodni.pop()
         if hpd is None:
             hpd = _fond_den(s, emp, d_od)
         chyba_sd = _sd_check(emp, typ, hpd, d_od)
@@ -1035,6 +1058,22 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         chyba_h = _hpd_check(s, emp, typ, hpd, d_od, bool(c_od and c_do))
         if chyba_h:
             return _chyba(chyba_h)
+        # ÚPRAVA — nárok se hlídá, jen když se objem ZVYŠUJE nebo se mění druh
+        # (Peťa 26. 8. 2026, doplněno 2. 9. 2026). Do té doby tahle větev kontrolu
+        # NEMĚLA VŮBEC: zákaz přečerpání platil u nového zadání a u úpravy žádosti,
+        # ale úpravou denního záznamu se dala absence zvednout nad zůstatek.
+        # Původní dny jsou v čerpání pořád započítané (ruší je až `_znic_dny` níž),
+        # proto se při zkrácení nekontroluje — kontrola by křičela na vlastní absenci.
+        # ⚠️ Ze stejného důvodu umí při VELKÉM navýšení zakázat i to, co by se ještě
+        # vešlo (původní objem se započítá dvakrát). Stejnou vlastnost má od
+        # 26. 8. 2026 i větev A; obchází se smazáním a zadáním znovu.
+        _stary_typ = {str(r[4] or "") for r in rows}
+        _stary = round(sum(float(r[3] or 0) for r in rows), 2)
+        _novy = _objem_h(s, d_od, d_do, hpd)
+        if _novy is None or _novy > _stary or _stary_typ != {typ}:
+            chyba_n = _narok_check(s, emp, typ, d_od, d_do, hpd, uid)
+            if chyba_n:
+                return _chyba(chyba_n)
         stare = [r[2] for r in rows]
         zam = _zamek(s, stare + [d_od, d_do])
         if zam:

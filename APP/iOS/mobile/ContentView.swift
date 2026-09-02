@@ -23,6 +23,13 @@ struct WebView: UIViewRepresentable {
         // v paměti a všechny obrazovky mají tutéž URL, švihnutí vracelo na náhodnou starší
         // stránku. Obě gesta se pouštěla naráz. (Jirka 27. 8. 2026, schválila Marti-AI msg 13911.)
         web.allowsBackForwardNavigationGestures = false
+        // Jirka Honomichl 2.9.2026 (schválila Marti-AI msg 14263/14266): `.ignoresSafeArea(.bottom)` níže
+        // sice roztáhne web až k okraji, ale WKWebView si s výchozím `.automatic` obsah sám odsadí nad
+        // zónu domovské čárky — stránka pak dostane env(safe-area-inset-bottom)=0, spodní lišta /mobile
+        // skončí 34 bodů nad okrajem a pod ní zůstane prázdný pruh v barvě pozadí. S `.never` sahá lišta
+        // až dolů a sama si (padding-bottom: env(safe-area-inset-bottom)) drží ikony nad čárkou.
+        // Horní safe-area zůstává na SwiftUI (web pod stavovou lištu nezasahuje), takže .never ji neovlivní.
+        web.scrollView.contentInsetAdjustmentBehavior = .never
         web.uiDelegate = context.coordinator
         web.navigationDelegate = context.coordinator
 

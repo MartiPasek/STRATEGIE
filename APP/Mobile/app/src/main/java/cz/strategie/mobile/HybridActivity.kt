@@ -48,6 +48,15 @@ class HybridActivity : ComponentActivity() {
     // („Otevřít schvalování"), když appka teprve startuje a WebView ještě nic neumí.
     // Když už appka běží, řeší to onNewIntent rovnou. Jirka 16. 8. 2026.
     private var pendingScreen: String? = null
+    // Jirka Honomichl 2.9.2026 (schválila Marti-AI msg 14272): výška spodní systémové zóny
+    // (čárka gest) v CSS px – předává se stránce jako proměnná --sab. Jen SDK >= 35, viz onCreate.
+    private var safeBottomCss = 0f
+    private fun pushSafeBottom() {
+        if (Build.VERSION.SDK_INT < 35) return
+        val js = "document.documentElement.style.setProperty('--sab','" +
+            String.format(java.util.Locale.US, "%.1f", safeBottomCss) + "px')"
+        try { web.evaluateJavascript(js, null) } catch (e: Exception) {}
+    }
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
@@ -749,6 +758,7 @@ class HybridActivity : ComponentActivity() {
             // Jirka 16. 8. 2026.
             override fun onPageFinished(v: WebView?, url: String?) {
                 super.onPageFinished(v, url)
+                pushSafeBottom()   // obnovení stránky proměnnou --sab smaže, nastavit znovu (Jirka 2.9.2026)
                 val s = pendingScreen ?: return
                 pendingScreen = null
                 v?.postDelayed({ goScreen(s) }, 700)
@@ -783,7 +793,35 @@ class HybridActivity : ComponentActivity() {
                 return false
             }
         }
-        setContentView(web)
+        // Jirka Honomichl 2.9.2026 (schválila Marti-AI msg 14272): od Androidu 15 (SDK 35) kreslí
+        // systém obsah appky povinně až pod stavovou lištu i pod čárku gest (edge-to-edge) a WebView
+        // o tom neví (env(safe-area-inset-*) = 0) – čárka překrývala popisky spodní lišty /mobile
+        // ("Úkoly") a stavová lišta horní okraj obsahu. Opt-out atribut tématu je na targetSdk 36
+        // vypnutý (ověřeno v emulátoru i v dokumentaci Androidu 16), proto zóny řešíme sami:
+        // nahoře odsazení kontejneru v barvě pozadí stránky (#0e0f11 = --bg, vzhled jako na
+        // Androidu 14); dole hodnotu předáme stránce (--sab) a spodní lišta si ji vezme sama přes
+        // max(env(safe-area-inset-bottom), var(--sab)) – stejně jako na iPhonu, žádný prázdný pruh.
+        // Android <= 14 (systém kreslí lišty sám) se nemění – větev else.
+        if (Build.VERSION.SDK_INT >= 35) {
+            val root = android.widget.FrameLayout(this)
+            root.setBackgroundColor(0xFF0E0F11.toInt())
+            root.addView(web, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
+                val sb = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+                v.setPadding(sb.left, sb.top, sb.right, 0)
+                safeBottomCss = sb.bottom / resources.displayMetrics.density
+                pushSafeBottom()   // změna insetů (rotace, skrytí lišt) -> stránce znovu
+                ins
+            }
+            // tmavé pozadí -> světlé ikony stavové lišty (jinak by na #0e0f11 nebyly vidět)
+            androidx.core.view.WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = false
+            setContentView(root)
+        } else {
+            setContentView(web)
+        }
         // Login-first (Marti 6.6.2026): nepřihlášený telefon (bez tokenu) NESMÍ do
         // menu. Nejdřív /app-pair → přihlášení do STRATEGIE → token → spárování →
         // teprve pak /mobile. Token = identita (čí telefon + jaká práva).

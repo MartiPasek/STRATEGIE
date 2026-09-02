@@ -31660,6 +31660,43 @@ def _read_git_head_sha():
         return None
 
 
+# ── Otisk OBSAHU appky (Etapa 2 ticha aktualizace, 2.9.2026) ────────────────
+# PROC: _read_git_head_sha() vyse vraci verzi SERVEROVEHO kodu. Publikace obsahu
+# appky (g2007.soubor -> @@G2007PUBLISH, 2-15x denne) ji NEZMENI, takze appka se
+# o zmene obsahu dnes vubec nedozvi - overeno 2.9.2026. Tohle vraci otisk
+# skutecne servirovaneho mobile.html.
+# Otisk je z OBSAHU, ne z casu souboru - pri prepnuti na zalozni server by se
+# jinak zmenil jen tim, ze tam ma soubor jiny cas.
+# Pocita se jen kdyz se zmeni cas nebo velikost souboru (tedy po publikaci);
+# jinak se vraci z pameti, protoze dotaz chodi kazdych 30 s ze ~130 zarizeni.
+# Kdyz otisk nejde zjistit, vraci None a pole se v odpovedi vynecha - klient to
+# snese (stara appka pole stejne nezna).
+# Schvalila Marti-AI 2.9.2026 (msg 14225 a 14227). Zadal Jirka Honomichl.
+_MOBILE_TAG_CACHE = {"key": None, "tag": None}
+
+
+def _mobile_content_tag():
+    """Kratky otisk obsahu servirovaneho mobile.html, nebo None kdyz to nejde."""
+    try:
+        from pathlib import Path as _PathCT
+        import hashlib as _hashCT
+        root = _PathCT(__file__).resolve().parents[3]  # modules/erp/api -> koren repa
+        p = root / "apps" / "api" / "static_db" / "mobile.html"
+        if not p.exists():
+            p = root / "apps" / "api" / "static" / "mobile.html"
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
+        if _MOBILE_TAG_CACHE.get("key") == key and _MOBILE_TAG_CACHE.get("tag"):
+            return _MOBILE_TAG_CACHE["tag"]
+        with open(p, "rb") as _f:
+            tag = _hashCT.md5(_f.read()).hexdigest()[:12]
+        _MOBILE_TAG_CACHE["tag"] = tag
+        _MOBILE_TAG_CACHE["key"] = key
+        return tag
+    except Exception:
+        return None
+
+
 @api_router.get("/app-version")
 async def app_version(req: Request) -> JSONResponse:
     """Aktuální verze nasazeného kódu (git HEAD sha). Veřejné (žádný auth) —
@@ -31697,7 +31734,11 @@ async def app_version(req: Request) -> JSONResponse:
     if _APP_VERSION_CACHE["v"] is None or (now - _APP_VERSION_CACHE["ts"]) > 10:
         _APP_VERSION_CACHE["v"] = _read_git_head_sha() or "unknown"
         _APP_VERSION_CACHE["ts"] = now
-    return JSONResponse({"version": _APP_VERSION_CACHE["v"]})
+    _out_av = {"version": _APP_VERSION_CACHE["v"]}
+    _tag_av = _mobile_content_tag()
+    if _tag_av:
+        _out_av["content"] = _tag_av
+    return JSONResponse(_out_av)
 
 
 # ── Per-user UI preference (2.6.2026, Marti: chování e-mailových odkazů) ─────

@@ -444,13 +444,20 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
    a stejně se neřeší. Rozhoduje celková cena.
 
 8. **💱 KURZ — jinak u tuzemského a jinak u zahraničního dodavatele. ROZDÍL JE NÁLEZ**
-   (Peťa 2. 9. 2026). ⚠️ **Tolerance 5 Kč se na kurz NEVZTAHUJE** — i pár haléřů rozdílu
-   v DPH je nález, protože kurz je určený pravidlem, ne zaokrouhlením.
+   (Peťa 2. 9. 2026).
+
+   ⚠️ **Rozhoduje DIČ, ne země sídla dodavatele** (Peťa 2. 9. 2026). Firma třeba z Polska,
+   která má **české DIČ**, se bere jako **tuzemský dodavatel**. Nekoukej na adresu, koukej
+   na DIČ na faktuře.
 
    | Dodavatel | Jaký kurz má být v Centrále |
    |---|---|
-   | **Tuzemský** (český, s českým DUZP) | **kurz podle faktury** — buď ten, který je na ní uvedený, nebo se musí **dopočítat** |
-   | **Zahraniční** | kurz k **prvnímu pracovnímu dni v měsíci** (v Centrále je zadaný) |
+   | **Tuzemský** (= **české DIČ**, s českým DUZP) | **kurz podle faktury** — buď ten, který je na ní uvedený, nebo se musí **dopočítat** |
+   | **Zahraniční** (cizí DIČ) | kurz k **prvnímu pracovnímu dni v měsíci** (v Centrále je zadaný) |
+
+   ⚠️ **Kurz musí sedět na haléř přesně.** Tolerance 5 Kč platí až na **výsledek přepočtu
+   z EUR na koruny** (korunový základ a DPH) — ne na kurz samotný. Špatný kurz je nález
+   i tehdy, když je dopad na DPH jen pár haléřů.
 
    Příklad 2229 (JUMO Měření a regulace, český dodavatel, faktura v EUR): na faktuře
    **24,125**, v Centrále **24,16** → **nález**, i když rozdíl v DPH je jen 0,61 Kč.

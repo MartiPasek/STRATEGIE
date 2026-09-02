@@ -31677,6 +31677,18 @@ _MOBILE_TAG_CACHE = {"key": None, "tag": None}
 
 def _mobile_content_tag():
     """Kratky otisk obsahu servirovaneho mobile.html, nebo None kdyz to nejde."""
+    # Hlavni cesta (krok 3a, 2.9.2026): otisk si vyzvedneme z tehoz mista, ktere
+    # stranku posila - tim je zaruceno, ze otisk popisuje PRAVE ODESLANY obsah.
+    # Modul uz je nactenej (appka bezi jako apps.api.main:app), takze zadny
+    # cyklicky import nevznika. Kdyby to z jakehokoli duvodu neslo, spocitame si
+    # otisk sami jako pred 3a - proto zustava puvodni kod nize.
+    try:
+        from apps.api.main import mobile_page_tag as _mpt_ct
+        _t_ct = _mpt_ct()
+        if _t_ct:
+            return _t_ct
+    except Exception:
+        pass
     try:
         from pathlib import Path as _PathCT
         import hashlib as _hashCT

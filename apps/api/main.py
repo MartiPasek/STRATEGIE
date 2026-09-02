@@ -1461,24 +1461,49 @@ def chat_entry():
 # Zamerne JEN /mobile (ne GZipMiddleware pro celou app) - middleware by
 # komprimoval i streamovane SSE odpovedi chatu a mohl by je rozbit.
 # Schvalila Marti-AI 2.9.2026 (msg 14221), varianta A. Zadal Jirka Honomichl.
-_MOBILE_GZIP_CACHE = {"key": None, "body": None}
+# JEDEN ZDROJ PRAVDY (krok 3a, 2.9.2026): zabalene telo I otisk se pocitaji
+# z JEDNOHO precteni souboru. Do 2.9. je pocitala dve nezavisla mista (tady a
+# _mobile_content_tag v router.py), kazde se dívalo jindy - otisk pak mohl
+# popisovat jinou verzi, nez jaka se prave poslala. Jednou to bylo namereno.
+# V etape 3 by na tom appka jednala a zacyklila by se, proto opraveno driv.
+# Schvalila Marti-AI 2.9.2026 (msg 14237). Zadal Jirka Honomichl.
+_MOBILE_CACHE = {"key": None, "gz": None, "tag": None}
+
+
+def _mobile_read_cached(path):
+    """Precte soubor jednou a vrati slovnik se zabalenym telem i otiskem."""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+        if _MOBILE_CACHE.get("key") == key and _MOBILE_CACHE.get("gz"):
+            return dict(_MOBILE_CACHE)
+        import gzip as _gz
+        import hashlib as _hh
+        with open(path, "rb") as _f:
+            raw = _f.read()
+        # poradi je zamerne: obsah az nakonec klic, aby soubezny dotaz nikdy
+        # nevidel klic ukazujici na jeste nedopocitany obsah
+        _MOBILE_CACHE["gz"] = _gz.compress(raw, 9)
+        _MOBILE_CACHE["tag"] = _hh.md5(raw).hexdigest()[:12]
+        _MOBILE_CACHE["key"] = key
+        # vraci se KOPIE, aby volajici nikdy nevidel hodnoty menit se pod rukama
+        return dict(_MOBILE_CACHE)
+    except Exception:
+        return None
 
 
 def _mobile_gzip_body(path):
     """Gzip telo souboru, nebo None kdyz to z jakehokoli duvodu nejde."""
+    _c = _mobile_read_cached(path)
+    return _c.get("gz") if _c else None
+
+
+def mobile_page_tag():
+    """Otisk stranky, ktera se prave servíruje na /mobile. Cte ho /app-version
+    (router.py) - diky spolecne pameti nemuze hlasit jinou verzi, nez jaka odesla."""
     try:
-        st = os.stat(path)
-        key = (path, st.st_mtime_ns, st.st_size)
-        cached = _MOBILE_GZIP_CACHE
-        if cached.get("key") == key and cached.get("body"):
-            return cached["body"]
-        import gzip as _gz
-        with open(path, "rb") as _f:
-            raw = _f.read()
-        body = _gz.compress(raw, 9)
-        _MOBILE_GZIP_CACHE["body"] = body
-        _MOBILE_GZIP_CACHE["key"] = key
-        return body
+        _c = _mobile_read_cached(_resolve_static("mobile.html"))
+        return _c.get("tag") if _c else None
     except Exception:
         return None
 

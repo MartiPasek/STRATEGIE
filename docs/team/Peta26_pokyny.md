@@ -1,5 +1,48 @@
 # Trvalé pokyny od Petry pro Claude‑26
-(Číst při startu. Aktualizováno 3. 8. 2026.)
+(Číst při startu. Aktualizováno 3. 9. 2026.)
+
+## 🚦 ČÍM ZAČNU A ČÍM SKONČÍM (Peťa 3. 9. 2026, ZÁVAZNÉ — tohle je první, co udělám)
+
+Peťa: *„když někde začnu, napíšu přečti si pokyny — a tam jako první by mělo být
+načti si G2007 a zdrojové kódy a skutečná data, a pak ty další věci, git pull a tak."*
+
+Když Peťa napíše **„přečti si pokyny"**, projdu tenhle seznam odshora, **než něco navrhnu
+nebo změním**. Obsahově je pořád nadřazené pravidlo ⛔ **NIKDY SI NEVYMÝŠLET** hned pod tím —
+tahle sekce říká jen, v jakém pořadí si mám opatřit podklady, abych vymýšlet nemusel.
+
+### Start — než napíšu první řádek
+
+1. **G2007 podle tématu.** Přes most `SELECT kod, nadpis, obsah FROM g2007.znalost
+   WHERE stav = 'aktivni' AND (kod ILIKE '%<téma>%' OR obsah ILIKE '%<téma>%')`,
+   nebo `/api/v1/erp/app/g2007/search?q=<téma>&oblast=<oblast>`. **Bez tohohle
+   pracuju slepý** a objevuju znovu to, co už někdo vyřešil.
+2. **Zdrojový kód té věci — a ze SPRÁVNÉHO místa.** U docházky, ERP obrazovek a mobilu
+   kód **nežije na disku**, ale v `g2007.python` (funkce) a `g2007.soubor` (stránky).
+   Kopie v gitu bývá starší a dělá **falešné závěry**. Než něco tvrdím o chování,
+   přečtu si živý zdroj z databáze.
+3. **Skutečná data.** Podívat se přes most, jak to v datech opravdu vypadá — ne jak
+   to podle popisu vypadat má. Nehádat názvy tabulek a sloupců, ověřit si je.
+4. **`git pull`** přes most (`scripts/claude_sql/CLAUDE_PULL_GO.txt`) — a napsat Petě,
+   že ho dělám. Ať se koukám do aktuálního stavu.
+5. **Hlídač pojistek** (viz sekce níž) a `WORK_LOCK.txt` / `@@WHO` — kdo právě dělá na čem.
+6. **Teprve pak** návrh, změna, nasazení.
+
+### Konec — než řeknu „hotovo"
+
+1. **Zapsat do G2007** (`@@G2007ADD <oblast> <slug> | <nadpis>`): co se rozhodlo a proč,
+   co je kde nasazené, na co si dát příště pozor. Nezapsaná znalost = ztracená znalost.
+2. **Zkontrolovat, jestli k téže věci už nejsou JINÉ záznamy** — vyhledat v `g2007.znalost`
+   podle tématu, ne jen podle mého slugu. Když moje změna něco staršího přebíjí,
+   **nikdy nenechám dva rozporné záznamy vedle sebe bez odkazu** — příští instance
+   (nebo druhý Claude) si vybere ten špatný. Buď:
+   - **zneplatním starý** — `UPDATE g2007.znalost SET stav = 'zruseno' WHERE kod = '…'`
+     (ověřené hodnoty: `aktivni` / `zruseno`) **a do nového i do starého napíšu odkaz
+     na tu změnu**, ať je poznat, co ho nahradilo a kdy;
+   - **nebo starý nechám a doplním mu poznámku** „od `<datum>` platí jinak, viz
+     `[[nový-slug]]`" — když pořád platí zčásti a je škoda ho zahodit.
+3. **Ověřit zápis čtením.** Návratovka `@@G2007ADD` je neutrální (0 řádků) i když zápis
+   proběhl — důkaz je až `SELECT … FROM g2007.znalost WHERE kod = '…'`.
+4. **Shrnout Petě** — co se změnilo, kde to je, co ještě zbývá.
 
 ## ⛔ NIKDY SI NEVYMÝŠLET (Peťa 3. 8. 2026, nadřazené všemu ostatnímu)
 Peťa: *„Vzbuzuje to nedůvěru u ostatních věcí, kterým nerozumím a spoléhám na to,

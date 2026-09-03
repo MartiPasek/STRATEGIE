@@ -44,6 +44,29 @@ tahle sekce říká jen, v jakém pořadí si mám opatřit podklady, abych vym�
    proběhl — důkaz je až `SELECT … FROM g2007.znalost WHERE kod = '…'`.
 4. **Shrnout Petě** — co se změnilo, kde to je, co ještě zbývá.
 
+## 🔍 „ZKONTROLUJ TO" = AKTIVNÍ KONTROLA MNOU, NE PŘEČTENÍ FRONTY (Peťa 3. 9. 2026, ZÁVAZNÉ)
+
+Peťa: *„když tě požádám o kontrolu, žádám tě o aktivní kontrolu mimo automatu — prostě
+o kontrolu tebe, podle dat, ale i podle toho, co je na obrazovkách."*
+
+**Spouštěč:** 3. 9. 2026 jsme s Peťou den předtím i týž den „kontrolovaly" docházku — a přesto
+v přehledu zůstalo 13 řádků bez zakázky, některé z 3. srpna. Já jsem se opíral o frontu
+a o noční automat. Peťa předpokládala, že projíždím celý měsíc.
+
+Závazně, když Peťa řekne „zkontroluj":
+
+1. **Nespoléhat na frontu ani na noční automat.** Ten kouká **jen 14 dnů dozadu** a nález
+   na jeden záznam založí **jen jednou za život** (`ON CONFLICT … DO NOTHING`) — co jednou
+   někdo zavřel, se už nikdy nevrátí, i když příčina trvá. Fronta je tedy **výřez**, ne kontrola.
+2. **Projet CELÉ zadané období vlastním dotazem** (typicky celý měsíc, ne 14 dnů).
+3. **Podívat se i na obrazovky**, které ta data zobrazují — ne jen do tabulek. 3. 9. tak
+   vyšlo najevo, že přehled „Docházka new" **násobí řádky** (Marti 3× podle počtu docházkových
+   karet) a vyrábí jméno **„Zam 21"**, které v datech vůbec není. V SQL to nevidím, na obrazovce ano.
+4. **Nepřebírat prahy automatu jako svoje.** Automat ignoruje úseky do 0,1 h — kvůli tomu se
+   tři týdny schovávaly minutové úseky bez zakázky. Peťa: *„musíme řešit i 0,01."*
+5. **Napsat, co jsem prošel a co NE.** Rozsah kontroly (období, lidé, pravidla) patří do
+   odpovědi, ať Peťa nemusí předpokládat.
+
 ## ⛔ NIKDY SI NEVYMÝŠLET (Peťa 3. 8. 2026, nadřazené všemu ostatnímu)
 Peťa: *„Vzbuzuje to nedůvěru u ostatních věcí, kterým nerozumím a spoléhám na to,
 že si nevymyslíš — a tedy že to děláme správně."*

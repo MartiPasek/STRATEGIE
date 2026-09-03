@@ -463,6 +463,15 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
    z EUR na koruny** (korunový základ a DPH) — ne na kurz samotný. Špatný kurz je nález
    i tehdy, když je dopad na DPH jen pár haléřů.
 
+   **🔎 Měsíční kurz si umím ověřit sám — číselník je `TabKurzList`** (ověřeno 3. 9. 2026):
+   ```sql
+   SELECT Datum, Mena, JednotkaMeny, Kurz FROM TabKurzList with(nolock)
+   WHERE Mena = 'EUR' ORDER BY Datum DESC
+   ```
+   Jeden řádek na měsíc, `Datum` = 1. pracovní den měsíce. **Rozhoduje měsíc DUZP faktury** —
+   DUZP v srpnu → srpnový kurz, DUZP v září → zářijový. K 3. 9. 2026: 1. 9. = **24,16**,
+   3. 8. = 24,205, 1. 7. = 24,25, 1. 6. = 24,29, 4. 5. = 24,395, 1. 4. = 24,52.
+
    Příklad 2229 (JUMO Měření a regulace, český dodavatel, faktura v EUR): na faktuře
    **24,125**, v Centrále **24,16** → **nález**, i když rozdíl v DPH je jen 0,61 Kč.
    Naopak 2230 (LAPP, 24,125) a 2231 (Michálek, 24,08) měly kurz podle faktury správně.
@@ -495,6 +504,14 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
   na faktuře větší slevu). Porovnává se **faktura proti nabídce**, ne proti objednávce.
 - **Stává se, že fakturovaný díl v nabídce vůbec není** (Peťa: *„i to se bohužel stává"*)
   — pak platí čtvrtá varianta výstupu výše, není to potřeba dál rozebírat.
+- ⚠️ **PLATNOST NABÍDKY NEHLÁSIT** (Peťa 3. 9. 2026). Platnost se posuzuje k **datu
+  objednávky**, ne k DUZP faktury — takže i když je DUZP až po datu platnosti, nemusí být
+  nic špatně. A i kdyby bylo, *„to už bychom řešili my lidi v rámci nahlášené chyby."*
+  Porovnávej **ceny**, platnost nech být.
+- ⚠️ **Když je na faktuře číslo nabídky, MUSÍM ji zkontrolovat.** 3. 9. 2026 jsem u faktury
+  2236 (Keyence) nabídku 12055657 přehlédl, přestože její číslo bylo na dokladu i v Centrále
+  (pole „Číslo nabídky dodavatele"). Peťa se musela ptát. **Číslo nabídky hledej vždy —
+  v hlavičce dokladu v Centrále i na PDF.**
 
 ### 💳 PLATBA PŘEDEM — tři doklady, tři řady (vysvětlila Peťa 25. 8. 2026)
 

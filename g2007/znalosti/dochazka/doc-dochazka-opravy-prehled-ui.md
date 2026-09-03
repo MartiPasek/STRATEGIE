@@ -1,6 +1,26 @@
-# Opravy docházky — chování přehledu, detailu a historie (stav 22.7.2026)
+# Opravy docházky — chování přehledu, detailu a historie (stav 22.7.2026, doplněno 3.9.2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ⚠️ POZOR — fronta a datum se 3. 9. 2026 chovají jinak (doplněno 3. 9. 2026)
+>
+> Tenhle dokument popisuje stav k 22. 7. 2026. Od **3. 9. 2026** platí u fronty a u data jinak
+> (zadala Peťa, nasadil Claude-26) —
+> [[doc-dochazka-prekryv-casu-blokuje-zezelenani-a-odbaveni-z-fronty]],
+> [[doc-dochazka-rozpor-cloveka-je-videt-na-konkretnim-radku]],
+> [[doc-dochazka-opravy-jeden-datum-na-obrazovce]].
+>
+> 1. **Zelené „✓ opraveno" a tlačítko „✓ Hotovo — z fronty" se NEROZSVÍTÍ**, dokud se na dni
+>    překrývají časy — karta místo toho dostane oranžové **⚠ časy se překrývají** a tlačítko
+>    na vyřízení je neaktivní. Odmítne to i server (`att_fix_resolve` v3), takže to nejde obejít.
+>    Věta níž *„po opravě položka NEZMIZÍ hned — zůstane zeleně"* proto platí **jen pro
+>    srovnaný den**.
+> 2. **Řádek, ke kterému člověk poslal rozpor, má štítek ✋ rozporoval** — i když je záznam
+>    mezitím stornovaný.
+> 3. **Datum je jedno jediné a je vpravo** (nad tabulkou dne, nebo nad prázdným místem, než
+>    se někdo vybere). Políčko „Který den zobrazit" v levém sloupci **zaniklo**.
+>
+> Zbytek dokumentu platí beze změny.
 
 
 > ## ⚠️ POZOR — cesta k souboru už neplatí (doplněno 28. 8. 2026)

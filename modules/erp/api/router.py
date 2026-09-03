@@ -29507,6 +29507,11 @@ def _mirror_run_job(job_key):
         # jen na produkci a blokovalo deploy VSEM (dirty working tree). Kod beze zmeny.
         "att_odbavene_pripomenuti": lambda: __import__("modules.erp.api.erp_registry",
                                                        fromlist=["call"]).call("att_odbavene_pripomenuti"),
+        # Peta 3.9.2026: zkusebni doba se prodluzuje o dny nemoci (vzor Centraly
+        # EC_KartaZam_ZkusebniDobaDo), u nas VSEM HPP bez prepinace per clovek.
+        # Na posunute datum navazuji stravenky. Kod zije v g2007.python, tady delegat.
+        "zkusebka_posun_nemoc": lambda: __import__("modules.erp.api.erp_registry",
+                                                   fromlist=["call"]).call("zkusebka_posun_nemoc"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

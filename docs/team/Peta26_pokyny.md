@@ -295,7 +295,7 @@ abych spoléhal, že platí, co jsem věděl minule.
 |---|---|---|
 | Odpracované hodiny | `tenant.att_entry` přes `tenant.att_den_hodiny` | hrubý součet `att_entry.hours` |
 | Mzdový podklad dne | `tenant.att_day_summary` **počítaný z `att_entry`** | zrcadlo Centrály (`@@DOCHSUM`) |
-| Nárok dovolená / dovolená navíc / sick days | **smlouva `engagement.pod_sick_days_rok` / `pod_dovolena_*`** — ověřeno 26. 8. 2026 v kódu (`sickday_lekar_apply`, `att_narok_cerpani`, `att_limit_kontrola`) | `engagement_entitlement` (zrušeno 16. 8.) · Podmínky (`staff_cond`) drží tytéž hodnoty, ale **čte se ze smlouvy** |
+| Nárok dovolená / dovolená navíc / sick days | **PODMÍNKY (`tenant.staff_cond`, `dovolena_zakladni_dni` / `dovolena_navic_dni` / `dovolena_dni` / `sick_days_rok`)** — opraveno 3. 9. 2026 podle Peti: *„zdroj pravdy jsou podmínky"*. Tady se ptej, když se někdo zeptá „kdo má dovolenou navíc". | `engagement_entitlement` (zrušeno 16. 8.) · ⚠️ do 3. 9. 2026 tu stálo, že zdroj je **smlouva** (`engagement.pod_dovolena_*`) a Podmínky se prý nečtou — bylo to obráceně a Claude podle toho 3. 9. odpověděl špatně. Smlouva tytéž sloupce má, ale rozhoduje karta → Podmínky a bonusy. |
 | **Týdenní úvazek** | **smlouva (`engagement.uvazek_tyden_h`)** — stav k 19. 8. 2026, ⚠️ ještě se řeší | Podmínky (`staff_cond`, `uvazek_h_tyden`) — Jirka je 19. 8. odstranil, aby úvazek nebyl na dvou místech |
 | Docházka ze staré Centrály | **nic — sync ukončen 14. 8. 2026** | `sync_ec_dochazka_recent` |
 | Rozpad na zakázky | `tenant.vyroba_work` s vazbou `att_entry_id` | položky bez vazby (sirotci) |

@@ -426,11 +426,15 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
 
 6. **📅 SPLATNOST U NAŠICH OSVČ SE POČÍTÁ Z PLATEBNÍHO DNE — kratší, a je to záměr**
    (Peťa 1. 9. 2026). Našim OSVČ dáváme **kratší splatnost** než uvádí jejich faktura.
-   Pravidlo: **platební dny jsou úterý a čtvrtek**; splatnost se dá na **den po následujícím
-   pracovním dni**.
-   Příklad 2179 (Radek Hellmayer, OSVČ): doklad pořízen **31. 8. = pondělí** → následující
-   pracovní den **1. 9. (úterý, platební den)** → splatnost **2. 9.**, přestože na faktuře
-   je 14. 9. **Není to nález, nehlásit.**
+   Pravidlo (upřesněno Peťou 3. 9. 2026): **platební dny jsou úterý a čtvrtek**; splatnost
+   se dá na **den PO PLATEBNÍM DNI** — najde se nejbližší další platební den po pořízení
+   dokladu a splatnost je den po něm.
+   - 2179 (Radek Hellmayer): pořízeno **31. 8. = pondělí** → platební den **úterý 1. 9.**
+     → splatnost **2. 9.** (na faktuře 14. 9.).
+   - 501/85 (Saad Jarrar): pořízeno **1. 9. = úterý** → další platební den **čtvrtek 3. 9.**
+     → splatnost **4. 9.** (na faktuře 8. 9.).
+
+   **Není to nález, nehlásit.**
 
 7. **💧 VODY OD PAPERY — perlivá se zadává VČETNĚ DPH, neperlivá bez DPH** (Peťa 1. 9. 2026).
    - **neperlivá** → cena **bez DPH + DPH** zvlášť (v Centrále řádek „Režijní materiál", 501002),

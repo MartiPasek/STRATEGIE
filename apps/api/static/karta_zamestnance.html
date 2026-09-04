@@ -2397,7 +2397,22 @@ function renderZU(edit){
       continue;
     }
     const cells=zuCells(sec, edit, d);
-    if(!edit && !cells.trim()) continue;   // prázdnou sekci v náhledu skryjeme
+    if(!edit && !cells.trim()){
+      // Šárka + Peťa 3.–4. 9. 2026: „Pro výplatu" se NESMÍ skrývat — chybějící účet je pro HR
+      // informace (komu chybí), ne prázdno. HPP/DPP/praxe = povinný účet → výstraha;
+      // OSVČ = fakturuje, účet je na faktuře → jen vysvětlení, ne „chybí".
+      if(sec.key==='vyplaty'){
+        const osvc=(p.typ||'').includes('OSVČ');
+        body+=zuHdr(sec.label, first)+
+          '<div style="grid-column:1/-1;padding:6px 0 10px;font-size:12.5px;color:'+(osvc?'#8fa6c4':'#f0b86e')+'">'+
+          (osvc
+            ? '🤝 Fakturuje — účet je na faktuře, mzdový účet se neeviduje.'
+            : '⚠️ <b>Nevyplněno</b> — účet pro výplatu chybí. Doplní HR po ověření (Upravit → Pro výplatu).')+
+          '</div>';
+        first=false;
+      }
+      continue;   // ostatní prázdné sekce v náhledu skryjeme
+    }
     body+=zuHdr(sec.label, first)+cells;
     first=false;
   }

@@ -128,6 +128,35 @@ def _pracovni_dny(s, d_od, d_do):
     return [r[0] for r in rows]
 
 
+def _po_mesicich(d_od, d_do):
+    """Rozdělí období na kusy po kalendářních měsících → [(od, do), …].
+
+    Peťa 4. 9. 2026: *„je potřeba udělat, i když se zadá nemoc od 27.8. do 4.9.,
+    musí to udělat dva řádky — na srpen a na září, tak jako to bylo v Centrále."*
+
+    Ověřeno v Centrále (`EC_Dochazka_Udalosti`, 329 událostí od roku 2024):
+    ze 119 nemocenských nepřechází přes přelom měsíce ANI JEDNA — 37 jich končí
+    posledním dnem měsíce a 37 začíná prvním. Stejně OČR (30), neplacené volno (19)
+    i překážka v práci (16). Jediná výjimka tam byla mateřská (7 událostí vcelku
+    přes přelom roku); Peťa 4. 9. 2026 rozhodla **dělit i tu** — jednotné pravidlo
+    bez výjimek.
+
+    Mzdový důvod: každý měsíc se schvaluje a účtuje sám za sebe. Když nemoc běží
+    přes přelom, musí jít srpnová část schválit a poslat do mezd ve chvíli, kdy
+    zářijová ještě nemá známý konec.
+
+    Období uvnitř jednoho měsíce vrací jediný prvek — tam se nic nemění.
+    """
+    import calendar as _cal
+    out, kur = [], d_od
+    while kur <= d_do:
+        posledni = kur.replace(day=_cal.monthrange(kur.year, kur.month)[1])
+        kus_do = posledni if posledni < d_do else d_do
+        out.append((kur, kus_do))
+        kur = kus_do + _dt.timedelta(days=1)
+    return out
+
+
 def _zamek(s, dny):
     """Vrátí text chyby, když některý z dnů spadá do uzavřeného mzdového měsíce."""
     from modules.erp.api.router import _att_period_locked
@@ -964,7 +993,8 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
         if kind == "zadost":
             zid = ids[0]
             r = s.execute(_t("SELECT employee_id, datum_od, datum_do, typ, COALESCE(note,''), "
-                             "       hours_per_day "
+                             "       hours_per_day, user_id, COALESCE(stav,''), "
+                             "       COALESCE(materialized,false), COALESCE(status_text,'') "
                              "FROM tenant.att_absence_request WHERE id=:i AND tenant_id=:t"),
                           {"i": zid, "t": _TEN}).first()
             if not r:
@@ -1001,15 +1031,35 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
             zam = _zamek(s, [r[1], r[2], d_od, d_do])
             if zam:
                 return _chyba(zam, 409)
+            # PŘES PŘELOM MĚSÍCE = VÍC DOKLADŮ (Peťa 4. 9. 2026, viz `_po_mesicich`).
+            # Když se úpravou období roztáhne do dalšího měsíce, zůstane tenhle doklad
+            # na prvním měsíci a na zbylé měsíce vzniknou samostatné — stejně jako
+            # při novém zápisu. Typický případ: nemoc zadaná s provizorním koncem
+            # 31. 8. se po neschopence prodlouží do 4. 9.
+            kusy = _po_mesicich(d_od, d_do)
             s.execute(_t("UPDATE tenant.att_absence_request SET typ=:ty, datum_od=:od, datum_do=:do, "
                          "hours_per_day=:h, note=:n WHERE id=:i AND tenant_id=:t"),
-                      {"ty": typ, "od": d_od, "do": d_do, "h": hpd, "n": pozn or None,
+                      {"ty": typ, "od": kusy[0][0], "do": kusy[0][1], "h": hpd, "n": pozn or None,
                        "i": zid, "t": _TEN})
+            nove = []
+            for k_od, k_do in kusy[1:]:
+                nove.append(s.execute(_t(
+                    "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,"
+                    "datum_od,datum_do,hours_per_day,note,stav,status_text,materialized,created_at) "
+                    "VALUES (:t,:e,:u,:ty,:od,:do,:h,:n,:stv,:st,:mat,now()) RETURNING id"),
+                    {"t": _TEN, "e": emp, "u": r[6], "ty": typ, "od": k_od, "do": k_do,
+                     "h": hpd, "n": pozn or None, "stv": (r[7] or "pending"),
+                     "mat": bool(r[8]),
+                     "st": ((r[9] or "") + " · oddělený měsíc z #%d" % zid)[:500]}).scalar())
             actor = _user_jmeno(s, uid)
             _att_fix_audit(s, "absence_edit", None, emp, uid, actor,
                            old_note="%s %s–%s" % (r[3], r[1], r[2]),
                            new_note="%s %s–%s" % (typ, d_od, d_do),
-                           detail="Správa docházky — úprava žádosti #%d: %s" % (zid, duvod),
+                           detail=("Správa docházky — úprava žádosti #%d: %s" % (zid, duvod)
+                                   + ("" if not nove
+                                      else " · rozděleno po měsících, přibyly doklady "
+                                           + ", ".join("#%s (%s–%s)" % (i, k[0], k[1])
+                                                       for i, k in zip(nove, kusy[1:])))),
                            old_date=r[1])
             zust = _abs_recalc_balances(s, emp, {r[1].year, r[2].year, d_od.year, d_do.year})
             s.commit()
@@ -1020,7 +1070,9 @@ async def dochazka_abs_save(req: Request) -> JSONResponse:
                 s.commit()
             except Exception:
                 s.rollback()
-            return JSONResponse({"ok": True, "typ": "zadost", "id": zid, "zustatky": zust})
+            return JSONResponse({"ok": True, "typ": "zadost", "id": zid,
+                                 "ids": [zid] + nove, "casti": 1 + len(nove),
+                                 "zustatky": zust})
         # ── B) denní záznamy ────────────────────────────────────────────────
         # `hours` a kód druhu potřebujeme kvůli dvěma věcem níž: zachování původních
         # hodin při prázdném poli a kontrole nároku při úpravě.
@@ -1188,22 +1240,39 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
         if not _pracovni_dny(s, d_od, d_do):
             return _chyba("V zadaném období není žádný pracovní den.")
         actor = _user_jmeno(s, uid)
-        zid = s.execute(_t(
-            "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,"
-            "datum_do,hours_per_day,note,stav,status_text,decided_by_user_id,decided_at,"
-            "materialized,created_at) "
-            "VALUES (:t,:e,:u,:ty,:od,:do,:h,:n,:stv,:st,:by,now(),true,now()) RETURNING id"),
-            {"t": _TEN, "e": emp, "u": (zam_uid or uid), "ty": typ, "od": d_od, "do": d_do,
-             "h": hpd, "n": pozn or None, "by": uid,
-             "stv": ("approved" if schvaleno else "pending"),
-             "st": ("Zadáno ve Správě docházky (" + actor + ")"
-                    + ("" if schvaleno else " — čeká na schválení"))[:500]}).scalar()
-        dnu = _zapis_dny(s, emp, typ, d_od, d_do, hpd, pozn or "zadáno ve Správě docházky",
-                         uid, zdroj="absence", zad_id=zid, schvaleno=schvaleno,
-                         cas_od=c_od, cas_do=c_do)
+        # PŘES PŘELOM MĚSÍCE = VÍC DOKLADŮ (Peťa 4. 9. 2026, viz `_po_mesicich`).
+        # Nemoc 27. 8. – 4. 9. tady vznikne jako srpnový doklad 27.–31. 8. a zářijový
+        # 1.–4. 9., takže se každý měsíc schvaluje a účtuje sám za sebe.
+        kusy = _po_mesicich(d_od, d_do)
+        zids, dnu = [], 0
+        for k_od, k_do in kusy:
+            _zid = s.execute(_t(
+                "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,"
+                "datum_do,hours_per_day,note,stav,status_text,decided_by_user_id,decided_at,"
+                "materialized,created_at) "
+                "VALUES (:t,:e,:u,:ty,:od,:do,:h,:n,:stv,:st,:by,now(),true,now()) RETURNING id"),
+                {"t": _TEN, "e": emp, "u": (zam_uid or uid), "ty": typ, "od": k_od, "do": k_do,
+                 "h": hpd, "n": pozn or None, "by": uid,
+                 "stv": ("approved" if schvaleno else "pending"),
+                 "st": ("Zadáno ve Správě docházky (" + actor + ")"
+                        + ("" if schvaleno else " — čeká na schválení")
+                        + ("" if len(kusy) == 1
+                           else " · část %d/%d období %s–%s"
+                                % (len(zids) + 1, len(kusy),
+                                   d_od.strftime("%d.%m."), d_do.strftime("%d.%m.%Y"))))[:500]}).scalar()
+            zids.append(_zid)
+            dnu += _zapis_dny(s, emp, typ, k_od, k_do, hpd, pozn or "zadáno ve Správě docházky",
+                              uid, zdroj="absence", zad_id=_zid, schvaleno=schvaleno,
+                              cas_od=c_od, cas_do=c_do)
+        zid = zids[0]
         _att_fix_audit(s, "absence_add", None, emp, uid, actor,
                        new_note="%s %s–%s (%d dnů)" % (typ, d_od, d_do, dnu),
-                       detail="Správa docházky — nová absence #%s" % zid, old_date=d_od)
+                       detail=("Správa docházky — nová absence #%s" % zid if len(zids) == 1
+                               else "Správa docházky — nová absence %s–%s rozdělená po měsících na %d doklady: %s"
+                                    % (d_od, d_do, len(zids),
+                                       ", ".join("#%s (%s–%s)" % (i, k[0], k[1])
+                                                 for i, k in zip(zids, kusy)))),
+                       old_date=d_od)
         zust = _abs_recalc_balances(s, emp, {d_od.year, d_do.year})
         s.commit()
         # Srovnej doplnění do fondu ve dnech, kam absence přibyla — jinak by
@@ -1218,7 +1287,8 @@ async def dochazka_abs_new(req: Request) -> JSONResponse:
             s.commit()
         except Exception:
             s.rollback()
-        return JSONResponse({"ok": True, "id": zid, "dnu": dnu, "zustatky": zust})
+        return JSONResponse({"ok": True, "id": zid, "ids": zids, "casti": len(zids),
+                             "dnu": dnu, "zustatky": zust})
     except Exception as exc:  # noqa: BLE001
         try:
             s.rollback()

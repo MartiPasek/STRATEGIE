@@ -162,6 +162,32 @@ def _person_form(a, rok, mesic, dni_v_mesici):
     proh_dane_xml = ("\t\t\t\t<form:prohlaseniPoplatnikaDane>\n"
                      "\t\t\t\t\t<form:zakladniSleva>%d</form:zakladniSleva>\n"
                      "\t\t\t\t</form:prohlaseniPoplatnikaDane>" % a["zakladniSleva"]) if _proh_je else ""
+
+    # 40245: kdo má příjem zdaněný srážkou zvláštní sazbou (§ 36 ZDPr), nesmí mít ve formuláři
+    # atributy zálohové daně (10297/10298/10305) — místo `zalohaNaDan` jde `zvlastniSazbaDane`
+    # se základem (10307) a skutečně sraženou daní (10309). Názvy elementů ověřeny 4.9.2026
+    # proti validátoru ČSSZ (schéma nabídlo: zalohaNaDan, zvlastniSazbaDane, prohlaseniPoplatnika).
+    # Částka sražené daně = `danZalohaPoSleve` z compute_person_amounts, což je reálně sražená
+    # částka dopočtená z Heliosu (hrubá − SP − ZP − čistá) — u srážkové daně sedí přesně.
+    _srazk = bool(a.get("srazkova_dan"))
+    if _srazk:
+        dan_ks = ("<form:zvlastniSazbaDane><form:zakladDane>%d</form:zakladDane>"
+                  "<form:srazenaDan>%d</form:srazenaDan></form:zvlastniSazbaDane>"
+                  % (h, a["danZalohaPoSleve"]))
+        dan_xml = ("\t\t\t\t<form:zvlastniSazbaDane>\n"
+                   "\t\t\t\t\t<form:zakladDane>%d</form:zakladDane>\n"
+                   "\t\t\t\t\t<form:srazenaDan>%d</form:srazenaDan>\n"
+                   "\t\t\t\t</form:zvlastniSazbaDane>" % (h, a["danZalohaPoSleve"]))
+    else:
+        dan_ks = ("<form:zalohaNaDan><form:zakladDane>%d</form:zakladDane>"
+                  "<form:vypoctenaZaloha>%d</form:vypoctenaZaloha>"
+                  "<form:danZalohaPoSleve>%d</form:danZalohaPoSleve></form:zalohaNaDan>"
+                  % (h, a["vypoctenaZaloha"], a["danZalohaPoSleve"]))
+        dan_xml = ("\t\t\t\t<form:zalohaNaDan>\n"
+                   "\t\t\t\t\t<form:zakladDane>%d</form:zakladDane>\n"
+                   "\t\t\t\t\t<form:vypoctenaZaloha>%d</form:vypoctenaZaloha>\n"
+                   "\t\t\t\t\t<form:danZalohaPoSleve>%d</form:danZalohaPoSleve>\n"
+                   "\t\t\t\t</form:zalohaNaDan>" % (h, a["vypoctenaZaloha"], a["danZalohaPoSleve"]))
     obec = a.get("obec", "Plzeň")
     kod_obce = a.get("kodObce", "554791")
     fond_h = int(a.get("fond_hodin", 160) or 160)
@@ -238,7 +264,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
             "<form:identifikace><form:ikMpsv>%s</form:ikMpsv><form:idPpv>%s</form:idPpv></form:identifikace>"
             "<form:souhrnDataZec>"
             "<form:prijmy><form:zuctovanoCelkem>%d</form:zuctovanoCelkem></form:prijmy>"
-            "<form:zalohaNaDan><form:zakladDane>%d</form:zakladDane><form:vypoctenaZaloha>%d</form:vypoctenaZaloha><form:danZalohaPoSleve>%d</form:danZalohaPoSleve></form:zalohaNaDan>"
+            "%s"
             "<form:prohlaseniPoplatnika>%s</form:prohlaseniPoplatnika>"
             "%s"
             "<form:zdravPojZamestnanec><form:zdravotniPojisteni>%d</form:zdravotniPojisteni></form:zdravPojZamestnanec>"
@@ -255,7 +281,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
             "<form:prijem><form:dan><form:zakladDane>%d</form:zakladDane></form:dan></form:prijem>"
             "</form:cinnostKS>"
             "</n1:formularOsoby>"
-        ) % (id_form, typ_form, a["ikMpsv"], a["idPpv"], h, h, a["vypoctenaZaloha"], a["danZalohaPoSleve"], proh, proh_dane_ks, a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
+        ) % (id_form, typ_form, a["ikMpsv"], a["idPpv"], h, dan_ks, proh, proh_dane_ks, a["zp_zam"], mstart, mend, a["vz_sp"], eldp_kod, mstart, mend, dni_v_mesici, a["vz_sp"], a["sp_zam"], a["sp_firma_form"], obec, kod_obce, fond_h, fond_h, tyden, h)
 
     return f"""\t<n1:formularOsoby>
 \t\t<n1:hlavicka>
@@ -272,11 +298,7 @@ def _person_form(a, rok, mesic, dni_v_mesici):
 \t\t\t\t<form:prijmy>
 \t\t\t\t\t<form:zuctovanoCelkem>{h}</form:zuctovanoCelkem>
 \t\t\t\t</form:prijmy>
-\t\t\t\t<form:zalohaNaDan>
-\t\t\t\t\t<form:zakladDane>{h}</form:zakladDane>
-\t\t\t\t\t<form:vypoctenaZaloha>{a['vypoctenaZaloha']}</form:vypoctenaZaloha>
-\t\t\t\t\t<form:danZalohaPoSleve>{a['danZalohaPoSleve']}</form:danZalohaPoSleve>
-\t\t\t\t</form:zalohaNaDan>
+{dan_xml}
 \t\t\t\t<form:prohlaseniPoplatnika>{proh}</form:prohlaseniPoplatnika>
 {proh_dane_xml}
 \t\t\t\t<form:mzdaCista>
@@ -363,7 +385,9 @@ def build_jmhz(rok, mesic, persons, datum_vyplneni=None, vs=None, opravne=False,
     vs = vs or DEFAULT_VS
     dni = calendar.monthrange(rok, mesic)[1]
     amt = [compute_person_amounts(p) for p in persons]
-    dan_celkem = sum(a["danZalohaPoSleve"] for a in amt)
+    # Souhrn 10034 = součet SKUTEČNĚ SRAŽENÝCH ZÁLOH po slevách (atribut 10305) přes zaměstnance.
+    # Kdo je zdaněný srážkou zvláštní sazbou, atribut 10305 vůbec nemá → do souhrnu nepatří.
+    dan_celkem = sum(a["danZalohaPoSleve"] for a in amt if not a.get("srazkova_dan"))
     bonus_celkem = sum(a.get("danBonus", 0) for a in amt)
     # 20008/20168 (červenec 2026): úhrn vyměřovacích základů v PVPOJ musí být součet
     # ZakladSocPoj (vz_sp), NE hrubých mezd. Loňská oprava „VZ = ZakladSocPoj, ne HrubaMzda"
@@ -583,28 +607,37 @@ def attach_dane(persons, firma, rok, mesic):
     obd = int(rok) * 100 + int(mesic)
     q = ("WITH latest AS ("
          "SELECT j.CisZam_ID AS zid, j.prohlPoplatnika AS proh, j.prohlZakladniSleva AS sleva, "
+         "CAST(ISNULL(j.zvldanZakladDane,0) AS int) AS zvl_zaklad, "
+         "CAST(ISNULL(j.zvldanSrazenaDan,0) AS int) AS zvl_dan, "
          "ROW_NUMBER() OVER (PARTITION BY j.CisZam_ID ORDER BY o.Rok DESC, o.Mesic DESC) rn "
          "FROM " + cloud_db + ".dbo.TabMzJmhzPP j "
          "JOIN " + cloud_db + ".dbo.TabMzdObd o ON o.IdObdobi=j.IdObdobi "
          "WHERE j.PrimarniPPV=1 AND (o.Rok*100+o.Mesic)<=" + str(obd) + ") "
-         "SELECT zid, proh, sleva FROM latest WHERE rn=1")
+         "SELECT zid, proh, sleva, zvl_zaklad, zvl_dan FROM latest WHERE rn=1")
     mp = {}
     try:
         r = _r._mssql188_query(q)
         if r.get("ok") and r.get("rows"):
             for v in r["rows"]:
-                mp[int(v[0])] = (v[1], v[2])
+                mp[int(v[0])] = (v[1], v[2], v[3], v[4])
     except Exception:
         mp = {}
     for p in persons:
         zid = int(p.get("zid") or 0)
         d = mp.get(zid)
         if d is not None:
-            proh_raw, sleva_raw = d
+            proh_raw, sleva_raw, zvl_zaklad, zvl_dan = d
             if proh_raw is not None:
                 p["prohlaseni"] = bool(proh_raw)
             if sleva_raw is not None:
                 p["zakladniSleva_real"] = int(round(float(sleva_raw)))
+            # 40245: příjem podléhající dani vybírané srážkou zvláštní sazbou (§ 36 ZDPr —
+            # DPP, zaměstnání malého rozsahu, odměny nerezidentů). U těchto lidí NESMÍ formulář
+            # obsahovat atributy zálohové daně; jde místo toho blok zvlastniSazbaDane.
+            # Režim (zálohová vs srážková) je stálý, proto se stejně jako prohlášení přebírá
+            # z posledního měsíce, kdy Helios JMHZ generoval. ČÁSTKY se přebírají z aktuálních
+            # mezd, nikdy ne z minulého měsíce.
+            p["srazkova_dan"] = bool((zvl_zaklad or 0) > 0 or (zvl_dan or 0) > 0)
     return persons
 
 

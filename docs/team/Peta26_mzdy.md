@@ -124,6 +124,92 @@ Příplatky a srážky mzdy berou z `tenant.wage_movement`, **tedy ze STRATEGIE*
 jedno, že tam část přišla Jirkovým importem z Centrály a část jsme 5. 8. doplnili
 ručně z Excelu (65 řádků). Pro mzdy je zdroj naše tabulka, ne Centrála.
 
+## 0a. 🔍 KONTROLA DOCHÁZKY PŘED MZDAMI — dělám ji JÁ, z dat a z obrazovek (Peťa 4. 9. 2026, ZÁVAZNÉ)
+
+Peťa 3. 9. 2026: *„zkontroluj docházku za srpen, ale jak jsme si říkali — ne z automatu,
+ne z kontrol, ale ty celé"*, a doplnila: *„a z obrazovky."*
+
+### Co to znamená
+
+**Nekontroluje se z fronty „K vyřešení" ani z hlídačů.** Ty mají čtrnáctidenní okno, práh
+a nález na jeden záznam zakládají jen jednou za život — ukázaly by výřez, ne měsíc. Kontrola
+před mzdami znamená **vlastní dotazy nad celým měsícem, napsané od nuly**, plus pohled na to,
+z čeho jsou docházkové obrazovky poskládané.
+
+Fronta a hlídači jsou provozní nástroj pro průběžnou práci. **Kontrola před mzdami je něco
+jiného a nesmí se o ně opřít.**
+
+### Sada kontrol (ověřeno na srpnu 2026, 4. 9. 2026)
+
+| # | Co se hledá | Kde | Co je v pořádku |
+|---|---|---|---|
+| 1 | Úsek rozpadu **bez zakázky** | `vyroba_work.zakazka_ref IS NULL` | 0 |
+| 2 | Úsek rozpadu **bez činnosti** | `vyroba_work.cinnost_id IS NULL` | 0 |
+| 3 | Úsek rozpadu s **nulou hodin** | `COALESCE(hodiny,0)=0` | 0 |
+| 4 | Rozpad **bez píchnutí** (sirotci) | rozpad bez `att_entry` na týž den | 0 |
+| 5 | **Hlavička práce bez zakázky** | `att_entry.project_ref` prázdný, typ `work` | jen lidé „bez docházky" |
+| 6 | **Překryv časů** v rámci dne | dva úseky se protínají po minutách | 0 |
+| 7 | **Celý den absence a k tomu odpracováno** | absence ≥ 7,5 h a zároveň rozpad > 0,1 h | 0 |
+| 8 | **Rozdíl docházka × rozpad** nad 0,1 h | součet `work` proti součtu rozpadu | 0 |
+| 9 | **Dovolená s prázdným druhem** | `ec_druh` není 20 ani 30 | 0 |
+| 10 | **Absence bez zápisu o období** | `source='absence'` a `source_id IS NULL` | 0 |
+| 11 | **Zápis o období přetékající do dalšího měsíce** | `datum_od` v měsíci, `datum_do` za ním | 0 |
+| 12 | **Zápis o období bez denních záznamů** | nemoc/OČR/lékař, ke kterým žádný platný den není | 0 |
+| 13 | **Dny s prací bez potvrzení člověkem** | chybí řádek v `att_day_confirm` | 0 |
+| 14 | **Rozporované dny dosud otevřené** | `att_day_confirm.disputed` | 0 |
+| 15 | **Otevřené nálezy** za měsíc | `att_anomaly.resolved_at IS NULL` | 0 |
+| 16 | **Píchnutí končící 23:59** | neodhlášený člověk | jen vysvětlené případy |
+| 17 | **Mateřská** — viz níže | | |
+
+### ⚠️ Pasti, na kterých se to dá zkazit (všechny narazeny 4. 9. 2026)
+
+- **`day_end` v 23:59 je technický záznam, ne neodhlášení.** Ze 924 záznamů končících o půlnoci
+  jich 907 byl konec dne. Skutečná práce = 16. **Filtruj `ty.code <> 'day_end'`.**
+- **Zakázku mají mít jen píchnuté typy.** `nenarokova` a `fond_doplneni` jsou dopočty
+  a zakázku nemají mít nikdy (v srpnu jich bylo 363 a vypadaly jako nález). **Filtruj `ty.code='work'`.**
+- **Home office bez hodin a bez času je ohlášení**, ne práce — do těchhle kontrol nepatří.
+- **Jeden člověk má víc docházkových karet** (doktrína #24). Napojení přes `user_id` bez
+  `LATERAL … LIMIT 1` násobí řádky a vyrábí falešné nálezy.
+- **Příznak „Bez docházky" sedí na KARTĚ, ne na člověku.** Marti Pašek má tři karty a příznak
+  je jen na dvou — napojení přes `user_id` vytáhne i tu bez příznaku a člověk vypadne
+  z kontroly jako nekrytý. Zatím se to musí ošetřit v dotazu.
+
+### 🤰 Mateřská se kontroluje zvlášť (Peťa 4. 9. 2026)
+
+**Kontroluj i to, jestli je mateřská zadaná správně — a jestli tam vůbec je, když tam být má.**
+Tohle žádný automat nehlídá: mateřská se nezadává sama a nikdo si ji nepodá z aplikace, takže
+když ji někdo zapomene zadat, prostě chybí a nic o tom nekřičí.
+
+U mateřské projdi:
+
+- **Je zadaná u každé, kdo na ní má být?** Nástup na mateřskou je známý dopředu — porovnej
+  se stavem lidí a s tím, co víš od Peti. Chybějící mateřská se pozná jen tak, že ji hledáš.
+- **Je zadaná celá a děleně po měsících?** Od 4. 9. 2026 platí, že absence přes přelom měsíce
+  vzniká jako samostatný zápis za každý měsíc — mateřskou nevyjímaje (viz
+  `doc-dochazka-absence-pres-prelom-mesice-dva-doklady`).
+- **Sedí hodiny na denní úvazek?** Stejně jako u ostatních absencí, viz oddíl 7e.
+- **Promítla se do dnů?** Zápis o období bez denních záznamů = do mezd nepůjde nic (kontrola 12).
+
+### Kontrola z obrazovek
+
+Kromě dotazů nad daty projdi i **to, z čeho jsou docházkové obrazovky poskládané** —
+definice datových sad. Takhle se 3. 9. 2026 odhalilo **„Zam 21"**: člověk, který v datech
+vůbec neexistoval a vyráběl ho až způsob zobrazení. Prověř všechny aktivní sady, které sahají
+na docházkové karty, na tutéž třídu chyby (napojení přes `user_id` na člověka s víc kartami).
+
+Ověř taky, že **živá stránka opravdu běží** a nese poslední změny — kód může být nasazený
+a stránka přesto stará.
+
+### Co kontrola NEZAHRNUJE (ať je jasné, kam nesahá)
+
+- srovnání s výplatními podklady a s Heliosem
+- nárok na dovolenou a jeho čerpání (to je vlastní kontrola)
+- data z Centrály
+- jiné měsíce, než který se kontroluje
+- **správnost** zakázek — jen jestli tam jsou, ne jestli jsou ty správné
+
+---
+
 ## 1. Odkud se berou hodiny — ZE STRATEGIE
 
 Hodiny pro mzdy se berou **z naší docházky**: funkce **`tenant.att_den_hodiny(2, od, do)`**.

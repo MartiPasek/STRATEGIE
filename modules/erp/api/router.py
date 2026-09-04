@@ -25142,6 +25142,32 @@ async def app_vyroba_podklad_audit(req: Request) -> JSONResponse:
     return JSONResponse(res, status_code=sc)
 
 
+@api_router.post("/app/vyroba/podklad-osvc/audit-mail")
+async def app_vyroba_podklad_audit_mail(req: Request) -> JSONResponse:
+    """Pošle Kristy (k.maresova@eurosoft.com) mail s celým podkladem OSVČ (PDF)
+    + analýzou z kontroly. g2007.python podklad_osvc_audit_mail. Brána rodiče+Dušan.
+    C24/Kristy 4.9."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _podklad_osvc_can(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    tgt = str((body or {}).get("uid") or "").strip()
+    if not tgt.isdigit():
+        return JSONResponse({"ok": False, "error": "chybí/špatné uid zaměstnance"}, status_code=400)
+    from modules.erp.api import erp_registry as _ereg
+    try:
+        res = _ereg.call("podklad_osvc_audit_mail", int(tgt), uid)
+    except Exception as _e:
+        return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
+    sc = res.pop("_status_code", 200) if isinstance(res, dict) else 200
+    return JSONResponse(res, status_code=sc)
+
+
 @api_router.post("/app/vyroba/podklad-osvc/ukol")
 async def app_vyroba_podklad_ukol(req: Request) -> JSONResponse:
     """Založí v Centrále úkol s podkladem OSVČ a odešle na Nákup (11001).

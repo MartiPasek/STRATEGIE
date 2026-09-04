@@ -8370,6 +8370,15 @@ def _hr_only(f):
     return len(f) > 6 and bool(f[6])
 
 
+# Šárka + Peťa 3.–4. 9. 2026: číslo účtu pro výplatu je nejcitlivější pole (špatný účet = peníze
+# odejdou jinam; klasický cíl podvodu). Zaměstnanec ho v self-service VIDÍ, ale NEMĚNÍ — pokus
+# o změnu se neuloží, zapíše se jako žádost (user_self_data_log.change_source='self_request'),
+# HR dostane starou → novou hodnotu a po ověření (telefonicky) ji zapíše z karty. Vlastník dostane
+# potvrzení druhým kanálem („pokud jsi to nebyl ty, ozvi se"). Server to vynucuje bez ohledu na UI.
+_SELF_LOCKED = {"bank_account", "iban", "swift"}
+_SELF_LOCKED_HINT = "Změnu čísla účtu zapisuje HR po ověření — napiš žádost, ozveme se ti."
+
+
 # Číselník zdravotních pojišťoven ČR (Šárka 12.8.2026) — výběr ze seznamu místo volného
 # textu, ať se formát „Název (kód)" nerozjede. Ověřeno 8/2026: 7 aktivních VZP.
 _POJISTOVNY = [
@@ -8458,7 +8467,10 @@ async def app_self_data_get(req: Request) -> JSONResponse:
         for skey, slabel, swhy in _SELF_SECTIONS:
             items = [{"key": f[0], "label": f[1], "type": f[3],
                       "sensitive": f[4], "value": vals.get(f[0], ""),
-                      "options": (_POJISTOVNY if f[0] == "health_insurance" else None)}
+                      "options": (_POJISTOVNY if f[0] == "health_insurance" else None),
+                      # účet pro výplatu: jen pro čtení, změna přes HR (server to vynucuje v /save)
+                      "readonly": f[0] in _SELF_LOCKED,
+                      "hint": (_SELF_LOCKED_HINT if f[0] in _SELF_LOCKED else None)}
                      for f in _SELF_FIELDS if f[2] == skey and f[0] not in skryte and not _hr_only(f)]
             secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
         upd = row[-1].isoformat() if (row and row[-1]) else None
@@ -8501,6 +8513,18 @@ async def app_self_data_save(req: Request) -> JSONResponse:
                 if valid_keys[c][3] == "date" and ov is not None:
                     ov = ov.isoformat()
                 oldv[c] = ("" if ov is None else str(ov))
+        # ZÁMEK ÚČTU (Šárka 4.9.2026): pole pro výplatu se ze self-service NEUKLÁDAJÍ.
+        # Pokus o změnu -> hodnota zůstává stará, zapíše se jako ŽÁDOST (self_request),
+        # HR dostane starou → novou, vlastník potvrzení druhým kanálem. Enforcement je tady,
+        # na serveru — nezávisle na tom, co dovolí UI v mobilu.
+        acct_requests = []  # (key, label, old, requested)
+        for c in cols:
+            if c in _SELF_LOCKED:
+                old_s = oldv.get(c, "")
+                req_s = ("" if newv[c] is None else str(newv[c]))
+                if req_s != old_s:
+                    acct_requests.append((c, valid_keys[c][1], old_s, req_s))
+                newv[c] = (old_s if old_s != "" else None)  # vždy zachovat stávající hodnotu
         # diff
         changed = []  # (key, label, sensitive, old, new)
         for c in cols:
@@ -8543,8 +8567,30 @@ async def app_self_data_save(req: Request) -> JSONResponse:
             _self_notify_owner(s, uid, "🔒 Změna citlivých údajů",
                 "Dne " + kdy + " jsi ve STRATEGII aktualizoval(a) citlivé údaje: "
                 + ", ".join(x[1] for x in sens) + ". Pokud jsi to nebyl ty, ihned se ozvi.")
+        # ŽÁDOST O ZMĚNU ÚČTU: neuloženo, jen zalogováno + HR + vlastník (druhý kanál).
+        if acct_requests:
+            for c, lab, ov, rv in acct_requests:
+                s.execute(_t(
+                    "INSERT INTO tenant.user_self_data_log "
+                    "(tenant_id, user_id, field_name, old_value, new_value, changed_by, change_source) "
+                    "VALUES (2, :u, :fn, :ov, :nv, :u, 'self_request')"),
+                    {"u": uid, "fn": c, "ov": ov, "nv": rv})
+            nm = _self_person_name(s, uid)
+            det = "; ".join(lab + ": '" + (ov or "-") + "' -> '" + (rv or "-") + "'" for _, lab, ov, rv in acct_requests)
+            _task_notify(s, _self_hr_recipients(s), uid,
+                         "💳 ŽÁDOST o změnu účtu pro výplatu — NEULOŽENO, ověřit",
+                         nm + " žádá změnu účtu pro výplatu (" + det + "). Změna se NEUložila — "
+                         "ověř telefonicky s dotyčným a zapiš z karty (Obecné → Pro výplatu).")
+            import datetime as _dt2
+            kdy2 = _dt2.datetime.now().strftime("%d.%m.%Y %H:%M")
+            _self_notify_owner(s, uid, "💳 Žádost o změnu účtu pro výplatu",
+                "Dne " + kdy2 + " byla ve STRATEGII zadána žádost o změnu tvého účtu pro výplatu. "
+                "Zatím se NIC nezměnilo — HR tě kontaktuje a změnu zapíše po ověření. "
+                "Pokud jsi to nebyl ty, ihned se ozvi HR.")
         s.commit()
-        return JSONResponse({"ok": True, "changed": len(changed)})
+        return JSONResponse({"ok": True, "changed": len(changed),
+                             "locked_requested": [c for c, _, _, _ in acct_requests],
+                             "locked_hint": (_SELF_LOCKED_HINT if acct_requests else None)})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

@@ -67,6 +67,26 @@ Závazně, když Peťa řekne „zkontroluj":
 5. **Napsat, co jsem prošel a co NE.** Rozsah kontroly (období, lidé, pravidla) patří do
    odpovědi, ať Peťa nemusí předpokládat.
 
+## 📋 KONTROLA SE ODPOVÍDÁ BOD PO BODU, NE SLOHOVKOU (Peťa 4. 9. 2026, ZÁVAZNÉ)
+
+Peťa: *„po jednotlivých bodech — pokud to bude souhlasit, napiš ten daný bod a jen
+souhlasí. Pod to pak další bod. Nevypisuj shrnutí ani podrobnosti. Pokud dojdeš k bodu,
+který nesedí, napiš co, a další body nevypisuj — budeme v nich pokračovat, až vyřešíme
+ten jeden."*
+
+Když Peťa zadá kontrolu o víc bodech:
+
+1. **Body beru v jejím pořadí.** Co sedí → jediný řádek: číslo, název bodu, „souhlasí".
+2. **Žádné podrobnosti u bodů, které sedí.** Ani počty, ani jak jsem to ověřoval.
+   Když bude chtít detail, zeptá se.
+3. **U prvního bodu, který nesedí, se ZASTAVÍM.** Napíšu jen co nesedí a u koho.
+   Zbylé body nevypisuju — vyřešíme ten jeden a pak pokračuju od něj dál.
+4. **Žádné shrnutí na konci.** Ani „celkově je to v pořádku", ani rekapitulace.
+
+Důvod je stejný jako u pravidla o krátkém psaní
+(G2007 `doc-system-strategie-pravidlo-kratke-odpovedi`): dlouhý text u kontroly mezd
+znamená, že v něm Peťa přehlédne to jedno místo, kde jsou peníze špatně.
+
 ## ⛔ NIKDY SI NEVYMÝŠLET (Peťa 3. 8. 2026, nadřazené všemu ostatnímu)
 Peťa: *„Vzbuzuje to nedůvěru u ostatních věcí, kterým nerozumím a spoléhám na to,
 že si nevymyslíš — a tedy že to děláme správně."*

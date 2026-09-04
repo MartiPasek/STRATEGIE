@@ -159,7 +159,8 @@ jiného a nesmí se o ně opřít.**
 | 14 | **Rozporované dny dosud otevřené** | `att_day_confirm.disputed` | 0 |
 | 15 | **Otevřené nálezy** za měsíc | `att_anomaly.resolved_at IS NULL` | 0 |
 | 16 | **Píchnutí končící 23:59** | neodhlášený člověk | jen vysvětlené případy |
-| 17 | **Mateřská** — viz níže | | |
+| 17 | **Co za měsíc není schválené** — viz níže | `att_entry.ved_schvaleno`, `att_absence_request.stav` | vše schválené |
+| 18 | **Mateřská** — viz níže | | |
 
 ### ⚠️ Pasti, na kterých se to dá zkazit (všechny narazeny 4. 9. 2026)
 
@@ -173,6 +174,31 @@ jiného a nesmí se o ně opřít.**
 - **Příznak „Bez docházky" sedí na KARTĚ, ne na člověku.** Marti Pašek má tři karty a příznak
   je jen na dvou — napojení přes `user_id` vytáhne i tu bez příznaku a člověk vypadne
   z kontroly jako nekrytý. Zatím se to musí ošetřit v dotazu.
+
+### ✅ Co za daný měsíc není schválené (Peťa 4. 9. 2026)
+
+**Před mzdami se musí projít, jestli je všechno za ten měsíc schválené — a co není, tak proč.**
+Neschválená absence není sama o sobě chyba; chyba je, když si jí nikdo nevšimne a měsíc se
+zavře s tím, že něco viselo.
+
+Dvě místa, obě je potřeba projít:
+
+| Kde | Co znamená „schváleno" |
+|---|---|
+| **Denní záznam** — `att_entry.ved_schvaleno` (fajfka ve sloupci S) | vedoucí nebo HR den odsouhlasili |
+| **Zápis o období** — `att_absence_request.stav` | `approved` × `pending` (žádost čeká na rozhodnutí) |
+
+**Zvlášť pozor na nemoc, OČR a lékaře.** U nich schválení neznamená „souhlasím", ale
+**„doklad je doložený"** — u lékaře po kontrole potvrzení, u nemoci až když máme v ruce
+**ukončení neschopenky**. Odklikává se ručně, systém to sám neudělá (viz oddíl 7f). Proto
+u nich neschválené dny znamenají „doklad ještě nedorazil" a před uzavřením měsíce se musí
+dořešit — buď doklad přijde a schválí se, nebo se musí vědět, že se čeká.
+
+**Pozor na částečně odfajfkovaný blok.** Přehled Správy docházky slučuje souvislé dny do
+jednoho řádku a fajfka se rozsvítí, když ji má **aspoň jeden** den z bloku — blok, kde
+polovina dnů schválená není, vypadá jako hotový. Kontroluj po dnech, ne podle řádku.
+
+Srpen 2026 (ověřeno 4. 9. 2026): 240 dnů absence, **z toho neschválených 0**.
 
 ### 🤰 Mateřská se kontroluje zvlášť (Peťa 4. 9. 2026)
 

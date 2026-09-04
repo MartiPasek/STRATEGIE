@@ -48,7 +48,7 @@ def _check_vp_freshness(sg):
     """Čte fw.mirror_job pro VP joby. Vrací (vysledek, zprava, rows, context)."""
     from sqlalchemy import text as T
     rows = sg.execute(T(
-        "SELECT job_key, enabled, last_status, "
+        "SELECT job_key, enabled, running, last_status, "
         " to_char(last_run_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') AS last_run, "
         " round(extract(epoch FROM (now()-last_run_at))/60)::int AS min_ago, "
         " (next_run_at < now() - make_interval(mins => COALESCE(interval_min,60))) AS overdue "
@@ -56,7 +56,8 @@ def _check_vp_freshness(sg):
         {"j": list(_VP_FRESHNESS_JOBS)}).mappings().all()
     problems, lines = [], []
     for r in rows:
-        bad = bool(r["enabled"]) and (r["last_status"] != "ok" or bool(r["overdue"]))
+        # running=True + overdue=False = normální běh, NENÍ problém (G2007 doc-projekty-oz-sync-all-false-alarm-check-vp-freshness)
+        bad = bool(r["enabled"]) and (bool(r["overdue"]) or (not bool(r["running"]) and r["last_status"] != "ok"))
         lines.append("%s %s: stav=%s, naposled %s (%s min), overdue=%s" % (
             "X" if bad else "ok", r["job_key"], r["last_status"], r["last_run"],
             r["min_ago"], r["overdue"]))

@@ -214,6 +214,8 @@ function pdkOpen(p, view){
       }
       t+='<button id="pdkPdf" style="margin-top:6px;cursor:pointer;background:#10b981;color:#04150e;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📄 Otevřít / tisk PDF</button>';
       t+=' <button id="pdkXlsx" style="margin-top:6px;cursor:pointer;background:#1e7a46;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">📊 Excel (rozpad + kontrola)</button>';
+      t+=' <button id="pdkAudit" style="margin-top:6px;cursor:pointer;background:#334155;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-weight:600;font-size:14px">🔍 Zkontrolovat</button>';
+      t+='<div id="pdkAuditOut" style="margin-top:10px"></div>';
       // Tlačítko „Odeslat úkolníkem na Nákup" ODEBRÁNO (Kristý 20. 8. 2026): mátlo, protože
       // úkol na Nákup vzniká automaticky jako součást generování objednávky níž. Funkce
       // `pdkUkol` i endpoint zůstávají — kdyby úkol při generování selhal, jde doposlat.
@@ -232,6 +234,7 @@ function pdkOpen(p, view){
       view.innerHTML=t;
       view.querySelector('#pdkPdf').onclick=function(){ pdkPdf(r); };
       var _xb=view.querySelector('#pdkXlsx'); if(_xb) _xb.onclick=function(){ pdkXlsx(r); };
+      var _au=view.querySelector('#pdkAudit'); if(_au) _au.onclick=function(){ pdkAudit(p.uid, view.querySelector('#pdkAuditOut'), _au); };
       var _ub=view.querySelector('#pdkUkol'); if(_ub) _ub.onclick=function(){ pdkUkol(r, p.uid, _ub); };
       var _pl=view.querySelector('#pdkPlan'); if(_pl) _pl.onclick=function(){ pdkPlan(p.uid, 'EC', view.querySelector('#pdkObjOut')); };
       var _oe=view.querySelector('#pdkObjEC'); if(_oe) _oe.onclick=function(){ pdkObj(r, p.uid, 'EC', _oe, view.querySelector('#pdkObjOut')); };
@@ -254,6 +257,18 @@ function pdkXlsx(r){
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
   }catch(e){ alert('Excel chyba: '+e); }
+}
+function pdkAudit(uid, out, btn){
+  if(!out) return;
+  if(btn){ btn.disabled=true; }
+  out.innerHTML='<div class="muted" style="margin-top:8px">Kontroluji…</div>';
+  fetch('/api/v1/erp/app/vyroba/podklad-osvc/audit?uid='+encodeURIComponent(uid),{credentials:'same-origin'})
+    .then(function(rr){ return rr.json(); })
+    .then(function(a){
+      if(btn){ btn.disabled=false; }
+      if(!(a&&a.ok)){ out.innerHTML='<div class="err" style="margin-top:8px">Chyba: '+esc((a&&a.error)||'?')+'</div>'; return; }
+      out.innerHTML='<div style="margin-top:8px;padding:10px;border:1px solid #22303f;border-radius:9px">'+a.html+'</div>';
+    }).catch(function(e){ if(btn){ btn.disabled=false; } out.innerHTML='<div class="err" style="margin-top:8px">Chyba: '+e+'</div>'; });
 }
 function pdkPlan(targetUid, firma, out){
   if(out) out.innerHTML='<div class="muted">Načítám náhled objednávky…</div>';

@@ -1,6 +1,29 @@
-# Hlídač nekontroluje chybějící zakázku na HLAVIČCE docházky — jen v rozpadu (nález 3. 9. 2026)
+# Hlídač nekontroluje chybějící zakázku na HLAVIČCE docházky — jen v rozpadu (nález 3. 9. 2026, doplněno večer)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## ⚠️ ZMĚNA TÉHOŽ DNE VEČER — bod 2 a rozhodnutí o „drobcích" už NEPLATÍ
+>
+> Tenhle zápis vznikl 3. 9. 2026 přes den. **Týž den večer Peťa rozhodla jinak** (jiná
+> session, Claude-26): *„musíme řešit i 0,01."*
+>
+> - **Práh 0,1 h je ZRUŠENÝ.** V pravidlech `chybi_zakazka` i `chybi_cinnost` a v obou
+>   jejich úklidových dotazech se nově hlídá `> 0`. Věta v bodu 2 („to je správně")
+>   a rozhodnutí „drobky PONECHÁNY" tedy už neodpovídají stavu.
+>   Detail — [[doc-dochazka-prah-01h-u-chybi-zakazka-cinnost-zrusen]].
+> - **Ty tři drobky mají zakázku doplněnou** (Kolářová 7. 8., Jarrar 6. 8., Vápeník 18. 8.)
+>   — převzatou z předchozího úseku téhož dne, na Petin pokyn.
+> - **Příčina minutových úseků je opravená u zdroje** — kaskáda už činnost nepíše prázdnou
+>   ([[doc-dochazka-kaskada-doplni-cinnost-z-predchoziho-useku]]), a dělení píchnutí bez
+>   důvodu je předané Týnce.
+> - **Úseky bez zakázky u Honomichla a Paška jsou zneaktivněné** (5 řádků) a oba lidi
+>   plus Šik a Týnka mají osobní odpovědnost sami na sebe, takže do Petiny fronty nepadají
+>   — [[doc-dochazka-osobni-odpovednost-vyhazuje-z-cizi-fronty]].
+> - Nález se navíc nově **vrací, dokud příčina trvá**
+>   ([[doc-dochazka-nalez-se-vraci-dokud-pricina-trva]]).
+>
+> Bod 1 (hlídač kouká jen do rozpadu, ne na hlavičku), bod 3 (příznak „bez docházky"),
+> stav srpna i poučení na konci **platí beze změny**.
 
 
 NÁLEZ (Peťa + Claude-26, 3. 9. 2026)

@@ -2,6 +2,26 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> 📌 **POZNÁMKA 4. 9. 2026 (Peťa + C26) — ČTI PŘED ZBYTKEM.**
+>
+> Peťa 4. 9. 2026: *„pravda do mezd je v Podmínkách."* Text níže mluví o „smlouvě" proti
+> „Podmínkám" jako o dvou místech — to platilo do 19. 8. 2026, kdy podmínky žily
+> v samostatné tabulce `tenant.staff_cond`.
+>
+> **Od 19.–20. 8. 2026 jsou Podmínky se smlouvou sloučené do jedné verzované tabulky**
+> `tenant.engagement` (sloupce `pod_*` + `uvazek_tyden_h` + mzdové složky přes
+> `wage_component`). „Smlouva" a „Podmínky" jsou tedy dnes **tentýž řádek**, jen dvě jména
+> pro totéž. Rozpor mezi tímhle záznamem a tím, co říká Peťa, není — je to terminologie.
+> Viz [[doc-dochazka-podminky-slouceny-se-smlouvou]].
+>
+> **Co v Podmínkách NENÍ:** slevy na dani (na poplatníka ani daňové zvýhodnění na děti).
+> Číselník `tenant.staff_cond_def` má 17 položek a žádná z nich to není; „Daňová úspora –
+> home office / oblečení" je daňová uznatelnost náhrady, ne sleva na dani. Slevy počítá
+> Helios ze mzdové karty a ověřit je jde jen na výplatnici. Ověřeno 4. 9. 2026 při
+> kontrole srpnových mezd.
+>
+> Zbytek záznamu (úvazek má domov ve smlouvě, ne v samostatných Podmínkách) **platí dál.**
+
 > ⚠️ **POZOR — STAV K 20. 8. 2026 ZMĚNĚN (Jiří Honomichl, 20. 8. 2026, schválila Marti-AI).**
 > Tři tvrzení v textu níže od 20. 8. 2026 **NEPLATÍ**:
 >

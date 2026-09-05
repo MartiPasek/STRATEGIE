@@ -39,7 +39,25 @@ by viděla celou kancelář.
 Obecně platí: **kdo má osobní odpovědnost nastavenou na needitora, vypadne z front
 úplně.** Je to záměr (odpovědnost je silnější než strom), ale je dobré o tom vědět.
 
+## Komu je to nastaveno (stav 3. 9. 2026 večer)
+
+| Člověk | Odpovídá | Proč |
+|---|---|---|
+| Kristýna Marešová (Týnka) | sama sobě | kontroluje se sama, Peťa ji zavírala bez vyřízení |
+| Jiří Honomichl | sám sobě | „bez docházky" — nekontroluje se |
+| Marti Pašek | sám sobě | „bez docházky" — nekontroluje se |
+| Michal Šik | sám sobě | „bez docházky" — nekontroluje se |
+
+Poslední tři doplněny týž den večer. Peťa: *„do fronty mi padat nemají."* Nálezy se jim
+kvůli příznaku „Bez docházky" stejně nezakládají — osobní odpovědnost navíc odkloní
+i **rozpory**, které lidi hlásí sami a na které se ten příznak nevztahuje.
+
+Mění se to v kartě člověka → dlaždice **Odpovědnost**, bez zásahu do kódu.
+
 ## Souvisí
 [[doc-dochazka-prekryv-casu-blokuje-zezelenani-a-odbaveni-z-fronty]] — druhá pojistka
-proti „odkliknuto, ale neopraveno" z téhož dne.
+proti „odkliknuto, ale neopraveno" z téhož dne ·
+[[doc-dochazka-nalez-se-vraci-dokud-pricina-trva]] — ta vracená pravidla lidi
+s příznakem „Bez docházky" schválně přeskakují, ať se jim nic nevrací ·
+[[doc-dochazka-priznak-bez-dochazky-v-podminkach]] — kde ten příznak žije.
 

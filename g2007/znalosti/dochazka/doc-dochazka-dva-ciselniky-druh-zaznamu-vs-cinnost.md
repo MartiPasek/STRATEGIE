@@ -56,3 +56,20 @@ a do toho, co obrazovka reálně vrací.** Jeden pohled do jedné tabulky nesta�
 Souvisí: `doc-dochazka-dovolena-radna-vs-navic-rozpad` (rozpad, dělení zlomového dne, stravenky),
 `doc-dochazka-dovolena-navic-sickday-osvc-do-mezd` (mzdové složky a co do mezd nejde).
 
+---
+
+## ⛔ ID NENÍ ČÍSLO ČINNOSTI (Peťa 4. 9. 2026, ZÁVAZNÉ)
+
+Peťa: *„ID a číslo činnosti jsou dvě naprosto rozdílné věci. ID nás nezajímá — to vás zajímá
+někde na pozadí, ale pořád jsou to dvě rozdílné věci."*
+
+Když se mluví o čísle činnosti, platí **VÝHRADNĚ** `tenant.vyroba_cinnost.ec_cislo` (u nás)
+a sloupec `Cislo` (v Centrále). Interní `id` je technika na pozadí a **nikdy** se za číslo
+činnosti nevydává — ani v hlídači, ani v dotazu, ani v řeči s Peťou.
+
+Živý příklad: služební cesta je **činnost 9**, ale její `id` je 16. Pod `id = 9` sedí u nás
+Značení vodičů a v Centrále dokonce Nemoc.
+
+**Mapa všech číselníků, které se dají zaměnit — včetně těch, do kterých se dívat NEMÁ:**
+`doc-dochazka-cinnosti-ciselnik-centrala-vs-strategie`.
+

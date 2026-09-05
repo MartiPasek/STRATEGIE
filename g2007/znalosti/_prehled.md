@@ -10,7 +10,7 @@
 | `provoz` | system | 9 | Operacni znalost - mostni kanaly, lekce, schemata DB. Aby to bylo dohledatelne. |
 | `ucetnictvi` | obor | 15 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 33 |  |
-| `mzdy` | obor | 57 | Oborova znalost pro personu mzdovou. |
+| `mzdy` | obor | 58 | Oborova znalost pro personu mzdovou. |
 | `dochazka` | obor | 193 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 8 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 7 | Oborova znalost pro personu tvorici nabidky. |

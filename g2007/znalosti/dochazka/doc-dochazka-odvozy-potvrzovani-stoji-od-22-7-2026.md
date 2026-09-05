@@ -2,6 +2,12 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZNAMKA - nazvy tlacitek se 5. 9. 2026 zmenily
+> Text nize popisuje udalosti z roku 2026, kdy se tlacitko pro zahajeni prace jmenovalo
+> "Makat". **Zamerne se neprepisuje** - o minulosti je pravdivy. Dnes se to tlacitko
+> jmenuje **START** (rozhodl Jiri Honomichl 5. 9. 2026).
+> Aktualni stav: [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 ## Nalez (overeno 25.8.2026 v DB_EC i v nasi DB)
 
 **Potvrzovani odvozu zakaznikum z docházkoveho tabletu (prehled „Doprava zakaznikovi", definice 27) prestalo fungovat 22.7.2026 a od te doby nikdo nepotvrdil ani jeden odvoz.**

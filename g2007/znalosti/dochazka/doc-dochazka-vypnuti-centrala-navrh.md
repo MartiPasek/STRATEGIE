@@ -2,6 +2,12 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se tlacitko v mobilu PREJMENOVALO
+> Tlacitko, kterym se v mobilni appce zahajuje prace, se jmenuje **START**.
+> Do 5. 9. 2026 se jmenovalo "Makat" - rozhodl Jiri Honomichl. Vecne se nic nezmenilo,
+> jen nazev; v textu nize je uz novy. Aktualni stav obrazovky:
+> [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 # 🔌 Návrh změny: Při zahájení práce v mobilu vypnout docházku v Centrále
 
 > **Stav: NÁVRH — čeká na schválení Marti. Bez schválení se NEMĚNÍ.**
@@ -9,7 +15,7 @@
 > Rozhodnutí pro Martiho jsou na konci (4 otázky, ať nemusíš dlouho zkoumat).
 
 ## 1. O co jde (1 odstavec)
-Až někdo poprvé **zahájí práci přes mobilní appku** (tlačítko **▶️ Makat**), chceme mu
+Až někdo poprvé **zahájí práci přes mobilní appku** (tlačítko **▶️ START**), chceme mu
 **trvale vypnout docházku ve staré Centrále** — aby už **nemohl píchat na docházkovém
 terminálu** ani pracovat s docházkou v ERP Centrála. Cíl: konec dvojí docházky
 (mobil × Centrála). Je to **jednosměrné — zpět to vracet nepotřebujeme** (rozhodnutí Jirka).
@@ -38,7 +44,7 @@ Veškerá „instalatérská práce" už v projektu je — jen ji použijeme:
 - **Jednorázově** (příznak `tenant.att_source_pref.ec_vypnuto_at`) → poprvé vypni + zapiš čas,
   dál přeskoč. (Žádné MSSQL zápisy každou směnu → šetří MCP rate‑limit.)
 - **+ `app_only=true`** (reuse `att_source_pref`) → EC import toho člověka přeskočí.
-- **Best‑effort** — když EC zápis selže, Makat se NIKDY nezablokuje (jako u `_ec_close_open_shift`).
+- **Best‑effort** — když EC zápis selže, START se NIKDY nezablokuje (jako u `_ec_close_open_shift`).
 - **Žádná reverzní funkce** (jednosměrné, dle rozhodnutí). Audit `fw.ec_dml_log` jen jako stopa.
 
 **Osobní číslo se nemusí nikde hledat** — je to `tenant.att_employee.cislo_zam` (numerické =
@@ -46,21 +52,20 @@ Veškerá „instalatérská práce" už v projektu je — jen ji použijeme:
 
 ## 4. Dopady / bezpečnost
 - Zápis do **produkční legacy ERP (Centrála)** s **mzdovými/terminálovými dopady** → proto pilot.
-- **Trvalé + automaticky = i omyl/test je natrvalo.** Kdo appku jen vyzkouší a klikne Makat,
+- **Trvalé + automaticky = i omyl/test je natrvalo.** Kdo appku jen vyzkouší a klikne START,
   trvale se odřízne od Centrály bez návratu (viz otázka 2).
-- Komplementární s tím, co už běží: `_ec_close_open_shift` (zavře otevřenou EC směnu při Makat),
+- Komplementární s tím, co už běží: `_ec_close_open_shift` (zavře otevřenou EC směnu při START),
   `_mirror_att_to_ec` (mobilní docházku zrcadlí do Centrály pro mzdy), `app_only` (EC import skip).
 
 ## 5. 🟢 ROZHODNUTÍ PRO MARTIHO (stačí odpovědět 1–4)
 1. **Pole:** Potvrzuješ `_AuthDochazka=''` + `PovolitDochVCentrale=0` jako správný „vypínací"
    mechanismus? (V kódu zatím nepoužité; `_BlokovatDochazku` je jen blok, ne vypnutí.)
-2. **Trigger:** Automaticky při **1. Makat** (Jirkův záměr) — OK? Nebo radši **vědomý HR přepínač**
+2. **Trigger:** Automaticky při **1. START** (Jirkův záměr) — OK? Nebo radši **vědomý HR přepínač**
    (bezpečnější, protože vypnutí je trvalé a auto = i omyl/test natrvalo)?
 3. **Dvě cesty:** Necháváme obě — tvůj reverzibilní `_BlokovatDochazku` (HR blok) i nové trvalé
-   vypnutí (Makat)? Nebo sjednotit na jednu?
+   vypnutí (START)? Nebo sjednotit na jednu?
 4. **Pilot:** OK spustit to **nejdřív jen na Jirkovi (os. č. 9030)** a ověřit v Centrále, než to
    zapneme všem?
 
 Po tvém schválení (a odpovědích) to Claude‑28 postaví přesně dle tohoto návrhu. Do té doby **nic neměníme.**
-
 

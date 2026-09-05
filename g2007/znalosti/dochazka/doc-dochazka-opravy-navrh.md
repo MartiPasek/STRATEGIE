@@ -2,6 +2,16 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se obrazovka dochazky v mobilu ZMENILA
+> Rozhodl Jiri Honomichl 5. 9. 2026. Co uz neplati:
+> - tlacitko "Makat" se jmenuje **START**
+> - tlacitko v liste skupin na Firme "Spoluprace" se jmenuje **Moje dochazka**
+> - dlazdice "Spoluprace" v Aplikacich byla ZRUSENA - na dochazku vede jen Firma -> Moje dochazka
+> - dlazdice "Vyhled" byla zrusena (splyvala s "Muj plan")
+> - sekce "Tak to bylo dneska" je natrvalo schovana - zaznam se opravuje dlazdici **Pozadat o opravu**
+> - obrazovka ma nove nadpis "Moje dochazka" a napoveda je jen ikona v jeho liste
+> Aktualni stav: [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 > **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
 > stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
 > a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
@@ -537,7 +547,7 @@ Rozhodl Jirka 21. 7.: **obojí cesta**, **bez časového omezení**.
 - **`czDayLabel()` je vnořená uvnitř `dochLoad()`** — modulové funkce na ni
   nedosáhnou (`ReferenceError`). Pro nový kód vznikl modulový `_czDayLabel()`.
 - **`go()` NENÍ globální** (vše je v jednom IIFE) → Playwright test musí
-  proklikat UI (🏢 Firma → 🤝 Spolupráce), `page.evaluate(() => go(...))` spadne.
+  proklikat UI (🏢 Firma → 🕒 Moje docházka), `page.evaluate(() => go(...))` spadne.
 - **Formulář uvnitř rozkliknutého řádku Historie se nevejde** — rail má
   `height:38vh` s vlastním scrollem, hlavička se ořízne a tlačítka vyjedou mimo
   displej. Řešení: celoobrazovkový sheet `_dochOpravaSheet()` (vzor `dochHelp`).

@@ -2,6 +2,12 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se tlacitko v mobilu PREJMENOVALO
+> Tlacitko, kterym se v mobilni appce zahajuje prace, se jmenuje **START**.
+> Do 5. 9. 2026 se jmenovalo "Makat" - rozhodl Jiri Honomichl. Vecne se nic nezmenilo,
+> jen nazev; v textu nize je uz novy. Aktualni stav obrazovky:
+> [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 > Ověřeno v živé DB přes SQL most. Původ Claude‑24 (Kristý) 28. 7. 2026; SJEDNOCENÍ dokončeno 29. 7. 2026 (C24, Kristý).
 > Souvisí: doc-dochazka-vs-vyroba-separace, doc-dochazka-import-vykazu-prace, doc-dochazka-storno-vyroba-kaskada,
 > doc-dochazka-opravy-prehled-ui, doc-mzdy-mzdy-podklad-zdroj-pravdy, doc-dochazka-dochazka-mirror-interval.
@@ -29,7 +35,7 @@
   - `source_system`: 'app' (mobil), 'import' (výkaz), 'manual_fix' (Opravy), 'centrala1' (import Centrály).
 
 ## Zápisy (kdo píše do vyroba_work) — po sjednocení 29. 7.
-- **Mobil „Makat"** (`_wa_open/_wa_close_running/_wa_running/_wa_latest_today`, router.py) píše/čte nativně
+- **Mobil „START"** (`_wa_open/_wa_close_running/_wa_running/_wa_latest_today`, router.py) píše/čte nativně
   vyroba_work (`source_system='app'`). Zavření: `konec=now()`, dopočítá `hodiny`. Anti‑parazit (<60 s úsek se
   smaže a nový převezme začátek) drží jako dřív.
 - **Import výkazu** (`dochazka_zak_tab.py _dzt_process_parsed`) INSERT do vyroba_work, `source_system='import'`,

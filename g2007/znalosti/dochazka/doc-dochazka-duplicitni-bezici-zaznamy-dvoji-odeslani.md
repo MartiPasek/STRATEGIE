@@ -2,6 +2,12 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se tlacitko v mobilu PREJMENOVALO
+> Tlacitko, kterym se v mobilni appce zahajuje prace, se jmenuje **START**.
+> Do 5. 9. 2026 se jmenovalo "Makat" - rozhodl Jiri Honomichl. Vecne se nic nezmenilo,
+> jen nazev; v textu nize je uz novy. Aktualni stav obrazovky:
+> [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 > ## Upresneni 28. 8. 2026 - duvod se zmenil, ROZHODNUTI PLATI DAL
 >
 > V sekci nize stalo, ze nalez sel do `att_anomaly_scan` a NE do `tenant.pojistka`, protoze
@@ -37,7 +43,7 @@ Zdroj v `g2007.soubor`:
   - tlacitko sice zakazovala, ale **nikdy nekontrolovala, jestli uz zakazane bylo**. Kdyz se
     `act()` spustila dvakrat z tehoz kliknuti (dva navesene listenery / touchend+click
     "ghost click"), obe volani probehla synchronne a odesla dva POST.
-- `71_plan_prace_cinnosti.js` -> `window._praceStart` (tlacitko "Makat") - ochranu **nemela zadnou**.
+- `71_plan_prace_cinnosti.js` -> `window._praceStart` (tlacitko "START") - ochranu **nemela zadnou**.
 
 **2. OSIRENI: kazda funkce si brala JINY bezici zaznam.**
 - `att_checkin` v8: `... WHERE is_active=true` + `.first()` **BEZ ORDER BY** (nedeterministicke)

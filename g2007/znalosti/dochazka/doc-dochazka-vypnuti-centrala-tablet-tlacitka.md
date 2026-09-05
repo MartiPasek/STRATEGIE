@@ -2,10 +2,16 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se tlacitko v mobilu PREJMENOVALO
+> Tlacitko, kterym se v mobilni appce zahajuje prace, se jmenuje **START**.
+> Do 5. 9. 2026 se jmenovalo "Makat" - rozhodl Jiri Honomichl. Vecne se nic nezmenilo,
+> jen nazev; v textu nize je uz novy. Aktualni stav obrazovky:
+> [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 > **DOPLNĚNÍ 25. 8. 2026:** Níže uvedené platí pro úroveň **uživatele**. Na úrovni **zařízení** existují samostatné vypínače `TlOdvozy` a `TlBeistellung` v `EC_Dochazka_NastavZar` — viz [[doc-dochazka-odvozy-potvrzovani-stoji-od-22-7-2026]], kde je i doložený výpadek potvrzování odvozů od 22. 7. 2026.
 
 ## Kontext
-Mechanismus `_ec_vypni_dochazku` (viz [[doc-dochazka-vypnuti-centrala-navrh]]) se spustí při **1. „Makat"** v mobilní appce STRATEGIE a zapíše do DB_EC pro daného člověka (dle os. čísla → `TabCisZam.ID`):
+Mechanismus `_ec_vypni_dochazku` (viz [[doc-dochazka-vypnuti-centrala-navrh]]) se spustí při **1. „START"** v mobilní appce STRATEGIE a zapíše do DB_EC pro daného člověka (dle os. čísla → `TabCisZam.ID`):
 - `TabCisZam_EXT._AuthDochazka = ''`
 - `EC_GlobKonstUziv.PovolitDochVCentrale = 0` (jen má-li Centrála login)
 
@@ -28,7 +34,7 @@ Terminál v Centrále se **NEobnovuje**. Pracovní akce (odvozy, beistellung) se
 - U lidí, kteří terminál používají i na **práci** (ne jen docházku), nulovat **výběrově**, ne plošně.
 
 ## Případ, kde to vyplavalo
-Jaroslav Švenda (os. č. 488, `user_id` 67), `att_source_pref.ec_vypnuto_at` = 22. 7. 2026 09:03 (spustil sám prvním „Makat").
+Jaroslav Švenda (os. č. 488, `user_id` 67), `att_source_pref.ec_vypnuto_at` = 22. 7. 2026 09:03 (spustil sám prvním „START").
 
 ## Zdroje
 `modules/erp/api/router.py` — `_ec_vypni_dochazku`, `_ec_set_block_dochazka`, app_checkin · `tenant.att_source_pref` · `fw.ec_dml_log` (via='vypni_dochazka').

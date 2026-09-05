@@ -2,6 +2,16 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se obrazovka dochazky v mobilu ZMENILA
+> Rozhodl Jiri Honomichl 5. 9. 2026. Co uz neplati:
+> - tlacitko "Makat" se jmenuje **START**
+> - tlacitko v liste skupin na Firme "Spoluprace" se jmenuje **Moje dochazka**
+> - dlazdice "Spoluprace" v Aplikacich byla ZRUSENA - na dochazku vede jen Firma -> Moje dochazka
+> - dlazdice "Vyhled" byla zrusena (splyvala s "Muj plan")
+> - sekce "Tak to bylo dneska" je natrvalo schovana - zaznam se opravuje dlazdici **Pozadat o opravu**
+> - obrazovka ma nove nadpis "Moje dochazka" a napoveda je jen ikona v jeho liste
+> Aktualni stav: [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 > **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
 > stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
 > a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
@@ -56,25 +66,25 @@ python scripts/build_mobile.py; git diff --stat apps/api/static/mobile.html
 |---|---|
 | **Textová nápověda** (overlay ❓) | `function dochHelp(openKey)` — intro + ▶️ tlačítko na hlasový průvodce + 📋 tahák + rozbalovací sekce (`items=[...]`). **Bez obrázků, jen text.** |
 | **Hlasový průvodce** (přehrávač) | `function dochPruvodce()` — pole **`SL=[...]`** (kroky: `{t, img, cap, v}`), přehrávač s řečí. |
-| **Obrazovka docházky** (zdroj pravdy) | `function dochazka()` + `showOpts()` (menu „Potřebuji ti něco říct"), `window._buildWorkSwitch` (Zakázky a činnosti + Makat), `osobniBuild`/`sluzebniBuild`/`jindeBuild` (Tady budu jinde), `prace_zak`/`prace_cin` (pickery). |
-| **Vstupní body** | Dlaždice „❓ Nápověda docházka" v Aplikacích (`apps()`), ❓ tlačítko v hlavičce Spolupráce, kontextové ⓘ tipy (`dochHelp("prichod")`, `dochHelp("potvrzeni")`). |
+| **Obrazovka docházky** (zdroj pravdy) | `function dochazka()` + `showOpts()` (menu „Potřebuji ti něco říct"), `window._buildWorkSwitch` (Zakázky a činnosti + START), `osobniBuild`/`sluzebniBuild`/`jindeBuild` (Tady budu jinde), `prace_zak`/`prace_cin` (pickery). |
+| **Vstupní body** | Dlaždice „❓ Nápověda docházka" v Aplikacích (`apps()`), ❓ ikona v liště obrazovky Moje docházka, kontextové ⓘ tipy (`dochHelp("prichod")`, `dochHelp("potvrzeni")`). |
 
 `SL` kroku: `t`=titulek, `img`=`IMG+"pruvodce_*.png"` (IMG=`/static/navod_dochazka/`), `cap`=HTML popis (single-quoted JS string), `v`=text k vyslovení (double-quoted JS string).
 
 ## ⚠️ SKUTEČNÁ funkčnost docházky (ground truth — proti tomu se píše nápověda)
 
-Obrazovka **🤝 Spolupráce** (Firma → Spolupráce, nebo dlaždice v Aplikacích), shora:
-1. **ZAKÁZKY A ČINNOSTI** (`_buildWorkSwitch`): dlaždice **🧾 Zakázka** (vyber / 🧰 Režie) + **🔧 Činnost**, tlačítko **▶️ Makat** (spustí docházku z předvýběru). Když makáš: „🟢 MAKÁŠ — klikni a změň" (zakázku/činnost lze měnit za běhu). Pickery: `prace_zak`, `prace_cin`.
+Obrazovka **🕒 Moje docházka** (Firma → 🕒 Moje docházka; dlaždice v Aplikacích byla 5. 9. 2026 zrušena), shora:
+1. **ZAKÁZKY A ČINNOSTI** (`_buildWorkSwitch`): dlaždice **🧾 Zakázka** (vyber / 🧰 Režie) + **🔧 Činnost**, tlačítko **▶️ START** (spustí docházku z předvýběru). Když makáš: „🟢 MAKÁŠ — klikni a změň" (zakázku/činnost lze měnit za běhu). Pickery: `prace_zak`, `prace_cin`.
 2. **💬 Potřebuji ti něco říct…** (`showOpts`) — menu se liší dle stavu:
    - **MIMO směnu (příchod):** 🚗 Jedu do práce… (5/15/30/45 min/1/1,5/2 h) · 🏢 Jsem v práci… · 🏠 Nejsem v práci… (home office) · 🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve… · 💬 Píši přímo tobě, Marti… · 🙋 Mám dotaz na nadřízeného…
    - **VE směně:** 🙈 Teď to bude jinak… → (☕ Krátká pauza · 🍃 Jdu se provětrat/najíst · 🕔 skončit dříve · 🌅 přijít později · 📅 Mám jednání · 🚗 Mám služební pochůzku · 🫡 Dnes už se mnou nepočítej) · 🛠 Zpráva vedoucímu výroby · 🏁 Budu brzy hotov · 💬 Píši Marti · 🙋 Mám dotaz na nadřízeného · (🏭 Plánovač výroby jen vedoucí). **Jednání/pochůzka = hodiny BĚŽÍ dál.**
-3. **MOJE DOCHÁZKA** (dlaždice): 📅 Dnešek · 📅 Týden · 🔭 Výhled · 🕓 Historie · 📋 Moje žádosti · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde**.
+3. **MOJE DOCHÁZKA** (dlaždice): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 📋 Moje žádosti · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde** · 🗓️ Nepřítomnosti.
    - **🧭 Tady budu jinde** (`jindeBuild`) → **🏠 Osobní důvody** (🏡 makat z domova/HO · 🕐 Něco si zařizuji · 👨‍👧 Zase řeším rodinu/OČR · 🤒 Je mi fakt blbě/sick day · 🤧 Mám neschopenku do · 🩺 Jedu k lékaři · 🌴 Že by dovolená) + **💼 Služební důvody** (🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka pak dorazím · 📝 Ostatní). **Absence jdou TUDY, NE přes 💬.**
 4. **PODMÍNKY & FINANCE** (dlaždice): 📋 Moje podmínky · 📐 Můj úvazek · 👤 Můj plán · 💰 Moje finance · 🗓️ Nepřítomnosti.
 5. **Potvrzení dne** = jantarová karta → ✓ Potvrzuji svou docházku / 🔍 detaily / ✋ Rozpor. Bez potvrzení se ráno nepíchneš (14 dní).
    **Po potvrzení karta zmizí** — od 21. 7. vede zpátky **✋ Požádat o opravu** (viz bod 8).
 6. Historie + **💰 Moje odmakané prašule** (páska, PIN).
-7. **Oprava záznamu (vlastní, jen dnešek):** v sekci „Tak to bylo dneska…" ťukni na záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku.
+7. **Oprava záznamu (vlastní, jen dnešek):** dlaždice **✋ Požádat o opravu** (sekce „Tak to bylo dneska…" je od 5. 9. 2026 natrvalo schovaná).
 8. **✋ Požádat o opravu (od 21. 7. 2026, podnět Peťa)** — pro **starší i už POTVRZENÝ** den.
    Dvě rovnocenné cesty: dlaždice **✋ Požádat o opravu** (obrazovka `doch_oprava_zadost`:
    14 dní + pole s datem pro starší → celý den nebo konkrétní záznam → chipy důvodů
@@ -92,7 +102,7 @@ Obrazovka **🤝 Spolupráce** (Firma → Spolupráce, nebo dlaždice v Aplikac�
 | 2 | 🏢 Kde docházku najdeš | pruvodce_firma.png |
 | 3 | 👀 Obrazovka docházky — kde co je | pruvodce_prehled.png |
 | 4 | 🧾 Příchod: vyber zakázku | pruvodce_zakazka.png |
-| 5 | 🔧 Příchod: vyber činnost a Makat | pruvodce_cinnost.png |
+| 5 | 🔧 Příchod: vyber činnost a START | pruvodce_cinnost.png |
 | 6 | 💬 Příchod jinak — přes menu | pruvodce_menu.png |
 | 7 | 🍽️ Pauza / oběd | pruvodce_jinak.png |
 | 8 | 🤝 Jednání, pochůzka, dřív/později | pruvodce_jinak.png |
@@ -112,7 +122,7 @@ Verzovaná pravda = **`apps/api/static/navod_dochazka/pruvodce_*.png`** (to appk
 Pořízené Playwrightem: skript zapíše dočasné `docs/navod_screenshoty/P_*.png`, ty se zkopírují
 do `pruvodce_*.png`. **`P_*.png` jsou regenerovatelné mezivýstupy — do gitu nekomituj.**
 - `pruvodce_firma.png` ← P_firma (záložka Firma)
-- `pruvodce_prehled.png` ← P_prehled (ZAKÁZKY A ČINNOSTI + Makat + 💬 + Moje docházka)
+- `pruvodce_prehled.png` ← P_prehled (ZAKÁZKY A ČINNOSTI + START + 💬 + Moje docházka)
 - `pruvodce_zakazka.png` ← P_zakazka (Vyber zakázku)
 - `pruvodce_cinnost.png` ← P_cinnost (Vyber činnost)
 - `pruvodce_menu.png` ← P_menu (menu „Potřebuji" mimo směnu)
@@ -143,7 +153,7 @@ změní reálnou docházku.
 - **`czDayLabel()` je vnořená uvnitř `dochLoad()`** — modulové funkce na ni nedosáhnou
   (`ReferenceError`). Pro nový kód je modulový **`_czDayLabel()`**.
 - **`go()` NENÍ globální** (vše v jednom IIFE) → automatický test musí proklikat UI
-  (🏢 Firma → 🤝 Spolupráce); `page.evaluate(() => go('...'))` spadne.
+  (🏢 Firma → 🕒 Moje docházka); `page.evaluate(() => go('...'))` spadne.
 - **Formulář nikdy nevkládej do rozkliknutého řádku Historie** — rail má `height:38vh`
   s vlastním scrollem, obsah se ořízne a tlačítka vyjedou z displeje. Použij
   celoobrazovkový sheet (`class="appmodal"`, vzor `dochHelp` / `_dochOpravaSheet`).

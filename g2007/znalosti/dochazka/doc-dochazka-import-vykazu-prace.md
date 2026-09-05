@@ -2,12 +2,18 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ## !! POZOR - 5. 9. 2026 se tlacitko v mobilu PREJMENOVALO
+> Tlacitko, kterym se v mobilni appce zahajuje prace, se jmenuje **START**.
+> Do 5. 9. 2026 se jmenovalo "Makat" - rozhodl Jiri Honomichl. Vecne se nic nezmenilo,
+> jen nazev; v textu nize je uz novy. Aktualni stav obrazovky:
+> [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
+
 # Import výkazu práce (EUROSOFT Work Report .xlsx) do docházky
 
-Pop-up menu přehledu **Docházka new** → **„⬆ Import z výkazu"**. Nahraje výkaz(y) NEBO je vezme přímo ze sdílené složky Dušana, ukáže **náhled**, po potvrzení založí docházku. Kristý + C24, 24.7.2026, commity `1bdccef2` (základ) → `2fb5aeeb` (složka) → `6c8c11aa` (model „Makat").
+Pop-up menu přehledu **Docházka new** → **„⬆ Import z výkazu"**. Nahraje výkaz(y) NEBO je vezme přímo ze sdílené složky Dušana, ukáže **náhled**, po potvrzení založí docházku. Kristý + C24, 24.7.2026, commity `1bdccef2` (základ) → `2fb5aeeb` (složka) → `6c8c11aa` (model „START").
 
-## ⚠️ MODEL: import = mobilní „Makat" (NE přímý zápis do vyroba_work!)
-Import zakládá docházku **STEJNĚ jako když se člověk píchne na zakázku** (mobil „Makat" / „Přidat záznam" v Opravách), tj. do DVOU vrstev:
+## ⚠️ MODEL: import = mobilní „START" (NE přímý zápis do vyroba_work!)
+Import zakládá docházku **STEJNĚ jako když se člověk píchne na zakázku** (mobil „START" / „Přidat záznam" v Opravách), tj. do DVOU vrstev:
 1. **`tenant.att_entry`** = přítomnost → **MZDA**. Práce (`entry_type work`) + **pauza** (`entry_type break`) jako samostatné záznamy. `source='import'`, `status='approved'`, `is_active=false`, `created_by_id`.
 2. **`tenant.work_alloc`** = úsek na zakázce (`source='import'`) → přeteče do `tenant.vyroba_work` (zakázky). Po zápisu se volá `_sync_vyroba_work_app(frm,to)`, takže se úsek hned objeví v Docházka new.
 
@@ -16,7 +22,7 @@ Po zápisu se pro každý dotčený (employee, den) volá `_att_automat_recalc_d
 > **Dřívější verze (do 24.7. dopo.) zapisovala rovnou do `vyroba_work` (source_system='app') — ŠPATNĚ:** dalo to zakázku, ale NE mzdu, a nebylo to v Opravách docházky. Přepsáno na model výše. Prvních 12 test-řádků (Valenta 77 + Porner 83) se muselo smazat (byly bez mzdy + hrozilo zdvojení při foldu).
 
 ## Pauza (klíčové pro mzdy)
-Výkaz dává čistou práci (buňka C) a rozpětí od–do (D/E). Pauza = rozpětí − čistá práce. Den se rozseká jako „Makat": **práce (půl čisté) + pauza uprostřed + práce (druhá půl)**, součet práce = čistý čas. Př. 06:00–14:30, pauza 0,5 → work 06:00–10:00 + break 10:00–10:30 + work 10:30–14:30 = **8 h práce + 0,5 h pauza**, konec 14:30. Helper `_dzt_day_segments`.
+Výkaz dává čistou práci (buňka C) a rozpětí od–do (D/E). Pauza = rozpětí − čistá práce. Den se rozseká jako „START": **práce (půl čisté) + pauza uprostřed + práce (druhá půl)**, součet práce = čistý čas. Př. 06:00–14:30, pauza 0,5 → work 06:00–10:00 + break 10:00–10:30 + work 10:30–14:30 = **8 h práce + 0,5 h pauza**, konec 14:30. Helper `_dzt_day_segments`.
 
 ## Pojistky proti dvojí mzdě (jako fix/add)
 - **Uzamčený měsíc** (`_att_period_locked`) → řádek `error`, přeskočí se.

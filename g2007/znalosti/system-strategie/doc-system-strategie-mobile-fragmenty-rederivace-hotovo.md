@@ -2,6 +2,7 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **NEPLATNE od 5. 9. 2026.** Postup publikace obsahu mobilu popsany nize UZ NEPLATI - plati @@G2007PUBLISH, viz doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje (24. 8. 2026) a doc-system-strategie-po-updatu-g2007-soubor-nutny-publish (31. 8. 2026). Duvod - @@G2007SESTAV vydava i cizi nepublikovanou praci. Rozhodl Jirka Honomichl 5. 9. 2026. Dokument zustava jen jako historie.
 
 ## Vysledek (uzavira doc-system-strategie-todo-mobile-fragmenty-rederivace-vecer)
 Vsech 28 puvodnich fragmentu mobile_parts/* PREPSANO bajtove presnymi vyrezy ziveho monolitu v5 (910 328 zn, md5 894785636b6e...): rez veden sekvencnim hledanim prvnich radku puvodnich fragmentu + rucni dolazeni hranice 30_contacts (sekce nalezena uvnitr 25_tasks). INVARIANTA overena: concat(28 novych fragmentu) == v5 NA ZNAK. Fragment 73_zvp_finance_zakazky.js (Kristy/C24, 4 778 zn, pridan 3.8. dopoledne) NEDOTCEN - byl to novy obsah cekajici na publikaci (stejna zed jako Jirka rano).

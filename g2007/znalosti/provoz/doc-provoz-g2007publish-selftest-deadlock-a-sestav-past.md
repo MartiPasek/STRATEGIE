@@ -2,6 +2,14 @@
 
 > oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **OPRAVA 5. 9. 2026 - cast textu nize UZ NEPLATI.** Deadlock self-testu `@@G2007PUBLISH`
+> z 5. 8. 2026 je OPRAVENY (`doc-system-g2007-g2007publish-selftest-event-loop-starvation`).
+> Publikuje se **`@@G2007PUBLISH`**; `@@G2007SESTAV` uz neni nahradni cesta pro bezne
+> publikovani - zavazny postup drzi `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`
+> a `doc-system-strategie-po-updatu-g2007-soubor-nutny-publish`.
+> **PLATI DAL cely oddil 2** - `@@G2007SESTAV` opravdu vydava i cizi nepublikovanou praci.
+> Rozhodl Jirka Honomichl 5. 9. 2026.
+
 
 ## 1. @@G2007PUBLISH padal a sam se vracel zpet (5. 8. 2026)
 
@@ -28,11 +36,21 @@ pomala cesta, to je deadlock."* Reseni by bylo pustit self-test **mimo smycku**
 (thread / `run_in_executor` / async klient). **Opravu vlastni Kristy (C24)** - je to jeji
 soubor a jeji aktivni prace, nesahat do nej.
 
-⚠️ **Dokud to neni opravene, spadne to pri pristim `@@G2007PUBLISH` cehokoli**, ne jen mobile.html.
+⚠️ **NEPLATI od 5. 9. 2026 - OPRAVENO.** Self-test uz blokujici volani nedela
+(`doc-system-g2007-g2007publish-selftest-event-loop-starvation`) a `@@G2007PUBLISH` je opet
+bezpecna a doporucena cesta; overeno naostro 2. 9. 2026 (17 publikaci z mostu, vse OK).
+Rozhodl Jirka Honomichl 5. 9. 2026.
+
+NEPLATI (do 5. 9. 2026 tu stalo): "Dokud to neni opravene, spadne to pri pristim `@@G2007PUBLISH`
+cehokoli, ne jen mobile.html."
 
 ## 2. PAST: @@G2007SESTAV publikuje i cizi nepublikovanou praci
 
-Nahradni cesta `@@G2007SESTAV <artefakt>` (slozi fragmenty + zapise na disk + ulozi do DB,
+> **Zarazeni opraveno 5. 9. 2026** - `@@G2007SESTAV` uz NENI nahradni cesta pro bezne
+> publikovani, plati `@@G2007PUBLISH`. **Varovani v tomhle oddilu plati dal** pro kazdeho,
+> kdo `@@G2007SESTAV` presto pouzije.
+
+Cesta `@@G2007SESTAV <artefakt>` (slozi fragmenty + zapise na disk + ulozi do DB,
 **bez** self-testu) **sklada VSECHNY aktivni fragmenty** artefaktu - ne jen ty, ktere jsi menil ty.
 
 5. 8. 2026 se tim dostala zive **nepublikovana zmena C24/Kristy**
@@ -52,6 +70,9 @@ WHERE typ='zdroj' AND kod LIKE 'apps/api/static/mobile_parts/%'
 ```
 
 ## 3. Rucni overeni, kdyz musis obejit self-test
+
+> **Od 5. 9. 2026 uz self-test obchazet netreba** - je opraveny, jed `@@G2007PUBLISH`.
+> Postup nize nech jako zalozni pro pripad, ze by pojistka zase vypadla.
 
 Nahrazuje pojistky z `@@G2007PUBLISH` (delka, party tagu, `node --check`, zive overeni).
 **Nejdriv si zajisti dve nezavisle cesty zpet**, teprve pak sestavuj:

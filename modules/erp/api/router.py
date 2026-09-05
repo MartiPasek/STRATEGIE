@@ -20472,6 +20472,22 @@ async def att_absence_inbox(req: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status)
 
 
+@api_router.get("/app/attendance/absence/decided")
+async def att_absence_decided(req: Request) -> JSONResponse:
+    """Historie MEHO schvalovani absenci (sekce "Moje rozhodnuti" na obrazovce
+    "Ke schvaleni"). DB-driven delegat, telo v g2007.python kod=att_absence_decided.
+    Nove 5.9.2026 - zadal Jirka Honomichl, schvalila Marti-AI (msg 14438 a 14448).
+    Strankovane pres limit/offset, at to unese i schvalovatele s desitkami rozhodnuti."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_absence_decided", uid,
+                        req.query_params.get("limit"), req.query_params.get("offset"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 
 @api_router.post("/app/attendance/absence/decide")
 async def att_absence_decide(req: Request) -> JSONResponse:

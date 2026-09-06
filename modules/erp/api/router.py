@@ -28619,6 +28619,7 @@ async def cockpit_access(req: Request) -> JSONResponse:
     is_parent_f = bool(uid and is_marti_parent(uid))
     fin = is_sync = False
     vpved = False
+    is_admin_f = False
     if uid:
         from core.database_data import get_data_session as _gca
         _sca = _gca()
@@ -28630,6 +28631,13 @@ async def cockpit_access(req: Request) -> JSONResponse:
                 "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
                 "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false AND g.name IN ('Vedení','VP') "
                 "AND m.user_id=:u LIMIT 1"), {"u": uid}).first() is not None)
+            # Jirka Honomichl 6.9.2026 (schvalila Marti-AI, msg 14505): novy priznak `admin`
+            # slouzi VYHRADNE k viditelnosti sekci v mobilnich Aplikacich. `parent` ani
+            # zadny serverovy zamek se nemeni - exec_approval zustava jen rodicum, aby si
+            # Marti-AI nemohla schvalit vlastni rizikovy prikaz (tvrde pravidlo #3).
+            is_admin_f = bool(_sca.execute(_tvpv(
+                "SELECT 1 FROM public.users WHERE id=:u AND COALESCE(is_admin,false) LIMIT 1"),
+                {"u": uid}).first())
         except Exception:
             fin = is_sync = False
         finally:
@@ -28659,7 +28667,7 @@ async def cockpit_access(req: Request) -> JSONResponse:
                      "role": "VP tým", "col": "#3a6e5a", "cockpit": "/vp"})
     return JSONResponse({"ok": True, "uid": uid or 0, "allowed": bool(cockpit_allowed or is_vp),
                          "team": team, "fin": bool(fin), "sync": bool(is_sync),
-                         "parent": is_parent_f, "vp": is_vp, "vpved": bool(vpved),
+                         "parent": is_parent_f, "admin": bool(is_admin_f), "vp": is_vp, "vpved": bool(vpved),
                          "member": bool(uid and not (fin or is_parent_f or is_vp))})
 
 

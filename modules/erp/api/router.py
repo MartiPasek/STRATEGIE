@@ -29704,21 +29704,47 @@ def _mirror_sched_tick():
 _SECLAG = {"notified": False, "start": None}
 
 
-def _api_commit(port):
+def _api_commit(port, timeout=3):
+    """Verze bezici na dane kopii API (HTTP dotaz na 127.0.0.1:<port>).
+
+    POZOR: je to BLOKUJICI volani. Nikdy se jim neptej SAM SEBE — na to je
+    `_api_git_sha()` z `apps/api/main.py`, ktera cte totez lokalne a cachuje si to.
+    Duvod: 6. 9. 2026 se ukazalo, ze dvojice takovych dotazu (na sebe + na druhou
+    kopii) drzela hlavni kopii API kazdych ~5 minut 6-12 vterin bez odpovedi.
+    """
     import requests as _rq
     try:
-        j = _rq.get("http://127.0.0.1:%s/api/v1/api-info" % port, timeout=3).json()
+        j = _rq.get("http://127.0.0.1:%s/api/v1/api-info" % port, timeout=timeout).json()
         return (str(j.get("commit") or "") or None)
     except Exception:
         return None
 
 
 def _maybe_notify_seclag():
+    """Hlida, jestli druha kopie API (blue-green) nezaostava za hlavni.
+
+    ZMENA 6. 9. 2026 (zadal Jirka Honomichl, schvalila Marti-AI): vlastni verze
+    se uz NEZJISTUJE HTTP dotazem sama na sebe, ale lokalne pres `_api_git_sha()`,
+    a dotaz na druhou kopii ma limit 1,5 s misto 3 s.
+
+    Proc: hlavni kopie API kazdych ~5 minut (kazdy 10. tik 30sekundove smycky
+    `_mirror_sched_loop`) na 6-12 vterin prestala odpovidat VSEM. Zmereno
+    6. 9. 2026: zamrzala jen hlavni kopie, druha s vypnutymi planovaci ne
+    (22:23:29 port 8002 = 7,3 s, port 8003 = 0,0 s), a stroj sam bezel plynule
+    (pocitadlo na serveru 4 minuty bez mezery). Delka zamrznuti odpovidala dvema
+    limitum po 3 vterinach za sebou.
+    """
     import os as _os, time as _tt
     if _SECLAG["start"] is None:
         _SECLAG["start"] = _tt.time()
-    a = _api_commit(_os.environ.get("STRATEGIE_PRIMARY_PORT") or "8002")
-    b = _api_commit(_os.environ.get("STRATEGIE_SECONDARY_PORT") or "8003")
+    try:  # vlastni verze lokalne, bez HTTP dotazu sam na sebe
+        from apps.api.main import _api_git_sha as _sha_local
+        a = _sha_local() or None
+        if a == "unknown":
+            a = None
+    except Exception:
+        a = _api_commit(_os.environ.get("STRATEGIE_PRIMARY_PORT") or "8002")
+    b = _api_commit(_os.environ.get("STRATEGIE_SECONDARY_PORT") or "8003", timeout=1.5)
     if not a or not b:
         return
     if a[:12] == b[:12]:

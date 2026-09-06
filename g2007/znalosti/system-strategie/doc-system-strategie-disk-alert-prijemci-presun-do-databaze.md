@@ -64,6 +64,17 @@ nedostupne databazi neviselo a nezdrzovalo cestu upozorneni.
 
 Parametr `ds` v tenke spojce v router.py zustal kvuli volajicim, ale uz se nepouziva.
 
+## ⚠️ VERZI POVYSUJE DATABAZE SAMA — zjisteno 6. 9. 2026
+
+Po aktivaci mela funkce **verzi 2**, i kdyz jsem zapisoval verzi 1 a pri prepnuti na `active` jsem verzi vubec nesahal. Neni to chyba ani cizi zasah — otisk zustal na bajt stejny (`1f84c4841b3167bff0a63b11beb93f08`, 1918 znaku).
+
+Duvod je v databazi: nad `g2007.python` je spoustec **`trg_python_archiv`** (funkce `g2007.fn_python_archiv_pred_update`). Precteno primo z definice: kdyz se zmeni `zdroj` NEBO `stav_zivota`, ulozi starou podobu do `g2007.python_historie` a udela `NEW.verze = OLD.verze + 1`.
+
+Co z toho plyne:
+- **Verze se pri zmene kodu i pri zmene stavu zvedne sama** a stara podoba se archivuje — nic se neztrati.
+- Pravidlo "po kazde zmene POVYS verzi" tim neni zbytecne, ale je to **pojistka navic**: kdyz verzi zvedne i clovek, skoci o dve. Funkcne to nevadi (`erp_registry` si cachuje podle dvojice kod+verze, takze jina verze znamena jen nove nacteni), ale je dobre o tom vedet, nez to nekdo bude oznacovat za chybu.
+- Spoustec reaguje **jen** na `zdroj` a `stav_zivota`. Zmena samotneho `popis` verzi nezvedne.
+
 ## Overeno
 
 `@@PYRUN disk_alert_prijemci` vratil pred i po nasazeni tri spravce s firemnimi

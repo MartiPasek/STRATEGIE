@@ -1,4 +1,4 @@
-# Server se zadrhava (stoji 39 % casu) - co je zmereno, co VYLOUCENO a kde hledat
+# Server se zadrhava - mereni 19.8.2026 (VYRESENO 6.9.2026: pamet + obsluha hlaseni ze site na hlavnim vlakne)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -8,6 +8,31 @@ Zmereno **50 minut souvisle, 48 766 vzorku**, 15 soubeznych klientu, tri nezavis
 (curl, Python, prohlizec) + kontrolni cizi server po teze lince. Surova data (7,3 MB TSV) ma
 Jirka. Tahle znalost existuje hlavne proto, **aby se nemerily znovu veci, ktere uz vylouceny
 jsou**, a aby se neopakovaly drivejsi mylne zavery.
+
+> ## ✅ VYRESENO 6. 9. 2026 — pricina nalezena a opravena
+>
+> Zadrhavani popsane v teto znalosti melo **dve pricany**, obe uz jsou pryc:
+>
+> 1. **Malo pameti** na prazskem serveru (4 GB, odkladani na disk) — dodavatel pridal
+>    pamet 6. 9. 2026 v 11:47, nove je jich 16 GB. Detail:
+>    `doc-system-strategie-praha-server-malo-ram-zatuhavani-api`.
+> 2. **Obsluha hlaseni ze site** (`POST /app/netscan/ingest`) byla psana jako `async`
+>    a delala 8 vterin praci s databazi primo na hlavnim vlakne — po tu dobu API
+>    neobslouzilo nikoho. Bezi kazdych ~5 minut. Opraveno 6. 9. 2026 (`f50d5195`)
+>    presunem prace do vlakna. Detail a obecne pravidlo:
+>    `doc-system-strategie-async-obsluha-blokuje-cele-api`.
+>
+> ⚠ Jedna vec nize UZ NEPLATI: mezi vyloucenymi je *periodicita* (Rayleigh, 300 s
+> p=0,937). Dnes byla zadrhnuti **presne periodicka po 5 min 9 s**. Duvod rozdilu: 19. 8.
+> jeste bezela i pametova pricina, ktera delala tolik nahodneho sumu, ze pravidelnost
+> prekryla. Naopak spravne bylo tehdejsi *ZBYVA jedina hypoteza* — synchronni prace
+> na event loopu; presne to se dnes potvrdilo.
+>
+> **Po oprave:** 14 minut mereni, 384 dotazu, zadne zadrhnuti, prumerna odezva 0,045 s
+> (pred tim 0,098 s). Mereni a vyloucene priciny nize **plati jako historie** a jsou
+> porad uzitecne — nemer je znovu.
+>
+> *(Doplnil Claude-28 / Jirka Honomichl 6. 9. 2026 vecer.)*
 
 ## Co se deje
 Server nepravidelne prestane odpovidat. Mezi epizodami je rychly (median 0,10 s), v epizode

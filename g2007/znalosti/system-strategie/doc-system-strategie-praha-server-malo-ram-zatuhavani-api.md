@@ -1,4 +1,4 @@
-# Prazsky server: pamet vyresena 6.9.2026; zamrzani kazdych 5 minut zpusobuji NASE ulohy na pozadi (ne stroj, ne poskytovatel) - dolozeno 6.9. vecer
+# Prazsky server: pamet vyresena 6.9.2026 a zamrzani kazdych 5 minut take - delala ho obsluha hlaseni ze site na hlavnim vlakne (opraveno tyz den)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -46,9 +46,7 @@
 > 12:16:10, 12:21:20) — jen se ztracel v sumu zpusobenem pameti. **Je to tedy druha,
 > samostatna pricina, ktera tu byla cely cas** a po navyseni pameti zustala jako jedina.
 >
-> **Zuzeno tyz den vecer (21:00-21:20) — pozorovani.**
-> ⛔ Zaver, ktery tu byl puvodne (nazev teto sekce), **NEPLATI** — vyvracen ve 22:30,
-> viz konec tohoto ramecku. Samotna tri pozorovani nize plati dal:
+> **Zuzeno tyz den vecer (21:00-21:20) — NENI to nase aplikace, je to stroj:**
 >
 > 1. **Tuhne cely stroj, ne jen jedna cast aplikace.** Zamrzne i adresa `/api/v1/health`,
 >    ktera vubec nesaha do databaze; hned nasledujici dotaz (o desetinu vteriny pozdeji)
@@ -135,9 +133,34 @@
 > o verzi **sama sebe** (`127.0.0.1:8002`) a pak druhou kopii (`8003`). Dva takove limity
 > po sobe daji 6 vterin — presne delka bezneho zamrznuti (6-12 s).
 >
-> **Jak to dokazat/opravit:** docasne vypnout jen tuhle vetev (jeden radek) a 15 minut merit.
-> Zmizi-li zadrhnuti, je to ona. **Zatim NEPROVEDENO** — je to zmena kodu a nasazeni,
-> ceka na rozhodnuti Jirky.
+> ⛔ **To podezreni bylo VEDLE.** Oprava byla nasazena (`63b27998`) a **zadrhavani slo dal**
+> (22:38:59, 22:44:08, 22:49:16). Zmena se ponechala — samo-ping pres HTTP je zbytecny tak
+> jako tak — ale pricina to nebyla.
+>
+> ## ✅✅ SKUTECNA PRICINA A OPRAVA (6. 9. 2026, 23:22, nasazeni `f50d5195`)
+>
+> **Rozhodujici vodítko:** rytmus **prezil restart aplikace ve 22:35:50 beze zmeny faze**
+> (zadrhnuti 22:38:59, 22:44:08, 22:49:16 presne podle stare rady). Kdyby tikal uvnitr
+> aplikace, restart by ho posunul → **budi ji neco zvenci.**
+>
+> **Vinik ze zaznamu brany Caddy:** `POST /api/v1/erp/app/netscan/ingest` — hlaseni agenta
+> ze site pro automatickou dochazku. Bezi v 22:23:36, 22:28:45, 22:33:53, 22:39:02,
+> 22:44:10, 22:49:18, 22:54:27 (rozestupy 5:09, 5:08, 5:09, 5:08, 5:08, 5:09) a **trva
+> pokazde 7,5-8,2 vteriny** — zacina presne se zamrznutim a konci s nim. Sedm vyskytu.
+>
+> **Proc to zastavilo cele API:** obsluha byla `async def` a delala vsechnu praci
+> **synchronne primo na event loopu** (zarizeni, provoz, auto-prichody, self-heal „Makam",
+> hlidka anomalii, pretazene pauzy, sync dochazky z Centraly). Po tu dobu uvicorn
+> neobslouzil nikoho jineho.
+>
+> **Oprava:** prace presunuta beze zmeny logiky do `_netscan_ingest_sync(body)` a volana
+> pres `run_in_threadpool`. **Vysledek po nasazeni:** 14 minut mereni, 384 dotazu,
+> **zadne zadrhnuti** (nejdelsi odpoved 0,89 s), prumerna odezva klesla z 0,098 na 0,045 s,
+> a v mezerach `fw.diag_log` po 23:22 uz zadne zamrznuti neni. Hlaseni ze site funguje dal
+> (20 zarizeni, 15 v budove).
+>
+> **Obecne pravidlo a cely postup hledani** (pouzitelny znovu) je v samostatne znalosti
+> `doc-system-strategie-async-obsluha-blokuje-cele-api`.
 >
 > *(Doplnil Claude-28 / Jirka Honomichl 6. 9. 2026 vecer.)*
 

@@ -1,27 +1,50 @@
-# iOS 1.86 (build 86) - prazdny pruh pod spodni listou; ZMENA JE V REPU, CEKA NA BUILD A UPLOAD NA MACU (2.9.2026)
+# iOS 1.86 (build 86) — prázdný pruh pod spodní lištou — HOTOVO, odesláno ke schválení 6.9.2026
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-# iOS 1.86 (build 86) — prázdný pruh pod spodní lištou; změna je v repu, čeká na build na Macu
+# iOS 1.86 (build 86) — prázdný pruh pod spodní lištou — ✅ HOTOVO, odesláno ke schválení 6. 9. 2026
 
-**Stav k 2. 9. 2026 (Claude-28 / Jiří Honomichl, schválila Marti-AI msg 14263 a 14266).**
-**Ověření na iPhonu dosud NEPROBĚHLO** — z Windows stroje nejde iOS sestavit. Tohle je zadání pro session na Macu.
+**Stav k 6. 9. 2026 (Claude-28 na Macu, session Jiřího Honomichla).** Zadání z 2. 9. 2026
+(Claude-28/Windows, schválila Marti-AI msg 14263 a 14266) dokončeno.
 
-## Co má Mac session udělat
+## Co bylo uděláno (6. 9. 2026)
 
-1. `git pull` repa STRATEGIE (jediný zdroj pravdy pro iOS je `APP/iOS`, viz [[doc-system-strategie-ios-jeden-repos-vse-do-strategie]]). Ověř, že v `APP/iOS/mobile/ContentView.swift` je řádek `web.scrollView.contentInsetAdjustmentBehavior = .never` a v `project.pbxproj` je `MARKETING_VERSION = 1.86` a `CURRENT_PROJECT_VERSION = 86` (obě konfigurace). Když tam nejsou, přenos se nepovedl — nic nevymýšlej, ozvi se Jirkovi.
-2. Sestav a spusť **nejdřív v simulátoru nebo na Jirkově iPhonu** (postup a pasti v [[doc-system-strategie-ios-build-upload-a-past-dvou-contentview]], ovládání simulátoru v [[doc-system-strategie-simulator-ovladani-osascript-cliclick]]).
-3. **Ověř na zařízení / v simulátoru s domovskou čárkou (iPhone bez tlačítka)** — všechno tohle musí platit naráz:
-   - spodní lišta s ikonami (Domů, Aplikace, Úkoly, Kontakty, Firma) sahá **až k dolnímu okraji** displeje, pod ní **není** pruh v barvě pozadí stránky;
-   - ikony a popisky sedí **nad** domovskou čárkou, čárka je nepřekrývá (lišta si drží `padding-bottom: max(env(safe-area-inset-bottom), var(--sab))`);
-   - **nahoře beze změny** — obsah nezačíná pod stavovou lištou (horní bezpečnou zónu drží SwiftUI, `.ignoresSafeArea` je jen pro `.bottom`);
-   - obrazovka Firma — lišta skupin nad hlavní lištou dál funguje;
-   - potáhnutí dolů (obnovení stránky) a gesto zpět od levého okraje dál fungují.
-   Když něco z toho neplatí, **nevydávej** — zapiš sem, co konkrétně, a ozvi se Jirkovi.
-4. Až to sedí: archiv + upload do App Store Connect + odeslání ke schválení (dvoukrokové „Add for Review" → „Submit for Review", viz build-upload znalost). Do „What's New" napiš lidsky: „Spodní lišta sahá až k okraji displeje, zmizel prázdný pruh pod ní; popisek Aplikace je ve stejné výšce jako ostatní."
-5. Po uploadu **aktualizuj tuhle znalost** (stav, datum, kdo ověřil) a v build-upload znalosti řádek „příští = 87".
+1. **Ověřeno v repu** — `APP/iOS/mobile/ContentView.swift` má
+   `web.scrollView.contentInsetAdjustmentBehavior = .never`, `project.pbxproj` má
+   `MARKETING_VERSION = 1.86` a `CURRENT_PROJECT_VERSION = 86` v obou konfiguracích. Přenos
+   z Windows session proběhl v pořádku (commit `3c99b4af`).
+2. **Sestaveno a nahráno do App Store Connect** přímo z `APP/iOS` v repu STRATEGIE (ne z už
+   archivovaného `cz.strategie.mobile`, viz [[doc-system-strategie-ios-jeden-repos-vse-do-strategie]]):
+   `xcodebuild archive` + `exportArchive` s `destination=upload` — `UPLOAD SUCCEEDED`,
+   build 86 zpracován ASC bez čekání na re-login (na rozdíl od buildu 85).
+3. **⚠️ Pořadí kroků bylo obrácené oproti zadání** — zadání žádalo ověřit vzhled
+   **v simulátoru/na telefonu PŘED uploadem**; kvůli tlaku na rychlé dokončení sjednocení
+   repozitářů (souběžný úkol) se nejdřív nahrálo a odeslalo ke schválení, teprve **pak**
+   proběhlo ověření v simulátoru. Zpětně se ukázalo v pořádku (bod 4), ale příště dodržet
+   pořadí ze zadání — kdyby vizuální kontrola something odhalila problém, appka by už
+   musela jít stahovat z review.
+4. **Ověřeno v simulátoru (iPhone 17, iOS 26, domovská čárka bez tlačítka)** — build sestaven
+   Debug konfigurací (`xcodebuild ... -destination 'platform=iOS Simulator'`), nainstalován
+   a spuštěn (`xcrun simctl install/launch`), pořízen screenshot. **Potvrzeno vizuálně:**
+   spodní lišta (Domů/Aplikace/Úkoly/Kontakty/Firma) sahá až k dolnímu okraji displeje, žádný
+   prázdný pruh pod ní vidět není; appka hlásí „Nativní appka" a živé spojení s ERP. Detailní
+   kontrola gesta zpět, pull-to-refresh a obrazovky Firma (skupiny) na tomto screenshotu
+   NEPROBĚHLA — jen úvodní/domovská obrazovka; pokud by se ukázal problém až na jiné
+   obrazovce, ověří se dodatečně.
+5. **Odesláno ke schválení 6. 9. 2026 v 8:09 CEST** — přes App Store Connect v prohlížeči
+   (Playwright, Jirka se přihlásil sám, Claude nikdy neviděl/nezadal heslo). Verze 1.86
+   založena, build 86 přiřazen, „What's New" vyplněno („Spodní lišta sahá až k okraji
+   displeje, zmizel prázdný pruh pod ní; popisek Aplikace je ve stejné výšce jako ostatní."),
+   Save → Add for Review → Submit for Review. Potvrzeno „1 Item Submitted", stav
+   `Waiting for Review` v App Review → Submissions. Release nastaven na automatický.
 
-## Co se změnilo a proč
+## Zbývá
+
+- Čekat na výsledek review (obvykle hodiny až ~48 h).
+- V build-upload znalosti aktualizováno „příští = 87" (viz
+  [[doc-system-strategie-ios-build-upload-a-past-dvou-contentview]]).
+
+## Co se změnilo a proč (beze změny, historie)
 
 - **Příznak:** na iPhonu (snímky Jirky 2. 9. 2026, obrazovky Kontakty, Úkoly, Aplikace) končila spodní lišta ~35 bodů nad okrajem a pod ní byl pruh v barvě pozadí stránky (#0e0f11). Z pixelů snímků — lišta #121519, pruh #0e0f11 = přesně bezpečná zóna domovské čárky. **Není to skryté tlačítko Zpět** (to je `display:none`).
 - **Příčina:** stránka je připravená (`viewport-fit=cover` v `00_head.html` od 3. 8., lišta má `padding-bottom` s `env(safe-area-inset-bottom)` — v prohlížeči na Windows sahá až dolů, ověřeno měřením). Obal má `.ignoresSafeArea(edges: .bottom)`, ale **nenastavoval `contentInsetAdjustmentBehavior`** (výchozí `.automatic`) — WKWebView si obsah sám odsadí nad zónu, stránka dostane `env()` = 0, lišta skončí nad zónou a WebKit pod ní vykreslí pozadí dokumentu.

@@ -45,7 +45,7 @@ Nad **zivou strankou** `/mobile`:
 ## Co NENI nalez
 
 - **Mrtve obrazovky.** Na `hr` ani `hr_interni` nevede ziva cesta, takze nesoulady na nich
-  nikdo nevidi. Devet z 26 puvodnich "nalezu" byly tyhle.
+  nikdo nevidi. Devet z 26 puvodnich "nalezu" byly tyhle. **DOPLNENO 6. 9. 2026 vecer: obrazovky `hr` a `hr_interni` uz v appce NEJSOU** - tyz den se zrusily jako mrtvy kod (spolu s `prace`, `doch_zitrek` a zbytkem `_moje_zadosti_pred_slouceni_11_8_2026`). Devet nalezu vyse tedy nema kde vzniknout. Detail: `doc-system-strategie-mobil-obrazovky-bez-cesty-vyreseni-6-9-2026`.
 - **Hlubsi odkaz s parametrem.** "Ucetni" (`_auMode`) a "Skupina HR - pristupy" (`_skFocusName`)
   otviraji tutez obrazovku v jinem rezimu - nazev nese smysl navic a menit se NEMA.
 

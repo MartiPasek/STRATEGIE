@@ -78,6 +78,20 @@ odkaz „ⓘ Jak potvrdit den / co je rozpor?" (`dochHelp("potvrzeni")`).
 
 ## F) Šest obrazovek, na které nevede v celé appce žádná cesta
 
+> ✅ **VYŘEŠENO 6. 9. 2026 — a metoda níž je NESPOLEHLIVÁ, neřiď se jí.**
+> Dosažitelnost se nedá měřit podle názvů funkcí: appka naviguje podle **klíče v mapě
+> `SCREENS`**, který se od názvu funkce může lišit. Podle názvů mi vyšlo 28 „mrtvých"
+> obrazovek včetně běžně používané Nemocenské a Vyber zakázku — a naopak by to svedlo
+> smazat `prace_zak` a `prace_cin`, které volá živá sekce „ZAKÁZKY A ČINNOSTI" v Docházce.
+> Správný postup, past se čtyřmi registračními místy při mazání obrazovky a přehled toho,
+> co se zpřístupnilo a co zrušilo, drží
+> `doc-system-strategie-mobil-obrazovky-bez-cesty-vyreseni-6-9-2026`.
+> Ve zkratce: přibyly zamčené dlaždice Nemocenská a Lísteček od lékaře v Docházce
+> a čtyři dlaždice v HR; zrušily se `hr`, `hr_interni`, `prace`, `doch_zitrek`
+> a zbytek `_moje_zadosti_pred_slouceni_11_8_2026`. Řádky níže popisují stav před opravou.
+> Rozhodl Jiří Honomichl.
+
+
 Ověřeno třemi nezávislými způsoby: **žádný výskyt názvu jako řetězce** (`"jmeno"`),
 **žádné přímé volání** `jmeno(` mimo vlastní definici, **žádné volání přes** `__M2W.jmeno(`.
 

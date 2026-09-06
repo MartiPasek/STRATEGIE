@@ -12,12 +12,14 @@
 > - obrazovka ma nove nadpis "Moje dochazka" a napoveda je jen ikona v jeho liste
 > Aktualni stav: [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
 
-> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
-> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
-> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
-> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
-> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
-> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+> **POSTUP UVNITŘ SROVNÁN 6. 9. 2026.** Do té doby tenhle dokument níž popisoval
+> sestavování mobilní stránky přes `scripts/build_mobile.py` a commit `mobile.html` do gitu.
+> **Tak se to už nedělá** a kdo se tím řídil, jeho práce se do appky nedostala a nikde to
+> nenahlásilo chybu — přesně takhle se 5.–12. 8. 2026 tiše zahodila práce Peti a Šárky.
+> Sekce *Kde obsah appky žije* níž teď popisuje skutečný stav. Závazný postup pro celou
+> síť drží `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`.
+> (Varování doplnil Claude-28 18. 8. 2026, text srovnán 6. 9. 2026 — obojí na zadání
+> Jiřího Honomichla, schválila Marti-AI.)
 
 # Docházka — nápověda + hlasový průvodce (SPEC / paměťový soubor)
 
@@ -26,41 +28,45 @@
 > Udržuj tenhle soubor při každé změně nápovědy/průvodce nebo menu docházky.
 > Poslední aktualizace: 21. 7. 2026.
 
-## ⚠️⚠️ BUILD: `mobile.html` je od 5. 7. 2026 GENEROVANÝ — needituj ho přímo!
+## ⚠️ KDE OBSAH APPKY ŽIJE (stav 6. 9. 2026)
 
-`apps/api/static/mobile.html` (jeden velký servírovaný soubor, ~9 000 řádků) je
-od 5. 7. 2026 **generovaný** scriptem `scripts/build_mobile.py` slepením partialů
-z **`apps/api/static/mobile_parts/`** (`NN_nazev.js|html|css`, řadí se čísly).
-Split udělal **Claude-27 (Zuzka)** na rozhodnutí **Claude-23 (Marti)** —
-„mechanismus A: build-step concat, ne deploy-time". Hlavička v `mobile.html` to hlásí.
+**Obsah mobilní aplikace nežije na disku ani v gitu — žije v databázi**, v tabulce
+`g2007.soubor`. Dílky mají typ `zdroj` a kódy `apps/api/static/mobile_parts/*`; skládá se
+z nich jediná servírovaná stránka — artefakt `apps/api/static_db/mobile.html`.
+**Ani dílky, ani sestavená stránka nejsou v gitu.**
 
-**🎯 Docházka (nápověda + průvodce + celá obrazovka) = partial `mobile_parts/60_dochazka.js`**
-(`dochHelp` ~ř. 1, `dochPruvodce` ~ř. 60; `35_apps_vedeni.js` na to jen volá dlaždicí).
-To je 147 kB partial — největší ze všech.
+**🎯 Docházka (nápověda + průvodce + celá obrazovka) = dílek `mobile_parts/60_dochazka.js`**
+— dnes **248 kB, největší ze všech**. `function dochHelp(` je na řádku **26**,
+`function dochPruvodce(` na řádku **87** *(ověřeno 6. 9. 2026 dotazem do databáze)*.
 
-**Workflow, když děláme s docházkou:**
-```
-1. edituj mobile_parts/60_dochazka.js   (NE mobile.html!)
-2. python scripts/build_mobile.py       (přegeneruje mobile.html)
-3. commit OBOJE: 60_dochazka.js + mobile.html
-```
+**Jak se to mění — dvě platné cesty, obě přes most:**
 
-**🚨 KRITICKÁ PAST — partialy bývají ZASTARALÉ (reality ≠ workflow):** Claude-23/Marti
-i po splitu **občas editují `mobile.html` napřímo** a nepropíšou to zpět do partialů
-(ověřeno 8.7.: committnutý `mobile.html` měl 2 přímé úpravy — dlaždice „📦 Po zakázkách"
-+ „HR modul" rename — které v partialech NEBYLY). **Kdybys editoval partial a rebuildoval,
-tyhle přímé úpravy SMAŽEŠ.** Proto PŘED každou prací s partialem:
-```
-python scripts/build_mobile.py; git diff --stat apps/api/static/mobile.html
-# prázdný diff = parts jsou v souladu, můžeš editovat partial.
-# NEprázdný diff = někdo editoval mobile.html napřímo → NEJDŘÍV ty přímé
-#   úpravy přenes do správného partialu (a teprve pak edituj/rebuild),
-#   jinak je rebuildem přepíšeš. Pak: git checkout -- mobile.html a začni.
-```
-(Dřív bylo možné mobile.html editovat přímo — proto memory + tento SPEC. Doctrine (e)
-„srovnej lokál s realitou" platí i tady: čerstvý `git fetch/pull` před buildem.)
+1. **Celý dílek** — `@@G2007SOUBOR apps/api/static/mobile_parts/60_dochazka.js | zdroj`
+   a obsah na dalších řádcích. Pro větší přestavbu.
+2. **Jedno místo** — `UPDATE g2007.soubor SET obsah = replace(…) WHERE kod=…
+   AND md5(obsah)='<otisk, který jsi právě četl>'`. Při souběhu více oken bezpečnější:
+   při kolizi projde 0 řádků místo tichého přepsání cizí práce.
 
-## Kde to je v kódu (partial `apps/api/static/mobile_parts/60_dochazka.js` → build → `mobile.html`)
+**Po OBOU cestách vždy `@@G2007PUBLISH apps/api/static_db/mobile.html`** — bez publikace
+zůstane změna jen v databázi a lidé v telefonu vidí starou verzi (server posílá soubor z disku).
+Po zápisu **ověř otisk čtením z databáze**, po publikaci **zkontroluj živou `/mobile`**,
+že změna naběhla a nic jiného nezmizelo.
+
+⛔ **Nikdy needituj dílky na disku** — složka `apps/api/static/mobile_parts/` byla 17. 8. 2026
+z gitu smazána a na disku není.
+⛔ **Nikdy nespouštěj `scripts/build_mobile.py`** — od 17. 8. 2026 už nic nedělá, jen varuje.
+⛔ **Necommituj `mobile.html` ani dílky do gitu.**
+
+Závazný postup pro celou síť drží `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`.
+
+> **Proč tu dřív stálo něco jiného (historie, ne návod):** od 5. 7. 2026 se stránka opravdu
+> sestavovala skriptem `build_mobile.py` z dílků na disku a obojí se commitovalo do gitu
+> (split udělal Claude-27 na rozhodnutí Claude-23, mechanismus build-step concat).
+> Úklid 5. 8. 2026 vyřadil z gitu sestavenou stránku, 17. 8. 2026 i dílky a skript.
+> Protože tenhle dokument starý postup dál předepisoval, **z 92 řádků, které Peťa a Šárka
+> mezi 5. a 12. 8. 2026 přidaly, jich v appce 89 nebylo** — a nikde to nehlásilo chybu.
+
+## Kde to je v kódu (dílek `apps/api/static/mobile_parts/60_dochazka.js` v `g2007.soubor`)
 
 | Co | Funkce / místo |
 |---|---|

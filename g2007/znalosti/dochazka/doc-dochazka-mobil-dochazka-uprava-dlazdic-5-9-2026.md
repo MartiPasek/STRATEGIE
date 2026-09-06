@@ -53,7 +53,11 @@ s pojistkou na otisk, po každém `@@G2007PUBLISH apps/api/static_db/mobile.html
 ⚠️ **Původní hlášení z 5. 9. bylo ze tří bodů PŘESNÉ JEN V JEDNOM** (ověřeno 6. 9. čtením
 té znalosti z databáze a porovnáním se živou stránkou `/mobile`, ne z paměti):
 
-- „vypisuje dlaždici 🔭 Výhled" — **nepravda**, slovo „Výhled" v té znalosti není ani jednou.
+- „vypisuje dlaždici 🔭 Výhled" — **nepravda**. Ta znalost žádnou dlaždici „Výhled" nevypisuje;
+  slovo se v ní vyskytuje **jedinkrát**, psané bez diakritiky („Vyhled") v úvodním rámečku,
+  a to ve větě, že dlaždice **byla zrušena**.
+  *(Zpřesněno 6. 9. 2026: první znění tohoto řádku tvrdilo „slovo Výhled tam není ani jednou" —
+  to bylo nepřesné, hledal jsem jen tvar s diakritikou. Závěr se tím nemění, jen zdůvodnění.)*
 - „odkazuje na opravu záznamu v sekci Tak to bylo dneska…" — **nepravda**, znalost tu sekci
   už 5. 9. správně označila za natrvalo schovanou.
 - „uvádí Moje odmakané prašule jako sekci dole na obrazovce" — **pravda**, opraveno 6. 9.

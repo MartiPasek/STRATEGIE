@@ -1,4 +1,4 @@
-# Prazsky server mel malo pameti - zadrhavani API (VYRESENO 6.9.2026), ale zbyva druha pricina kazdych 5 minut
+# Prazsky server: pamet vyresena 6.9.2026; zamrzani kazdych 5 minut zpusobuji NASE ulohy na pozadi (ne stroj, ne poskytovatel) - dolozeno 6.9. vecer
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -46,9 +46,98 @@
 > 12:16:10, 12:21:20) — jen se ztracel v sumu zpusobenem pameti. **Je to tedy druha,
 > samostatna pricina, ktera tu byla cely cas** a po navyseni pameti zustala jako jedina.
 >
-> **Neoverene:** ktera uloha to je. Hledat mezi tim, co bezi na pozadi v aplikaci
-> (planovac, zrcadleni posty, hlidky) s periodou 5 minut. Zadrhnuti je kratke a lide ho
-> vetsinou nepoznaji, ale hlidka se do nej muze trefit.
+> **Zuzeno tyz den vecer (21:00-21:20) — pozorovani.**
+> ⛔ Zaver, ktery tu byl puvodne (nazev teto sekce), **NEPLATI** — vyvracen ve 22:30,
+> viz konec tohoto ramecku. Samotna tri pozorovani nize plati dal:
+>
+> 1. **Tuhne cely stroj, ne jen jedna cast aplikace.** Zamrzne i adresa `/api/v1/health`,
+>    ktera vubec nesaha do databaze; hned nasledujici dotaz (o desetinu vteriny pozdeji)
+>    je zase rychly. Neni to tedy vycerpani databazovych spojeni.
+> 2. **Vidi to i server sam, nejen mereni zvenci.** SMS brana se pta kazde 3 vteriny a
+>    v `fw.diag_log` po ni zustavaji **diry** — 18 za hodinu a pul, presne po 5 min 9 s
+>    (19:43:55, 19:49:05, 19:54:12, 19:59:22, 20:04:31, ... 21:01:09). Casy sedi na vterinu
+>    s merenim z notebooku. **Tenhle trik je pouzitelny obecne:** zaplavu 403 od SMS brany
+>    lze pouzit jako hodiny, ve kterych je zamrznuti videt jako mezera.
+> 3. **Behem zamrznuti je vytizeni procesoru NULOVE** (mereno kazde 2 vteriny).
+>    Aplikace tedy nepocita — **ceka**.
+>
+> **Vylouceno (nedelat znovu):** naplanovane ulohy Windows (zadna nema periodu 5 min;
+> DiskWatch ma 30 min) · automaty v `g2007.automat` (vsechny do 1 vteriny, dolozeno
+> v `automat_run`) · odklizeci smycka `core/log_queue.py` (slozka `D:/Data/STRATEGIE/log_queue`
+> na serveru neexistuje, takze nedela nic) · hlidac zpozdeni zalozni kopie
+> (`_maybe_notify_seclag`, kazdy 10. tik = ~5 min — vypadal jako hlavni podezrely, ale
+> vsechny tri kopie na portech 8002/8003/8004 odpovidaji do 0,06 s).
+>
+> **Kam to ukazuje:** v `System` logu Windows se na stroji kazdych ~5 minut **spousti
+> a zase zastavuje sluzba Network Setup Service** (21:00:31, 21:05:44, 21:10:58 — bezi
+> vzdy ~93 s) a **zamrznuti prijde ~35 vterin po jejim startu**. Denik
+> `Microsoft-Windows-Hyper-V-VmSwitch-Operational` navic hlasi **kazdou minutu**
+> „V-Switch operation OID_GEN_STATISTICS took too long to complete". Na serveru bezi
+> virtualni Linux (WSL, `vmmemWSL` 2,6 GB), ktery si sve sitove rozhrani zaklada prave
+> pres tuhle vrstvu. **Vypada to tedy na sitovou vrstvu stroje — stejne patro jako ta
+> pamet, tedy vec poskytovatele, ne nas kod.**
+>
+> ## ZKOUSKA PROVEDENA 6. 9. 2026 VECER: WSL NENI PRICINA
+>
+> Jirka Honomichl dal souhlas, Marti-AI take (predem overila, ze na WSL nevisi most,
+> databaze, ERP, mobil ani jeji nastroje). Na serveru bylo v **21:39:38** spusteno
+> `wsl --shutdown` (Ubuntu prepnuto do stavu Stopped) a ve **21:52** zase nahozeno.
+>
+> **Zadrhavani pokracovalo uplne stejne — rytmus se ani nezachvel:**
+>
+> | cas | delka | stav |
+> | --- | --- | --- |
+> | 21:37:16 | 8,1 s | WSL bezi |
+> | 21:42:24 | 6,1 s | **WSL vypnuty** |
+> | 21:47:33 | 7,0 s | **WSL vypnuty** |
+> | 21:52:44 | 9,6 s | WSL zase nabehl |
+>
+> Rozestupy 5:08, 5:09, 5:11 — beze zmeny. **Virtualni Linux ani jeho sitovy adapter
+> tedy pricinou nejsou** a stopa pres Network Setup Service a VmSwitch (popsana vyse)
+> je jen soubezny jev, ne pricinna souvislost.
+>
+> ⛔ **NEPLATI veta, ktera tu stala do 22:30: „zbyva vrstva pod nami — hostitel
+> u poskytovatele, tohle mereni je pro nej dukaz."** Byl to zaver z vylouceni, ne z mereni,
+> a **je vyvracen** (viz nize). Jak chyba vznikla: z nuloveho vytizeni procesoru a z toho,
+> ze nereagovalo nic, jsem usoudil „stoji cely stroj", aniz bych stroj samotny zmeril.
+>
+> **Co pri tom vyslo najevo (samostatny nalez, nesouvisi se zamrzanim):** ve WSL bezi
+> **sest kontejneru** — brana vzdaleneho pristupu Guacamole (3 kontejnery, postavena
+> 30. 6. 2026, v jejim zaznamu neni od startu serveru zadna aktivita) a **druha, samostatna
+> sestava STRATEGIE** (frontend, backend, vlastni PostgreSQL; postavena 15.-16. 4. 2026),
+> jejiz vstupni bod `strategie-caddy` je **mrtvy uz ctyri tydny** (Exited 127), takze se
+> k ni zvenci nikdo nedostane. Backend jen kazdych 15 s odpovida sam sobe na kontrolu zivota.
+> Cely WSL si bere **2,6 GB pameti**. Vypada to na zbytky vyvojoveho prostredi — komu patri
+> a jestli ma bezet dal, **rozhodne clovek** (nejspis Marti Pasek). Nic z toho se
+> nemenilo, po zkousce vsech sest kontejneru nabehlo samo.
+>
+> **Overeno po zasahu:** aplikace `instance=primary` port 8002, `/mobile` 200,
+> ERP 307, most odpovida, 687 aktivnich znalosti, 254 zivych funkci — vse jako pred zkouskou.
+>
+> ## ✅ PRICINA NALEZENA 6. 9. 2026 ve 22:30: NASE ULOHY NA POZADI
+>
+> Dva testy to rozhodly:
+>
+> **1) Stroj nestoji, stoji aplikace.** Na serveru bezelo 4 minuty pocitadlo, ktere jen
+> cita cas a nesaha na aplikaci, databazi ani sit. Ve **22:18:19 aplikace zamrzla na 8,6 s**
+> (dolozeno mezerou v `fw.diag_log`) a **pocitadlo pritom netiklo ani jednou mimo rytmus**
+> („stroj bezel plynule, zadna mezera"). Kdyby stal stroj, mezeru by ukazalo.
+>
+> **2) Zamrza jen HLAVNI kopie, ne druha.** Soubezne mereni obou kopii aplikace zevnitr
+> serveru: ve **22:23:29 port 8002 = 7,3 s, port 8003 = 0,0 s**. Obe kopie bezi na tomtez
+> stroji a na tomtez kodu; **lisi se jen tim, ze druha ma vypnute planovace**
+> (DR standby). **Pricina je tedy v nasich ulohach na pozadi.**
+>
+> **Nejsilnejsi podezreni (neoverene do posledni radky):** ve smycce `_mirror_sched_loop`
+> (`modules/erp/api/router.py`) je vetev `if _sl_tick % 10 == 0` — tedy **kazdy desaty tik
+> 30sekundove smycky = ~5 minut a 9 vterin**, presne namereny rytmus (10 x 30 s plus doba
+> tiku). Vola `_maybe_notify_seclag`, ktera pres `requests` s **limitem 3 vteriny** zada
+> o verzi **sama sebe** (`127.0.0.1:8002`) a pak druhou kopii (`8003`). Dva takove limity
+> po sobe daji 6 vterin — presne delka bezneho zamrznuti (6-12 s).
+>
+> **Jak to dokazat/opravit:** docasne vypnout jen tuhle vetev (jeden radek) a 15 minut merit.
+> Zmizi-li zadrhnuti, je to ona. **Zatim NEPROVEDENO** — je to zmena kodu a nasazeni,
+> ceka na rozhodnuti Jirky.
 >
 > *(Doplnil Claude-28 / Jirka Honomichl 6. 9. 2026 vecer.)*
 

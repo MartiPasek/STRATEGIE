@@ -61,6 +61,14 @@ název neodpovídá cíli.
 Mzdy: Helios × my, VP, Zkušebna, Zakázky, Příprava, Odvozy). Marti-AI doporučuje nechat —
 vypadá to na záměrné zkratky.
 
+> ✅ **VYŘEŠENO 6. 9. 2026 — doporučení „nechat být" NEPLATÍ.** Jiří Honomichl rozhodl
+> nechat u každé z devíti jediný vstup a druhou cestu zrušit. Pozor: **Zakázky, Příprava**
+> **a Odvozy zůstaly ve VÝROBĚ**, ne ve Vedení firmy — `vyroba_hub` je dostupný všem,
+> kdežto `vedeni` jen finančnímu a HR okruhu, takže opačné řešení by o ně připravilo 82 lidí.
+> U **VP** a **Ops akcí** se zbylý vstup v Aplikacích zároveň otevřel širšímu okruhu, aby
+> nikdo nepřišel o přístup. Zdůvodnění „v Aplikacích je všechno" u čtyř z devíti neplatilo —
+> Zakázky, Příprava, Odvozy ani Mzdy v Aplikacích vůbec nejsou. Detail a tabulka: `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
+
 **D) Opačný problém: týž název, JINÝ cíl — 4** (Marti-AI označila za nejrizikovější)
 
 > ✅ **VYŘEŠENO 6. 9. 2026** — všechny čtyři dvojice přejmenovány, včetně nadpisů cílových
@@ -76,6 +84,12 @@ vypadá to na záměrné zkratky.
 „❓ Nápověda" v hlavičce Docházky jsou identické (obě `dochHelp()` bez parametru); třetí je
 odkaz „ⓘ Jak potvrdit den / co je rozpor?" (`dochHelp("potvrzeni")`).
 
+> ✅ **VYŘEŠENO 6. 9. 2026.** Zrušena **dlaždice v Aplikacích**; otazník v hlavičce Docházky
+> zůstal — je tam, kde ho člověk potřebuje. Odkaz „Jak potvrdit den / co je rozpor?"
+> **zůstává a duplicita to není**: volá jinou kapitolu a ukazuje se jen na kartě dne
+> k potvrzení, patří tedy do oddílu „Co NENÍ duplicita". Rozhodl Jiří Honomichl.
+> Detail: `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
+
 ## F) Šest obrazovek, na které nevede v celé appce žádná cesta
 
 > ✅ **VYŘEŠENO 6. 9. 2026 — a metoda níž je NESPOLEHLIVÁ, neřiď se jí.**
@@ -90,6 +104,12 @@ odkaz „ⓘ Jak potvrdit den / co je rozpor?" (`dochHelp("potvrzeni")`).
 > a čtyři dlaždice v HR; zrušily se `hr`, `hr_interni`, `prace`, `doch_zitrek`
 > a zbytek `_moje_zadosti_pred_slouceni_11_8_2026`. Řádky níže popisují stav před opravou.
 > Rozhodl Jiří Honomichl.
+> 
+> ⚠️ **Přeověřeno 6. 9. 2026 večer: obrazovek bez cesty jsou už jen TŘI** — `mytodo`,
+> `phone`, `webview` — a **žádná další obrazovka nevisí jen na nich** (ověřeno přes klíče
+> mapy `SCREENS` do hloubky, 118 obrazovek). **Jiří Honomichl rozhodl nechat je ležet**
+> („nevím, zda je budeme někdy potřebovat") — nejsou to nálezy a nemazat je.
+> Detail: `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
 
 
 Ověřeno třemi nezávislými způsoby: **žádný výskyt názvu jako řetězce** (`"jmeno"`),
@@ -116,6 +136,10 @@ naviguje přes `selectTab(<název>)` a používá jen `home`, `apps`, `notifs`, 
 > nikdo nevidí — třeba řádek „Ošetřovné (OČR) — schvalování" na Interní personalistice.
 
 ## Co NENÍ duplicita, i když tak vypadá
+
+> ✅ **Přeověřeno 6. 9. 2026 na živé stránce — oddíl potvrzen, neměnit.** Ověřeno i to,
+> že cílová obrazovka nastavený parametr opravdu čte a vykreslí se jinak (u „Můj úvazek"
+> se vykresluje úplně jiný obsah než u „Můj plán"). Detail: `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
 
 `Účetní`/`Uživatelé` (liší `_auMode`) · `Kandidáti`/`Pohovory`/`Nástupy` (liší `_nbFilter`) ·
 `Týden`/`Můj plán`/`Můj úvazek` (liší `_planInit`) · `Skupina HR — přístupy` (liší `_skFocusName`).

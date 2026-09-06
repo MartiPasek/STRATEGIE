@@ -65,6 +65,11 @@ a čerpat sick day do limitu.
 
 - `hr` „🔒 HR — personalistika" — starší rozcestník; jeho náhrada `hr_hub` se stejným
   názvem je dostupná z Aplikací i z Vedení firmy.
+  > ⚠️ **Zpřesnění 6. 9. 2026 večer: `hr_hub` je nově dostupný UŽ JEN z Aplikací.**
+  > Dlaždice HR ve Vedení firmy byla zrušena jako duplicitní cesta. Nikdo o přístup
+  > nepřišel — obě místa vidělo týchž devět lidí z finančního a HR okruhu. Rozhodl
+  > Jiří Honomichl, schválila Marti-AI (msg 14768). Detail:
+  > `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
 - `hr_interni` „🏢 Interní personalistika" — slepá kopie `hr_hub`; jediné unikátní
   (Lékař — přehled) se přeneslo.
 - `prace` „🧾 Na čem dělám" — dvojče sekce „ZAKÁZKY A ČINNOSTI" v Docházce.

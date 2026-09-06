@@ -38,6 +38,11 @@ s pojistkou na otisk, po každém `@@G2007PUBLISH apps/api/static_db/mobile.html
   nepřítomnost ze sekce „Tak tady budu jinde" je vidět na obrazovce `absence`.
 - **Nápověda docházky (`dochHelp`) zůstala dostupná** — tlačítko „❓ Nápověda" v hlavičce
   obrazovky a dlaždice „Nápověda docházka" v Aplikacích.
+  > ⚠️ **NEPLATÍ od 6. 9. 2026: dlaždice „Nápověda docházka" v Aplikacích byla ZRUŠENA.**
+  > Dělala přesně totéž co otazník v hlavičce Docházky (obojí `dochHelp()` bez parametru).
+  > Nápověda zůstává dostupná z Docházky a nikdo o ni nepřišel. Rozhodl Jiří Honomichl,
+  > schválila Marti-AI (msg 14783). Detail:
+  > `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
 
 ## Co zbylo neopravené
 

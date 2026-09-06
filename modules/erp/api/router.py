@@ -30990,6 +30990,32 @@ async def netscan_ingest(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         body = {}
+    # ZMENA 6. 9. 2026 (zadal Jirka Honomichl ve 23:05, schvalila Marti-AI):
+    # vsechna prace nize se PRESUNULA MIMO HLAVNI VLAKNO. Logika se nezmenila
+    # ani o carku, jen uz nebezi na event loopu.
+    #
+    # Proc: tahle obsluha dela synchronni praci s databazi 7,5-8,2 vteriny
+    # (zarizeni, provoz, auto-prichody, self-heal "Makam", hlidka anomalii,
+    # pretazene pauzy, sync dochazky z EC). Kdyz bezela primo na event loopu,
+    # aplikace po celou tu dobu NEOBSLOUZILA NIKOHO JINEHO. Agent na siti hlasi
+    # kazdych ~5 minut, takze API kazdych 5 min 9 s na 6-12 vterin zamrzlo pro
+    # vsechny. Dolozeno 6. 9. 2026: v zaznamu brany Caddy sedm vyskytu za sebou
+    # (22:23:36, 22:28:45, 22:33:53, 22:39:02, 22:44:10, 22:49:18, 22:54:27),
+    # kazdy 7,5-8,2 s, presne prekryvajici namerena zamrznuti; behem nich nulove
+    # vytizeni procesoru (cekalo se na databazi) a zamrzala JEN hlavni kopie,
+    # ne druha s vypnutymi planovaci.
+    #
+    # POZOR do budoucna: cokoli dalsiho, co sem nekdo prida, patri taky sem dolu
+    # do _netscan_ingest_sync. Do async casti nahore pridavej jen praci s requestem.
+    from starlette.concurrency import run_in_threadpool as _rtp_ns
+    return await _rtp_ns(_netscan_ingest_sync, body)
+
+
+def _netscan_ingest_sync(body: dict) -> JSONResponse:
+    """Vlastni prace nad hlasenim ze site. Bezi ve vlakne, ne na event loopu.
+
+    Vydeleno z `netscan_ingest` 6. 9. 2026 beze zmeny logiky — duvod viz tam.
+    """
     devices = body.get("devices") or []
     # (Odstraněno 26.6. — Claude-24: jednorázová diagnostika [netscan][SAMPLE] z 9.6.
     #  logovala warning každý netscan (~5 min) = šum v logu. Byte-delta presence

@@ -4,6 +4,9 @@
 
 # Pripravenost prazskeho serveru na restart (kontrola 5. 9. 2026)
 
+> ⚠️ **DOPLNENO 6. 9. 2026: ZASAH SE NEKONAL.** Dodavatel pamet nepridal a stroj nerestartoval. Overeno 6. 9. v 6:21 a 6:32 peti nezavislymi zdroji: pamet je porad 4 095 MB, osazene moduly 3 968 + 128 MB a **posledni start stroje je 4. 8. 2026 21:23, tedy uptime 32 dni**. Odkladani na disk 3 689 MB. Zadrhavani proto pokracuje beze zmeny (3. 9. dvacet jedna, 4. 9. osmnact, 5. 9. sestnact drobnych zadrhnuti) a vlastni mereni zvenci v nedeli 6. 9. rano ukazalo 2,8 procenta odpovedi nad 2 vteriny, tedy stejne jako ve vsedni den. **Kontroly popsane nize se tedy zatim NEPROVEDLY a provest je pujde az po skutecnem navyseni pameti.** Zapsal Claude-28 (Jiri Honomichl).
+
+
 Duvod: dodavatel mel 5. 9. 2026 ve 20:00 pridat pamet RAM na aplikacnim serveru
 EUR-APP-1P (10.200.188.11) a pri tom stroj vypnout / restartovat. Jirka Honomichl
 potreboval jistotu, ze po nabehnuti bude vse fungovat - hlavne v PONDELI RANO,

@@ -1,4 +1,4 @@
-# Prazsky server mel malo pameti - API se zadrhavalo (VYRESENO 6.9.2026, pamet navysena na 16 GB)
+# Prazsky server mel malo pameti - zadrhavani API (VYRESENO 6.9.2026), ale zbyva druha pricina kazdych 5 minut
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -22,11 +22,33 @@
 > Popis pricin nize **plati jako historie**, ne jako aktualni stav. Nedelej podle nej
 > zavery o dnesnim serveru.
 >
-> **Co jeste nebylo zmereno:** ciste mereni zadrhavani po navyseni. Prvni desetiminutove
-> mereni po restartu vyslo 1,1 % odpovedi nad 2 vteriny proti rannim 2,8 %, ale tri zadrhely
-> v nem padly do chvil, kdy na serverech bezelo tezke skenovani disku pres Marti-AI —
-> **to mereni tedy neni ciste a jako dukaz neplati.** Az bude na serverech klid, pustit
-> jednu sondu na 10-30 minut a porovnat proti 2,3 % z 3. 9. 2026.
+> **Ciste mereni provedeno 6. 9. 2026 ve 20:19-20:38** (506 dotazu, kazde 2 vteriny,
+> na serverech byl klid):
+>
+> | mereni | dotazu | nad 2 s | nad 5 s | prumer |
+> | --- | --- | --- | --- | --- |
+> | 3. 9. cely den (pred) | 13 986 | 2,3 % | 171 | - |
+> | 6. 9. 6:19 rano (pred) | 253 | 2,8 % | 4 | 0,211 s |
+> | **6. 9. 20:19 (po navyseni)** | **506** | **0,8 %** | **4** | **0,100 s** |
+>
+> Prumerna odezva klesla na polovinu a **zmizely shluky** — rano 6. 9. prislo sest zadrhnuti
+> behem jedine minuty (6:27-6:28), 3. 9. bylo bezne mit tri behem peti minut. Po navyseni
+> zadny shluk nenastal. Spolu s tim, ze od restartu v 11:47 do 21:00 neprislo ani jedno
+> hlaseni „API spadla", je **zadrhavani z nedostatku pameti vyresene**.
+>
+> ## ⚠️ ZBYVA JINA PRICINA: neco kazdych 5 minut zastavi API na 6-8 vterin
+>
+> Ctyri zadrhnuti v cistem mereni **nejsou nahodna** — prisla v 20:20:05, 20:25:13, 20:30:23
+> a 20:35:31, tedy **presne po ~5 minutach a 8 vterinach**, kazde na 6,2 az 8,2 vteriny.
+> Taková pravidelnost neni odkladani pameti, ale **nejaka uloha, ktera bezi kazdych pet minut**.
+>
+> Tentyz rytmus je videt i v datech z 3. 9. **pred** navysenim (12:00:39, 12:05:51, 12:10:59,
+> 12:16:10, 12:21:20) — jen se ztracel v sumu zpusobenem pameti. **Je to tedy druha,
+> samostatna pricina, ktera tu byla cely cas** a po navyseni pameti zustala jako jedina.
+>
+> **Neoverene:** ktera uloha to je. Hledat mezi tim, co bezi na pozadi v aplikaci
+> (planovac, zrcadleni posty, hlidky) s periodou 5 minut. Zadrhnuti je kratke a lide ho
+> vetsinou nepoznaji, ale hlidka se do nej muze trefit.
 >
 > *(Doplnil Claude-28 / Jirka Honomichl 6. 9. 2026 vecer.)*
 

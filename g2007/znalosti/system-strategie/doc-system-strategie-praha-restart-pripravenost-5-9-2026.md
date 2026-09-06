@@ -1,4 +1,4 @@
-# Prazsky server 188.11 - pripravenost na restart a kontroly po nem (zasah probehl 6.9.2026 v 11:47)
+# Prazsky server 188.11 - pripravenost na restart a kontroly po nem (zasah 6.9.2026 v 11:47, nedelni mereni hotove)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -24,9 +24,17 @@
 > **ani jedno hlaseni „STRATEGIE-API spadla"**. Posledni dve byla v 10:22 a 10:34,
 > tedy pred restartem, a zpusobilo je indexovani velkych PDF.
 >
-> **Co zbyva:** ciste mereni sondou (to z 12:04 nebylo ciste — tri zadrhely v nem padly do
-> chvil, kdy pres Marti-AI bezelo tezke skenovani disku), nocni kontrola a pondelni rano
-> od 4.50. Doporucene kontroly 2 a 3 nize proto **plati dal**.
+> **Kontrola bodu 2 (nedelni mereni) HOTOVA 6. 9. ve 20:19-20:38:** 506 dotazu, jen
+> **0,8 % nad 2 vteriny** proti 2,3 % z 3. 9. a 2,8 % z rana, prumerna odezva klesla
+> z 0,211 na 0,100 vteriny a **zmizely shluky zadrhnuti**. Zadrhavani z nedostatku pameti
+> je tedy vyresene.
+>
+> **ALE:** ctyri zbyle zadrhnuti prisla **pravidelne po ~5 minutach a 8 vterinach** (6-8 s
+> kazde), takze je zpusobuje **nejaka uloha bezici kazdych pet minut**, ne pamet. Tyz rytmus
+> je videt i v datech z 3. 9. pred navysenim. Detail a co s tim dal:
+> `doc-system-strategie-praha-server-malo-ram-zatuhavani-api`.
+>
+> **Zbyva:** kontrola bodu 3 (nedele vecer) a pondelni rano od 4.50.
 >
 > Zapsal Claude-28 (Jiri Honomichl), 6. 9. 2026 vecer.
 

@@ -20,6 +20,41 @@ logger = logging.getLogger(__name__)
 
 _SLOZKY = ("dorucene", "odeslane", "koncepty")
 
+# ── Filtr příloh při příjmu (zadal Jirka Honomichl 6.9.2026, schválila Marti-AI) ──
+# DŮVOD: ukládaly se úplně všechny přílohy, tedy i loga a podpisy z patiček mailů.
+# K 6.9.2026 z toho bylo 79 GB evidence a 59 244 dokumentů v indexu jen jako název.
+# Doloženo na datech: 5 072 gifů mělo dohromady jen 19 různých názvů (image001.gif
+# až image013.gif, footer.gif); image004.jpg mělo 2 533 kusů, ale jen 4 různé
+# velikosti — tedy tentýž obrázek z patičky uložený 2 533×.
+# CO SE UKLÁDÁ: dokumenty s textem + obrázky nad 1 MB (skeny, fotodokumentace,
+# výkresy). Hranice 1 MB chrání skutečné fotky z telefonu, loga jsou pod ní.
+# PROČ PRÁVĚ TOHLE: ze 45 skutečných dotazů, které lidé od 1.6.2026 do vyhledávání
+# zadali, nehledal obrázek, fotku ani logo ani jeden — hledaly se směrnice,
+# kalkulace, ceníky, docházka, BOZP, ISO 27001, specifikace.
+_PRILOHA_TEXTOVE_FORMATY = frozenset((
+    "pdf", "doc", "docx", "xls", "xlsx", "xlsm", "xlsb", "ppt", "pptx",
+    "csv", "txt", "rtf", "odt", "ods", "odp", "msg", "eml",
+))
+_PRILOHA_OBRAZKY = frozenset((
+    "gif", "png", "jpg", "jpeg", "bmp", "ico", "svg", "emz", "wmz", "heic", "tif", "tiff",
+))
+# Obrázek menší než tohle je skoro jistě logo nebo podpis z patičky.
+_PRILOHA_OBRAZEK_MIN_BAJTU = 1024 * 1024
+
+
+def _priloha_ukladat(name: str, velikost: int) -> bool:
+    """Rozhodne, jestli přílohu vůbec ukládáme. True = ulož, False = zahoď.
+
+    Neznámé přípony ukládáme — filtr má být přísný jen tam, kde je to doložené,
+    ne odmítat všechno, co nezná.
+    """
+    pripona = (name or "").rsplit(".", 1)[-1].lower() if "." in (name or "") else ""
+    if pripona in _PRILOHA_TEXTOVE_FORMATY:
+        return True
+    if pripona in _PRILOHA_OBRAZKY:
+        return int(velikost or 0) >= _PRILOHA_OBRAZEK_MIN_BAJTU
+    return True
+
 
 def _account_for_user(uid: int):
     s = get_data_session()
@@ -66,6 +101,7 @@ def _recips_str(recips):
 def _save_attachments(m, uid: int, tenant_id: int, process: bool = True):
     from modules.rag.application.service import upload_document
     ids = []
+    zahozeno = 0
     try:
         for a in (m.attachments or []):
             try:
@@ -73,6 +109,10 @@ def _save_attachments(m, uid: int, tenant_id: int, process: bool = True):
                 if content is None:
                     continue
                 name = getattr(a, "name", None) or "priloha"
+                if not _priloha_ukladat(name, len(content)):
+                    # Logo/podpis z patičky — neukládáme (viz _priloha_ukladat výše).
+                    zahozeno += 1
+                    continue
                 did = upload_document(file_bytes=content, filename=name,
                                       tenant_id=tenant_id, user_id=uid,
                                       skip_processing=not process)
@@ -81,6 +121,9 @@ def _save_attachments(m, uid: int, tenant_id: int, process: bool = True):
                 logger.warning("[mail] priloha selhala: %s", str(e)[:120])
     except Exception:
         pass
+    if zahozeno:
+        logger.info("[mail] filtr priloh: ulozeno %d, zahozeno %d (loga/podpisy z paticky)",
+                    len(ids), zahozeno)
     return ids or None
 
 

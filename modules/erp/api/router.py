@@ -30687,6 +30687,33 @@ async def app_notify(req: Request) -> JSONResponse:
         ds.close()
 
 
+def _disk_alert_prijemci(ds):
+    """Komu jde e-mail o dochazejicim mistu na disku (Jirka 6.9.2026: "poslat
+    e-mail spravci", univerzalne — zadne jmeno ani id natvrdo v kodu).
+
+    Spravce = `public.users.is_admin`. Adresa se bere z `public.user_contacts`
+    (contact_type='email', aktivni), stejnym poradim jako u overovacich e-mailu:
+    overeny pred neoverenym, hlavni pred vedlejsim, u vice adres jen jedna.
+    POZOR: `users.ews_email` je PRIHLASOVACI UDAJ, ten se k odesilani NIKDY
+    nepouziva. Vraci seznam dvojic (adresa, user_id).
+    """
+    from sqlalchemy import text as _tdp
+    try:
+        rows = ds.execute(_tdp(
+            "SELECT u.id, ("
+            "  SELECT c.contact_value FROM public.user_contacts c"
+            "   WHERE c.user_id = u.id AND c.contact_type = 'email'"
+            "     AND COALESCE(c.status,'active') = 'active'"
+            "   ORDER BY COALESCE(c.is_verified,false) DESC,"
+            "            COALESCE(c.is_primary,false) DESC, c.id"
+            "   LIMIT 1) AS adresa "
+            "FROM public.users u WHERE COALESCE(u.is_admin,false) ORDER BY u.id")).all()
+        return [(r[1], r[0]) for r in rows if r[1]]
+    except Exception as exc:
+        logger.warning("[disk_report] nelze zjistit spravce: %s", exc)
+        return []
+
+
 @api_router.post("/app/disk/report")
 async def disk_report(req: Request) -> JSONResponse:
     """DiskWatch agent (X-Deploy-Token) -> stav disku serveru do fw.disk_monitor.
@@ -30708,11 +30735,17 @@ async def disk_report(req: Request) -> JSONResponse:
     if not server or not isinstance(disks, list):
         return JSONResponse({"ok": False, "error": "server+disks required"}, status_code=400)
     def _crit(fg, fp):
+        # Prah zvysen 6.9.2026 (zadal Jirka Honomichl, schvalila Marti-AI): hlasime
+        # uz pri ZAPLNENI NA 80 % (tedy mene nez 20 % volneho), aby byl cas reagovat.
+        # Drive to bylo "mene nez 10 % volneho a zaroven mene nez 100 GB" — pri 37,5 GB
+        # volnych ze 128,8 GB (stav 6.9.2026) by to nehlasilo nic, i kdyz prilohy
+        # rostly o ~1,4 GB denne. Druhe misto s timtez prahem je check.ps1 na serveru
+        # (C:\ProgramData\STRATEGIE-DiskWatch\check.ps1) — pri zmene upravit OBE.
         try:
             fg = float(fg or 0); fp = float(fp or 0)
         except (TypeError, ValueError):
             return False
-        return (fg < 100) and (fp < 10 or (fg < 10 and fp < 20))
+        return (fp < 20) or (fg < 10)
     ds = _gdr()
     n = 0
     newly = []
@@ -30749,6 +30782,35 @@ async def disk_report(req: Request) -> JSONResponse:
                      "msg": ("KRITICKY nizke volne misto: " + "; ".join(newly))[:600]})
             except Exception:
                 pass
+            # E-mail s vysokou dulezitosti (zadal Jirka Honomichl 6.9.2026:
+            # "at mi to chodi na email s velkou prioritou"). Mobilni zprava vyse
+            # zustava — e-mail je navic, ne nahrada. Cele v try/except: kdyz
+            # e-mail selze, nesmi to shodit zapis stavu disku.
+            try:
+                from modules.notifications.application.email_service import (
+                    send_email as _send_email_disk,
+                    _get_default_persona_id as _def_persona_disk,
+                )
+                _prijemci_disk = _disk_alert_prijemci(ds)
+                _persona_disk = _def_persona_disk()
+                _telo_disk = (
+                    "Na serveru %s dochazi volne misto.\n\n"
+                    "Dotcene disky (volno / podil volneho):\n  %s\n\n"
+                    "Upozorneni chodi pri zaplneni nad 80 %%, nebo kdyz zbyva mene\n"
+                    "nez 10 GB. Stav vsech disku je v tabulce fw.disk_monitor.\n"
+                ) % (server, "\n  ".join(newly))
+                for _adr_disk, _uid_disk in _prijemci_disk:
+                    _send_email_disk(
+                        to=_adr_disk,
+                        subject="DULEZITE: dochazi misto na disku serveru %s" % server,
+                        body=_telo_disk,
+                        persona_id=_persona_disk,
+                        importance="High",
+                    )
+                logger.info("[disk_report] upozorneni na disk odeslano %d spravcum",
+                            len(_prijemci_disk))
+            except Exception as _mail_err:
+                logger.warning("[disk_report] e-mail o disku se nepodarilo odeslat: %s", _mail_err)
         ds.commit()
         return JSONResponse({"ok": True, "server": server, "upserted": n, "critical_new": len(newly)})
     except Exception as exc:

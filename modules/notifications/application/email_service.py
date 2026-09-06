@@ -1130,6 +1130,7 @@ def send_email_or_raise(
     attachment_document_ids: list[int] | None = None,
     html_body: bool = False,
     inline_images: list | None = None,
+    importance: str | None = None,
 ) -> None:
     """
     Odesle email. V pripade selhani hodi EmailAuthError / EmailSendError /
@@ -1222,6 +1223,16 @@ def send_email_or_raise(
             sig_body, sig_attachments = _apply_persona_signature(persona_id, body)
             msg_kwargs["body"] = sig_body
 
+        # Dulezitost zpravy (Jirka 6.9.2026, kvuli hlidani volneho mista na disku).
+        # exchangelib 5.6.0: Message ma pole `importance`, default 'Normal',
+        # povolene 'Low' / 'Normal' / 'High' (overeno na produkcnim serveru 6.9.2026).
+        # V try/except — nesmi shodit odeslani, kdyby knihovna hodnotu neprijala.
+        if importance:
+            try:
+                msg_kwargs["importance"] = str(importance)
+            except Exception as _imp_err:
+                logger.warning(f"EMAIL | importance={importance} nelze nastavit: {_imp_err}")
+
         message = Message(**msg_kwargs)
         # Attach inline images z signature (po Message create, pred send)
         for _sig_att in sig_attachments:
@@ -1309,17 +1320,21 @@ def send_email(
     tenant_id: int | None = None,
     user_id: int | None = None,
     from_identity: str = "persona",
+    importance: str | None = None,
 ) -> bool:
     """
     Backward-compat wrapper: vrati True pri uspechu, False pri selhani.
     Chyba jde do logu. Pro jemnejsi error handling (auth vs. jine) pouzij
     send_email_or_raise().
+
+    `importance`: 'High' / 'Normal' / 'Low' (nepovinne, default knihovny je Normal).
     """
     try:
         send_email_or_raise(
             to, subject, body,
             persona_id=persona_id, tenant_id=tenant_id,
             user_id=user_id, from_identity=from_identity,
+            importance=importance,
         )
         return True
     except (EmailAuthError, EmailSendError, EmailNoUserChannelError):

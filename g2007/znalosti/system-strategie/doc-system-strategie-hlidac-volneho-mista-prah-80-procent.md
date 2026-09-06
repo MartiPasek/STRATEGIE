@@ -36,7 +36,7 @@ nebo kdyz zbyva mene nez 10 GB.
 Vedle puvodni zpravy do mobilu (ta zustava) chodi nove **e-mail s `importance="High"`**.
 
 - prijemci: **vsichni spravci** — `public.users.is_admin`, tedy Marti (1), Kristyna (11),
-  Jiri Honomichl (20). **Zadne jmeno ani id natvrdo v kodu**, funkce `_disk_alert_prijemci`.
+  Jiri Honomichl (20). **Zadne jmeno ani id natvrdo v kodu**. Vyber prijemcu **zije v databazi** (`g2007.python`, kod `disk_alert_prijemci`, verze 1); v `router.py` zustala jen tenka spojka stejneho jmena, ktera ho vola pres `erp_registry.call()`. Presunuto tyz den 6. 9. 2026 podle bodu 2 pravidel prace, ulozeni `8e11f38a` — postup a pasti popisuje `doc-system-strategie-disk-alert-prijemci-presun-do-databaze`.
 - adresa se bere z `public.user_contacts` (typ `email`, aktivni), poradim
   overeny → hlavni → nejnizsi id, u vice adres jen jedna.
 - ⚠️ **`users.ews_email` je PRIHLASOVACI UDAJ a k odesilani se NIKDY nepouziva.**

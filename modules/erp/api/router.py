@@ -30708,6 +30708,28 @@ def _disk_alert_prijemci(ds):
         return []
 
 
+def _disk_alert_zprava(server, nove_disky):
+    """Tenka spojka na `g2007.python`, kod `disk_alert_zprava` (aktivni).
+
+    Sestavi predmet i telo e-mailu: pojmenuje server VCETNE umisteni (Praha/Plzen
+    ze sloupce fw.disk_monitor.umisteni) a vypise stav VSECH sledovanych disku,
+    ne jen tech kritickych. Zadal Jirka Honomichl 6.9.2026 pote, co ho vydesil
+    e-mail "Na serveru EC-SERVER2 dochazi volne misto" — z textu nepoznal, ktery
+    server to je a kde stoji. Schvalila Marti-AI (msg 14638 a 14641).
+
+    Vraci (predmet, telo); pri chybe (None, None) a volajici posle svuj puvodni
+    kratky text — upozorneni na dochazejici misto nesmi kvuli formatovani uteci.
+    """
+    try:
+        from modules.erp.api import erp_registry as _reg_zpr
+        predmet, telo = _reg_zpr.call("disk_alert_zprava", server, nove_disky)
+        if predmet and telo:
+            return (predmet, telo)
+    except Exception as exc:
+        logger.warning("[disk_report] nelze sestavit text upozorneni: %s", exc)
+    return (None, None)
+
+
 @api_router.post("/app/disk/report")
 async def disk_report(req: Request) -> JSONResponse:
     """DiskWatch agent (X-Deploy-Token) -> stav disku serveru do fw.disk_monitor.
@@ -30743,6 +30765,7 @@ async def disk_report(req: Request) -> JSONResponse:
     ds = _gdr()
     n = 0
     newly = []
+    newly_drv = []
     try:
         for d in disks:
             if not isinstance(d, dict):
@@ -30765,6 +30788,7 @@ async def disk_report(req: Request) -> JSONResponse:
                  "fr": d.get("free_gb"), "pct": d.get("free_pct"), "low": crit})
             if crit and not was:
                 newly.append("%s %s (%s GB / %s %%)" % (server, drive, d.get("free_gb"), d.get("free_pct")))
+                newly_drv.append(drive)
             n += 1
         if newly:
             try:
@@ -30787,16 +30811,23 @@ async def disk_report(req: Request) -> JSONResponse:
                 )
                 _prijemci_disk = _disk_alert_prijemci(ds)
                 _persona_disk = _def_persona_disk()
-                _telo_disk = (
-                    "Na serveru %s dochazi volne misto.\n\n"
-                    "Dotcene disky (volno / podil volneho):\n  %s\n\n"
-                    "Upozorneni chodi pri zaplneni nad 80 %%, nebo kdyz zbyva mene\n"
-                    "nez 10 GB. Stav vsech disku je v tabulce fw.disk_monitor.\n"
-                ) % (server, "\n  ".join(newly))
+                # Text se sklada v databazi (g2007.python, kod disk_alert_zprava):
+                # server + jeho umisteni + stav VSECH disku. Kdyz to z jakehokoli
+                # duvodu selze, posle se puvodni kratky text nize — upozorneni
+                # nesmi uteci kvuli formatovani.
+                _predmet_disk, _telo_disk = _disk_alert_zprava(server, newly_drv)
+                if not _telo_disk:
+                    _predmet_disk = "DULEZITE: dochazi misto na disku serveru %s" % server
+                    _telo_disk = (
+                        "Na serveru %s dochazi volne misto.\n\n"
+                        "Dotcene disky (volno / podil volneho):\n  %s\n\n"
+                        "Upozorneni chodi pri zaplneni nad 80 %%, nebo kdyz zbyva mene\n"
+                        "nez 10 GB. Stav vsech disku je v tabulce fw.disk_monitor.\n"
+                    ) % (server, "\n  ".join(newly))
                 for _adr_disk, _uid_disk in _prijemci_disk:
                     _send_email_disk(
                         to=_adr_disk,
-                        subject="DULEZITE: dochazi misto na disku serveru %s" % server,
+                        subject=_predmet_disk,
                         body=_telo_disk,
                         persona_id=_persona_disk,
                         importance="High",

@@ -32,7 +32,11 @@ from modules.rag.application.chunking import chunk_text
 from modules.rag.application.embeddings import (
     embed_documents, embed_query, VOYAGE_MODEL,
 )
-from modules.rag.application.extraction import extract_text, detect_file_type
+from modules.rag.application.extraction import (
+    extract_text,
+    detect_file_type,
+    UnsupportedDocumentFormat,
+)
 from modules.rag.application.storage import save_upload, delete_document_file
 
 logger = get_logger("rag.service")
@@ -226,6 +230,27 @@ def process_document(document_id: int) -> None:
     logger.info(f"RAG | extracting text | document_id={document_id} | path={storage_path}")
     try:
         text_content = extract_text(storage_path)
+    except UnsupportedDocumentFormat as e:
+        # 9b (Jirka 6.9.2026): format, ktery se na text prevest neda (.gif, .zip, ...),
+        # NENI chyba — je to tyz pripad jako prazdna extrakce nize. Spadni na
+        # storage_only, at je dokument dohledatelny podle nazvu a nespamuje error log.
+        # Drive z toho byl tvrdy pad, ktery pres BaseException prolezl az do smycky
+        # mirror_sched a zabijel ji dokola. VSECHNY OSTATNI chyby padaji dal jako dosud,
+        # aby se pod timhle neschovaly skutecne zavady.
+        logger.info(
+            f"RAG | nepodporovany format -> storage_only fallback | "
+            f"document_id={document_id} | ext={doc_ext} | {e}"
+        )
+        _s = get_data_session()
+        try:
+            _d = _s.query(Document).filter_by(id=document_id).first()
+            if _d is not None:
+                _d.storage_only = True
+                _s.commit()
+        finally:
+            _s.close()
+        _process_storage_only(document_id, doc_name, doc_ext, doc_project_id)
+        return
     except Exception as e:
         raise RuntimeError(f"Extrakce textu selhala: {e}")
 

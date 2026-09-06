@@ -20,6 +20,20 @@ if _bg_os.name == "nt":
         pass
 # --- /WMI boot-hang guard ---
 
+# --- UTF-8 vystup do logu (9a, Jirka 6.9.2026) ---
+# Konzole pod NSSM jede v cp1250 -> kazda ceska hlaska (sipka, ě, ř, č) skoncila
+# na UnicodeEncodeError('charmap') a misto radku se do api-stderr.log vysypal cely
+# traceback. K 3.9.2026 z toho bylo 12 498 radku, vetsinu tvorily prave tyhle chyby.
+# Stejny vzor uz ma scripts/api_health_watchdog.py (tam po incidentu 29.7.2026).
+# Cele v try/except — nesmi shodit start API.
+import sys as _bg_sys
+for _bg_stream in (_bg_sys.stdout, _bg_sys.stderr):
+    try:
+        _bg_stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+# --- /UTF-8 vystup do logu ---
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse

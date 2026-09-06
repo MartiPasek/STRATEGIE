@@ -19,6 +19,18 @@ from core.logging import get_logger
 logger = get_logger("rag.extraction")
 
 
+class UnsupportedDocumentFormat(Exception):
+    """Format, ktery markitdown neumi prevest na text (napr. .gif, .zip).
+
+    9b (Jirka 6.9.2026): markitdown pro tenhle pripad vyhazuje vlastni
+    UnsupportedFormatException, ktera ale dedi PRIMO z BaseException, takze
+    prolezla kazdym "except Exception" az ven z hlidane smycky mirror_sched
+    a shazovala ji. Tahle trida je jeji bezpecny protejsek — dedi z Exception,
+    takze ji bezne osetreni chytne. Volajici ji smi vzit jako "tenhle soubor
+    proste nema textovou podobu", ne jako poruchu.
+    """
+
+
 def detect_file_type(filename: str) -> str:
     """Vraci normalizovanou priponu (lowercase, bez tecky). Pro neznam vraci ''."""
     ext = Path(filename).suffix.lower().lstrip(".")
@@ -53,7 +65,22 @@ def extract_text(file_path: str) -> str:
     # Vsechno ostatni jde pres markitdown
     from markitdown import MarkItDown
     md = MarkItDown()
-    result = md.convert(file_path)
+    # 9b (Jirka 6.9.2026): markitdown vyhazuje UnsupportedFormatException, ktera dedi
+    # PRIMO z BaseException (mro = UnsupportedFormatException, BaseException, object —
+    # overeno na produkcnim serveru 6.9.2026). Proto propadala VSEMI bloky
+    # "except Exception" po ceste — v process_document, u cv-importu i ve smycce
+    # _mirror_sched_loop, ktera na ni umirala (180x SELF-HEAL v poslednich 6000
+    # radcich stderr logu) a s ni stala i zrcadla mailu (sync_mail_projects se od
+    # 4.9. ani jednou nedokoncil). Prevedeme ji tedy na obycejnou Exception hned
+    # u zdroje — jednim mistem pro vsechny volajici.
+    try:
+        result = md.convert(file_path)
+    except UnsupportedDocumentFormat:
+        raise
+    except BaseException as _exc:
+        if type(_exc).__name__ == "UnsupportedFormatException":
+            raise UnsupportedDocumentFormat(str(_exc)) from None
+        raise
     text = result.text_content or ""
 
     # PDF OCR fallback (Marti 5.7.2026): markitdown u naskenovanych PDF (bez textove

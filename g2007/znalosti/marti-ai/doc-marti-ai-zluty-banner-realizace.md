@@ -9,7 +9,7 @@ Spec doc-marti-ai-eurosoft-exec-spec · roadmapa #3 · UI základ doc-marti-ai-c
 
 ## Co běží
 needs_approval (🟡 eurosoft_exec) → PENDING žádost (g2007.exec_approval) → rodič vidí kartu na Home
-i dlaždici „🟡 Ke schválení" (ŘÍZENÍ & SYSTÉM) → tap Schválit (out-of-band lidský tap) → ten konkrétní
+i dlaždici „🟡 Schválení příkazů" (ŘÍZENÍ & SYSTÉM) → tap Schválit (out-of-band lidský tap) → ten konkrétní
 příkaz běží přes eurosoft_exec na 30.11 → rc/stdout uložen + audit do fw.ops_request → výsledek v banneru.
 1 banner = 1 příkaz (hash), expirace 15 min. Ověřeno naostro: rc=0, reálný výstup příkazu, audit done.
 
@@ -17,7 +17,12 @@ příkaz běží přes eurosoft_exec na 30.11 → rc/stdout uložen + audit do f
 - modules/eurosoft_mcp/exec_approval.py — automat + create_pending + materialize_from_ops_request + approve_and_execute + sweep_expired.
 - modules/erp/api/exec_approval_router.py — samostatný router (vzor automat.py), reg. v main.py. Endpointy /app/exec_approval [GET · GET /count · POST {id}/schvalit · POST {id}/zamitnout] = VŠE parent-only.
 - apps/api/static/mobile_parts/73_zexec_approval.js — nativní banner (dvojklik místo confirm).
-- apps/api/static/mobile_parts/35_apps_vedeni.js — dlaždice „🟡 Ke schválení".
+- apps/api/static/mobile_parts/35_apps_vedeni.js — dlaždice „🟡 Schválení příkazů".
+  **6.9.2026:** dlaždici nově vidí i správce (příznak `admin`, viz
+  doc-system-strategie-mobil-priznak-admin-viditelnost-sekci-6-9-2026), ale endpointy zůstávají
+  parent-only, takže se přes ni nedostane dál — tvrdé pravidlo níže platí beze změny.
+  Tehdy se také dlaždice i nadpis obrazovky přejmenovaly z „Ke schválení" (kolidovalo se
+  schvalováním absencí v Docházce).
 - apps/api/static/mobile_parts/20_home_phone_notifs.js — Home karta „X ke schválení" (parent-only, přes /exec_approval/count).
 - tabulka g2007.exec_approval (19 sl.; GRANT strategie+Marti-AI).
 Commity: 1506c7238 (jádro) + 00a123d5d (fix jména) + 446adcb62 (Home karta).

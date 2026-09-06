@@ -41,6 +41,11 @@ Mzdy: Helios × my, VP, Zkušebna, Zakázky, Příprava, Odvozy). Marti-AI dopor
 vypadá to na záměrné zkratky.
 
 **D) Opačný problém: týž název, JINÝ cíl — 4** (Marti-AI označila za nejrizikovější)
+
+> ✅ **VYŘEŠENO 6. 9. 2026** — všechny čtyři dvojice přejmenovány, včetně nadpisů cílových
+> obrazovek. Nové názvy a proč se u OČR měnila ikona zrovna v Aplikacích drží
+> `doc-system-strategie-mobil-odstraneni-ctyr-duplicitnich-nazvu-6-9-2026`.
+> Řádky níže popisují stav PŘED opravou. Zadal Jiří Honomichl.
 - `Ke schválení`: Aplikace → `exec_approval`, Docházka → `absence`
 - `Ošetřovné (OČR)`: Aplikace → `ocr` (moje), HR → `ocr_schval` (schvalování)
 - `Skupiny`: Aplikace → `skupiny`, HR → `hr_skupiny`
@@ -67,6 +72,13 @@ Ověřeno třemi nezávislými způsoby: **žádný výskyt názvu jako řetězc
 Obrazovka se pozná tak, že její tělo obsahuje `app.innerHTML = topbar(`. Spodní lišta
 naviguje přes `selectTab(<název>)` a používá jen `home`, `apps`, `notifs`, `contacts`,
 `firma`, `settings` — žádné z těch šesti mezi nimi není.
+
+> ⚠️ **Doplněno 6. 9. 2026: obrazovek bez cesty je ve skutečnosti SEDM.** Metoda výše ověřovala,
+> jestli na obrazovku něco odkazuje — ale neptala se, jestli je ten odkaz živý. Na `hr_interni`
+> („🏢 Interní personalistika") vede jediný odkaz, a to z `hr`, která je sama nedosažitelná;
+> prakticky je tedy mrtvá taky. **Při příštím auditu procházej odkazy do hloubky, ne jen o krok.**
+> Důsledek pro nálezy výše: část duplicit leží právě na mrtvých obrazovkách, takže je reálně
+> nikdo nevidí — třeba řádek „Ošetřovné (OČR) — schvalování" na Interní personalistice.
 
 ## Co NENÍ duplicita, i když tak vypadá
 

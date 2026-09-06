@@ -30688,27 +30688,21 @@ async def app_notify(req: Request) -> JSONResponse:
 
 
 def _disk_alert_prijemci(ds):
-    """Komu jde e-mail o dochazejicim mistu na disku (Jirka 6.9.2026: "poslat
-    e-mail spravci", univerzalne — zadne jmeno ani id natvrdo v kodu).
+    """Tenka spojka na `g2007.python`, kod `disk_alert_prijemci` (verze 1, aktivni).
 
-    Spravce = `public.users.is_admin`. Adresa se bere z `public.user_contacts`
-    (contact_type='email', aktivni), stejnym poradim jako u overovacich e-mailu:
-    overeny pred neoverenym, hlavni pred vedlejsim, u vice adres jen jedna.
-    POZOR: `users.ews_email` je PRIHLASOVACI UDAJ, ten se k odesilani NIKDY
-    nepouziva. Vraci seznam dvojic (adresa, user_id).
+    Puvodne 6.9.2026 napsano primo sem, tyz den presunuto do databaze podle bodu 2
+    Jirkovych pravidel prace ("kod zije v databazi, ne v router.py").
+    Zadal Jirka Honomichl, schvalila Marti-AI (msg 14591 a 14593), aktivaci
+    odsouhlasil Jirka. Overeno pres @@PYRUN — vratilo tri spravce.
+
+    Vraci seznam dvojic (adresa, id uzivatele); pri jakekoli chybe prazdny seznam,
+    aby vypadek e-mailu neshodil zapis stavu disku. Parametr `ds` se uz nepouziva
+    (funkce v databazi si otevira vlastni spojeni, protoze jen cte a nema co delat
+    v transakci, ktera zapisuje do fw.disk_monitor) — necha se kvuli volajicim.
     """
-    from sqlalchemy import text as _tdp
     try:
-        rows = ds.execute(_tdp(
-            "SELECT u.id, ("
-            "  SELECT c.contact_value FROM public.user_contacts c"
-            "   WHERE c.user_id = u.id AND c.contact_type = 'email'"
-            "     AND COALESCE(c.status,'active') = 'active'"
-            "   ORDER BY COALESCE(c.is_verified,false) DESC,"
-            "            COALESCE(c.is_primary,false) DESC, c.id"
-            "   LIMIT 1) AS adresa "
-            "FROM public.users u WHERE COALESCE(u.is_admin,false) ORDER BY u.id")).all()
-        return [(r[1], r[0]) for r in rows if r[1]]
+        from modules.erp.api import erp_registry as _reg_disk
+        return _reg_disk.call("disk_alert_prijemci") or []
     except Exception as exc:
         logger.warning("[disk_report] nelze zjistit spravce: %s", exc)
         return []

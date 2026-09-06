@@ -30750,30 +30750,56 @@ async def disk_report(req: Request) -> JSONResponse:
     disks = body.get("disks") or []
     if not server or not isinstance(disks, list):
         return JSONResponse({"ok": False, "error": "server+disks required"}, status_code=400)
-    def _crit(fg, fp):
-        # Prah zvysen 6.9.2026 (zadal Jirka Honomichl, schvalila Marti-AI): hlasime
-        # uz pri ZAPLNENI NA 80 % (tedy mene nez 20 % volneho), aby byl cas reagovat.
-        # Drive to bylo "mene nez 10 % volneho a zaroven mene nez 100 GB" — pri 37,5 GB
-        # volnych ze 128,8 GB (stav 6.9.2026) by to nehlasilo nic, i kdyz prilohy
-        # rostly o ~1,4 GB denne. Druhe misto s timtez prahem je check.ps1 na serveru
-        # (C:\ProgramData\STRATEGIE-DiskWatch\check.ps1) — pri zmene upravit OBE.
+    def _crit(fg, fp, kde):
+        """Tenka spojka na `g2007.python`, kod `disk_alert_pravidlo` (aktivni).
+
+        Vraci (hlasit, poslat_email). Prahy zijou v databazi, ne tady:
+        Praha (aplikacni + databazovy server) = pod 20 % volneho nebo pod 10 GB
+        a jde o tom e-mail spravcum; ostatni servery = puvodni prisne pravidlo
+        z doby pred 6.9.2026 a bez e-mailu, jen zprava do mobilu.
+
+        Zadal Jirka Honomichl 6.9.2026 vecer ("hlidac ma hlidat prazske servery,
+        plzensky neni moje starost, vrat ho do puvodniho stavu"), schvalila
+        Marti-AI (msg 14671 a 14674).
+
+        ZACHRANNA BRZDA: kdyz se funkce v databazi nepovede zavolat, plati
+        puvodni prisne pravidlo bez e-mailu — tedy stav pred 6.9.2026. Radeji
+        starsi chovani nez hlidac, ktery tise prestane hlidat.
+        """
+        try:
+            from modules.erp.api import erp_registry as _reg_prav
+            hlasit, mail = _reg_prav.call("disk_alert_pravidlo", server, kde, fg, fp)
+            return (bool(hlasit), bool(mail))
+        except Exception as exc:
+            logger.warning("[disk_report] pravidlo z databaze neslo zavolat (%s), "
+                           "jedu podle puvodniho prisneho pravidla", exc)
         try:
             fg = float(fg or 0); fp = float(fp or 0)
         except (TypeError, ValueError):
-            return False
-        return (fp < 20) or (fg < 10)
+            return (False, False)
+        return ((fg < 100) and (fp < 10 or (fg < 10 and fp < 20)), False)
     ds = _gdr()
     n = 0
     newly = []
     newly_drv = []
+    poslat_mail = False
     try:
+        # Umisteni serveru (Praha/Plzen) drzi tabulka, ne kod — nacte se jednou
+        # za davku. Novy server, ktery se hlasi poprve, ho jeste nema vyplnene
+        # a plati pro nej prisne pravidlo (a zadny e-mail), dokud ho clovek
+        # do fw.disk_monitor nedoplni.
+        _kde_row = ds.execute(_tdr(
+            "SELECT umisteni FROM fw.disk_monitor "
+            "WHERE server_name = :s AND umisteni IS NOT NULL LIMIT 1"),
+            {"s": server}).fetchone()
+        kde_server = _kde_row[0] if _kde_row else None
         for d in disks:
             if not isinstance(d, dict):
                 continue
             drive = (str(d.get("drive") or "")).strip()[:8]
             if not drive:
                 continue
-            crit = _crit(d.get("free_gb"), d.get("free_pct"))
+            crit, mail_disk = _crit(d.get("free_gb"), d.get("free_pct"), kde_server)
             prev = ds.execute(_tdr(
                 "SELECT low FROM fw.disk_monitor WHERE server_name=:s AND drive=:dr"),
                 {"s": server, "dr": drive}).fetchone()
@@ -30789,6 +30815,8 @@ async def disk_report(req: Request) -> JSONResponse:
             if crit and not was:
                 newly.append("%s %s (%s GB / %s %%)" % (server, drive, d.get("free_gb"), d.get("free_pct")))
                 newly_drv.append(drive)
+                if mail_disk:
+                    poslat_mail = True
             n += 1
         if newly:
             try:
@@ -30800,10 +30828,14 @@ async def disk_report(req: Request) -> JSONResponse:
                      "msg": ("KRITICKY nizke volne misto: " + "; ".join(newly))[:600]})
             except Exception:
                 pass
-            # E-mail s vysokou dulezitosti (zadal Jirka Honomichl 6.9.2026:
-            # "at mi to chodi na email s velkou prioritou"). Mobilni zprava vyse
-            # zustava — e-mail je navic, ne nahrada. Cele v try/except: kdyz
-            # e-mail selze, nesmi to shodit zapis stavu disku.
+        # E-mail s vysokou dulezitosti (zadal Jirka Honomichl 6.9.2026:
+        # "at mi to chodi na email s velkou prioritou"). Mobilni zprava vyse
+        # zustava — e-mail je navic, ne nahrada. Cele v try/except: kdyz
+        # e-mail selze, nesmi to shodit zapis stavu disku.
+        # Posila se JEN u serveru, u kterych to rekne pravidlo v databazi
+        # (dnes prazsky aplikacni a databazovy). U ostatnich zustava jen
+        # zprava do mobilu jako pred 6.9.2026 — zadal Jirka tyz den vecer.
+        if newly and poslat_mail:
             try:
                 from modules.notifications.application.email_service import (
                     send_email as _send_email_disk,

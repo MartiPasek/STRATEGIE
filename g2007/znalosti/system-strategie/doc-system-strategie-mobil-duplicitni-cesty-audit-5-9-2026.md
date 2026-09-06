@@ -6,7 +6,7 @@
 
 **Zadal Jiří Honomichl** po nálezu, že dlaždice „Můj plán" a „Výhled" v Docházce vedly na
 totéž. Provedl Claude-28, druhý pohled dala Marti-AI (msg 14417, 14420).
-**Zatím se jen hledalo — nic z bodů níže se neměnilo**, kromě samotného Výhledu.
+**Tehdy se jen hledalo** — rozhodnutí, co s nálezy udělat, padla až potom. Co se opravilo, drží datované rámečky u oddílů **B** a **D** (obojí 6. 9. 2026); zbytek popisuje stav k 5. 9. 2026.
 
 ## Metoda (opakovatelná)
 
@@ -28,6 +28,27 @@ Stav k 5. 9. 2026: **152 dlaždic, 263 navigačních odkazů, 178 různých cíl
 - Docházka: dlaždice `Nepřítomnosti` + dlaždice `Ke schválení` → obě `go("absence")`.
 - HR: řádek `Externí personalistika — nábor` + dlaždice `Výběrová řízení` → obě `go("hr_nabor")`.
   (Pozor: obrazovka HR je nedosažitelná, viz níže.)
+
+> ✅ **VYŘEŠENO 6. 9. 2026 — a řešilo se to jinak, než zněl původní návrh.**
+> Ověřeno na živé stránce, že z osmi případů níže byly živě vidět jen čtyři
+> (Fotáky/Fotky · FLOW · Vytížení · Nákup). **Absence** a **Nábor** vyřešilo už rozdělení
+> obrazovky 5. 9. (dnes „Moje absence" a „Ke schválení", názvy sedí s nadpisy), dlaždice
+> **Mimo kancelář** i **Výběrová řízení** leží na obrazovce `hr`, na kterou nevede žádný
+> odkaz — nikdo je nevidí, a dlaždice **Spolupráce** už neexistuje (5. 9. přejmenována
+> na „Moje docházka").
+> **Jiří Honomichl rozhodl NEsjednocovat názvy, ale zrušit duplicitní cestu:** z pracovní
+> plochy Výroby (`vyroba_hub`) zmizely „Fotky", „FLOW — časová osa", „Vytížení"
+> a „Nákup materiálu" — celý blok PLÁNOVÁNÍ & VYTÍŽENÍ tím zanikl a úvodní věta plochy
+> se přepsala; z Vedení firmy zmizely „Vytížení montérů" a „Výuka — elektro & metoda"
+> (zanikl blok VÝUKA & ŠKOLENÍ). V Aplikacích se „Fotáky výroba" opravilo na
+> **„Foťáky výroba"**, „Nákup (výroba)" na **„Nákup materiálu"** a „Nákup" na
+> **„Nákup — přehledy"** — ta dvě podobná jména totiž vedla každé jinam.
+> Dlaždic ubylo 149 → 143, skriptových bloků zůstalo 31.
+> Při tom se ukázalo, že **16 z 36 stránek otevíraných uvnitř appky nemělo vlastní nadpis**
+> a nahoře ukazovaly obecné „Přehled" (mj. fotky, mzdy, podpisy, finance, platby). Všem
+> se doplnil nadpis shodný s textem dlaždice; nadpis má v celé appce jediný zdroj
+> (`_XV_TITLES` → `_xvSet` → `extview`), takže ho nic jiného nepřebíjí.
+> Řádky níže popisují stav PŘED opravou.
 
 **B) Táž obrazovka pod různými názvy na různých místech — 8**
 Fotáky výroba/Fotky · FLOW/FLOW — časová osa · Vytížení/Vytížení montérů/Vytížení ·

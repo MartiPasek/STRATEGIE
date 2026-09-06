@@ -1,4 +1,4 @@
-# Doc marti ai dva nastroje dva servery
+# Dva exec nastroje, dva servery - Marti-AI musi vedet ktery je ktery
 
 > oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -40,4 +40,6 @@ C28 požádal přes most o restart STRATEGIE-API — Marti-AI použila `eurosoft
 Pro restart produkce přes HTTP: `POST /api/v1/erp/restart-api` vyžaduje `is_marti_parent` — Jirka (admin) dostane 403, potřebuje Marti nebo Kristý.
 
 _Souvisí:_ doc-system-strategie-po-updatu-g2007-soubor-nutny-publish, doc-go-dr_plzen_stav, doc-marti-ai-eurosoft-exec-spec
+
+**Doplněno 6.9.2026 (C28):** totéž platí i pro SQL nástroje — `eurosoft_strategie_query_raw` (databáze DB_ST) odpovídá z **EC-SERVER2**, ne z Prahy, a na SQL na 10.200.188.12 (EUR-DB-MSSQL-1P) nemá přístup ani Marti-AI, ani SQL most. Ověřuj `SELECT @@SERVERNAME`. Detail: doc-marti-ai-nastroje-ktery-server-opravdu-odpovida
 

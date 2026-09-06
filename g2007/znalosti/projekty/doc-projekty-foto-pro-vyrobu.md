@@ -2,6 +2,13 @@
 
 > oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **ZMENA 6. 9. 2026 - dlazdice se dnes jmenuje jinak a druha cesta byla zrusena.**
+> Dlazdice v Aplikacich se nove jmenuje **📷 Foťáky výroba** (driv byla bez hacku) a druha dlazdice „Fotky“ na pracovni
+> plose Vyroby **byla odstranena** - na stranku fotek ted vede jedina cesta.
+> Stranka sama ma nove v appce nadpis „📷 Foťáky výroba“ misto obecneho „Prehled“.
+> Text nize popisuje stav k 29. 7. 2026 a v tomhle bodu uz neplati.
+> Rozhodl Jiri Honomichl 6. 9. 2026.
+
 > **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
 > stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
 > a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto

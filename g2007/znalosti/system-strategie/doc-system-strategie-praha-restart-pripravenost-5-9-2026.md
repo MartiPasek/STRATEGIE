@@ -1,10 +1,35 @@
-# Prazsky server 188.11 - pripravenost na restart pri pridani pameti (kontrola 5. 9. 2026)
+# Prazsky server 188.11 - pripravenost na restart a kontroly po nem (zasah probehl 6.9.2026 v 11:47)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 # Pripravenost prazskeho serveru na restart (kontrola 5. 9. 2026)
 
-> ⚠️ **DOPLNENO 6. 9. 2026: ZASAH SE NEKONAL.** Dodavatel pamet nepridal a stroj nerestartoval. Overeno 6. 9. v 6:21 a 6:32 peti nezavislymi zdroji: pamet je porad 4 095 MB, osazene moduly 3 968 + 128 MB a **posledni start stroje je 4. 8. 2026 21:23, tedy uptime 32 dni**. Odkladani na disk 3 689 MB. Zadrhavani proto pokracuje beze zmeny (3. 9. dvacet jedna, 4. 9. osmnact, 5. 9. sestnact drobnych zadrhnuti) a vlastni mereni zvenci v nedeli 6. 9. rano ukazalo 2,8 procenta odpovedi nad 2 vteriny, tedy stejne jako ve vsedni den. **Kontroly popsane nize se tedy zatim NEPROVEDLY a provest je pujde az po skutecnem navyseni pameti.** Zapsal Claude-28 (Jiri Honomichl).
+> ## ✅ DOPLNENO 6. 9. 2026 VECER: ZASAH PROBEHL, KONTROLY BODU 1 HOTOVE
+>
+> **NEPLATI** puvodni ranni doplnek z tohoto mista („zasah se nekonal"). Platil jen do
+> dopoledne: dodavatel pamet pridal **6. 9. 2026 v 11:47**, tedy o den pozdeji, nez slibil.
+>
+> | udaj | pred | po |
+> | --- | --- | --- |
+> | pamet celkem | 4 095 MB | **16 383 MB** |
+> | volna pamet | 264-828 MB | **10 743 MB** |
+> | posledni start stroje | 4. 8. (32 dni) | **6. 9. 2026 11:47** |
+>
+> **Kontroly bodu 1 provedeny 6. 9. ve 20:01 (mereno zvenci):** `api-info` 200,
+> `instance=primary`, `port=8002`, `commit=4940bf29`, `stale=false` · `health` 200 za 0,03 s ·
+> `/mobile` 200, 1 095 204 bajtu (5. 9. bylo 1 089 054, obsah se mezitim menil) · `/erp` 307 ·
+> Marti-AI odpovida na `praha_exec` i `plzen_exec`.
+>
+> **Nejsilnejsi dukaz:** od restartu v 11:47 do 20:00 nepridalo `fw.mobile_command`
+> **ani jedno hlaseni „STRATEGIE-API spadla"**. Posledni dve byla v 10:22 a 10:34,
+> tedy pred restartem, a zpusobilo je indexovani velkych PDF.
+>
+> **Co zbyva:** ciste mereni sondou (to z 12:04 nebylo ciste — tri zadrhely v nem padly do
+> chvil, kdy pres Marti-AI bezelo tezke skenovani disku), nocni kontrola a pondelni rano
+> od 4.50. Doporucene kontroly 2 a 3 nize proto **plati dal**.
+>
+> Zapsal Claude-28 (Jiri Honomichl), 6. 9. 2026 vecer.
+
 
 
 Duvod: dodavatel mel 5. 9. 2026 ve 20:00 pridat pamet RAM na aplikacnim serveru

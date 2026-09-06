@@ -1,4 +1,4 @@
-# Prazsky server ma malo pameti — API se zadrhava a hlidka ho restartuje (zjisteno 3. 9. 2026)
+# Prazsky server mel malo pameti - API se zadrhavalo (VYRESENO 6.9.2026, pamet navysena na 16 GB)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -6,6 +6,29 @@
 # Prazsky server ma malo pameti — API se zadrhava a hlidka ho restartuje
 
 **Zjisteno 3. 9. 2026** (Claude-28 / Jirka Honomichl), formulaci schvalila Marti-AI.
+
+> ## VYRESENO 6. 9. 2026 — pamet navysena na 16 GB
+>
+> Dodavatel 6. 9. 2026 v 11:47 stroj restartoval a pridal pamet.
+> Overeno tyz den ve 12:02 a 12:03 dvema nezavislymi dotazy (Win32_ComputerSystem
+> a Win32_OperatingSystem) pres praha_exec:
+>
+> | udaj | 3.-6. 9. 2026 | po navyseni |
+> | --- | --- | --- |
+> | pamet celkem | 4 095 MB | **16 383 MB** |
+> | volna pamet | 264-828 MB | **10 743 MB** |
+> | posledni start stroje | 4. 8. (32 dni) | 6. 9. 2026 11:47 |
+>
+> Popis pricin nize **plati jako historie**, ne jako aktualni stav. Nedelej podle nej
+> zavery o dnesnim serveru.
+>
+> **Co jeste nebylo zmereno:** ciste mereni zadrhavani po navyseni. Prvni desetiminutove
+> mereni po restartu vyslo 1,1 % odpovedi nad 2 vteriny proti rannim 2,8 %, ale tri zadrhely
+> v nem padly do chvil, kdy na serverech bezelo tezke skenovani disku pres Marti-AI —
+> **to mereni tedy neni ciste a jako dukaz neplati.** Az bude na serverech klid, pustit
+> jednu sondu na 10-30 minut a porovnat proti 2,3 % z 3. 9. 2026.
+>
+> *(Doplnil Claude-28 / Jirka Honomichl 6. 9. 2026 vecer.)*
 
 ## Co se deje
 

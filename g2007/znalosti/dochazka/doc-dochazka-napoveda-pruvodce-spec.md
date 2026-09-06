@@ -67,7 +67,7 @@ python scripts/build_mobile.py; git diff --stat apps/api/static/mobile.html
 | **Textová nápověda** (overlay ❓) | `function dochHelp(openKey)` — intro + ▶️ tlačítko na hlasový průvodce + 📋 tahák + rozbalovací sekce (`items=[...]`). **Bez obrázků, jen text.** |
 | **Hlasový průvodce** (přehrávač) | `function dochPruvodce()` — pole **`SL=[...]`** (kroky: `{t, img, cap, v}`), přehrávač s řečí. |
 | **Obrazovka docházky** (zdroj pravdy) | `function dochazka()` + `showOpts()` (menu „Potřebuji ti něco říct"), `window._buildWorkSwitch` (Zakázky a činnosti + START), `osobniBuild`/`sluzebniBuild`/`jindeBuild` (Tady budu jinde), `prace_zak`/`prace_cin` (pickery). |
-| **Vstupní body** | Dlaždice „❓ Nápověda docházka" v Aplikacích (`apps()`), ❓ ikona v liště obrazovky Moje docházka, kontextové ⓘ tipy (`dochHelp("prichod")`, `dochHelp("potvrzeni")`). |
+| **Vstupní body** | ❓ ikona v liště obrazovky Moje docházka, kontextové ⓘ tipy (`dochHelp("prichod")`, `dochHelp("potvrzeni")`). **Dlaždice „❓ Nápověda docházka" v Aplikacích byla 6. 9. 2026 zrušena** — dělala přesně totéž co ta ikona (obojí `dochHelp()` bez parametru); rozhodl Jiří Honomichl, detail `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`. |
 
 `SL` kroku: `t`=titulek, `img`=`IMG+"pruvodce_*.png"` (IMG=`/static/navod_dochazka/`), `cap`=HTML popis (single-quoted JS string), `v`=text k vyslovení (double-quoted JS string).
 
@@ -78,12 +78,15 @@ Obrazovka **🕒 Moje docházka** (Firma → 🕒 Moje docházka; dlaždice v Ap
 2. **💬 Potřebuji ti něco říct…** (`showOpts`) — menu se liší dle stavu:
    - **MIMO směnu (příchod):** 🚗 Jedu do práce… (5/15/30/45 min/1/1,5/2 h) · 🏢 Jsem v práci… · 🏠 Nejsem v práci… (home office) · 🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve… · 💬 Píši přímo tobě, Marti… · 🙋 Mám dotaz na nadřízeného…
    - **VE směně:** 🙈 Teď to bude jinak… → (☕ Krátká pauza · 🍃 Jdu se provětrat/najíst · 🕔 skončit dříve · 🌅 přijít později · 📅 Mám jednání · 🚗 Mám služební pochůzku · 🫡 Dnes už se mnou nepočítej) · 🛠 Zpráva vedoucímu výroby · 🏁 Budu brzy hotov · 💬 Píši Marti · 🙋 Mám dotaz na nadřízeného · (🏭 Plánovač výroby jen vedoucí). **Jednání/pochůzka = hodiny BĚŽÍ dál.**
-3. **MOJE DOCHÁZKA** (dlaždice): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 📋 Moje žádosti · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde** · 🗓️ Nepřítomnosti.
+3. **MOJE DOCHÁZKA** (dlaždice, stav 6. 9. 2026): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 📋 Moje žádosti · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde** · 🗓️ **Moje absence** · 🤒 Nemocenská 🔒 · 🩺 Lísteček od lékaře 🔒.
+   *(Do 5. 9. 2026 se poslední jmenovala „Nepřítomnosti"; Nemocenská a Lísteček od lékaře přibyly 6. 9. 2026 a jsou zatím zamčené — dlaždici vidí všichni, otevře ji jen Jiří Honomichl.)*
    - **🧭 Tady budu jinde** (`jindeBuild`) → **🏠 Osobní důvody** (🏡 makat z domova/HO · 🕐 Něco si zařizuji · 👨‍👧 Zase řeším rodinu/OČR · 🤒 Je mi fakt blbě/sick day · 🤧 Mám neschopenku do · 🩺 Jedu k lékaři · 🌴 Že by dovolená) + **💼 Služební důvody** (🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka pak dorazím · 📝 Ostatní). **Absence jdou TUDY, NE přes 💬.**
-4. **PODMÍNKY & FINANCE** (dlaždice): 📋 Moje podmínky · 📐 Můj úvazek · 👤 Můj plán · 💰 Moje finance · 🗓️ Nepřítomnosti.
+4. **PODMÍNKY & FINANCE** (dlaždice, stav 6. 9. 2026): 🌴 **Můj přehled** · 📋 Moje podmínky · 📐 Můj úvazek · 💰 Moje finance.
+   *(5. 9. 2026 se „Můj plán" a „Nepřítomnosti" přesunuly odsud do sekce Moje docházka; „Můj přehled" sem přibyl 19. 8. 2026.)*
 5. **Potvrzení dne** = jantarová karta → ✓ Potvrzuji svou docházku / 🔍 detaily / ✋ Rozpor. Bez potvrzení se ráno nepíchneš (14 dní).
    **Po potvrzení karta zmizí** — od 21. 7. vede zpátky **✋ Požádat o opravu** (viz bod 8).
-6. Historie + **💰 Moje odmakané prašule** (páska, PIN).
+6. Historie + **💰 Moje finance** (páska, PIN) — dlaždice v sekci Podmínky & finance.
+   *(Rozbalovací sekce „Moje odmakané prašule… 💰" dole na obrazovce je od 5. 9. 2026 natrvalo schovaná; kód zůstal, protože na něj sahají loadery. Páska s PINem se otevírá dlaždicí.)*
 7. **Oprava záznamu (vlastní, jen dnešek):** dlaždice **✋ Požádat o opravu** (sekce „Tak to bylo dneska…" je od 5. 9. 2026 natrvalo schovaná).
 8. **✋ Požádat o opravu (od 21. 7. 2026, podnět Peťa)** — pro **starší i už POTVRZENÝ** den.
    Dvě rovnocenné cesty: dlaždice **✋ Požádat o opravu** (obrazovka `doch_oprava_zadost`:

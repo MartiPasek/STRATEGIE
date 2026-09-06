@@ -44,11 +44,20 @@ s pojistkou na otisk, po každém `@@G2007PUBLISH apps/api/static_db/mobile.html
   > schválila Marti-AI (msg 14783). Detail:
   > `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
 
-## Co zbylo neopravené
+## Co zbylo neopravené — SROVNÁNO 6. 9. 2026
 
-Znalost `doc-dochazka-napoveda-pruvodce-spec` (oblast docházka, cizí doména) po těchto
-změnách **na třech místech nesedí se skutečností** — vypisuje dlaždici „🔭 Výhled",
-uvádí „💰 Moje odmakané prašule" jako sekci dole na obrazovce a odkazuje na opravu záznamu
-v sekci „Tak to bylo dneska…". Do cizí domény jsem nesahal, nahlášeno Jiřímu Honomichlovi
-a Marti-AI 5. 9. 2026.
+> ✅ **Vyřízeno.** Jiří Honomichl 6. 9. 2026 zadal „rozpory vyřeš, ať se tvrdí jen pravda",
+> takže se do znalosti `doc-dochazka-napoveda-pruvodce-spec` zasáhlo se souhlasem
+> a je srovnaná se skutečností.
+
+⚠️ **Původní hlášení z 5. 9. bylo ze tří bodů PŘESNÉ JEN V JEDNOM** (ověřeno 6. 9. čtením
+té znalosti z databáze a porovnáním se živou stránkou `/mobile`, ne z paměti):
+
+- „vypisuje dlaždici 🔭 Výhled" — **nepravda**, slovo „Výhled" v té znalosti není ani jednou.
+- „odkazuje na opravu záznamu v sekci Tak to bylo dneska…" — **nepravda**, znalost tu sekci
+  už 5. 9. správně označila za natrvalo schovanou.
+- „uvádí Moje odmakané prašule jako sekci dole na obrazovce" — **pravda**, opraveno 6. 9.
+
+Poučení: cizí nález se má ověřit celý, ne převzít. Skutečné nesrovnalosti byly nakonec
+čtyři a jsou popsané v `doc-system-strategie-mobil-duplicity-rozhodnuti-e-h-6-9-2026`.
 

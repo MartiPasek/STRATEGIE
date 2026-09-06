@@ -9,12 +9,14 @@
 > Text nize popisuje stav k 29. 7. 2026 a v tomhle bodu uz neplati.
 > Rozhodl Jiri Honomichl 6. 9. 2026.
 
-> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
-> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
-> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
-> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
-> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
-> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+> **POSTUP UVNITŘ SROVNÁN 6. 9. 2026.** Do té doby tenhle dokument předepisoval sestavování
+> mobilní stránky přes `scripts/build_mobile.py` a commit `mobile.html` do gitu — **tak se to
+> už nedělá** a kdo se tím řídil, jeho práce se do appky nedostala a nikde to nenahlásilo chybu
+> (přesně takhle se 5.–12. 8. 2026 tiše zahodila práce Peti a Šárky). Věta uvnitř je opravená
+> na skutečný stav; závazný postup pro celou síť drží
+> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`.
+> (Varování doplnil Claude-28 18. 8. 2026, text srovnán 6. 9. 2026 — obojí na zadání
+> Jiřího Honomichla, schválila Marti-AI.)
 
 # Fotky pro výrobu — fotodokumentace (Etapa 1, nasazeno 29.7.2026, C23 + Marti)
 
@@ -40,7 +42,14 @@ Univerzální fotodokumentace opřená o Ondrův (INTERSOFT) systém `ai-process
 - **Cloud `/deploy/now` občas vrátí HTTP 401** („Nejsi přihlášen") — přechodné; **retry CLAUDE_DEPLOY** projde (commit už je, watcher udělá noop-commit + push + deploy). Stejný přechodný 401 viděn i u čtení mostu.
 - **Line 2 mostu** (`CLAUDE2_*`) použít při souběhu s ostatními instancemi (hlavní kanál drží C24/C26/C28). DDL/DML přes `db=pg` → banner; diakritiku v payloadu řešit **base64** (`convert_from(decode(...),'UTF8')`) nebo commitnout SQL jako soubor přes device_commit_files (mount jinak UTF-8 mrví).
 - Model kvality je **datový** (váhy/prahy/hranice/prompt v `foto_model`) — laditelné bez deploye, jako Ondrovo `EC_foto_AiModely`.
-- **⚠️ mobile.html je GENEROVANÝ balík** (`scripts/build_mobile.py` slepí `apps/api/static/mobile_parts/NN_*.{js,css,html}`). Editace partu (dlaždice apod.) se v appce NEPROJEVÍ, dokud nespustíš `python scripts/build_mobile.py` a NECOMMITNEŠ i `mobile.html`. Tohle mě zdrželo — dlaždice „Fotáky" nebyla vidět, dokud jsem nepřestavěl balík. Workflow: edit part → build_mobile.py → deploy part + mobile.html. Po deployi appka drží starou verzi v cache → pull-to-refresh.
+- **⚠️ Změna dílku se v appce NEPROJEVÍ sama — musí se publikovat.** Dílky i sestavená stránka
+  žijí **v databázi** (`g2007.soubor`); po úpravě dílku vždy `@@G2007PUBLISH apps/api/static_db/mobile.html`,
+  jinak lidé v telefonu vidí starou verzi. Po publikaci navíc appka drží starou verzi v cache
+  → pull-to-refresh.
+  *(Opraveno 6. 9. 2026 — do té doby tu stálo „spusť `python scripts/build_mobile.py` a NECOMMITNEŠ-li
+  i `mobile.html`, nezobrazí se to"; ten skript od 17. 8. 2026 jen vypíše varování a ani dílky,
+  ani sestavená stránka už v gitu nejsou. Původní zkušenost autora platí dál — dlaždice „Foťáky"
+  nebyla vidět, dokud se balík nepřestavěl; dnes je tím krokem publikace. Zadal Jiří Honomichl.)*
 
 ## Další kroky (TODO)
 - Doplnit offline metriky (BRISQUE/edge/gradient) a coverage worker (`foto_analyza`, obdoba `ec_rest_foto_ZahajAnalyzuZakazky`).

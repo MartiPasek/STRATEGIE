@@ -2,12 +2,14 @@
 
 > oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
-> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
-> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
-> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
-> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
-> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+> **POSTUP UVNITŘ SROVNÁN 6. 9. 2026.** Do té doby tenhle dokument předepisoval sestavování
+> mobilní stránky přes `scripts/build_mobile.py` a commit `mobile.html` do gitu — **tak se to
+> už nedělá** a kdo se tím řídil, jeho práce se do appky nedostala a nikde to nenahlásilo chybu
+> (přesně takhle se 5.–12. 8. 2026 tiše zahodila práce Peti a Šárky). Věta uvnitř je opravená
+> na skutečný stav; závazný postup pro celou síť drží
+> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`.
+> (Varování doplnil Claude-28 18. 8. 2026, text srovnán 6. 9. 2026 — obojí na zadání
+> Jiřího Honomichla, schválila Marti-AI.)
 
 # Cílový režim — mobilní UI (nativní obrazovka) + gotcha auth
 
@@ -29,7 +31,11 @@ Příčina (ověřeno v `_resolve_uid_raw`, router.py): **nativní appka se aute
 - **Zpět (aktualizováno 28. 8. 2026):** `renderNav` (74) zobrazuje spodní lištu „← Zpět" jen když `stack.length>1 && stg_backbar==='always'` — **je skryta všude** (prohlížeč, Android i iOS). Dřív se skrývala jen na Androidu; od 28. 8. 2026 nikde, zapnout ji lze už jen výslovně. Nativní obrazovka si proto má dát **vlastní viditelné „← Zpět"** (tlačítko volající `back()`) — jinak uživatel žádné Zpět nevidí. (V `73_zcil.js` helper `_cilBack()` v každé obrazovce.) Detail: [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]]
 - **Service worker cache:** po deployi statiky (mobile.html/partial) drží appka starou verzi i po restartu. Uživatel musí **Nastavení → 🧹 Vyčistit a načíst** (odregistruje SW + smaže cache). Zavření appky nestačí.
 - Registrace do `SCREENS`: modul musí být v souboru, který se sesbírá **za** `73_pref_poptavka.js` (kde je `var SCREENS`) a **před** koncem IIFE v `74_claude27_render_init.js` → název `73_zcil.js`. Soubor za `74` by byl mimo closure.
-- Build: `python scripts/build_mobile.py` slepí `mobile_parts/` → `mobile.html` (generovaný, needitovat přímo). Deploy partial + mobile.html spolu.
+- Nasazení: dílek se mění **v databázi** (`g2007.soubor`, kód `apps/api/static/mobile_parts/73_zcil.js`)
+  a pak se publikuje — `@@G2007PUBLISH apps/api/static_db/mobile.html`. Na disku se needituje nic
+  a do gitu nejde ani dílek, ani sestavená stránka.
+  *(Opraveno 6. 9. 2026 — do té doby tu stálo „spusť `scripts/build_mobile.py` a nasaď partial
+  i mobile.html spolu"; ten skript od 17. 8. 2026 jen vypíše varování. Zadal Jiří Honomichl.)*
 
 ## Stav
 Ověřeno end-to-end: PC (cookie) i mobil (token) — seznam, detail, přechody, vlastní Zpět. Backend endpointy beze změny (viz workflow-api doc).

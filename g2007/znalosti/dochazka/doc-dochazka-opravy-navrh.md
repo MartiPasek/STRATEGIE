@@ -12,12 +12,14 @@
 > - obrazovka ma nove nadpis "Moje dochazka" a napoveda je jen ikona v jeho liste
 > Aktualni stav: [[doc-dochazka-mobil-dochazka-prejmenovani-a-pravdivost-navodu-5-9-2026]]
 
-> **ZASTARALY POSTUP UVNITR (18. 8. 2026).** Tento dokument nize popisuje sestavovani mobilni
-> stranky pres `scripts/build_mobile.py` a commit `mobile.html` do gitu. **TAK SE TO UZ NEDELA**
-> a kdo se tim ridi, jeho prace se do appky nedostane a nikde to nenahlasi chybu (presne takto
-> se 5.-12. 8. 2026 tise zahodila prace Peti a Sarky). Zavazny postup drzi
-> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`. Zbytek dokumentu plati.
-> (Doplnil Claude-28 na zadani Jirky Honomichla, schvalila Marti-AI 18. 8. 2026.)
+> **POSTUP UVNITŘ SROVNÁN 6. 9. 2026.** Do té doby tenhle dokument předepisoval sestavování
+> mobilní stránky přes `scripts/build_mobile.py` a commit `mobile.html` do gitu — **tak se to
+> už nedělá** a kdo se tím řídil, jeho práce se do appky nedostala a nikde to nenahlásilo chybu
+> (přesně takhle se 5.–12. 8. 2026 tiše zahodila práce Peti a Šárky). Věta uvnitř je opravená
+> na skutečný stav; závazný postup pro celou síť drží
+> `doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje`.
+> (Varování doplnil Claude-28 18. 8. 2026, text srovnán 6. 9. 2026 — obojí na zadání
+> Jiřího Honomichla, schválila Marti-AI.)
 
 # Opravy docházky pověřenými osobami — NÁVRH (v1)
 
@@ -148,8 +150,11 @@ v zamčeném období, `centrala1` řádky odmítnout (409 s vysvětlením).
 
 1. **E1 — základ (backend)**: staff_group + helper, `fix/*` endpointy, supersede logika, audit,
    period_lock, notifikace dotčenému. Testy na 9030 (Jirka) — bezpečný pilot jako u vypnutí Centrály.
-2. **E2 — mobil**: dlaždice 🛠, fronta, detail dne s akcemi, sheet opravy. Build přes
-   `build_mobile.py` (mobile_parts/60_dochazka.js — NIKDY mobile.html přímo).
+2. **E2 — mobil**: dlaždice 🛠, fronta, detail dne s akcemi, sheet opravy. Dílek
+   `mobile_parts/60_dochazka.js` se mění **v databázi** (`g2007.soubor`) a pak se publikuje
+   přes `@@G2007PUBLISH apps/api/static_db/mobile.html`; na disku se needituje nic.
+   *(Opraveno 6. 9. 2026 — do té doby tu stálo „build přes `build_mobile.py`"; ten skript
+   od 17. 8. 2026 jen vypíše varování a dílky na disku nejsou. Zadal Jiří Honomichl.)*
 3. **E3 — ERP**: `/dochazka-opravy` stránka + launcher dlaždice.
 4. Fáze 2 (později): write-through do EC, 4-oči na opravy editorů, návrhy konce z plánu směn.
    (Původní E4 zpřísnění samoúprav = mimo scope, viz §5.)

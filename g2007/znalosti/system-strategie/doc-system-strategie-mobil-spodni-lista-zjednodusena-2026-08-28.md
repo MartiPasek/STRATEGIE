@@ -1,4 +1,4 @@
-# Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026)
+# Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026; 7. 9. 2026 nové složení a jméno člověka místo popisku docházky)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -84,17 +84,46 @@ tuhle obrazovku otevře: obsah dostal o 52 px víc místa. Nic se tím neztratil
 popisují stav do 6. 9. 2026 — **jako datované pozorování zůstávají, ale už neplatí.**
 
 Nové složení zleva: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.**
+*(Druhá položka se týž den odpoledne změnila na jméno člověka se siluetou — viz poslední oddíl.)*
 
 - **👤 Kontakty ze spodní lišty zmizely** — jsou nově dlaždice na obrazovce Aplikace, sekce 🧑 MOJE.
 - **🕒 Moje docházka je nově přímo v liště** (druhá zleva) a zároveň **zmizela z lišty skupin
   na Firmě**, kde do té doby byla posledním tlačítkem vpravo. Lišta skupin proto najíždí
   na začátek (`scrollLeft=0`), ne na konec.
 - **💡 Světla jsou zatím bez cíle** — po klepnutí se záměrně nic nestane.
-- Ikon je **šest**, takže popisek „Moje docházka" se jako jediný láme na dva řádky.
+- Ikon je **šest**. ~~Popisek „Moje docházka" se jako jediný láme na dva řádky.~~ **NEPLATÍ od 7. 9. 2026 odpoledne** — popisek je nově jméno člověka, viz poslední oddíl.
 
 Ověřeno naživo na `/mobile` po publikaci: pořadí sedí, docházka se z lišty otevírá,
 lišta skupin na Firmě končí u „IT", konzole bez chyb, sestavená stránka má dál 31 skriptových
 bloků a 139 dlaždic.
+
+## ⚠️ Doplněno 7. 9. 2026 odpoledne — druhá ikona nese jméno člověka, ne slovo „docházka"
+
+**Zadal Jirka Honomichl, schválila Marti-AI, provedl Claude-28.**
+
+Druhá ikona zleva vede pořád na Moji docházku, ale:
+
+- popisek **„Moje docházka" nahradilo křestní jméno přihlášeného člověka** (u uživatele 20 je to „Jiří"),
+- **ikona hodin se změnila na siluetu postavy.**
+
+Tím pádem **věty výše o popisku „Moje docházka" a o jeho lámání na dva řádky už neplatí.**
+
+Jméno dává `g2007.python` kód `mobile_domu_stav` (vrací křestní jméno, příznak „je správce nebo
+rodič" a stav přepínače); v dílku `74_claude27_render_init.js` ho čte `_navJmeno()`. Než odpověď
+dorazí, drží se dočasně původní popisek, aby lišta neproblikávala prázdná. **Jádro se kvůli tomu
+neměnilo** — volá se přes už existující adresu `/app/erp_registry/run`.
+
+⚠️ **Vědomý ústupek, o kterém padlo rozhodnutí:** z lišty tím zmizelo jakékoli slovo „docházka"
+i hodiny — a to zrovna ve chvíli, kdy se tam lidem cesta nově přesunula (viz oddíl výše).
+Upozornily na to dvě instance nezávisle na sobě; **rozhodl Jirka Honomichl 7. 9. 2026**, že to
+tak má být.
+
+⚠️ **Past, která stála jedno kolo nasazení:** odpověď z `/app/erp_registry/run` chodí **zabalená**
+ve tvaru `{ok, verze, vysledek:{…}}`. Kdo čte `j.jmeno` místo `j.vysledek.jmeno`, dostane
+`undefined` a popisek **tiše zůstane původní** — nikde to nenahlásí chybu.
+
+Ověřeno naživo po publikaci: v liště je silueta a „Jiří", ostatní ikony beze změny, ostatní
+obrazovky (Nastavení, Úkoly, Firma, Aplikace) se kreslí a konzole je bez chyb.
 
 Souvisí: [[doc-system-strategie-mobil-navh-spodni-lista]] · [[doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje]]
 

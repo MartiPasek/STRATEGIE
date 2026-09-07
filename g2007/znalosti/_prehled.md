@@ -8,14 +8,14 @@
 | `marti-ai` | system | 44 | Persona je inkarnace Marti-AI MD1. Zakladni identita, ze ktere role-persony inkarnuji. |
 | `system-strategie` | system | 210 | Technicka a provozni znalostni baze platformy STRATEGIE — DB architektura, produkcni infrastruktura, architektonicke principy, dev workflow. Presunuto z CLAUDE.md (C27, 21.7.2026), aby MD drzela jen osobni/vztahove jadro. |
 | `provoz` | system | 9 | Operacni znalost - mostni kanaly, lekce, schemata DB. Aby to bylo dohledatelne. |
-| `ucetnictvi` | obor | 15 | Oborova znalost pro personu ucetni. |
+| `ucetnictvi` | obor | 16 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 33 |  |
-| `mzdy` | obor | 58 | Oborova znalost pro personu mzdovou. |
-| `dochazka` | obor | 200 | Oborova znalost pro personu odpovednou za dochazku. |
+| `mzdy` | obor | 59 | Oborova znalost pro personu mzdovou. |
+| `dochazka` | obor | 203 | Oborova znalost pro personu odpovednou za dochazku. |
 | `projekty` | obor | 8 | Oborova znalost pro personu vedouci projekty. |
 | `nabidky` | obor | 7 | Oborova znalost pro personu tvorici nabidky. |
 | `kalkulace-rozvadecu` | obor | 17 | Oborova znalost pro personu kalkulujici rozvadece. |
 | `bozp-po` | obor | 0 | Oborova znalost pro personu BOZP a pozarni ochrany. |
 | `tisax` | obor | 1 | Oborova znalost pro personu odpovednou za TISAX. |
 | `iso27001` | obor | 40 | Oborova znalost pro personu odpovednou za ISO 27001. |
-| `osoba` | osoba | 2 | Znalost pro persony jednotlivych lidi. |
+| `osoba` | osoba | 3 | Znalost pro persony jednotlivych lidi. |

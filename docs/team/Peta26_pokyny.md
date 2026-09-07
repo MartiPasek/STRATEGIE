@@ -454,8 +454,9 @@ rozhodne, jestli a s kým to řešit.
 
 Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přiloženo v PDF."*
 
-**Co porovnávat:** DUZP · splatnost (jiná data ne) · číslo účtu · částky u položek ·
-kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 níže) ·
+**Co porovnávat:** DUZP · splatnost (jiná data ne) · číslo účtu · **variabilní symbol**
+(viz bod 9 níže) · částky u položek · kurz · **celková cena** ·
+**skonto, pokud ho faktura nabízí** (viz bod 4 níže) ·
 **odběratel = správná firma** (viz bod 5 níže).
 
 **Dvě pravidla, jak to hlásit** (Peťa 21. 8., *„zapomněla jsem říct"*):
@@ -563,6 +564,17 @@ kurz · **celková cena** · **skonto, pokud ho faktura nabízí** (viz bod 4 n�
    Naopak 2230 (LAPP, 24,125) a 2231 (Michálek, 24,08) měly kurz podle faktury správně.
    Zahraniční faktury ze srpna 2026 (Eberhard DE, Adamczewski DE, UAB LT, Mózer SK)
    mají shodně 24,205 — to je právě ten kurz k 1. pracovnímu dni měsíce.
+
+9. **🔢 VARIABILNÍ SYMBOL SE KONTROLUJE — rozdíl je NÁLEZ** (Peťa 7. 9. 2026: *„to je
+   špatně, to taky kontroluj"*).
+   Porovnej **VS uvedený na faktuře** proti tomu, co je v Centrále (**`TabDokladyZbozi.DodFak`**
+   — samostatný sloupec `VarSymbol` v Centrále NEEXISTUJE, VS = `DodFak`).
+   Pozor: **VS nemusí být totéž co číslo faktury** — dodavatel ho má jako vlastní pole a
+   může se rozejít (typicky zapomenutá hodnota ve vzoru dokladu). Proto **hledej na PDF
+   pole „Variabilní symbol", ne jen číslo faktury.**
+   Příklad 7. 9. 2026: **2272 a 2276** (Ing. Marek Siřiště) — faktury 2026-00009 a 2026-00008,
+   ale obě mají na dokladu **VS 20260005**; v Centrále je 202600009 / 202600008.
+   Nahlásil jsem to nejdřív jen jako poznámku na okraj — **byl to nález.**
 
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 

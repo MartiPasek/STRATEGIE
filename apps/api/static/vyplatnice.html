@@ -238,6 +238,9 @@ async function generuj(){
   const tick=setInterval(()=>{msg.textContent=stav+' · '+el();},1000);
   pb.style.width='6%';
   let clean=1, done=false, guard=0, vyst=0, hot=0, cil=0, chyba='', warns=[];
+  // Peťa 7.9.2026: kontrola mzdové karty proti Podmínkám musí být vidět HNED tady na
+  // obrazovce — „mě asi nenapadne se jít kouknout, zda není něco ve frontě k řešení".
+  let kartaOk=[], kartaSpor=[];
   const wbox=document.getElementById('genWarn'); wbox.style.display='none'; wbox.innerHTML='';
   try{
     while(!done && guard++<40){
@@ -248,6 +251,8 @@ async function generuj(){
       // Peťa 5.8.2026: co se nepovedlo postavit (složky / zrcadla) MUSÍ být vidět, ne zmizet.
       if(d.slozky_warn&&d.slozky_warn.length) warns=warns.concat(d.slozky_warn);
       if(d.zrcadla_warn&&d.zrcadla_warn.length) warns=warns.concat(d.zrcadla_warn);
+      if(d.karta_opraveno&&d.karta_opraveno.length) kartaOk=kartaOk.concat(d.karta_opraveno);
+      if(d.karta_warn&&d.karta_warn.length) kartaSpor=kartaSpor.concat(d.karta_warn);
       const pct=cil?Math.max(6,Math.round(100*hot/cil)):6;
       pb.style.width=pct+'%';
       stav='⏳ Počítám mzdy… '+hot+'/'+cil+' hotovo'+(vyst?' · '+vyst+' s výstrahou':'');
@@ -265,14 +270,35 @@ async function generuj(){
          GEN_KDY[FIRMA+'|'+r+'|'+m]={kdy:new Date(), hot:hot, cil:cil, vyst:vyst, trvalo:el()};
          msg.textContent='✅ Hotovo · '+hot+'/'+cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+' · trvalo '+el()
                          +' · '+_casHHMM(new Date()); }
+  // ── Hlášky kontroly mzdové karty (Peťa 7.9.2026) ─────────────────────────────
+  // Úvazek do Heliosu dřív posílala Centrála, jenže do plzeňského — a mzdy se počítají
+  // v pražském cloudu. Nikdo to nepřevzal, takže se to rozešlo (Bernardová EC 475,
+  // srpen 2026, rozdíl 5 615 Kč). Teď to STRATEGIE před generováním srovná sama:
+  // jednoznačné opraví, sporné jen nahlásí a generování jede dál.
+  let html='';
+  if(kartaOk.length){
+    const u=[...new Set(kartaOk.map(x=>String(x)))];
+    html+='<div style="color:#86e8b0"><b>✔ Srovnáno s Podmínkami před výpočtem:</b>'+
+      '<ul style="margin:7px 0 0 18px;padding:0">'+
+      u.map(w=>'<li>'+w.replace(/</g,'&lt;')+'</li>').join('')+'</ul></div>';
+  }
+  if(kartaSpor.length){
+    const u=[...new Set(kartaSpor.map(x=>String(x)))];
+    html+=(html?'<div style="height:10px"></div>':'')+
+      '<div style="color:#ffb4b4"><b>⚠ Tohle jsem srovnat nemohl — mzda se spočítala podle Heliosu:</b>'+
+      '<ul style="margin:7px 0 0 18px;padding:0">'+
+      u.map(w=>'<li>'+w.replace(/</g,'&lt;')+'</li>').join('')+'</ul>'+
+      '<div style="margin-top:7px;color:#d9b98a">Uprav to v Podmínkách nebo v Heliosu a pusť generování znovu.</div></div>';
+  }
   if(warns.length){
     const uniq=[...new Set(warns.map(x=>String(x)))];
-    wbox.innerHTML='<b>⚠ Pozor — něco se nepodařilo postavit a v páskách to bude chybět:</b>'+
+    html+=(html?'<div style="height:10px"></div>':'')+
+      '<b>⚠ Pozor — něco se nepodařilo postavit a v páskách to bude chybět:</b>'+
       '<ul style="margin:7px 0 0 18px;padding:0">'+
       uniq.map(w=>'<li>'+w.replace(/</g,'&lt;')+'</li>').join('')+'</ul>'+
       '<div style="margin-top:7px;color:#d9b98a">Oprav příčinu a pusť generování znovu.</div>';
-    wbox.style.display='block';
   }
+  if(html){ wbox.innerHTML=html; wbox.style.display='block'; }
   btn.disabled=false;
   await load();
 }

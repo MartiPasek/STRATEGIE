@@ -2994,20 +2994,20 @@ function renderPodm(edit){
     '<span style="display:flex;gap:14px;white-space:nowrap">'+back+btn+'</span></div>';
   if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error==='forbidden'?'Nemáš oprávnění — podmínky vidí a mění jen HR a vedení.':(d.error||'nedostupné'))+'</div>'; det.innerHTML=h; return; }
   // Šárka 20.8.2026: skrývání benefitů u OSVČ vráceno zpět — podmínky se u OSVČ zobrazují jako u ostatních.
-  const defs=d.defs||[], res=d.resolved||{}, own=d.own||{};
+  // Sleva na poplatníka má vlastní záložku „Daně a děti“ (Šárka 7. 9. 2026) — tady se neukazuje, ať je jedno místo.
+  const defs=(d.defs||[]).filter(dd=>dd.code!=='sleva_poplatnik'), res=d.resolved||{}, own=d.own||{};
   if(!defs.length){ h+='<div class="empty">Žádné podmínky nejsou nastavené.</div>'; det.innerHTML=h; return; }
   h+='<div id="podmstat" style="padding:0 16px 4px;font-size:11.5px;min-height:14px;color:#5d6b7c"></div>';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-    defs.map(dd=>{ const r=res[dd.code]||{}; const val=(r.value==null||r.value==='')?'<span style="color:#5d6b7c">—</span>':esc(r.value);
+  const ROWS=defs.map(dd=>{ const r=res[dd.code]||{}; const val=(r.value==null||r.value==='')?'<span style="color:#5d6b7c">—</span>':esc(r.value);
       const o=(own[dd.code]&&own[dd.code].value!=null)?own[dd.code].value:null;
       const lbl=esc(dd.label)+(dd.unit?(' <span style="color:#5d6b7c">('+esc(dd.unit)+')</span>'):'');
       const ow=own[dd.code]||{};
       const zm=ow.zmenil?('<div style="color:#7f8ea0;font-size:10.5px;margin-top:1px">✎ změnil/a: '+esc(ow.zmenil)+(ow.zmeneno?(' · '+esc(ow.zmeneno)):'')+'</div>'):'';
       if(!edit){
         return '<tr style="border-top:1px solid #1e2730" data-cond="'+esc(dd.code)+'" data-val="'+esc(r.value==null?'':String(r.value))+'">'+
-          '<td style="padding:7px 16px;color:#cdd6e2">'+lbl+zm+'</td>'+
-          '<td style="padding:7px 16px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
-          '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
+          '<td style="padding:5px 12px;color:#cdd6e2">'+lbl+zm+'</td>'+
+          '<td style="padding:5px 10px;color:#e8eef5;font-weight:700;text-align:right;white-space:nowrap">'+val+'</td>'+
+          '<td style="padding:5px 12px 5px 6px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
       }
       const pole = (dd.code===PODM_POCITADLO)
         ? '<span style="color:#e8eef5;font-weight:700">'+val+'</span><div style="color:#5d6b7c;font-size:11px">počítá se ze součtu</div>'
@@ -3036,15 +3036,76 @@ function renderPodm(edit){
           '<div style="color:#5d6b7c;font-size:11px">teď: '+val+' ('+esc(r.src||'—')+')</div>'+zm+'</td>'+
         '<td style="padding:7px 16px;text-align:right;white-space:nowrap">'+pole+'</td>'+
         '<td style="padding:7px 16px;text-align:right">'+podmSrcBadge(r.src)+'</td></tr>';
-    }).join('')+'</table>';
+    });
+  // Náhled ve DVOU sloupcích (Šárka 7. 9. 2026: „žádné skrolování“) — editace zůstává v jednom, potřebuje místo.
+  if(!edit){
+    const half=Math.ceil(ROWS.length/2);
+    const tbl=rows=>'<table style="width:100%;border-collapse:collapse;font-size:12.5px;align-self:start">'+rows.join('')+'</table>';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;padding:0 4px">'+tbl(ROWS.slice(0,half))+tbl(ROWS.slice(half))+'</div>';
+  } else {
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+ROWS.join('')+'</table>';
+  }
   h+='<div style="padding:8px 16px;color:#5d6b7c;font-size:11.5px">'+(edit
     ? 'Prázdné pole = hodnota se zdědí ze skupiny nebo ze systému. Vyplněné pole = osobní výjimka jen pro tohoto člověka. „Dovolená celkem“ se nezadává — je to součet „Dovolené“ a „Dovolené navíc“. „Týdenní úvazek“ je jediný údaj ze smlouvy — mění se tady, ale ukládá se do poměru.'
     : 'Zdroj: systémový default → skupina → osobní hodnota. Osobní hodnoty zadává personální oddělení ve STRATEGII.')+'</div>';
   h+=vernostHTML(d.vernost||[]);
-  if(!edit){ h+='<div id="bonusybox" style="border-top:8px solid #0b0f14"></div>'
-               +'<div id="detibox" style="border-top:8px solid #0b0f14"></div>'; }
+  if(!edit){ h+='<div id="bonusybox" style="border-top:8px solid #0b0f14"></div>'; }
   det.innerHTML=h;
-  if(!edit){ loadBonusy(uid); loadDeti(uid); }
+  if(!edit){ loadBonusy(uid); }
+}
+
+// ── Záložka „💶 Daně a děti“ (Šárka + Petra 7. 9. 2026): sleva na poplatníka + daňové
+// zvýhodnění na děti na jednom místě, výrazně, bez skrolování. Zdroj pravdy = STRATEGIE,
+// zatím stínově. Sleva: ANO = potvrzení HR (podepisuje při nástupu, dál řeší Petra) —
+// u hodnoty je vidět kdo a kdy; sken ve spisu není podmínkou, jen se označí.
+async function daneUdaje(){
+  const uid=CUR_UID; if(!uid) return;
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const [pd, cd]=await Promise.all([
+    j(API+'/app/hr/conditions?scope_kind=user&user_id='+uid).catch(()=>({ok:false,error:'síť'})),
+    j(API+'/app/hr/children?user_id='+uid).catch(()=>({ok:false,error:'síť'}))]);
+  PODM_DATA=pd; PODM_UID=uid; DETI_DATA=cd; DETI_UID=uid;
+  renderDane();
+}
+function renderDane(){
+  const uid=PODM_UID, det=document.getElementById('det'); const p=LIDE.find(x=>x.user_id===uid)||{};
+  const pd=PODM_DATA||{}, cd=DETI_DATA||{};
+  let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid #1e2730">'+
+    '<span style="font-weight:800;color:#e8eef5;white-space:nowrap">💶 Daně — sleva na poplatníka a děti</span>'+
+    '<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a></div>';
+  if(!pd.ok){ h+='<div class="empty">🔒 '+esc(pd.error==='forbidden'?'Nemáš oprávnění — daně vidí a mění jen HR a mzdy.':(pd.error||'nedostupné'))+'</div>'; det.innerHTML=h; return; }
+  const res=(pd.resolved||{})['sleva_poplatnik']||{}, own=(pd.own||{})['sleva_poplatnik']||{};
+  const val=(res.value==null||res.value==='')?'':String(res.value).toUpperCase();
+  const on=/^(ANO|TRUE|1)$/.test(val);
+  const big=on?'<div style="font-size:30px;font-weight:900;color:#7fe0a0;line-height:1">ANO</div>'
+             :(val?'<div style="font-size:30px;font-weight:900;color:#e08080;line-height:1">NE</div>'
+                  :'<div style="font-size:22px;font-weight:800;color:#8fa6c4;line-height:1.2">nenastaveno</div>');
+  const zm=own.zmenil?('<div style="color:#cdd6e2;font-size:12.5px;margin-top:8px">✎ <b>'+esc(own.zmenil)+'</b>'+(own.zmeneno?(' · '+esc(own.zmeneno)):'')+'</div>'):'<div style="color:#5d6b7c;font-size:12px;margin-top:8px">zatím nikdo nepotvrdil</div>';
+  const prohl=cd.prohlaseni_doklad
+    ?'<div style="color:#7fe0a0;font-size:12px;margin-top:6px">📎 Prohlášení je ve spisu</div>'
+    :(on?'<div style="color:#f0b86e;font-size:12px;margin-top:6px">⚠️ Prohlášení není ve spisu — potvrzeno HR. Sken lze doplnit do Dokumentů (kategorie „Prohlášení poplatníka“).</div>':'');
+  const bst='display:inline-block;padding:7px 14px;border-radius:8px;font-weight:800;text-decoration:none;font-size:13px;border:1px solid ';
+  const btns='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'+
+    '<a href="#" onclick="daneSleva(\'ANO\');return false;" style="'+bst+'#3a8557;background:#2f6a44;color:#eaffef">✔ Podepsáno u nás</a>'+
+    '<a href="#" onclick="daneSleva(\'NE\');return false;" style="'+bst+'#5a2f2f;background:#3a1f1f;color:#ffd9d9">✘ Nepodepsáno</a></div>';
+  const left='<div style="background:#12181f;border:1px solid #233040;border-radius:12px;padding:14px 16px;align-self:start">'+
+    '<div style="color:#8595a8;font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:800">Sleva na poplatníka</div>'+
+    '<div style="color:#cdd6e2;font-size:12.5px;margin:2px 0 10px">Prohlášení poplatníka podepsáno u nás</div>'+big+zm+prohl+btns+
+    '<div id="danestat" style="font-size:11.5px;min-height:14px;margin-top:6px;color:#5d6b7c"></div>'+
+    '<div style="color:#5d6b7c;font-size:11px;margin-top:8px;line-height:1.4">Prohlášení může být podepsané jen u jednoho zaměstnavatele. Podepisuje HR při nástupu, dál řeší mzdy. Každá změna je tu vidět i s tím, kdo ji udělal.</div></div>';
+  const right='<div style="background:#12181f;border:1px solid #233040;border-radius:12px;overflow:hidden;align-self:start"><div id="detibox"></div></div>';
+  h+='<div style="display:grid;grid-template-columns:minmax(250px,1fr) minmax(320px,1.7fr);gap:12px;padding:12px 16px">'+left+right+'</div>';
+  det.innerHTML=h; renderDeti();
+}
+async function daneSleva(v){
+  const st=document.getElementById('danestat'); if(st){ st.style.color='#9aa7b4'; st.textContent='Ukládám…'; }
+  let d; try{
+    const r=await fetch(API+'/app/hr/conditions/save',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scope_kind:'user',user_id:PODM_UID,cond_code:'sleva_poplatnik',value:v})});
+    d=await r.json();
+  }catch(e){ if(st){ st.style.color='#ff8a7a'; st.textContent='✗ síť'; } return; }
+  if(!d||!d.ok){ if(st){ st.style.color='#ff8a7a'; st.textContent='✗ '+(d&&d.error||'neuloženo'); } return; }
+  await daneUdaje();
 }
 
 // ── Daňové zvýhodnění na děti (Šárka + Petra 7. 9. 2026): zdroj pravdy = STRATEGIE, zatím
@@ -3569,6 +3630,8 @@ async function pmfUdaje(){
   const SECS=[
     {ic:'💼',t:'Vztah a smlouva',src:'/karta-zamestnance?embedsec=pracovni&uid='+uid},
     {ic:'📋',t:'Podmínky a benefity',src:'/karta-zamestnance?embedsec=podminky&uid='+uid},
+    // Šárka + Petra 7. 9. 2026: daně mají vlastní záložku, ať je Petra najde hned vedle Mzdy.
+    {ic:'💶',t:'Daně a děti',src:'/karta-zamestnance?embedsec=dane&uid='+uid},
     {ic:'💰',t:'Mzda',src:'/finance-podminky?uid='+uid+'&embed=1'},
   ];
   window.PMF_SECS=SECS;
@@ -4022,7 +4085,7 @@ function smernClose(){ document.getElementById('smmodal').style.display='none'; 
   if(sec && euid){
     document.body.classList.add('emb');
     CUR_UID=euid;
-    const fn={pracovni:pracUdaje, finance:finUdaje, podminky:podmUdaje}[sec];
+    const fn={pracovni:pracUdaje, finance:finUdaje, podminky:podmUdaje, dane:daneUdaje}[sec];
     if(fn){ await fn(); }
     document.querySelectorAll('.phead').forEach(function(e){ e.style.display='none'; });
     [].slice.call(document.querySelectorAll('a')).forEach(function(a){ if((a.textContent||'').indexOf('Zpět na kartu')>=0) a.style.display='none'; });

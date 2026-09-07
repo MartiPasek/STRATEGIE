@@ -2,11 +2,22 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **OPRAVA 7. 9. 2026 — zaloha na 8003 UZ NENI "day-old snapshot".**
+> Od **10. 7. 2026** se zalozni kopie po **kazdem uspesnem nasazeni** automaticky srovna
+> na aktualni verzi (`_touch_refresh_secondary_marker` v `deployment_service.py`; drive se to
+> delalo rucne tlacitkem). Je tedy **nejvys jedno nasazeni stara**, ne den. Pri ~10 nasazenich
+> denne se srovna ~10x za den. **Puvodni ochrana proti spatnemu nasazeni ("zmrazeny vcerejsek"
+> z 23. 5.) tim prestala platit** — kdo se pri chybnem nasazeni prepne na zalohu, dostane tyz kod.
+> Overeno v `fw.api_version`: 7. 9. 2026 mely oba radky (8002 i 8003) tentyz `git_sha` 689ba03d,
+> pricemz zaloha ho dostala v 9:38, tedy o hodinu a ctvrt POZDEJI nez ostra verze v 8:23.
+> Tahle veta tu stala od 29. 7. 2026, tedy uz 19 dni po te zmene.
+> *(Zadal Jiri Honomichl, dohledal Claude-28.)*
+
 **Production setup** (od 30. 4. 2026 — Phase 25):
 - Cloud APP `10.200.188.11` (Windows Server, NSSM: STRATEGIE-API, STRATEGIE-API-HEALTH-WATCHDOG, STRATEGIE-CLAUDE-SQL, STRATEGIE-CADDY, STRATEGIE-EMAIL-FETCHER, STRATEGIE-TASK-WORKER, STRATEGIE-QUESTION-GENERATOR)
 - Cloud SQL `10.200.188.12` (Windows Server, PostgreSQL 16 + pgvector + účetní MSSQL UCTO_EC/UCT_ES)
 - Public `https://strategie-ai.com` (Let's Encrypt) · PWA od 6. 5.
-- **HA Blue-Green** (od 23. 5.): STRATEGIE-API (8002, current) + STRATEGIE-API-B (8003, day-old snapshot `C:\Projekty\STRATEGIE-prev\`), Caddy `lb_policy first` + user-controlled fallback (pin/unpin v patičce).
+- **HA Blue-Green** (od 23. 5.): STRATEGIE-API (8002, current) + STRATEGIE-API-B (8003, `C:\Projekty\STRATEGIE-prev\` — **od 10. 7. 2026 se srovnava na aktualni verzi po kazdem nasazeni, NENI to day-old snapshot**, viz ramecek nahore), Caddy `lb_policy first` + user-controlled fallback (pin/unpin v patičce).
 
 ## ⚠️ PRODUKCE = JEN PRAHA (188.11/12)
 Plzeň (30.11) = denně zpožděná DR záloha + EUROSOFT legacy — **TAM SE NEDEPLOYUJE ani nerestartují STRATEGIE služby** (Marti 29.7.2026). Detail + anti-záměna: `doc-provoz-topologie-serveru-praha-plzen`.

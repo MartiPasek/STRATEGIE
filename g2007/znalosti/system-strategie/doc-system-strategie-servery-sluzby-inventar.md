@@ -2,6 +2,17 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **OPRAVA 7. 9. 2026 — zaloha na 8003 UZ NENI "day-old snapshot".**
+> Od **10. 7. 2026** se zalozni kopie po **kazdem uspesnem nasazeni** automaticky srovna
+> na aktualni verzi (`_touch_refresh_secondary_marker` v `deployment_service.py`; drive se to
+> delalo rucne tlacitkem). Je tedy **nejvys jedno nasazeni stara**, ne den. Pri ~10 nasazenich
+> denne se srovna ~10x za den. **Puvodni ochrana proti spatnemu nasazeni ("zmrazeny vcerejsek"
+> z 23. 5.) tim prestala platit** — kdo se pri chybnem nasazeni prepne na zalohu, dostane tyz kod.
+> Overeno v `fw.api_version`: 7. 9. 2026 mely oba radky (8002 i 8003) tentyz `git_sha` 689ba03d,
+> pricemz zaloha ho dostala v 9:38, tedy o hodinu a ctvrt POZDEJI nez ostra verze v 8:23.
+> Tahle veta tu stala od 29. 7. 2026, tedy uz 19 dni po te zmene.
+> *(Zadal Jiri Honomichl, dohledal Claude-28.)*
+
 # Servery STRATEGIE - sluzby, watchery, skripty (inventar co kde bezi)
 
 Stav 27.7.2026. Doplnuje id 135 (doc-system-strategie-produkcni-infra), ktere melo o 188.12 jen "PostgreSQL 16 + pgvector". Cil: mit na jednom miste, co na kterem serveru bezi za sluzby/watchery a jake skripty to spousteji.
@@ -12,7 +23,7 @@ Stav 27.7.2026. Doplnuje id 135 (doc-system-strategie-produkcni-infra), ktere me
 - 30.11 EC-SERVER2 - Plzen standby (DR cil)
 
 ## 188.11 (EUR-APP-1P) - aplikacni server
-NSSM sluzby: STRATEGIE-API (8002, current), STRATEGIE-API-B (8003, day-old snapshot, blue-green), STRATEGIE-CADDY (LB, lb_policy first + pin/unpin fallback), STRATEGIE-EMAIL-FETCHER, STRATEGIE-TASK-WORKER, STRATEGIE-QUESTION-GENERATOR.
+NSSM sluzby: STRATEGIE-API (8002, current), STRATEGIE-API-B (8003, blue-green — **od 10. 7. 2026 srovnavana na aktualni verzi po kazdem nasazeni, NENI day-old snapshot**, viz ramecek nahore), STRATEGIE-CADDY (LB, lb_policy first + pin/unpin fallback), STRATEGIE-EMAIL-FETCHER, STRATEGIE-TASK-WORKER, STRATEGIE-QUESTION-GENERATOR.
 
 ## 188.12 (EUR-DB-MSSQL-1P) - datovy/DB server
 - PostgreSQL 16 (+pgvector), produkcni data_db (loopback localhost:5432, datadir D:/PostgreSQL/16/data). PG sluzba bezi pod NT AUTHORITY\NETWORK SERVICE (NENI admin: umi spoustet prikazy, cist soubory, ZAPIS do C:\Scripts a PG datadiru; NEUMI zapis do korene D:\, ani menit/restartovat sluzby/tasky).
@@ -96,5 +107,4 @@ Marti hlasil "DB obnovena, ale soubor z dneska 3:00 v archivu neni". Zjisteno:
 - Na Plzni se DB obnovuje z pracovni kopie D:\STRATEGIE_IN\data_db_030002.dump (prepisovana kazdy den). Datovana kopie na Plzni (D:\STRATEGIE_ARCHIVE) se od 27.7 neplnila = regrese #3 (uz opraveno, plni se od nocniho 3:30).
 - V archivu 07-25/26/27 jsou duplikaty (stejny cas 24.7 3:30, stejna velikost 716717 kB) z rozbite ery - vyprsi pres 30d prune.
 - Muj dopoledni rucni dr_task_run spadl na "Velikost nesedi" (blue-green /dr/meta vs /dr/download) a NECHAL v D:\STRATEGIE_IN useknuty partial 234 MB pres funkcni soubor. OPRAVENO: dr_pull_restore.ps1 stahuje do $dest.part, overi velikost, teprve pak Move-Item; pri nesouladu/chybe partial smaze. Funkcni pracovni kopie uz se nemuze prepsat partialem. Nocni beh 3:30 partial prepise cerstvym stazenim (size mismatch -> refetch).
-
 

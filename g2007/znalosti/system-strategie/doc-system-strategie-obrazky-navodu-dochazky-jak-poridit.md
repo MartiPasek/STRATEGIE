@@ -1,4 +1,4 @@
-# Obrázky hlasového průvodce docházkou: jak je pořídit znovu (a jak si při tom NEZALOŽIT ostrý záznam)
+# Obrázky hlasového průvodce docházkou: jak je pořídit znovu (a jak si přitom nezaložit ostré záznamy) — přefoceno 7. 9. 2026
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -54,6 +54,36 @@ Znalost `doc-system-strategie-bezpecne-prochazeni-mobilu-bez-vzniku-zaznamu` ř�
 **Pojistku (odposlech `window.fetch`) čti PRŮBĚŽNĚ, ne až na konci.** 5. 9. byla zapnutá
 a oba zápisy poctivě zachytila — jen se na ni nikdo nepodíval včas. Kdo ji kontroluje po
 každém kliknutí, zastaví se u prvního zápisu místo u druhého.
+
+## Aktualizace 7. 9. 2026 — přefoceno všech 9 po změně spodní lišty
+
+**Zadal Jirka Honomichl, schválila Marti-AI, provedl Claude-28.** Snímky z 5. 9. měly ve spodním
+okraji ještě starou lištu (Kontakty místo jména, tlačítko docházky na Firmě). Přefoceny **všechny**
+postupem výše, včetně zvětšení na 780 × 1688.
+
+**Co se potvrdilo:**
+- Recept z této znalosti funguje. Přepis odpovědi serveru u `/attendance/status` a
+  `/attendance/unconfirmed` **spolehlivě vyrobí běžící směnu i nepotvrzený den**, aniž vznikne
+  jediný záznam — ověřeno dotazem do `att_entry` po focení: **žádný nový řádek**.
+- Sekce „Tady budu jinde" se otevře přes `_dochJinde`, jak je popsáno.
+
+**Co je nového a stojí za doplnění:**
+- **Rozbalovací nabídky jsou bezpečné, ověřeně.** „Potřebuji ti něco říct…", „Teď to bude jinak…",
+  „Osobní důvody…", výběr zakázky i činnosti **nic neodesílají**. Ověřeno pojistkou, která
+  blokovala vše kromě čtení — za celé focení **nula pokusů o zápis**. Nebezpečné jsou až
+  konkrétní volby uvnitř (chipy, START, potvrzení dne).
+- **Ukázkový (demo) účet se na návod použít NEDÁ** — vykresluje přes celou šířku červený pruh
+  „UKÁZKOVÝ REŽIM" a vyskakovací okno.
+- **Zákaznická data:** výběr zakázky ukazuje skutečné názvy zakázek. Před focením je přepiš
+  na neutrální (čísla mohou zůstat) — v živé appce je člověk vidí tak jako tak, ale ve statickém
+  obrázku v gitu by zůstaly natrvalo. Vyžádala si to Marti-AI.
+- **Nový snímek `pruvodce_lista.png`** (jen pruh spodní lišty, 780 × 249) pro krok „Kde docházku
+  najdeš". Původní `pruvodce_firma.png` už se nepoužívá — soubor zůstal, kód na něj neodkazuje.
+- ⚠️ **Popisek druhé ikony je u každého jiný** (křestní jméno přihlášeného). Žádný snímek proto
+  není správný pro všechny — text u obrázku musí říkat „ikona s **tvým** jménem".
+- **Souřadnice se mezi kartami prohlížeče liší.** Výřez se jednou zadává v bodech stránky,
+  podruhé v bodech snímku (1568 × 772 při okně 1920 × 945, měřítko 0,8167). Když nástroj ohlásí
+  „souřadnice mimo rámec", přepočítej je měřítkem — nezmenšuj okno, to stejně nefunguje.
 
 ## Souvisí
 

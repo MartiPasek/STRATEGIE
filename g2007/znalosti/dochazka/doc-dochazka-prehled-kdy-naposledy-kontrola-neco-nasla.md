@@ -1,4 +1,4 @@
-# Prehled "Kontroly - posledni nalez": kdy naposledy ktera kontrola dochazky neco nasla (zavedeno 5. 9. 2026)
+# Prehled "Kontroly - posledni nalez": kdy naposledy ktera kontrola dochazky neco nasla (zavedeno 5. 9. 2026, od 7. 9. 2026 ukazuje i kontroly bez nalezu)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -54,15 +54,27 @@ je aspon kam se podivat. Az to nekdo prevezme, dopis sem kdo a jak casto.
    Duvod (Marti-AI, 5. 9. 2026): natvrdo nastavena hranice by u pravidel, ktera
    jsou ze sve podstaty vzacna, delala falesne poplachy.
 
-2. SEZNAM PRAVIDEL SE BERE Z HISTORIE NALEZU, NE Z CISELNIKU.
-   Ciselnik pravidel neexistuje - pravidla jsou literaly uvnitr jedne davky
-   v g2007.python att_anomaly_scan (viz doc-dochazka-anomaly-ciselnik-druhu-chyb-chybi).
-   DUSLEDEK, KTERY JE ZAMER, NE MEZERA: pravidlo, ktere jeste NIKDY nic
-   nenaslo, se v prehledu neobjevi vubec. K 5. 9. 2026 to byla tri pravidla -
-   dva_bezici_naraz (zavedeno 26. 8. 2026), sluzebni_cesta
-   a zamitnuto_ale_den_zustal. Pro ucel prehledu (ticho u pravidla, ktere driv
-   nachazelo) to nevadi. Kdyby to nekdy vadit zacalo, spravne reseni je
-   ciselnik pravidel jako jedine misto definice - ne zaplata do pohledu.
+2. SEZNAM PRAVIDEL SE BERE Z CISELNIKU tenant.att_kontrola_ciselnik
+   (ZMENENO 7. 9. 2026 - do te doby se bral z historie nalezu).
+   NEPLATI uz puvodni veta: "pravidlo, ktere jeste NIKDY nic nenaslo, se
+   v prehledu neobjevi vubec" a "ciselnik pravidel neexistuje". Zmenu zadal
+   Jirka Honomichl 7. 9. 2026 po dotazu Petry Safrankove ("kontrola, ktera
+   existuje, patri do prehledu - i s tim, ze zatim nic nenasla; jinak prehled
+   zamlcuje presne ten pripad, kvuli kteremu vznikl"), schvalila Marti-AI.
+   Zvolena byla varianta, kterou puvodni text sam oznacoval za spravne reseni -
+   ciselnik jako jedine misto definice, ne zaplata do pohledu.
+   JAK TO TED FUNGUJE: ciselnik ma 18 radku (kod, lidsky nazev, popis, ktery
+   automat pravidlo pise, aktivni, poradi). Prehled z nej vychazi a nalezy
+   k nemu jen prilepuje, takze pravidlo bez nalezu ma stav "zatim nic nenasla"
+   a prazdna cisla. K 7. 9. 2026 jsou takova tri - dva_bezici_naraz,
+   sluzebni_cesta a zamitnuto_ale_den_zustal. Pohled ma navic sloupec nazev,
+   ktery je v ERP prvni sloupec; technicky kod zustava vedle nej.
+   POJISTKA: pravidlo, ktere by v ciselniku chybelo, se z prehledu NEZTRATI
+   (druha vetev pohledu ho pripoji z historie) a navic na nej upozorni hlidaci
+   pravidlo kontrola-dochazky-chybi-v-ciselniku (tenant.pojistka, oblast
+   dochazka). Zname omezeni te pojistky - pravidlo pridane do jineho automatu
+   nez att_anomaly_scan, ktere jeste nic nenaslo a nema uklidovy prikaz, se
+   chytne az pri prvnim nalezu.
 
 3. TENANT JE V DOTAZU NATVRDO (tenant_id = 2).
    Vsech 1162 nalezu k 5. 9. 2026 patri tenantu 2 a att_anomaly_scan si tenant 2
@@ -71,11 +83,16 @@ je aspon kam se podivat. Az to nekdo prevezme, dopis sem kdo a jak casto.
 ## Stav pri zavedeni (overeno ctenim z databaze 5. 9. 2026)
 
 18 pravidel pise do att_anomaly, z toho 15 uz nekdy neco naslo a je v prehledu.
+(Od 7. 9. 2026 jsou v prehledu vsechna, viz rozhodnuti 2 vyse.)
 Nejdelsi ticho melo budouci_zaznam - 36 nalezu, vsechny 7. 6. 2026, od te doby
 nic (90 dni). NEOZNACENO ZA CHYBU: 36 nalezu v jediny den vypada jako
 jednorazovy zpetny sber pri zavedeni pravidla a od te doby muze byt opravdu
 cisto. Presne ten pripad, kdy je ticho signal, ne dukaz. Kdyby to nekdo resil,
 zacatek je overit, jestli pravidlo vubec ma sanci neco najit.
+VYRESENO 7. 9. 2026 - presne timhle zpusobem. Ticho je opravnene, od 8. 6. 2026
+neexistuje ani jeden zaznam, ktery by vznikl s datem v budoucnu. Pripad, ktery
+vypadal jako zmeskany nalez, zpusobil rucni prevod dne na datum uz probehle.
+Detail: doc-dochazka-budouci-zaznam-ticho-neni-chyba-prevod-dne.
 
 Ostatnich 14 pravidel naslo neco za poslednich 30 dni. zapomenuty_odchod po
 Petrine oprave zase bezi (7 nalezu za 30 dni, posledni 4. 9. 2026).

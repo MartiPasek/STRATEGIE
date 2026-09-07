@@ -82,6 +82,12 @@ ale i že ho cílová obrazovka opravdu čte a vykreslí se jinak:
 
 Zrušením kterékoli z nich by lidem zmizel ten konkrétní pohled. **Neměnit.**
 
+> ⚠️ **7. 9. 2026: dlaždice „Můj úvazek" ZRUŠENA** — řádek „Týden / Můj plán / Můj úvazek"
+> v tabulce popisuje stav k 6. 9. 2026. Dnes zůstávají **Týden** a **Můj plán** — ty se dál
+> liší parametrem `_planInit` a „Neměnit" pro ně platí beze změny. Zrušeno bylo i tlačítko
+> „Moje podmínky" v boční liště Plánu, které pod tím názvem ukázalo úvazek.
+> Rozhodl Jiří Honomichl — [[doc-dochazka-mobil-zruseni-dlazdice-muj-uvazek-7-9-2026]].
+
 ## Jak se to ověřovalo (opakovatelné)
 
 Živá `/mobile` stažená z internetu před i po každém kroku, ne kopie z disku. U každého zápisu:

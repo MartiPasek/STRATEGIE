@@ -127,9 +127,15 @@ V `mzdy_benefity_apply`: `_HO_DILNA_VYJIMKA = {(ES, 476)}` Bláha ·
 - 3 HPP bez vyplněné `pozice_text`: Peřina (536), M. Šafránková (381), Herejtová (525, dpp).
 - Nepodalová (489) — pozice „pracovník v příjmu zboží", ale sedí v `volna_kancelar`.
 - Martin Pašek (29) — Kristý ho zatím nechala v `volna_kancelar` kvůli mzdovému dopadu.
-- Zastaralá věta v [[doc-dochazka-automat-fond-doplneni]]: „na mzdy to nedopadá, protože
+- ~~Zastaralá věta v [[doc-dochazka-automat-fond-doplneni]]: „na mzdy to nedopadá, protože
   ty čtou att_day_summary plněné z Heliosu" — od 6.8. se plní ze STRATEGIE, viz
-  [[doc-mzdy-zrcadlo-dochazky-ze-strategie]]. Opravit má Peťa (C26), autor znalosti.
+  [[doc-mzdy-zrcadlo-dochazky-ze-strategie]]. Opravit má Peťa (C26), autor znalosti.~~
+  ✅ **VYŘEŠENO 18. 8. 2026** — větu opravil Claude-28 (rozhodl Jirka Honomichl), viz sekce
+  „OPRAVA 18. 8. 2026" v [[doc-dochazka-automat-fond-doplneni]]. Škrtla Peťa + Claude-26
+  7. 9. 2026. **Navazující ověření je hotové taky:** u kanceláře se mzda nenafoukne, protože
+  FPD má tvar „odpracováno + absence − hodiny nad fond" a nenároková je právě to odečítané
+  nad fond (doloženo na Benešovi 1. 9. a Hellmayerovi 18. 8. — `cas_celkem` přes 9 h, FPD
+  přesně 8,00). Detail v téže znalosti, sekce ze 7. 9. 2026.
 
 Podklady: `docs/dochazka_skupiny_navrh.md` (dopadová mapa),
 `docs/dochazka_skupiny_pro_jirku_c28.md` (výklad pro Jirku a C28). Claude-24, 17.8.2026.

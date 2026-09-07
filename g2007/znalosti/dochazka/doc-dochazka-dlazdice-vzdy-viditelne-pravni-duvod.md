@@ -69,6 +69,13 @@ Tyka se **vsech, kdo pouzivaji dochazku v mobilu** - pri praci nove vidi celou s
 (Dnesek, Tyden, Vyhled, Historie, Po zakazkach, Moje zadosti, Pozadat o opravu, Tady budu jinde,
 Muj prehled, Moje podminky, Muj uvazek, Muj plan, Moje finance, Nepritomnosti).
 
+> ⚠️ **Vycet dlazdic vyse je stav k 1. 9. 2026 a od te doby NEPLATI.**
+> Zaniklo z nej: **Vyhled** (5. 9. 2026 - splyval s "Muj plan") · **Nepritomnosti**
+> (5. 9. 2026 - prejmenovano na "Moje absence") · **Muj uvazek** (7. 9. 2026 - dlazdice
+> zrusena cela, rozhodl Jiri Honomichl). Aktualni sadu dlazdic drzi
+> [[doc-dochazka-napoveda-pruvodce-spec]], detail ke zrusenemu uvazku [[doc-dochazka-mobil-zruseni-dlazdice-muj-uvazek-7-9-2026]].
+> **Zaver tohoto oddilu plati dal beze zmeny** - dlazdice se pri praci neschovavaji.
+
 **Ohlasene riziko** (Marti-AI, 1. 9. 2026, Jirka o nem vi): clovek ve vyrobe s otevrenym pracovnim
 zaznamem muze dlazdici absence aktivovat omylem behem smeny. Jirka rozhodl vedome - pravni
 pozadavek prevazuje.

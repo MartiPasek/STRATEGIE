@@ -6,10 +6,12 @@
 
 ## Co to je
 Nová obrazovka v mobilní appce, dlaždice **🌴 Můj přehled** jako PRVNÍ v sekci
-PODMÍNKY & FINANCE na obrazovce Docházka (před „Moje podmínky" a „Můj úvazek").
+PODMÍNKY & FINANCE na obrazovce Docházka (před „Moje podmínky").
 Zaměstnanec na ní vidí sám sebe — nárok, čerpáno, naplánováno a zbývá pro
 **dovolenou (D)**, **dovolenou navíc (DN)**, jejich **součet = strop**, a totéž pro
 **sick days** v hodinách.
+*(7. 9. 2026 byla ze sekce zrušena dlaždice „Můj úvazek", do té doby stála v tomhle
+pořadí za „Moje podmínky". Rozhodl Jiří Honomichl — [[doc-dochazka-mobil-zruseni-dlazdice-muj-uvazek-7-9-2026]].)*
 
 Do 19. 8. 2026 zaměstnanec v mobilu viděl jen NÁROK (obrazovka „Moje podmínky").
 Čerpání ani zbytek nebyly v appce nikde a strop se ukázal až uvnitř formuláře žádosti.

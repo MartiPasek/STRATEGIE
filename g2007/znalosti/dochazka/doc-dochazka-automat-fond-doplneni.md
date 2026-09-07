@@ -2,6 +2,7 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
 # Docházkový automat — doplnění do fondu a nenároková práce
 
 > Zapsal Claude-26 (Peťa) 21. 7. 2026 po dni oprav s Peťou. Vše ověřeno na živých
@@ -147,6 +148,40 @@ v podkladu `dochazka_skupiny_pro_jirku_c28.md`.
 opravuje se jen zavádějící tvrzení. Ověření dopadu na konkrétní čísla je samostatná práce
 a patří Peti jako vlastníkovi této oblasti.
 
+### ✅ DOPLNĚNO 7. 9. 2026 (Peťa + Claude-26) — u kanceláře mzdu nenafoukne, ověřeno
+
+Otázka výše („vyšla kvůli tomu někomu špatná mzda?") má pro **kancelář** odpověď: **ne.**
+
+`att_day_summary.cas_celkem` nenárokovou opravdu obsahuje — je `category='presence'`, a `cas_celkem`
+je navíc **záměrně** „odpracováno + placená absence" (absence tam musí být, protože složka 651 čte
+`cas_celkem` jako „celkem − fond", viz `doc-dochazka-att-day-summary-z-att-entry`). Jenže **mzdy
+nepočítají z `cas_celkem`, počítají z FPD**, a ten má pro kancelář vzorec
+`odpracováno + absence − hodiny nad fond` (viz `doc-dochazka-fpd-vypocet-kancelar-vs-dilna`
+a `doc-dochazka-prescasy-kancelarska-kategorie-rozhoduje`). **Nenároková JE právě to odečítané
+„nad fond"** — takže se srazí zpátky a den se ve mzdě nenafoukne.
+
+Doložené případy (`volna_kancelar`, `dopichavat_fond=true`):
+
+| Kdo | Den | Dovolená | Práce | Nenároková | `cas_celkem` | FPD | Přesčas |
+|---|---|---|---|---|---|---|---|
+| Petr Beneš | 1. 9. 2026 | 8,00 | 1,37 | 1,37 | 9,37 | **8,00** | 0 |
+| Radek Hellmayer | 18. 8. 2026 | 8,00 | 1,93 | 1,93 | 9,93 | **8,00** | 0 |
+
+Navíc je kancelář z přesčasové složky 651 vyloučená úplně — `mzdy_loajalita_rows` přeskočí
+množinu `skup24` (`dopichavat_fond=true`), takže i kdyby přesčas vyšel, nevyplatí se.
+
+**Pro dílnu to neplatí a je to tak správně.** U `dopichavat_fond=false` se automat řádku vůbec
+nedotkne (INNER JOIN, žádný fallback), nenároková nevznikne a FPD = odpracováno + absence, bez
+odečtu. Hodiny nad fond jdou do přesčasu — u výroby zamýšlené pravidlo. Doložený případ:
+Matěj Svoboda 31. 7. 2026, dovolená 8,00 + práce 0,42, žádná nenároková, FPD 8,42.
+**Chybějící nenároková u výrobáře NENÍ nález** — je to správný stav.
+
+**Pravidlo (Peťa 7. 9. 2026):** kdo si během celodenní dovolené odpracuje pár hodin, tomu se
+**dovolená NEKRÁTÍ** — *„ten čas je prostě navíc a má se dát nad fond, nemůže se mu krátit
+dovolená o dvě hodiny."*
+
+**Zbývá neověřeno:** dopad na jiné mzdové složky než 651 (benefity, stravenky) a na hodinové/OSVČ.
+
 **Otevřené rozhodnutí pro Martiho:** dodělat sražení práce na fond, nebo přestat
 nenárokový řádek zakládat? Peťa 21. 7.: *„rozhodně nechceme, aby se mazaly"* —
 evidovat se má, jde jen o způsob.
@@ -160,6 +195,11 @@ Noční běh sahá 4 dny zpět, takže starší dny je nutné dopočítat dávko
 Past: `_att_automat_level_day` je idempotentní (smaže automatové řádky v okně
 a vloží znovu), ale dávka psaná ručně v SQL musí mít **stejnou logiku pauz**,
 jinak si zaneseš zpátky tu chybu, kterou jsi právě opravil.
+
+⚠️ **Pozor na razítka (7. 9. 2026):** protože automat řádky v okně **maže a zakládá znovu**,
+`created_at` u `fond_doplneni` NENÍ „kdy se to spočítalo", ale „kdy tudy naposled prošel
+automat". Nedá se z něj usuzovat, jestli se přepočet po zásahu spustil. Detail a správný
+způsob kontroly: `doc-dochazka-doplneni-fondu-created-at-neni-dukaz`.
 
 ## Gotcha mostu (stálo to jeden pokus)
 

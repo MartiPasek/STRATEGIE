@@ -177,6 +177,11 @@ V Pythonu je `0.0` nepravdivá hodnota, takže `or 40.0` poslalo člověka bez �
 na čtyřicítku**. Týkalo se `plan_my_default` a `plan_my_uvazek` — tedy obrazovek
 **„Můj úvazek" a roční plán v mobilu**.
 
+> ⚠️ **7. 9. 2026 byla dlaždice „Můj úvazek" v mobilu ZRUŠENA** — `plan_my_uvazek`
+> se z appky už nevolá (obrazovka zůstala v kódu bez cesty, záměr). **Popsaná chyba i její**
+> **oprava platí dál** pro `plan_my_default` (roční plán) a pro kartu zaměstnance v HR,
+> kde se úvazek edituje nadále. Rozhodl Jiří Honomichl — [[doc-dochazka-mobil-zruseni-dlazdice-muj-uvazek-7-9-2026]].
+
 **Opraveno** (v4 / v3): nula zůstává nulou, ale **jen u lidí se zapsaným důvodem**. Komu úvazek
 opravdu chybí, dostane 40 jako dosud — žádná regrese. Oba skripty vracejí navíc `neuvadi`.
 Ověřeno na živých datech: Herejtová a Saxana 0 + popisek, Konicar a Honomichl 40 beze změny.
@@ -227,5 +232,4 @@ Tahle sada změn se nativní aplikace **vůbec nedotkla** — všechno šlo do d
 (`g2007.python`) a do jednoho souboru v gitu (`karta_zamestnance.html`, což je ERP, ne mobil).
 Obsah appky je pro Android i iPhone **tatáž stránka ze serveru**, takže není co mezi
 platformami dorovnávat.
-
 

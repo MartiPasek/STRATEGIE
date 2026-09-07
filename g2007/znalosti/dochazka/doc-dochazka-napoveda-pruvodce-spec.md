@@ -87,8 +87,14 @@ Obrazovka **🕒 Moje docházka** (Firma → 🕒 Moje docházka; dlaždice v Ap
 3. **MOJE DOCHÁZKA** (dlaždice, stav 6. 9. 2026): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 📋 Moje žádosti · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde** · 🗓️ **Moje absence** · 🤒 Nemocenská 🔒 · 🩺 Lísteček od lékaře 🔒.
    *(Do 5. 9. 2026 se poslední jmenovala „Nepřítomnosti"; Nemocenská a Lísteček od lékaře přibyly 6. 9. 2026 a jsou zatím zamčené — dlaždici vidí všichni, otevře ji jen Jiří Honomichl.)*
    - **🧭 Tady budu jinde** (`jindeBuild`) → **🏠 Osobní důvody** (🏡 makat z domova/HO · 🕐 Něco si zařizuji · 👨‍👧 Zase řeším rodinu/OČR · 🤒 Je mi fakt blbě/sick day · 🤧 Mám neschopenku do · 🩺 Jedu k lékaři · 🌴 Že by dovolená) + **💼 Služební důvody** (🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka pak dorazím · 📝 Ostatní). **Absence jdou TUDY, NE přes 💬.**
-4. **PODMÍNKY & FINANCE** (dlaždice, stav 6. 9. 2026): 🌴 **Můj přehled** · 📋 Moje podmínky · 📐 Můj úvazek · 💰 Moje finance.
+4. **PODMÍNKY & FINANCE** (dlaždice, stav 7. 9. 2026): 🌴 **Můj přehled** · 📋 Moje podmínky · 💰 Moje finance.
    *(5. 9. 2026 se „Můj plán" a „Nepřítomnosti" přesunuly odsud do sekce Moje docházka; „Můj přehled" sem přibyl 19. 8. 2026.)*
+   > ⚠️ **7. 9. 2026 ZRUŠENA dlaždice „📐 Můj úvazek" — do té doby byla v tomhle výčtu.**
+   > Zrušeno bylo i tlačítko „📋 Moje podmínky" v boční liště obrazovky Plán, které pod tím
+   > názvem ukazovalo úvazek, ne podmínky. Rozhodl Jiří Honomichl, schválila Marti-AI.
+   > Úvazek se nadále edituje v kartě zaměstnance v HR.
+   > **Nápověda i mluvený průvodce už dlaždici nevypisují** — srovnáno týž den.
+   > Detail: [[doc-dochazka-mobil-zruseni-dlazdice-muj-uvazek-7-9-2026]].
 5. **Potvrzení dne** = jantarová karta → ✓ Potvrzuji svou docházku / 🔍 detaily / ✋ Rozpor. Bez potvrzení se ráno nepíchneš (14 dní).
    **Po potvrzení karta zmizí** — od 21. 7. vede zpátky **✋ Požádat o opravu** (viz bod 8).
 6. Historie + **💰 Moje finance** (páska, PIN) — dlaždice v sekci Podmínky & finance.

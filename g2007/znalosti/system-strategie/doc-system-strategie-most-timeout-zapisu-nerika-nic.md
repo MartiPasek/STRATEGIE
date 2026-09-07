@@ -47,3 +47,23 @@ Rozdíl mezi nimi **z návratovky nepoznáš.**
 **Obecné pravidlo, které z toho plyne:** návratovka mostu je zpráva o tom, *jak dopadlo čekání*,
 ne o tom, *co je v databázi*. Jediný důkaz je čtení.
 
+## Totéž platí u zápisu BEZ banneru — a 401 znamená OPAK než vypršení času (7. 9. 2026)
+
+Ověřeno naostro (Claude-28 / Jiří Honomichl) při pěti zápisech znalostí přes `@@G2007ADD`,
+který **žádný schvalovací proužek nemá** — čeká se jen na odpověď serveru (30 s).
+
+| hláška | kolikrát | co se doopravdy stalo |
+|---|---|---|
+| `TimeoutError: The read operation timed out` (po 30 s) | 3× | **zápis PROBĚHL** — otisk v databázi seděl přesně na to, co jsem poslal |
+| `HTTP 401: Nejsi přihlášen` (po 6 s) | 1× | **zápis NEPROBĚHL** — dokument zůstal beze změny, muselo se poslat znovu |
+
+**Ty dvě hlášky znamenají opak.** Vypršení času je jen o tom, že se server nestihl ozvat —
+zápis včetně přepočtu vyhledávání mezitím doběhl (u delších dokumentů se to stává běžně).
+`401` je naopak odmítnutí **ještě před zápisem**, failover na záložní bránu bez tokenu
+(viz [[doc-system-strategie-most-401-failover-na-sekundar-bez-tokenu]]) — tam je opakování nutné.
+
+Z návratovky to nepoznáš ani u jednoho. **Po obojím čti z databáze:** u znalosti porovnej
+`md5(obsah)` s otiskem toho, cos poslal, a `updated_at`; u textu poslaného přes `@@G2007ADD`
+počítej s tím, že se **ořízne koncové zalomení řádku**, takže otisk se o tenhle jeden bajt
+může lišit od tvého souboru na disku.
+

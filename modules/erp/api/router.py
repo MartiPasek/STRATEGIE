@@ -10586,6 +10586,248 @@ def _foto_zmensit(raw: bytes):
     return out.getvalue(), "image/jpeg"
 
 
+# ── Kontrola vhodnosti profilové fotky (Jirka Honomichl 7. 9. 2026) ─────────
+# Důvod vzniku: 7. 9. 2026 si zaměstnanec nahrál jako profilovku kresbu postavy
+# v hábitu Ku-Klux-Klanu. Fotky se od 12. 8. 2026 neschvalují (Šárka), takže se
+# takový obrázek dostane rovnou do firemního profilu, kde ho vidí všichni kolegové.
+# Řešení: posudek vhodnosti PŘED uložením + zpětná kontrola už uložených fotek.
+#
+# Rozhodnutí Jirky 7. 9. 2026:
+#  • Blokuje se JEN závadný obsah (nenávist/extremismus, nahota, násilí, drogy,
+#    vulgarita/urážka, politická agitace). Zvíře, kresba, krajina ani logo závadné
+#    NEJSOU a projdou — profilovku „orel" nikomu nemažeme.
+#  • Když je AI nedostupná, fotka PROJDE a označí se `ai_stav='nezkontrolovano'`;
+#    dojede ji noční zpětná kontrola. Výpadek API nesmí lidem blokovat práci.
+#  • Smazaná fotka → notifikace vlastníkovi do mobilu + personalistce (HR skupina).
+_PROFIL_FOTO_MODEL = "claude-haiku-4-5-20251001"
+
+# Práh jistoty, pod kterým se fotka NEMAŽE. Radši nechat projít hraniční obrázek,
+# než někomu smazat fotku omylem — smazání je nevratné a člověk k tomu dostane
+# vytýkací notifikaci. Falešný poplach je tu horší chyba než propuštěná hraniční fotka.
+_PROFIL_FOTO_MIN_JISTOTA = 80
+
+_PROFIL_FOTO_PROMPT = (
+    "Jsi moderátor obsahu ve firemní aplikaci. Posuzuješ obrázek, který si zaměstnanec "
+    "nastavil jako PROFILOVOU FOTKU — vidí ji všichni kolegové.\n\n"
+    "Úkol: rozhodni, jestli obsah NENÍ ZÁVADNÝ. Nehodnotíš kvalitu, ostrost ani to, "
+    "jestli je to portrét.\n\n"
+    "ZÁVADNÉ (vhodna=false) je POUZE:\n"
+    "• nenavist_extremismus — rasistické, nacistické, fašistické nebo jinak nenávistné "
+    "symboly a postavy (hákový kříž, symbolika SS, hábit a špičatá kápě Ku-Klux-Klanu), "
+    "symboly teroristických organizací, výzvy k nenávisti vůči skupině lidí\n"
+    "• nahota_sex — nahota, spodní prádlo, sexuálně explicitní nebo sugestivní obsah\n"
+    "• nasili — krev, zranění, mrtvoly, týrání, namířená zbraň, výhrůžka násilím\n"
+    "• drogy — užívání nelegálních drog, drogové náčiní\n"
+    "• vulgarita_urazka — vulgární nápis nebo gesto, urážka konkrétního člověka, "
+    "posměšný obrázek na něčí účet\n"
+    "• politicka_agitace — volební agitace, stranické symboly, propaganda\n\n"
+    "ZÁVADNÉ NENÍ (vhodna=true) — tyhle projdou bez výhrad:\n"
+    "• zvíře, krajina, auto, rostlina, jídlo, budova, abstraktní obrázek\n"
+    "• kresba, ilustrace, kreslená postavička, avatar, logo, znak firmy nebo klubu\n"
+    "• prázdný, tmavý, rozmazaný nebo nesmyslný obrázek\n"
+    "• člověk v pracovním oděvu, uniformě, helmě, brýlích, čepici, s vousy či tetováním\n"
+    "• skupinová fotka, fotka s dítětem nebo se psem, dovolenkový snímek\n"
+    "• historická nebo vojenská technika bez nenávistných symbolů\n"
+    "• náboženský oděv nebo symbol (šátek, kříž, jarmulka) — to není závada\n\n"
+    "Buď zdrženlivý: když si nejsi jistý, dej vhodna=true. Falešné obvinění je horší "
+    "než propuštěný hraniční obrázek. Bílá špičatá kápě přes obličej = Ku-Klux-Klan = "
+    "závadné; obyčejná bílá kapuce nebo mikina závadná NENÍ.\n\n"
+    "Vrať POUZE validní JSON, bez textu okolo, v tomto tvaru:\n"
+    '{"vhodna": true|false, "kategorie": "ok|nenavist_extremismus|nahota_sex|nasili|'
+    'drogy|vulgarita_urazka|politicka_agitace", "jistota": 0-100, '
+    '"popis": "stručně česky co je na obrázku", '
+    '"duvod": "česky jednou větou proč je závadný; když vhodna=true, dej null"}'
+)
+
+
+def _profil_foto_posudek(data: bytes, mime: str = "image/jpeg") -> dict:
+    """Posoudí vhodnost profilové fotky přes vision model.
+
+    Vrací {"stav": "ok"|"nevhodna"|"chyba", "kategorie", "duvod", "popis",
+    "jistota", "model", "chyba"}. NIKDY nevyhodí výjimku — volá se z uploadu
+    i z noční hlídky a ani jedno nesmí spadnout kvůli výpadku AI.
+    """
+    import base64 as _b64
+    import json as _json_pf
+    import re as _re_pf
+    out = {"stav": "chyba", "kategorie": None, "duvod": None, "popis": None,
+           "jistota": None, "model": _PROFIL_FOTO_MODEL, "chyba": None}
+    try:
+        import anthropic
+        from core.config import settings as _cfg_pf
+        client = anthropic.Anthropic(api_key=_cfg_pf.anthropic_api_key)
+        msg = client.messages.create(
+            model=_PROFIL_FOTO_MODEL, max_tokens=400,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64",
+                                             "media_type": (mime or "image/jpeg"),
+                                             "data": _b64.b64encode(data).decode()}},
+                {"type": "text", "text": _PROFIL_FOTO_PROMPT},
+            ]}])
+        txt = "".join(b.text for b in msg.content if hasattr(b, "text") and b.text).strip()
+        txt = _re_pf.sub(r"^```(?:json)?\s*", "", txt)
+        txt = _re_pf.sub(r"\s*```$", "", txt.strip())
+        r = _json_pf.loads(txt)
+    except Exception as exc:  # výpadek API, změna formátu odpovědi, cokoli
+        out["chyba"] = "%s: %s" % (type(exc).__name__, str(exc)[:200])
+        logger.warning("[profil_foto] posudek selhal: %s", out["chyba"])
+        return out
+    try:
+        jist = int(r.get("jistota") or 0)
+    except Exception:
+        jist = 0
+    out["jistota"] = max(0, min(100, jist))
+    out["popis"] = (str(r.get("popis")).strip() or None) if r.get("popis") else None
+    out["kategorie"] = (str(r.get("kategorie")).strip() or None) if r.get("kategorie") else None
+    out["duvod"] = (str(r.get("duvod")).strip() or None) if r.get("duvod") else None
+    vhodna = bool(r.get("vhodna"))
+    # Nízká jistota = necháme projít. Práh je záměrně vysoký (viz _PROFIL_FOTO_MIN_JISTOTA).
+    if (not vhodna) and out["jistota"] >= _PROFIL_FOTO_MIN_JISTOTA:
+        out["stav"] = "nevhodna"
+        if not out["duvod"]:
+            out["duvod"] = "obsah není vhodný pro firemní profil"
+    else:
+        out["stav"] = "ok"
+        if not vhodna:
+            # Model váhal — fotka zůstává, ale necháme v kartě stopu, proč to prošlo.
+            out["kategorie"] = "sporne"
+            out["duvod"] = "model si nebyl jistý (%s %%) — fotka ponechána" % out["jistota"]
+    return out
+
+
+def _profil_foto_archiv(s, uid, data, mime, pos, zdroj, nahrano_at=None, nahral_uid=None):
+    """Uloží zamítnutou fotku do `tenant.employee_photo_zamitnuta`.
+
+    Fotka se z profilu maže, ale musí zůstat dohledatelná — personalistka potřebuje
+    vidět, co tam ten člověk měl, až to bude řešit po lidské linii. Best-effort:
+    když archivace selže, odmítnutí/mazání se tím NESMÍ zastavit.
+    """
+    from sqlalchemy import text as _t
+    try:
+        s.execute(_t(
+            "INSERT INTO tenant.employee_photo_zamitnuta (tenant_id, user_id, mime, foto, zdroj, "
+            " ai_kategorie, ai_duvod, ai_popis, ai_jistota, ai_model, nahrano_at, nahral_uid) "
+            "VALUES (2, :u, :m, :f, :z, :k, :d, :p, :j, :mo, :na, :nu)"),
+            {"u": int(uid), "m": (mime or "image/jpeg"), "f": data, "z": zdroj,
+             "k": pos.get("kategorie"), "d": pos.get("duvod"), "p": pos.get("popis"),
+             "j": pos.get("jistota"), "mo": pos.get("model"),
+             "na": nahrano_at, "nu": nahral_uid})
+    except Exception as exc:
+        logger.warning("[profil_foto] archivace zamítnuté fotky selhala (uid=%s): %s", uid, exc)
+
+
+def _profil_foto_duvod(pos: dict) -> str:
+    """Věta pro člověka, kterému se fotka zamítla nebo smazala. Věcně, bez nálepek."""
+    duv = (pos.get("duvod") or "obsah není vhodný pro firemní profil").strip()
+    return duv if duv.endswith(".") else duv + "."
+
+
+# Marker posledního běhu noční zpětné kontroly (self-gate 1×/den, vzor _HR_DAILY_LAST).
+_PROFIL_FOTO_SCAN_LAST = [None]
+
+
+def _profil_foto_scan(force: bool = False, limit: int = 200, dry: bool = False) -> dict:
+    """Zpětná kontrola už uložených profilových fotek.
+
+    `force=False` (noční běh) → jen fotky, které posudkem ještě neprošly
+    (`ai_stav` in nezkontrolovano/chyba). `force=True` (tlačítko v Ops akcích)
+    → přeposoudí VŠECHNY fotky znovu, i ty dřív schválené (po změně kritérií).
+
+    `dry=True` → NASUCHO: nic se nemaže, nikomu nechodí notifikace a do DB se
+    nic nezapisuje. Slouží k ověření kritérií před ostrým během (Jirka 7.9.2026 —
+    smazání fotky je nevratné, tak ať jde nejdřív vidět, co by se stalo).
+
+    Nevhodnou fotku archivuje, SMAŽE z profilu a pošle notifikaci vlastníkovi
+    i personalistce. Vrací {ok, zkontrolovano, smazano, chyby, polozky}.
+    """
+    from sqlalchemy import text as _t
+    out = {"ok": True, "zkontrolovano": 0, "smazano": 0, "chyby": 0, "dry": bool(dry),
+           "polozky": []}
+    cm, s = _att_session()
+    try:
+        kde = "" if force else " AND ep.ai_stav IN ('nezkontrolovano','chyba')"
+        rows = s.execute(_t(
+            "SELECT ep.id, ep.user_id, ep.mime, ep.foto, ep.uploaded_at, ep.uploaded_by "
+            "FROM tenant.employee_photo ep "
+            "WHERE ep.tenant_id=2" + kde + " "
+            "ORDER BY ep.uploaded_at DESC LIMIT :lim"), {"lim": int(limit)}).fetchall()
+        hr = _self_hr_recipients(s)
+        for r in rows:
+            pid, uid_o, mime, foto, nahr_at, nahr_uid = r[0], int(r[1]), r[2], bytes(r[3]), r[4], r[5]
+            pos = _profil_foto_posudek(foto, mime)
+            out["zkontrolovano"] += 1
+            jmeno = _self_person_name(s, uid_o)
+            if pos["stav"] == "nevhodna":
+                out["smazano"] += 1
+                out["polozky"].append({"user_id": uid_o, "jmeno": jmeno,
+                                       "vysledek": ("smazalo_by_se" if dry else "smazano"),
+                                       "kategorie": pos.get("kategorie"), "jistota": pos.get("jistota"),
+                                       "popis": pos.get("popis"), "duvod": pos.get("duvod")})
+                if dry:
+                    # Nasucho: fotka zůstává, jen se do karty zapíše, jak dopadl posudek —
+                    # ať je výsledek dohledatelný v datech, ne jen v návratovce tlačítka.
+                    s.execute(_t(
+                        "UPDATE tenant.employee_photo SET ai_stav='nevhodna', ai_kategorie=:k, "
+                        " ai_duvod=:d, ai_popis=:p, ai_jistota=:j, ai_model=:m, ai_at=now() "
+                        "WHERE id=:i"),
+                        {"k": pos.get("kategorie"), "d": pos.get("duvod"), "p": pos.get("popis"),
+                         "j": pos.get("jistota"), "m": pos.get("model"), "i": pid})
+                    s.commit()
+                    continue
+                _profil_foto_archiv(s, uid_o, foto, mime, pos, "zpetna_kontrola",
+                                    nahrano_at=nahr_at, nahral_uid=nahr_uid)
+                s.execute(_t("DELETE FROM tenant.employee_photo WHERE id=:i"), {"i": pid})
+                _abs_notify(s, uid_o, "Profilová fotka byla odstraněna",
+                            "Tvoje profilová fotka byla odstraněna — " + _profil_foto_duvod(pos)
+                            + " Nahraj si prosím jinou: v aplikaci Já → klepni na kolečko s fotkou.")
+                _abs_notify(s, hr, "Profilová fotka odstraněna kontrolou",
+                            jmeno + ": fotka automaticky odstraněna. Důvod: "
+                            + _profil_foto_duvod(pos) + " (" + str(pos.get("kategorie") or "?")
+                            + ", jistota " + str(pos.get("jistota")) + " %)")
+            else:
+                if pos["stav"] == "chyba":
+                    out["chyby"] += 1
+                out["polozky"].append({"user_id": uid_o, "jmeno": jmeno, "vysledek": pos["stav"],
+                                       "kategorie": pos.get("kategorie"), "jistota": pos.get("jistota"),
+                                       "popis": (pos.get("popis") or pos.get("chyba"))})
+                s.execute(_t(
+                    "UPDATE tenant.employee_photo SET ai_stav=:st, ai_kategorie=:k, ai_duvod=:d, "
+                    " ai_popis=:p, ai_jistota=:j, ai_model=:m, ai_at=now() WHERE id=:i"),
+                    {"st": ("ok" if pos["stav"] == "ok" else "chyba"),
+                     "k": pos.get("kategorie"),
+                     "d": (pos.get("duvod") or pos.get("chyba")), "p": pos.get("popis"),
+                     "j": pos.get("jistota"), "m": pos.get("model"), "i": pid})
+            s.commit()
+        logger.info("[profil_foto] zpětná kontrola: %s zkontrolováno, %s smazáno, %s chyb",
+                    out["zkontrolovano"], out["smazano"], out["chyby"])
+    except Exception as exc:
+        out["ok"] = False
+        out["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:300])
+        logger.exception("[profil_foto] zpětná kontrola selhala")
+        try:
+            s.rollback()
+        except Exception:
+            pass
+    finally:
+        cm.__exit__(None, None, None)
+    return out
+
+
+def _profil_foto_scan_nocni():
+    """Self-gated 1×/den (po 6. hodině): dojede fotky, které posudkem neprošly —
+    typicky když byla při nahrávání AI nedostupná. Best-effort, nikdy nespadne.
+    Volá se z att_sync smyčky (vzor `_hr_daily_pass`)."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    today = now.date().isoformat()
+    if _PROFIL_FOTO_SCAN_LAST[0] == today or now.hour < 6:
+        return
+    try:
+        _profil_foto_scan(force=False)
+    finally:
+        _PROFIL_FOTO_SCAN_LAST[0] = today
+
+
 @api_router.get("/app/hr/photo/{target_uid}")
 async def app_hr_photo_get(target_uid: int, req: Request):
     """Vrátí fotku zaměstnance (bytes). Přístup: vlastník (i svou pending),
@@ -10667,14 +10909,39 @@ async def app_hr_photo_upload(req: Request, file: UploadFile = File(...),
             data, mime = _foto_zmensit(raw)
         except Exception:
             return JSONResponse({"ok": False, "error": "Nepodařilo se načíst obrázek (podporováno JPG/PNG)."}, status_code=400)
+        # Kontrola vhodnosti PŘED uložením (Jirka 7.9.2026). Závadná fotka se do profilu
+        # nedostane vůbec — jen se odloží do archivu zamítnutých a cinkne personalistce.
+        # Platí i pro HR upload: pravidlo je o obsahu, ne o tom, kdo ho nahrál.
+        pos = _profil_foto_posudek(data, mime)
+        if pos["stav"] == "nevhodna":
+            _profil_foto_archiv(s, cil, data, mime, pos, "upload", nahral_uid=uid)
+            try:
+                jm = _self_person_name(s, cil)
+                _abs_notify(s, _self_hr_recipients(s), "Odmítnutá profilová fotka",
+                            jm + ": pokus o nahrání nevhodné profilové fotky byl odmítnut. Důvod: "
+                            + _profil_foto_duvod(pos) + " (" + str(pos.get("kategorie") or "?")
+                            + ", jistota " + str(pos.get("jistota")) + " %)")
+            except Exception as _ne:
+                logger.warning("[profil_foto] oznámení HR o odmítnutí selhalo: %s", _ne)
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Fotka nebyla přijata — "
+                                 + _profil_foto_duvod(pos)
+                                 + " Vyber prosím jiný obrázek."}, status_code=400)
         # Šárka 12.8.2026: fotka se NESCHVALUJE — nahraje se rovnou (approved), HR jen cinkne oznámení.
         s.execute(_t("DELETE FROM tenant.employee_photo WHERE tenant_id=2 AND user_id=:u"), {"u": cil})
         s.execute(_t(
             "INSERT INTO tenant.employee_photo (tenant_id, user_id, status, mime, foto, uploaded_by, "
-            " approved_by, approved_at, created_by_text) "
-            "VALUES (2, :u, 'approved', :m, :f, :by, :by, now(), :ct)"),
+            " approved_by, approved_at, created_by_text, ai_stav, ai_kategorie, ai_duvod, "
+            " ai_popis, ai_jistota, ai_model, ai_at) "
+            "VALUES (2, :u, 'approved', :m, :f, :by, :by, now(), :ct, :ast, :ak, :ad, "
+            " :ap, :aj, :am, now())"),
             {"u": cil, "m": mime, "f": data, "by": uid,
-             "ct": ("HR upload" if is_hr else "vlastní upload")})
+             "ct": ("HR upload" if is_hr else "vlastní upload"),
+             # AI nedostupná → fotka projde jako 'nezkontrolovano' a dojede ji noční
+             # hlídka `_profil_foto_scan_nocni` (rozhodnutí Jirky 7.9.2026).
+             "ast": ("ok" if pos["stav"] == "ok" else "nezkontrolovano"),
+             "ak": pos.get("kategorie"), "ad": (pos.get("duvod") or pos.get("chyba")),
+             "ap": pos.get("popis"), "aj": pos.get("jistota"), "am": pos.get("model")})
         s.commit()
         # vlastní změna → oznámení HR (bez schvalování)
         if cil == uid and not is_hr:
@@ -10688,6 +10955,38 @@ async def app_hr_photo_upload(req: Request, file: UploadFile = File(...),
         return JSONResponse({"ok": True, "status": "approved"})
     except Exception as exc:
         logger.exception("[hr_photo_upload] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/photo/posoudit")
+async def app_hr_photo_posoudit(req: Request, file: UploadFile = File(...)):
+    """Posoudí vhodnost obrázku, ale NIC neuloží a nikoho neupozorní (jen HR).
+
+    Jirka 7.9.2026: kritéria kontroly musí jít vyzkoušet, aniž by se někomu sáhlo
+    na profil nebo mu přišla vytýkací notifikace. Používá se při ladění promptu
+    a když si personalistka chce ověřit hraniční obrázek."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        raw = await file.read()
+        if not raw or len(raw) > 8 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "Prázdný nebo příliš velký soubor (max 8 MB)"},
+                                status_code=400)
+        try:
+            data, mime = _foto_zmensit(raw)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "Nepodařilo se načíst obrázek."}, status_code=400)
+        pos = _profil_foto_posudek(data, mime)
+        return JSONResponse({"ok": True, "posudek": pos,
+                             "prijalo_by_se": (pos["stav"] != "nevhodna")})
+    except Exception as exc:
+        logger.exception("[hr_photo_posoudit] %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
@@ -29397,6 +29696,10 @@ async def _att_sync_loop():
                 await loop.run_in_executor(None, _neomluvena_absence_nocni)
             except Exception as _ne:
                 logger.warning("[neomluvena_absence] %s", _ne)
+            try:  # zpětná kontrola profilových fotek — self-gated 1×/den po 6. hodině
+                await loop.run_in_executor(None, _profil_foto_scan_nocni)
+            except Exception as _pf:
+                logger.warning("[profil_foto_scan] %s", _pf)
         except _aio.CancelledError:
             break
         except Exception as e:
@@ -45933,6 +46236,28 @@ _OPS_ACTIONS = {
         "label": "Zkontrolovat docházku (anomálie → notifikace)",
         "target": "cloud", "remote": False,
     },
+    # Jirka 7.9.2026 — zpětná kontrola profilových fotek. Nejdřív NASUCHO (nic se
+    # nemaže, jen se do karty zapíše posudek), pak teprve ostrý běh.
+    "profil_foto_scan_nasucho": {
+        "label": "Překontrolovat profilové fotky NASUCHO (nic nemaže, jen posoudí)",
+        "target": "cloud", "remote": False,
+    },
+    "profil_foto_scan": {
+        "label": "Překontrolovat profilové fotky (nevhodné smazat + upozornit)",
+        "target": "cloud", "remote": False,
+        "warning": (
+            "⚠️ Přeposoudí VŠECHNY uložené profilové fotky (i ty dřív schválené).\n\n"
+            "CO SE STANE:\n"
+            "• Každá fotka projde posudkem vhodnosti (vision model).\n"
+            "• Fotka vyhodnocená jako závadná se SMAŽE z profilu — do archivu "
+            "tenant.employee_photo_zamitnuta zůstane dohledatelná.\n"
+            "• Vlastníkovi přijde notifikace do mobilní aplikace, že mu byla fotka "
+            "odstraněna, a personalistka dostane echo.\n\n"
+            "Mazání je nevratné (fotka zůstane jen v archivu). Noční hlídka běží sama "
+            "a kontroluje POUZE fotky, které posudkem ještě neprošly — tohle tlačítko "
+            "je na přeposouzení všech po změně kritérií."
+        ),
+    },
     "att_auto_checkout": {
         "label": "Odhlásit zapomenuté směny (uzavřít na 23:59 — test/ručně)",
         "target": "cloud", "remote": False,
@@ -50251,6 +50576,19 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("anomálie: %s nových nálezů, %s notifikací"
                       % (out.get("found"), out.get("notified")))
+        elif action_key in ("profil_foto_scan", "profil_foto_scan_nasucho"):
+            out = _profil_foto_scan(force=True, dry=(action_key.endswith("_nasucho")))
+            status = "done" if out.get("ok") else "error"
+            _nal = [p for p in (out.get("polozky") or [])
+                    if str(p.get("vysledek") or "").startswith("smaz")]
+            _kdo = ", ".join((p.get("jmeno") or "?") + " (" + str(p.get("kategorie") or "?") + ")"
+                             for p in _nal)
+            result = ("profilové fotky%s: %s zkontrolováno, %s závadných, %s chyb%s%s"
+                      % (" NASUCHO" if out.get("dry") else "",
+                         out.get("zkontrolovano"), out.get("smazano"), out.get("chyby"),
+                         ((" · smazáno by bylo: " if out.get("dry") else " · smazáno: ") + _kdo)
+                         if _kdo else "",
+                         "" if out.get("ok") else " · chyba: " + str(out.get("error"))))
         elif action_key == "att_auto_checkout":
             out = _att_auto_checkout_midnight()
             status = "done" if out.get("ok") else "error"

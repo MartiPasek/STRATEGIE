@@ -723,3 +723,54 @@ tiše dosadil výchozí hodnoty — **firmu ES a aktuální měsíc**. Vzniklo t
 > (`tenant.payslip_item`), které plní synchronizace z Heliosu. Když se v Heliosu něco smaže,
 > zrcadlo o tom samo neví — musí se buď smazat taky, nebo znovu nasynchronizovat.
 > Vždy po zásahu do mezd v Heliosu **zkontroluj, co vidí lidi v mobilu**.
+
+## 10. Mzdová karta v Heliosu se do Prahy nepřenášela vůbec (7. 9. 2026)
+
+**Co se stalo.** Andrea Bernardová (EC 475) má od 1. 8. 2026 v Podmínkách úvazek **40 h/týden**,
+ale v Heliosu jí zůstalo **32 h**. Základní mzda se počítala z fondu 134,40 h místo 168 h —
+za srpen **o 5 615 Kč méně**.
+
+**Nebyla to její výjimka.** Mzdové údaje (úvazek, kalendář, druh PP, zkušebka, data vzniku
+a ukončení) do Heliosu posílala **Centrála** procedurou `EC_ContrMzdyPrenesDoMezd`. Ta ale
+zapisuje do **plzeňského** Heliosu — a mzdy se od přestěhování počítají v **pražském cloudu**.
+STRATEGIE ten přenos nikdy nepřevzala: generování posílá jen mzdové složky, do karty nesahá.
+Takže úvazek do Heliosu neposílal **nikdo**. Bernardová byla jen prvním člověkem, kterému se
+od té doby změnil úvazek, takže se to na ní poprvé projevilo v penězích.
+
+**Co je opravené.** Před každým generováním se karta v Heliosu porovná s Podmínkami:
+jednoznačné rozdíly se **srovnají samy**, sporné se **jen nahlásí** a generování jede dál.
+Hlášky jsou vidět **rovnou na výplatnici** po generování — zeleně co se srovnalo, červeně
+co potřebuje člověka.
+
+**Nepřenáší se zatím** druh PP, zkušební doba a data vzniku/ukončení — jen úvazek a kalendář.
+
+---
+
+## ⚠ POVINNÝ BOD KONTROLY MEZD: hodiny na výplatnici proti úvazku (Peťa 7. 9. 2026)
+
+Při kontrole vygenerovaných mezd **vždy srovnat hodiny na pásce s úvazkem z Podmínek**.
+
+Bernardovou jsem při zářijové kontrole devíti bodů **neodhalil**, protože jsem porovnával
+výplatnici proti tomu, co počítá STRATEGIE — a ta počítala správně. Rozešel se **Helios**,
+a to bylo vidět jedině na počtu hodin v základní mzdě. Peťa k tomu: *„jsou to prachy
+a zkontrolovaný to musí být perfektně."*
+
+Konkrétně: **složka 1 (základní mzda) + absence musí dát fond měsíce** podle úvazku.
+U Bernardové za srpen: 112 h + 56 h dovolené = 168 h = 21 pracovních dnů × 8 h. ✔
+
+---
+
+## ⚠ NEŽ NAPÍŠEŠ VLASTNÍ SQL DO HELIOSU, HLEDEJ `hp_*` PROCEDURU (7. 9. 2026)
+
+Helios má na svoje operace vlastní procedury a **ty se mají použít**. Platí to stejně, jako
+už to děláme u výpočtu (`hp_VlozMzPausDoMzSloz`, `hp_VypocitejMzdu`).
+
+7. 9. 2026 jsem zakládal osobní kalendář ručními INSERTy a postupně narazil na počítaný
+sloupec `NazevDne`, unikátní GUID `AVAReferenceID` a na to, že `USE` + `BEGIN TRAN` v jednom
+bloku přes most tiše neproběhne. Peťa: *„já myslela, že když vidíš tu proceduru co byla v C,
+že to použijeme."* Měla pravdu — existuje **`hp_MzVytvorOsobniKalendar`**, která to udělá
+správně a je idempotentní.
+
+**Pozor: změna kalendáře v kartě sama nestačí.** Bez osobního kalendáře na daný rok spadne
+`hp_VypocitejMzdu` na *„55071 | Není zadán osobní kalendář zaměstnance"* a **tiše se
+odrolluje** — mzda nevznikne a ve výsledku je jen `uvazlo: true`.

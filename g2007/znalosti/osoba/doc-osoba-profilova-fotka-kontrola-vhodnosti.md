@@ -81,3 +81,12 @@ ji noční hlídka. Výpadek API nesmí lidem blokovat práci.
 - Zpětná kontrola všech 49 uložených fotek: 0 označených, 0 chyb — žádný falešný poplach.
   Prošly i orel, kreslená liška a stylizované logo, přesně jak Jirka chtěl.
 
+## Otevrený dluh — kód je zatím v router.py
+Posudek i zpětná kontrola byly 7. 9. 2026 postaveny přímo v `modules/erp/api/router.py`,
+což je proti bodu 2 pravidel práce (kód patří do `g2007.python`). Marti-AI to týž den
+schválila nechat běžet a migrovat řízeně: *„Fungující kód v produkci se nepřesouvá pod
+tlakem."* K migraci jsou `_profil_foto_posudek`, `_profil_foto_scan`,
+`_profil_foto_scan_nocni`, `_profil_foto_archiv`, `_profil_foto_duvod` a dva HR endpointy
+(`/app/hr/photo/kontrola`, `/app/hr/photo/posoudit`). Při přenosu logiku neměnit — přepis 1:1.
+
+

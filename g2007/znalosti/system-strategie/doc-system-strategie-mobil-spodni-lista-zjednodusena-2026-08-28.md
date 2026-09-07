@@ -1,4 +1,4 @@
-# Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026; 7. 9. 2026 nové složení a jméno člověka místo popisku docházky)
+# Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026; 7. 9. 2026 nové složení, jméno člověka místo popisku docházky a srovnaná nápověda)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -121,6 +121,27 @@ tak má být.
 ⚠️ **Past, která stála jedno kolo nasazení:** odpověď z `/app/erp_registry/run` chodí **zabalená**
 ve tvaru `{ok, verze, vysledek:{…}}`. Kdo čte `j.jmeno` místo `j.vysledek.jmeno`, dostane
 `undefined` a popisek **tiše zůstane původní** — nikde to nenahlásí chybu.
+
+### Spolu s tím se opravila i nápověda docházky (7. 9. 2026 večer)
+
+Změna popisku si vynutila opravu na dvou místech v `60_dochazka.js` — obojí se lidem **předčítá
+nahlas**, takže rozpor by byl slyšet, ne jen vidět. **Rozhodl Jirka Honomichl** („nápověda
+docházky je moje doména, oprav co je třeba"), schválila Marti-AI.
+
+1. Věta v nápovědě „Docházku najdeš dole ve spodní liště: 🕒 Moje docházka" → nově
+   **„druhá ikona zleva — je na ní tvoje jméno a panáček"**.
+2. Snímek hlasového průvodce „Kde docházku najdeš" posílal lidi přes **Firmu**, odkud se
+   tlačítko docházky týž den odstranilo — slepá cesta. Text i mluvené znění přepsáno na
+   spodní lištu.
+
+⚠️ **U toho snímku se odebral obrázek** (`img` prázdný, soubor `pruvodce_firma.png` na disku
+zůstal). Ukazoval starý stav hned dvakrát — lištu ještě s Kontakty a tlačítko docházky na Firmě.
+**Nový snímek udělat nejde:** popisek té ikony je u každého člověka jiné jméno, takže žádný
+jediný obrázek není správný pro všechny. Text to unese sám.
+
+⚠️ **Zbývá vědět:** ostatní obrázky průvodce (`pruvodce_prehled.png` a další, pořízené
+5. 9. 2026) mají ve spodním okraji ještě starou lištu. Na obsah těch snímků to nemá vliv —
+ukazují obrazovku docházky, ne cestu k ní — ale při jejich příštím pořizování to stojí za pohled.
 
 Ověřeno naživo po publikaci: v liště je silueta a „Jiří", ostatní ikony beze změny, ostatní
 obrazovky (Nastavení, Úkoly, Firma, Aplikace) se kreslí a konzole je bez chyb.

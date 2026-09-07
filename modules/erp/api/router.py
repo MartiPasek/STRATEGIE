@@ -45349,10 +45349,41 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": str(_ep)[:400]})
 
     # ── mssql188 = náš cloud Helios MSSQL (10.200.188.12), přímé spojení pyodbc z API.
-    #    Nová prázdná DB (sandbox), parent-only → read i DDL/DML běží PŘÍMO (bez banneru),
-    #    stavíme ji společně (přenos mezd + deníku). Connection string z env MSSQL188_CONN.
-    #    Marti 25.6.2026. ──
+    #    Connection string z env MSSQL188_CONN. Marti 25.6.2026.
+    #
+    #    ČTENÍ běží přímo (bez banneru). ZÁPIS jde od 7.9.2026 přes schvalovací banner
+    #    stejně jako pg/mssql (Peťa + Claude-26).
+    #    Původní pravidlo znělo „nová prázdná DB (sandbox), parent-only → read i DDL/DML
+    #    běží PŘÍMO, stavíme ji společně". To platilo v červnu, kdy byla DB prázdná.
+    #    Mezitím se do ní přestěhovaly mzdy (stará Plzeň už za 8/2026 nemá ani jednu
+    #    mzdovou složku), takže zápis sem je zásah do ostrých mezd — a ten musí někdo
+    #    odklepnout. Odhaleno 7.9.2026 při opravě mzdového kalendáře (UPDATE TabZamMzd
+    #    proběhl bez jakéhokoli potvrzení).
+    #    Vykonání schváleného zápisu je v g2007.python → claude_write_decision, větev
+    #    _dbt == "mssql188". Kdyby se sem sahalo, musí se měnit obojí. ──
     if db == "mssql188":
+        import re as _re188
+        _s188 = _re188.sub(r"--[^\n]*", " ", sql)
+        _s188 = _re188.sub(r"/\*.*?\*/", " ", _s188, flags=_re188.S).strip()
+        if not _re188.match(r"\s*(SELECT|WITH|EXPLAIN|SHOW)\b", _s188, _re188.I):
+            from core.database_data import get_data_session as _gw188
+            from sqlalchemy import text as _tw188
+            _w188 = _gw188()
+            try:
+                rid188 = _w188.execute(_tw188(
+                    "INSERT INTO fw.claude_write_request (db_target, sql_text, requested_by) "
+                    "VALUES (:db, :sql, :by) RETURNING id"
+                ), {"db": db, "sql": sql, "by": actor}).scalar()
+                _w188.commit()
+            finally:
+                _w188.close()
+            try:
+                _push_confirm_to_phone(rid188, db, sql, actor)
+            except Exception as _pexc188:
+                logger.warning("[push_confirm_to_phone] %s", _pexc188)
+            return JSONResponse({"ok": False, "pending": True, "request_id": rid188,
+                                 "message": "Zápis do pražského Heliosu čeká na schválení "
+                                            "(request #%s)." % rid188})
         from starlette.concurrency import run_in_threadpool as _rtp188
         res188 = await _rtp188(_mssql188_query, sql)
         try:

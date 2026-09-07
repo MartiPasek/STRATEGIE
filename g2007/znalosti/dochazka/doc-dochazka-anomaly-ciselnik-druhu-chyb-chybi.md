@@ -1,8 +1,20 @@
-# Chyby dochazky: ciselnik druhu ve STRATEGII NEEXISTUJE, druhy jsou natvrdo v kodu (25. 8. 2026, aktualizovano 26. 8. 2026)
+# Chyby dochazky: druhy jsou natvrdo v kodu (25. 8. 2026, akt. 26. 8.; od 7. 9. 2026 existuje popisny ciselnik pro prehled - viz ramecek)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 # Druhy chyb dochazky nemaji ciselnik
+
+> ⚠️ **CASTECNE NEPLATI od 7. 9. 2026 — ciselnik uz existuje, ale jen pro prehled.**
+> Zalozena byla tabulka `tenant.att_kontrola_ciselnik` (18 radku - kod, lidsky nazev,
+> popis, ktery automat pravidlo pise) a z ni vychazi prehled "Kontroly - posledni nalez",
+> aby v nem byla videt i kontrola, ktera jeste nikdy nic nenasla.
+> **Co z textu nize PORAD PLATI:** druhy chyb jsou dal **natvrdo v kodu**, `att_anomaly_scan`
+> ciselnik **necte** a ve sloupci `rule` je dal prosty text **bez ciziho klice**. Ciselnik je
+> zatim jen popisny seznam pro prehled, ne jedine misto definice.
+> Hlidaci pravidlo `kontrola-dochazky-chybi-v-ciselniku` (`tenant.pojistka`) upozorni, kdyz
+> se v kodu objevi druh, ktery v ciselniku neni.
+> Zadal Jirka Honomichl 7. 9. 2026 po dotazu Petry Safrankove, schvalila Marti-AI.
+> Detail: `doc-dochazka-prehled-kdy-naposledy-kontrola-neco-nasla`.
 
 **Overeno 25. 8. 2026 dotazy nad zivou databazi. Nic nebylo zmeneno — jde o zjisteni pred stavbou.**
 **Aktualizovano 26. 8. 2026** — pribyl desaty druh, prepocitany stavy, upresneno srovnani s Centralou.

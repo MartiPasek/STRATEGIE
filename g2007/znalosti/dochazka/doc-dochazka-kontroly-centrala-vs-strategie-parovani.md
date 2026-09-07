@@ -61,6 +61,16 @@ v Centrale nikdy nepadl.
 
 ## Tri moznosti, jak postavit ciselnik (NEROZHODNUTO)
 
+> ⚠️ **Doplneno 7. 9. 2026 — jeden ciselnik uz existuje, ale NEODPOVIDA na otazku nize.**
+> Vznikla tabulka `tenant.att_kontrola_ciselnik` (18 radku) jako **popisny seznam naseho
+> stavu** pro prehled "Kontroly - posledni nalez", aby v nem byla videt i kontrola, ktera
+> jeste nikdy nic nenasla. Je to tedy varianta **A** (nase druhy, ktere realne vznikaji),
+> a to jen pro ucel prehledu - `att_anomaly_scan` z nej necte a druhy zustavaji natvrdo
+> v kodu. **Otazka, jestli prevzit kontroly z Centraly (varianta C), zustava otevrena
+> a rozhodnout ma dal Dusan.** Kdo se do toho pusti, ma uz kam nove druhy zapsat -
+> nezakladat druhy ciselnik. Zadal Jirka Honomichl, schvalila Marti-AI.
+> Detail: `doc-dochazka-prehled-kdy-naposledy-kontrola-neco-nasla`.
+
 | | co se zalozi | pro | proti |
 |---|---|---|---|
 | **A** | nasich 10 druhu, ktere realne vznikaji | ciselnik odpovida tomu, co system opravdu dela | Dusan nenajde 7 kontrol, na ktere byl zvykly |

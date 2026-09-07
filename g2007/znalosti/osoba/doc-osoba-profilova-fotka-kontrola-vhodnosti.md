@@ -40,9 +40,10 @@ Když je AI nedostupná, fotka **PROJDE** se stavem `ai_stav='nezkontrolovano'` 
 ji noční hlídka. Výpadek API nesmí lidem blokovat práci.
 
 ## Kde to žije
-- `modules/erp/api/router.py`: `_profil_foto_posudek` (posudek, nikdy nevyhodí výjimku),
-  `_profil_foto_archiv`, `_profil_foto_duvod`, `_profil_foto_scan(force, limit, dry)`,
-  `_profil_foto_scan_nocni` (self-gated 1x/den po 6. hodině, volá se z att_sync smyčky).
+- **Logika: `g2007.python`** — `profil_foto_posudek` (nikdy nevyhodí výjimku),
+  `profil_foto_archiv`, `profil_foto_duvod`, `profil_foto_scan(force, limit, dry)`,
+  `profil_foto_scan_nocni` (self-gated 1x/den po 6. hodině, volá se z att_sync smyčky).
+  V `modules/erp/api/router.py` jsou jen stejnojmenné tenké spojky s podtržitkem.
 - Model: `claude-haiku-4-5-20251001` (stejný jako fotodokumentace ve `foto.py`).
 - `tenant.employee_photo` — nové sloupce `ai_stav` (ok / nezkontrolovano / chyba /
   nevhodna při běhu nasucho), `ai_kategorie`, `ai_duvod`, `ai_popis`, `ai_jistota`,
@@ -81,12 +82,34 @@ ji noční hlídka. Výpadek API nesmí lidem blokovat práci.
 - Zpětná kontrola všech 49 uložených fotek: 0 označených, 0 chyb — žádný falešný poplach.
   Prošly i orel, kreslená liška a stylizované logo, přesně jak Jirka chtěl.
 
-## Otevrený dluh — kód je zatím v router.py
-Posudek i zpětná kontrola byly 7. 9. 2026 postaveny přímo v `modules/erp/api/router.py`,
-což je proti bodu 2 pravidel práce (kód patří do `g2007.python`). Marti-AI to týž den
-schválila nechat běžet a migrovat řízeně: *„Fungující kód v produkci se nepřesouvá pod
-tlakem."* K migraci jsou `_profil_foto_posudek`, `_profil_foto_scan`,
-`_profil_foto_scan_nocni`, `_profil_foto_archiv`, `_profil_foto_duvod` a dva HR endpointy
-(`/app/hr/photo/kontrola`, `/app/hr/photo/posoudit`). Při přenosu logiku neměnit — přepis 1:1.
+## Kde kod opravdu je (migrace 7. 9. 2026 vecer)
+Posudek i zpetna kontrola byly nejdriv postaveny primo v `modules/erp/api/router.py`,
+coz bylo proti bodu 2 pravidel prace. **Tyz den vecer to Jirka nechal opravit hned**
+a logika se presunula do `g2007.python`. Marti-AI postup schvalila (msg 14890): vlozit
+jako `navrzeno` -> overit -> aktivovat v databazi -> teprve pak nasadit spojku v jadru.
+Prepis probehl 1:1, logika se nemenila.
 
+**Zdroj pravdy = radky v `g2007.python`:** `profil_foto_posudek` (drzi prompt, model
+i prah jistoty), `profil_foto_duvod`, `profil_foto_archiv`, `profil_foto_scan`,
+`profil_foto_scan_nocni`. Sourozenecke funkce se volaji pres `erp_registry.call`, aby
+kriteria zustala na JEDNOM miste. **Kriteria a prompt se od te chvile meni v databazi,
+bez nasazovani** - v `router.py` zustaly jen tenke spojky, ktere tam needituj.
+
+Vsech pet ma `min_pravo='admin'`. Vychozi hodnota je `clen`, coz by u `profil_foto_scan`
+znamenalo, ze kdokoli prihlaseny muze pres `/app/erp_registry/run` spustit mazani
+profilovych fotek. **U nove funkce s vedlejsim ucinkem vzdycky nastav `min_pravo`** -
+vychozi hodnota je pro cteci funkce, ne pro mazaci.
+
+Spojky v `router.py` drzi puvodni smlouvu "nikdy nevyhodi vyjimku": kdyz je skript
+z databaze nedostupny, posudek vrati tvar `chyba` a fotka projde jako nezkontrolovana -
+stejne jako pri vypadku AI. Nedostupnost databazoveho skriptu tedy nikomu nezablokuje praci.
+
+### Overeno po migraci (7. 9. 2026 vecer)
+- `profil_foto_duvod` pres `/app/erp_registry/run` -> `verze 2`, spravny vystup (dukaz,
+  ze bezi verze z databaze, ne stara kopie z disku).
+- Zpetna kontrola nasucho pres HR endpoint -> 3 zkontrolovano, 0 zavadnych, 0 chyb,
+  stejne verdikty jako pred migraci (retezec endpoint -> spojka -> registr -> scan -> posudek).
+- Zamitaci vetev: testovaci obrazek s urazkou -> posudek `nevhodna` / `vulgarita_urazka`,
+  nahrani odmitnuto (400), zaznam v archivu sedi, puvodni fotka nedotcena.
+  Testovaci stopy po overeni smazany.
 

@@ -304,14 +304,25 @@ async function generuj(){
 }
 async function pregenJeden(){
   // Přegeneruje JEN tohoto jednoho člověka (bez dotčení ostatních).
+  // Peťa 7.9.2026: MUSÍ jít s clean=1. Bez čisté vody se nesmaže stará mzda, worker
+  // člověka přeskočí (bere jen ty, co ještě nejsou v TabZamVyp) a tlačítko by tiše
+  // neudělalo nic. Čistička je zúžená na jeho ZamestnanecId, takže se ostatních
+  // opravdu nedotkne — ověřeno 7.9.2026 otiskem všech 17 lidí v EC.
   const c=window._pasCislo, zam=window._pasZam; const {r,m}=rm();
   if(!c){ alert('Nevím číslo zaměstnance.'); return; }
   if(!confirm('Přegenerovat pásku JEN pro os. č. '+c+' ('+FIRMA+', '+m+'/'+r+')?\nOstatních se to nedotkne.')) return;
   const pb=document.getElementById('pgBtn'); if(pb){ pb.disabled=true; pb.textContent='⏳'; }
   try{
-    const d=await (await fetch('/api/v1/erp/app/mzdy/generuj?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&cislo='+encodeURIComponent(c),
+    const d=await (await fetch('/api/v1/erp/app/mzdy/generuj?firma='+FIRMA+'&rok='+r+'&mesic='+m
+        +'&cislo='+encodeURIComponent(c)+'&clean=1',
       {method:'POST',credentials:'include'})).json();
     if(!d.ok){ alert('Chyba: '+(d.error||'?')); if(pb){ pb.disabled=false; pb.textContent='♻'; } return; }
+    // Kontrola mzdové karty proti Podmínkám — co se srovnalo a co je sporné, ať to
+    // není vidět jen u velkého generování.
+    const zpr=[].concat(d.karta_opraveno||[]).map(x=>'✔ '+x)
+             .concat((d.karta_warn||[]).map(x=>'⚠ '+x));
+    if(zpr.length) alert('Mzdová karta proti Podmínkám:\n\n'+zpr.join('\n'));
+    if(d.uvazlo) alert('Pozor: Helios mzdu nespočítal (uvázlo). Podívej se na hlášku výše.');
     await load();                       // obnov seznam (nové součty)
     if(zam!=null) openPas(zam);         // znovu otevři pásku s čerstvými čísly
     else closePas();

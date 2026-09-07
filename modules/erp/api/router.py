@@ -8651,6 +8651,39 @@ async def app_self_child_save(req: Request) -> JSONResponse:
     try:
         if cid:
             p["id"] = int(cid)
+            # ZÁMEK (Šárka + Petra 7.9.2026): u dítěte, na které HR potvrdilo daňové zvýhodnění
+            # (tax_relief=true), zaměstnanec ze self-service NEMĚNÍ nic, co ovlivňuje daň
+            # (jméno, narození, RČ, pořadí, vyživované). Hodnoty zůstanou, pokus = žádost
+            # (self_request) + HR upozornění. Kontakty/poznámku si měnit může.
+            cur = s.execute(_t(
+                "SELECT COALESCE(tax_relief,false), child_name, to_char(birth_date,'YYYY-MM-DD'), "
+                " birth_number, relief_order, COALESCE(is_dependent,true) "
+                "FROM tenant.user_self_child WHERE id=:id AND tenant_id=2 AND user_id=:u"), p).first()
+            if cur and cur[0]:
+                locked = (("nm", "Jméno dítěte", cur[1]), ("bd", "Datum narození", cur[2]),
+                          ("rc", "Rodné číslo", cur[3]), ("ro", "Pořadí pro zvýhodnění", cur[4]),
+                          ("dep", "Vyživované", cur[5]))
+                reqs = []
+                for k, lab, oldv in locked:
+                    nv = p.get(k)
+                    if (("" if nv is None else str(nv)) != ("" if oldv is None else str(oldv))):
+                        reqs.append((k, lab, oldv, nv))
+                    p[k] = oldv
+                if reqs:
+                    for k, lab, ov, nv in reqs:
+                        s.execute(_t(
+                            "INSERT INTO tenant.user_self_data_log "
+                            "(tenant_id, user_id, field_name, old_value, new_value, changed_by, change_source) "
+                            "VALUES (2, :u, :fn, :ov, :nv, :u, 'self_request')"),
+                            {"u": uid, "fn": "dite:" + str(cid) + ":" + k,
+                             "ov": ("" if ov is None else str(ov)), "nv": ("" if nv is None else str(nv))})
+                    nm_ = _self_person_name(s, uid)
+                    det = "; ".join(lab + ": '" + ("" if ov is None else str(ov)) + "' -> '"
+                                    + ("" if nv is None else str(nv)) + "'" for _, lab, ov, nv in reqs)
+                    _task_notify(s, _self_hr_recipients(s), uid,
+                                 "👶 ŽÁDOST o změnu u dítěte s daňovým zvýhodněním — NEULOŽENO, ověřit",
+                                 nm_ + " žádá změnu u dítěte s uplatněným zvýhodněním (" + det + "). "
+                                 "Neuloženo — ověř doklady a zapiš z karty.")
             s.execute(_t(
                 "UPDATE tenant.user_self_child SET child_name=:nm, birth_date=:bd, "
                 "birth_number=:rc, relief_order=:ro, is_dependent=:dep, relation=:rel, "
@@ -8682,10 +8715,196 @@ async def app_self_child_delete(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        cid = int((b or {}).get("id") or 0)
+        # Dítě s potvrzeným daňovým zvýhodněním ze self-service smazat nejde (ovlivnilo by daň).
+        if s.execute(_t("SELECT 1 FROM tenant.user_self_child WHERE id=:i AND tenant_id=2 AND user_id=:u "
+                        "AND COALESCE(tax_relief,false)=true"), {"i": cid, "u": uid}).first():
+            return JSONResponse({"ok": False, "error": "U tohoto dítěte je uplatněné daňové zvýhodnění — "
+                                 "změnu nebo odebrání řeší HR (ozvi se, ověříme doklady)."}, status_code=200)
         s.execute(_t("DELETE FROM tenant.user_self_child WHERE id=:i AND tenant_id=2 AND user_id=:u"),
-                  {"i": int((b or {}).get("id") or 0), "u": uid})
+                  {"i": cid, "u": uid})
         s.commit()
         return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ---- Děti pro HR: daňové zvýhodnění (Šárka + Petra 7.9.2026, zdroj pravdy = STRATEGIE) ----
+# Zaměstnanec děti NAVRHUJE (self-service výše), HR POTVRZUJE s dokladem. Daňová pole
+# (tax_relief, ztp, relief_from/to, relief_order) mění jen HR tady. Každá změna do
+# user_self_data_log (change_source='hr'). Bez dokladu (kategorie 'danove_zvyhodneni'
+# ve spisu) zvýhodnění zaškrtnout NEJDE. Stínový režim: mzdy to zatím nečtou.
+_CHILD_TAX_DOC_KAT = "danove_zvyhodneni"
+
+
+def _child_tax_doc_exists(s, user_id) -> bool:
+    from sqlalchemy import text as _t
+    return bool(s.execute(_t(
+        "SELECT 1 FROM tenant.employee_document WHERE tenant_id=2 AND user_id=:u "
+        "AND kategorie=:k AND COALESCE(is_active,true)=true "
+        "AND COALESCE(stav,'') NOT IN ('archiv') LIMIT 1"),
+        {"u": int(user_id), "k": _CHILD_TAX_DOC_KAT}).first())
+
+
+def _child_age_note(bd) -> str:
+    """Věková pojistka: <18 automaticky; 18–26 jen s potvrzením o studiu (relief_to); 26+ nelze."""
+    try:
+        import datetime as _d
+        if not bd:
+            return ""
+        y = (_d.date.today() - bd).days // 365
+        if y >= 26:
+            return "26+ — zvýhodnění nelze"
+        if y >= 18:
+            return "18–26 — jen s potvrzením o studiu (vyplň 'do')"
+        return ""
+    except Exception:
+        return ""
+
+
+@api_router.get("/app/hr/children")
+async def app_hr_children(req: Request) -> JSONResponse:
+    """Děti člověka pro HR (karta) včetně daňových polí + věkové pojistky. Jen HR/rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        tu = int(req.query_params.get("user_id") or 0)
+    except Exception:
+        tu = 0
+    if not tu:
+        return JSONResponse({"ok": False, "error": "user_id"}, status_code=400)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, child_name, birth_date, birth_number, relief_order, COALESCE(is_dependent,true), "
+            " relation, COALESCE(tax_relief,false), COALESCE(ztp,false), relief_from, relief_to, "
+            " tax_confirmed_by, tax_confirmed_at, note "
+            "FROM tenant.user_self_child WHERE tenant_id=2 AND user_id=:u "
+            "ORDER BY COALESCE(tax_relief,false) DESC, relief_order NULLS LAST, birth_date NULLS LAST, id"),
+            {"u": tu}).fetchall()
+        out = []
+        for r in rows:
+            out.append({"id": r[0], "child_name": r[1] or "", "birth_date": (r[2].isoformat() if r[2] else ""),
+                        "birth_number": r[3] or "", "relief_order": r[4], "is_dependent": bool(r[5]),
+                        "relation": r[6] or "", "tax_relief": bool(r[7]), "ztp": bool(r[8]),
+                        "relief_from": (r[9].isoformat() if r[9] else ""),
+                        "relief_to": (r[10].isoformat() if r[10] else ""),
+                        "tax_confirmed_by": r[11],
+                        "tax_confirmed_at": (r[12].isoformat() if r[12] else ""),
+                        "note": r[13] or "", "vek_pozn": _child_age_note(r[2])})
+        uplat = [c for c in out if c["tax_relief"]]
+        # Prohlášení poplatníka (Šárka 7.9.2026): sken ve spisu NENÍ podmínkou (podepisuje se
+        # papírově při nástupu, dál řeší Petra) — ANO v Podmínkách = potvrzení HR, karta jen
+        # viditelně označí, když sken chybí.
+        prohl = bool(s.execute(_t(
+            "SELECT 1 FROM tenant.employee_document WHERE tenant_id=2 AND user_id=:u "
+            "AND kategorie='prohlaseni_poplatnika' AND COALESCE(is_active,true)=true "
+            "AND COALESCE(stav,'') NOT IN ('archiv') LIMIT 1"), {"u": tu}).first())
+        return JSONResponse({"ok": True, "deti": out, "doklad": _child_tax_doc_exists(s, tu),
+                             "prohlaseni_doklad": prohl,
+                             "souhrn": {"pocet": len(uplat),
+                                        "poradi": sorted([c["relief_order"] for c in uplat if c["relief_order"]]),
+                                        "ztp": sum(1 for c in uplat if c["ztp"])}})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/children/save")
+async def app_hr_children_save(req: Request) -> JSONResponse:
+    """HR potvrzení daňového zvýhodnění u dítěte. Jen HR/rodiče. Bez dokladu ve spisu NEJDE
+    zaškrtnout; 26+ nejde; 18–26 vyžaduje 'do' (konec potvrzení o studiu). Audit každé změny."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    try:
+        cid = int((b or {}).get("id") or 0)
+        tu = int((b or {}).get("user_id") or 0)
+    except Exception:
+        cid, tu = 0, 0
+    if not cid or not tu:
+        return JSONResponse({"ok": False, "error": "id/user_id"}, status_code=400)
+
+    def _dt(k):
+        v = (b or {}).get(k)
+        v = ("" if v is None else str(v)).strip()
+        return v[:10] or None
+
+    def _b(k, default=False):
+        v = (b or {}).get(k, default)
+        return bool(v) if not isinstance(v, str) else v.strip().lower() in ("1", "true", "ano", "on")
+
+    ro = (b or {}).get("relief_order")
+    try:
+        ro = int(ro) if ro not in (None, "") else None
+    except Exception:
+        ro = None
+    newv = {"tax_relief": _b("tax_relief"), "ztp": _b("ztp"),
+            "relief_from": _dt("relief_from"), "relief_to": _dt("relief_to"), "relief_order": ro}
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cur = s.execute(_t(
+            "SELECT COALESCE(tax_relief,false), COALESCE(ztp,false), relief_from, relief_to, relief_order, "
+            " birth_date, child_name FROM tenant.user_self_child WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+            {"i": cid, "u": tu}).first()
+        if not cur:
+            return JSONResponse({"ok": False, "error": "dítě nenalezeno"}, status_code=404)
+        oldv = {"tax_relief": bool(cur[0]), "ztp": bool(cur[1]),
+                "relief_from": (cur[2].isoformat() if cur[2] else None),
+                "relief_to": (cur[3].isoformat() if cur[3] else None), "relief_order": cur[4]}
+        # Pojistky — jen když se zvýhodnění uplatňuje
+        if newv["tax_relief"]:
+            if not _child_tax_doc_exists(s, tu):
+                return JSONResponse({"ok": False, "error": "Bez dokladu nejde zvýhodnění uplatnit — nahraj do spisu "
+                                     "doklad (kategorie 'Daňové zvýhodnění': rodný list + potvrzení druhého rodiče, "
+                                     "u 18–26 potvrzení o studiu)."}, status_code=200)
+            pozn = _child_age_note(cur[5])
+            if pozn.startswith("26+"):
+                return JSONResponse({"ok": False, "error": "Dítě má 26 a více let — daňové zvýhodnění nelze uplatnit."}, status_code=200)
+            if pozn.startswith("18–26") and not newv["relief_to"]:
+                return JSONResponse({"ok": False, "error": "Dítě 18–26: vyplň 'do' = konec platnosti potvrzení o studiu."}, status_code=200)
+            if not newv["relief_from"]:
+                return JSONResponse({"ok": False, "error": "Vyplň 'od' — zvýhodnění se počítá po měsících."}, status_code=200)
+            if not newv["relief_order"]:
+                return JSONResponse({"ok": False, "error": "Vyplň pořadí dítěte (1., 2., 3.+) — určuje výši zvýhodnění."}, status_code=200)
+        changed = [(k, oldv[k], newv[k]) for k in newv if ("" if oldv[k] is None else str(oldv[k])) != ("" if newv[k] is None else str(newv[k]))]
+        if not changed:
+            return JSONResponse({"ok": True, "changed": 0})
+        conf_sql = ", tax_confirmed_by=:by, tax_confirmed_at=now()" if newv["tax_relief"] else ", tax_confirmed_by=NULL, tax_confirmed_at=NULL"
+        s.execute(_t(
+            "UPDATE tenant.user_self_child SET tax_relief=:tr, ztp=:z, relief_from=:rf, relief_to=:rt, "
+            "relief_order=:ro, updated_at=now()" + conf_sql + " WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+            {"tr": newv["tax_relief"], "z": newv["ztp"], "rf": newv["relief_from"], "rt": newv["relief_to"],
+             "ro": newv["relief_order"], "by": uid, "i": cid, "u": tu})
+        for k, ov, nv in changed:
+            s.execute(_t(
+                "INSERT INTO tenant.user_self_data_log "
+                "(tenant_id, user_id, field_name, old_value, new_value, changed_by, change_source) "
+                "VALUES (2, :u, :fn, :ov, :nv, :by, 'hr')"),
+                {"u": tu, "fn": "dite:" + str(cid) + ":" + k, "ov": ("" if ov is None else str(ov)),
+                 "nv": ("" if nv is None else str(nv)), "by": uid})
+        # Transparentnost: vlastník dostane potvrzení druhým kanálem (stejně jako u účtu).
+        try:
+            _self_notify_owner(s, tu, "👶 Daňové zvýhodnění na dítě — změna",
+                "HR upravilo daňové zvýhodnění u dítěte " + (cur[6] or "") + " ("
+                + ", ".join(k for k, _, _ in changed) + "). Pokud to nesedí, ozvi se HR.")
+        except Exception:
+            pass
+        s.commit()
+        return JSONResponse({"ok": True, "changed": len(changed)})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -14383,7 +14602,10 @@ async def app_hr_person_absence(req: Request):
 
 # ── Dokumenty zaměstnance / digitální šanon (Šárka via Claude-25, 21.7.2026) ──────────
 # Osobní údaje (smlouvy, zápočťák, posudky) → bytea v tenant.employee_document (mimo git).
-_DOK_KAT_OK = {"smlouva", "dodatek", "mzda", "generovana", "zapoctovy", "posudek", "diplom", "gratulace", "ostatni"}
+_DOK_KAT_OK = {"smlouva", "dodatek", "mzda", "generovana", "zapoctovy", "posudek", "diplom", "gratulace", "ostatni",
+               # Daňové slevy (Šárka + Petra 7.9.2026): bez dokladu žádná sleva — Prohlášení poplatníka
+               # a doklady k dítěti (rodný list, potvrzení druhého rodiče, potvrzení o studiu 18–26).
+               "prohlaseni_poplatnika", "danove_zvyhodneni"}
 
 
 def _velikost_h(n) -> str:

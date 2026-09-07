@@ -29971,6 +29971,14 @@ def _mirror_run_job(job_key):
         # Na posunute datum navazuji stravenky. Kod zije v g2007.python, tady delegat.
         "zkusebka_posun_nemoc": lambda: __import__("modules.erp.api.erp_registry",
                                                    fromlist=["call"]).call("zkusebka_posun_nemoc"),
+        # Peta 7.9.2026: mzdova karta v Heliosu (uvazek + kalendar) se do Prahy
+        # neprenasela vubec - Centrala ji posilala do plzenskeho Heliosu, kde uz se
+        # mzdy nepocitaji. Projevilo se to u Bernardove EC 475 (srpen 2026, 5 615 Kc).
+        # Kontrola bezi i jako krok 0 pri generovani; tenhle hlidac navic upozorni
+        # PREDEM - sam se ozve jen kdyz do konce mesice zbyvaji 4 a min pracovni dny.
+        # JEN HLASI (mail Sarce + kopie Pete), do Heliosu nezapisuje.
+        "mzdy_karta_hlidac": lambda: __import__("modules.erp.api.erp_registry",
+                                                fromlist=["call"]).call("mzdy_karta_hlidac"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

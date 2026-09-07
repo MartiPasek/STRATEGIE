@@ -125,8 +125,14 @@ Ověřeno třemi nezávislými způsoby: **žádný výskyt názvu jako řetězc
 | `webview` | 🌐 Web ekosystému |
 
 Obrazovka se pozná tak, že její tělo obsahuje `app.innerHTML = topbar(`. Spodní lišta
-naviguje přes `selectTab(<název>)` a používá jen `home`, `apps`, `notifs`, `contacts`,
+naviguje přes `selectTab(<název>)` a používá jen `home`, `dochazka`, `notifs`,
 `firma`, `settings` — žádné z těch šesti mezi nimi není.
+
+> ⚠️ **Výčet klíčů opraven 7. 9. 2026** (viz rámeček na konci). Do té doby tu stálo
+> `home`, `apps`, `notifs`, `contacts`, `firma`, `settings` — a **byl neplatný hned dvakrát**:
+> `contacts` z lišty vypadlo až 7. 9. 2026, ale **`apps` tam nepatřilo nikdy** (Aplikace se
+> nepřepínají přes `selectTab`, nastavují si `curTab` a `stack` napřímo). **Závěr metody
+> platí dál** — ověřeno 7. 9. 2026: ani jedna ze šesti obrazovek výše mezi klíči lišty není.
 
 > ⚠️ **Doplněno 6. 9. 2026: obrazovek bez cesty je ve skutečnosti SEDM.** Metoda výše ověřovala,
 > jestli na obrazovku něco odkazuje — ale neptala se, jestli je ten odkaz živý. Na `hr_interni`
@@ -149,4 +155,22 @@ naviguje přes `selectTab(<název>)` a používá jen `home`, `apps`, `notifs`, 
 Appka byla čtena pod účtem Jiřího Honomichla, takže dlaždice vázané na práva jiných lidí
 nebyly vidět vykreslené — v rozboru ale jsou, protože jejich kód je v téže stránce.
 Rozhodnutí, co s nálezy udělat, si Jiří Honomichl nechal na samostatnou session.
+
+## ⚠️ Co se v tomto dokumentu 7. 9. 2026 rozešlo se skutečností
+
+**Zadal Jirka Honomichl, provedl Claude-28.** Dvě věci z 5. a 6. 9. 2026 mezitím přestaly platit.
+Oddíly výše se nepřepisují (jsou to datované záznamy auditu), tady je, co dnes platí jinak:
+
+**1) Spodní lišta má jiné složení i jiné klíče.** Od 7. 9. 2026 je to
+**Domů · Moje docházka · Firma · Úkoly · Světla · Aplikace** (šest ikon). Kontakty se
+přesunuly mezi dlaždice Aplikací, docházka je nově přímo v liště a zároveň zmizela z lišty
+skupin na Firmě. Živé klíče `selectTab("…")` jsou dnes **`home`, `dochazka`, `notifs`,
+`firma`, `settings`** — ověřeno nad sestavenou stránkou. Metoda hledání obrazovek bez cesty
+tím **není zneplatněná**, jen se musí brát tenhle výčet, ne ten původní.
+Detail: [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
+
+**2) Dlaždice „Můj úvazek" byla 7. 9. 2026 zrušena.** Oddíl „Co NENÍ duplicita" ji uvádí
+ve dvojici `Týden`/`Můj plán`/`Můj úvazek` (liší se `_planInit`). Zjištění samo bylo správné
+a k datu auditu platilo — dnes už ale ta dlaždice v appce není, takže se z té trojice
+stala dvojice. **Zbytek oddílu platí beze změny.**
 

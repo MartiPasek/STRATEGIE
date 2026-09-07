@@ -10,7 +10,7 @@ lišta s ikonami `#bnav`. Na obrazovce Aplikace se výška spodku snížila ze 1
 
 | pruh | dřív | teď |
 |---|---|---|
-| `#bnav` — Domů/Aplikace/Úkoly/Kontakty/Firma | vždy | **beze změny, vždy** |
+| `#bnav` — hlavní lišta s ikonami | vždy | **beze změny, vždy** (složení ikon se 7. 9. 2026 změnilo, viz rámeček na konci) |
 | `#bnavback` — „← Zpět" | v prohlížeči (na Androidu i v iOS appce skryto) | **nikde**; zapnout jde jen `localStorage stg_backbar='always'` |
 | `#bnavx1` — horní extra pruh | zobrazen na Aplikacích i na Firmě, **vždy prázdný** | **pryč všude** — na Aplikacích 28. 8. 2026, na Firmě 31. 8. 2026 (viz níže) |
 | `#bnavx2` — dolní extra pruh | na Aplikacích jen ikona ⚙ Nastavení; na Firmě lišta skupin | na Aplikacích pryč; **na Firmě beze změny (skupBar)** |
@@ -77,6 +77,24 @@ a hodnota `--navh`) plus kontrola délky sestavené stránky před a po publikac
 V telefonech se nezměnilo nic — pruh „Zpět" tam byl skrytý už dřív a extra pruhy na Aplikacích
 nikdo neztratí (Nastavení je o kus níž). Odstranění prázdného pruhu z Firmy pozná každý, kdo
 tuhle obrazovku otevře: obsah dostal o 52 px víc místa. Nic se tím neztratilo — pruh byl prázdný.
+
+## ⚠️ Od 7. 9. 2026 má lišta jiné složení — a je jich šest, ne pět
+
+**Zadal Jirka Honomichl, provedl Claude-28.** Výčty ikon výše (a měření „všude 5 ikon")
+popisují stav do 6. 9. 2026 — **jako datované pozorování zůstávají, ale už neplatí.**
+
+Nové složení zleva: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.**
+
+- **👤 Kontakty ze spodní lišty zmizely** — jsou nově dlaždice na obrazovce Aplikace, sekce 🧑 MOJE.
+- **🕒 Moje docházka je nově přímo v liště** (druhá zleva) a zároveň **zmizela z lišty skupin
+  na Firmě**, kde do té doby byla posledním tlačítkem vpravo. Lišta skupin proto najíždí
+  na začátek (`scrollLeft=0`), ne na konec.
+- **💡 Světla jsou zatím bez cíle** — po klepnutí se záměrně nic nestane.
+- Ikon je **šest**, takže popisek „Moje docházka" se jako jediný láme na dva řádky.
+
+Ověřeno naživo na `/mobile` po publikaci: pořadí sedí, docházka se z lišty otevírá,
+lišta skupin na Firmě končí u „IT", konzole bez chyb, sestavená stránka má dál 31 skriptových
+bloků a 139 dlaždic.
 
 Souvisí: [[doc-system-strategie-mobil-navh-spodni-lista]] · [[doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje]]
 

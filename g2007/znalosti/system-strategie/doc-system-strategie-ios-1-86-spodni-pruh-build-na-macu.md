@@ -58,3 +58,16 @@
 - Koho se týká: iOS appku má 6 lidí s aktivním tokenem (Honomichl, Pěchouček, Trunec, Jakešová, Porner, Valenta) — z `fw.ios_push_token`.
 - Mechanika lišty a `--navh` — [[doc-system-strategie-mobil-navh-spodni-lista]].
 
+## ⚠️ Složení lišty se 7. 9. 2026 změnilo
+
+**Zadal Jirka Honomichl, provedl Claude-28.** Věta o vizuálním ověření výše uvádí lištu jako
+Domů/Aplikace/Úkoly/Kontakty/Firma. **Jako datovaný záznam toho, co bylo 6. 9. 2026 vidět
+na buildu, zůstává v platnosti** — nepřepisuje se. Jen upozorňuji, že **dnešní stav je jiný**:
+
+**🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace** — tedy **šest ikon**,
+Kontakty se přesunuly mezi dlaždice Aplikací a Světla zatím nemají cíl.
+
+Na zjištění o prázdném pruhu pod lištou to nemá vliv (jde o výšku, ne o obsah), ale kdo bude
+podle téhle znalosti porovnávat screenshot z buildu s dneškem, musí s tím počítat.
+Aktuální složení popisuje [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
+

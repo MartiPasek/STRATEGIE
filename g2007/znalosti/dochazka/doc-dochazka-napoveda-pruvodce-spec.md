@@ -6,7 +6,8 @@
 > Rozhodl Jiri Honomichl 5. 9. 2026. Co uz neplati:
 > - tlacitko "Makat" se jmenuje **START**
 > - tlacitko v liste skupin na Firme "Spoluprace" se jmenuje **Moje dochazka**
-> - dlazdice "Spoluprace" v Aplikacich byla ZRUSENA - na dochazku vede jen Firma -> Moje dochazka
+> - dlazdice "Spoluprace" v Aplikacich byla ZRUSENA - na dochazku se tehdy chodilo pres Firma -> Moje dochazka
+>   (**od 7. 9. 2026 uz to tak neni** - dochazka je druha ikona spodni listy, viz ramecek nize)
 > - dlazdice "Vyhled" byla zrusena (splyvala s "Muj plan")
 > - sekce "Tak to bylo dneska" je natrvalo schovana - zaznam se opravuje dlazdici **Pozadat o opravu**
 > - obrazovka ma nove nadpis "Moje dochazka" a napoveda je jen ikona v jeho liste
@@ -79,7 +80,7 @@ Závazný postup pro celou síť drží `doc-system-strategie-mobil-kde-se-editu
 
 ## ⚠️ SKUTEČNÁ funkčnost docházky (ground truth — proti tomu se píše nápověda)
 
-Obrazovka **🕒 Moje docházka** (Firma → 🕒 Moje docházka; dlaždice v Aplikacích byla 5. 9. 2026 zrušena), shora:
+Obrazovka **🕒 Moje docházka** (od 7. 9. 2026 **druhá ikona spodní lišty**; dlaždice v Aplikacích byla 5. 9. 2026 zrušena a tlačítko na Firmě 7. 9. 2026 taky), shora:
 1. **ZAKÁZKY A ČINNOSTI** (`_buildWorkSwitch`): dlaždice **🧾 Zakázka** (vyber / 🧰 Režie) + **🔧 Činnost**, tlačítko **▶️ START** (spustí docházku z předvýběru). Když makáš: „🟢 MAKÁŠ — klikni a změň" (zakázku/činnost lze měnit za běhu). Pickery: `prace_zak`, `prace_cin`.
 2. **💬 Potřebuji ti něco říct…** (`showOpts`) — menu se liší dle stavu:
    - **MIMO směnu (příchod):** 🚗 Jedu do práce… (5/15/30/45 min/1/1,5/2 h) · 🏢 Jsem v práci… · 🏠 Nejsem v práci… (home office) · 🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve… · 💬 Píši přímo tobě, Marti… · 🙋 Mám dotaz na nadřízeného…
@@ -168,7 +169,8 @@ změní reálnou docházku.
 - **`czDayLabel()` je vnořená uvnitř `dochLoad()`** — modulové funkce na ni nedosáhnou
   (`ReferenceError`). Pro nový kód je modulový **`_czDayLabel()`**.
 - **`go()` NENÍ globální** (vše v jednom IIFE) → automatický test musí proklikat UI
-  (🏢 Firma → 🕒 Moje docházka); `page.evaluate(() => go('...'))` spadne.
+  (🕒 Moje docházka ve spodní liště — od 7. 9. 2026, dřív přes 🏢 Firma);
+  `page.evaluate(() => go('...'))` spadne.
 - **Formulář nikdy nevkládej do rozkliknutého řádku Historie** — rail má `height:38vh`
   s vlastním scrollem, obsah se ořízne a tlačítka vyjedou z displeje. Použij
   celoobrazovkový sheet (`class="appmodal"`, vzor `dochHelp` / `_dochOpravaSheet`).
@@ -180,4 +182,19 @@ změní reálnou docházku.
   „✋ Požádat o opravu (i po potvrzení dne)", řádek v taháku a FAQ
   „Omylem jsem potvrdil den…"; oddíly „✅ Potvrzení docházky" a „🙋 Pomoc, zprávy
   a opravy" na ni odkazují.
+
+## ⚠️ 7. 9. 2026 — docházka je nově přímo ve spodní liště
+
+**Zadal Jirka Honomichl, provedl Claude-28.** Tři místa výše popisovala cestu
+**🏢 Firma → 🕒 Moje docházka** — ta **už neexistuje** a jsou opravená.
+
+Dnešní stav spodní lišty: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.**
+
+- **Docházka je druhá ikona zleva** — jeden dotyk odkudkoli.
+- **Z lišty skupin na Firmě tlačítko zmizelo**, aby nebyla na dvou místech.
+- **👤 Kontakty ze spodní lišty odešly** mezi dlaždice Aplikací (sekce 🧑 MOJE).
+- **Text nápovědy v appce je už opravený** — říká „Docházku najdeš dole ve spodní liště".
+
+**Pro automatické testy:** na docházku se proklikáváš druhou ikonou spodní lišty,
+ne přes Firmu. `go()` dál není globální, takže se musí klikat.
 

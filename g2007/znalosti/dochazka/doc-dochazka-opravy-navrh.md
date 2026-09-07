@@ -6,7 +6,8 @@
 > Rozhodl Jiri Honomichl 5. 9. 2026. Co uz neplati:
 > - tlacitko "Makat" se jmenuje **START**
 > - tlacitko v liste skupin na Firme "Spoluprace" se jmenuje **Moje dochazka**
-> - dlazdice "Spoluprace" v Aplikacich byla ZRUSENA - na dochazku vede jen Firma -> Moje dochazka
+> - dlazdice "Spoluprace" v Aplikacich byla ZRUSENA - na dochazku se tehdy chodilo pres Firma -> Moje dochazka
+>   (**od 7. 9. 2026 uz to tak neni** - dochazka je druha ikona spodni listy, viz konec dokumentu)
 > - dlazdice "Vyhled" byla zrusena (splyvala s "Muj plan")
 > - sekce "Tak to bylo dneska" je natrvalo schovana - zaznam se opravuje dlazdici **Pozadat o opravu**
 > - obrazovka ma nove nadpis "Moje dochazka" a napoveda je jen ikona v jeho liste
@@ -552,7 +553,8 @@ Rozhodl Jirka 21. 7.: **obojí cesta**, **bez časového omezení**.
 - **`czDayLabel()` je vnořená uvnitř `dochLoad()`** — modulové funkce na ni
   nedosáhnou (`ReferenceError`). Pro nový kód vznikl modulový `_czDayLabel()`.
 - **`go()` NENÍ globální** (vše je v jednom IIFE) → Playwright test musí
-  proklikat UI (🏢 Firma → 🕒 Moje docházka), `page.evaluate(() => go(...))` spadne.
+  proklikat UI (🕒 Moje docházka ve spodní liště — od 7. 9. 2026, dřív přes 🏢 Firma),
+  `page.evaluate(() => go(...))` spadne.
 - **Formulář uvnitř rozkliknutého řádku Historie se nevejde** — rail má
   `height:38vh` s vlastním scrollem, hlavička se ořízne a tlačítka vyjedou mimo
   displej. Řešení: celoobrazovkový sheet `_dochOpravaSheet()` (vzor `dochHelp`).
@@ -659,4 +661,18 @@ Pokud se to v praxi ukáže jako problém, hotové řešení je **navázat pravi
 `att_period_lock`** místo na kalendář (žádost jde, dokud měsíc není zamčený) —
 splní Peťin důvod a přelom měsíce nerozbije. Peťa je na tenhle důsledek
 upozorněna e-mailem.
+
+## ⚠️ 7. 9. 2026 — cesta k docházce se zkrátila
+
+**Zadal Jirka Honomichl, provedl Claude-28.** Dvě místa výše popisovala cestu
+**🏢 Firma → 🕒 Moje docházka** — ta **už neexistuje** a jsou opravená.
+
+Docházka je nově **druhá ikona spodní lišty**, takže se otevře jedním dotykem odkudkoli.
+Z lišty skupin na Firmě tlačítko zmizelo, aby nebylo na dvou místech.
+Celá lišta je dnes: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace**
+(Kontakty se přesunuly mezi dlaždice Aplikací, Světla zatím nemají cíl).
+
+**Na návrh oprav docházky to nemá věcný vliv** — mění se jen to, jak se člověk na obrazovku
+dostane, ne co na ní dělá. Důležité je to pro **automatické testy**: klikat druhou ikonu
+spodní lišty, ne Firmu. Detail: [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
 

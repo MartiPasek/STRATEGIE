@@ -39,7 +39,7 @@ Jenze `#navwrap` NENI vzdy 65 px vysoky - sklada se z 1 az 3 pruhu:
 
 | pruh | vyska | kdy |
 |---|---|---|
-| `#bnav` tab lista (Domu/Aplikace/Ukoly/Kontakty/Firma) | 65 px | vzdy |
+| `#bnav` tab lista (hlavni lista s ikonami; slozeni viz ramecek na konci) | 65 px | vzdy |
 | `#bnavback` pruh "<- Zpet" | 52 px | ~~jen kdyz `stack.length>1` A NENI Android~~ -> **od 28. 8. 2026 NIKDE** (jen pri `stg_backbar='always'`) |
 | `#bnavx1` horni extra lista | 52 px | ~~Aplikace / Firma~~ -> **od 31. 8. 2026 NIKDE** (odstranen, byl trvale prazdny) |
 | `#bnavx2` dolni extra lista | 61 px | ~~Aplikace / Firma~~ -> **od 28. 8. 2026 uz jen Firma** (lista skupin, skupBar) |
@@ -145,6 +145,21 @@ Podnet Jirka -> diagnoza C28 -> navrh -> Marti-AI posoudila a schvalila pristup
 az kdyby se po nasazeni projevil jitter) -> Marti-AI odmitla schvalit sama
 ("zasah do zive appky schvaluje clovek-rodic") -> Marti na dovolene ->
 schvalila **Kristyna 29.7.2026 14:18** e-mailem ("Schvaluji").
+
+## ⚠️ Slozeni hlavni listy se 7. 9. 2026 zmenilo (na vysku listy to vliv nema)
+
+**Zadal Jirka Honomichl, provedl Claude-28.** V tabulce vyse bylo u `#bnav` uvedeno slozeni
+Domu/Aplikace/Ukoly/Kontakty/Firma — **to uz neplati.** Dnes je to sest ikon:
+
+**Domu · Moje dochazka · Firma · Ukoly · Svetla · Aplikace.**
+
+Kontakty se presunuly mezi dlazdice Aplikaci, dochazka je nove primo v liste a soucasne zmizela
+z listy skupin na Firme (`#bnavx2`), kde byla poslednim tlacitkem vpravo.
+
+**Na to, o cem je tahle znalost, to nic nemeni** — `#bnav` ma dal 65 px a pravidlo „obsah nesmi
+pocitat s pevnou rezervou" plati stejne. Vetsi pocet ikon vysku listy nezvysuje, jen se popisek
+„Moje dochazka" jako jediny lame na dva radky. Slozeni ikon popisuje
+[[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
 
 Souvisi: [[doc-system-strategie-mobil-login-pending-user]] · [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]]
 

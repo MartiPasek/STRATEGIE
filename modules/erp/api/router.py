@@ -10992,6 +10992,43 @@ async def app_hr_photo_posoudit(req: Request, file: UploadFile = File(...)):
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/hr/photo/kontrola")
+async def app_hr_photo_kontrola(req: Request) -> JSONResponse:
+    """Spustí zpětnou kontrolu profilových fotek (jen HR).
+
+    Body: {"nasucho": true|false, "limit": N, "vse": true|false}
+      • nasucho=true (výchozí) → nic se nesmaže a nikomu nic nepřijde, jen se do
+        karty zapíše výsledek posudku. Vždycky si to nejdřív pusť nasucho.
+      • vse=true → přeposoudí i fotky, které posudkem už prošly (po změně kritérií);
+        jinak jen ty se stavem nezkontrolovano/chyba.
+      • limit → kolik fotek za jeden běh (výchozí 25). Posudek trvá pár vteřin na
+        fotku, takže velká dávka by narazila na timeout brány — pouštěj po dávkách.
+
+    Ops akce `profil_foto_scan` dělá totéž, ale je jen pro rodiče; tohle je cesta
+    pro personalistku (Jirka 7.9.2026)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        cm.__exit__(None, None, None)
+    try:
+        d = await req.json()
+    except Exception:
+        d = {}
+    nasucho = bool(d.get("nasucho", True))
+    vse = bool(d.get("vse", False))
+    try:
+        lim = max(1, min(200, int(d.get("limit") or 25)))
+    except Exception:
+        lim = 25
+    out = _profil_foto_scan(force=vse, limit=lim, dry=nasucho)
+    return JSONResponse(jsonable_encoder({"ok": out.get("ok", False), **out}))
+
+
 @api_router.get("/app/hr/photo-pending")
 async def app_hr_photo_pending(req: Request):
     """Seznam čekajících fotek ke schválení (jen HR)."""

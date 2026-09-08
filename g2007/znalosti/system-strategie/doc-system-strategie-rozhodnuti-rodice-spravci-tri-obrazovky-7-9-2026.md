@@ -1,6 +1,24 @@
-# Rodic otevrel spravci (Jirkovi) tri obrazovky Rizeni a systemu, rodicem se nestava (7. 9. 2026)
+# Rodic otevrel spravci (Jirkovi) tri obrazovky Rizeni a systemu, rodicem se nestava (7. 9. 2026; PROVEDENO 8. 9. 2026)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+> ## PROVEDENO 8. 9. 2026 — cast "Jak se to ma provest" uz popisuje MINULOST
+>
+> Vsech pet mist je prepnutych a nasazenych (commit `e5793bbe`, API restartovano).
+> Udelal to Claude-28 (Jirka) podle navodu nize; `_app_parent` zustal NEDOTCENY a vznikl
+> vedle nej novy pomocnik **`_app_admin`** (`is_admin` NEBO `is_marti_parent`), ktery se
+> pouziva na `/app/ops/actions`, `/app/ops/log`, `/app/ops/run`, `/app/migrace/steps`
+> a `/app/coord/board`. Overeno naostro na uctu Jiriho Honomichla (spravce, ne rodic) —
+> vsechny tri obrazovky se otevrely. Otevreny bod ze zaveru dokumentu je tim rozhodnuty:
+> **zvolena byla minimalni zaplata v `router.py`, ne migrace do `g2007.python`** (zasah do
+> prihlasovani, mensi riziko). Koordinacni potreba `fw.claude_coord` c. 35 je uzavrena.
+>
+> **Doplneni k historii:** Kristyna 8. 9. 2026 uvedla, ze ji k tomuhle rozhodnuti nikdy
+> neprisel schvalovaci prouzek — zadost z 6. 9. dorazila jako **zprava s jedinym tlacitkem
+> OK** (`fw.mobile_command` 23645, typ `claude_msg`), takze nemela co potvrdit. Rozhodnuti
+> proto 8. 9. 2026 v 10:06 potvrdila znovu, uz radnym souhlasem Ano/Ne
+> (`fw.mobile_command` 23999). Jak se posila skutecna zadost o souhlas, popisuje
+> `doc-system-strategie-zadost-o-souhlas-clovekem-musi-byt-claude-confirm`.
 
 # Rozhodnuti rodice: spravci se otviraji Ops akce, Migrace a Sit Claudu
 

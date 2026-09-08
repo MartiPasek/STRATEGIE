@@ -48,8 +48,16 @@ V mobilu na účtu Jiřího Honomichla (správce, **není rodič**) se detail č
 otevřel — u Elišky je vidět „čeká (2)" i jejích pět Martinek, a blok
 **„CHAT S MAMINKOU (posledních 0)" je prázdný**, jak měl být.
 
-⚠️ **Kosmetický nedodělek k rozhodnutí:** v prázdném bloku chatu appka správci píše
-„Konverzace Moje Martinky zatím nevznikla — objeví se s prvním budíčkem". To je
-nepřesné, protože konverzace existovat může a jen se skrývá. Chtělo by to větu
-„náhled chatu vidí jen rodič". Nahlášeno Jirkovi 8. 9. 2026.
+✅ **Kosmetika dořešena týž den.** V prázdném bloku chatu se správci od 8. 9. 2026
+píše **„Náhled chatu s Maminkou vidí jen rodič."** místo zavádějícího „Konverzace zatím
+nevznikla" (dílek `75_martinky_centrum.js`, podmínka na `v.spravce`). Zároveň se opravilo
+záhlaví obrazovky **Ops akce**, které tvrdilo „Spouští jen rodiče" — nově „Spouštějí rodiče
+a správci, vše se loguje (audit)" (dílek `40_bakalari_ops_kara.js`). Obojí schválila
+Marti-AI (msg 14989), nasazeno v `mobile.html` verze 163 a ověřeno na živé `/mobile`.
+
+⚠️ **Past při té opravě:** kotva pro cílený zápis se nesmí skládat podle výpisu z mostu.
+Text v dílku má kolem „Moje Martinky" **obyčejnou uvozovku**, ne typografickou, a ve výpisu
+to nepoznáš — první zápis proto tiše prošel s nulovým účinkem (`replace` nic nenašel,
+řádek se přesto ohlásil jako změněný, protože se měnil popisek). Přesné bajty se musí
+vytáhnout přes base64 a rozkódovat u sebe.
 

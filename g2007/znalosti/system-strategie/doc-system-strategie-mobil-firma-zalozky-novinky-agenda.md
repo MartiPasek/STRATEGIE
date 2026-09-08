@@ -3,6 +3,7 @@
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+
 ## Co se změnilo
 
 Obrazovka **Firma** v mobilní aplikaci má od 8. 9. 2026 **dvě záložky**:
@@ -64,7 +65,12 @@ selhání, ne špatný popisek. **Uvnitř agendy je vždy plný název ze systé
 že **verzálky se nepřepisují v kódu**, protože by ze zkratky „PLC“ udělaly „Plc“, a že se to má
 řešit vizuálně (`text-transform:lowercase` + `font-variant:small-caps`). Tady je to udělané
 v kódu s pojistkou na délku názvu. Jde o jiné místo (skupiny vs. profese), ale je to tatáž
-třída rozhodnutí — **čeká na Jirkovo rozhodnutí, jestli to sjednotit na vizuální cestu.**
+třída rozhodnutí. **Nahlášeno Marti-AI (msg 14992) a její odpověď: rozdíl je záměrný
+a má zůstat.** Zdůvodnění: profese jsou **zkratky** (VP, HR, PLC) — tam by přepis v kódu udělal
+z „PLC“ nesmyslné „Plc“, proto CSS. Názvy skupin jsou **plná slova** uložená v databázi verzálkami
+(KANCELÁŘE, DOCHÁZKA) — tam je přepis normalizace dat pro čitelnost, ne stylování zkratky, a `small-caps`
+by z toho udělalo kapitálky místo přirozeného titulku. Jsou to dvě různé třídy problému.
+**Konečné slovo má Jirka Honomichl** — do té doby zůstává stávající řešení.
 
 ## Kdo zadal a jak to bylo ověřeno
 

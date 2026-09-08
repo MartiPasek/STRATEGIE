@@ -25814,141 +25814,16 @@ async def app_skupiny_bar(req: Request) -> JSONResponse:
 
 @api_router.get("/app/skupina/lidi")
 async def app_skupina_lidi(req: Request) -> JSONResponse:
-    """Konzole skupiny: lidé řazení vedoucí (král) → zástupce → ostatní podle
-    skóre výkonnosti, s dnešním docházkovým stavem (stejná logika jako výroba).
-    gid=0 = všichni lidé. Marti 10.6.2026. Zatím vidí všichni vše."""
+    """Konzole skupiny (agendy): seznam lidi s dnesnim dochazkovym stavem.
+    TENKA SPOJKA - logika zije v g2007.python kod=app_skupina_lidi
+    (preneseno 1:1 dne 8.9.2026, Jirka Honomichl, schvalila Marti-AI msg 15050)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    try:
-        gid = int(req.query_params.get("gid", "0"))
-    except Exception:
-        gid = 0
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        stavinfo = {}
-        try:
-            srows = s.execute(_t(
-                "SELECT e.user_id, "
-                " bool_or(a.is_active AND et.category IN ('presence','overhead') AND a.status NOT IN ('superseded','announced')) AS aktiv, "
-                " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
-                " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
-                " (array_agg(CASE WHEN a.project_ref IS NOT NULL THEN a.project_ref WHEN et.code='overhead' THEN 'Režie' END ORDER BY a.id DESC) FILTER (WHERE a.is_active AND (a.project_ref IS NOT NULL OR et.code='overhead')))[1] AS proj, "
-                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.code='overhead')) AS prace, "
-                " bool_or(a.is_active AND a.source_system='centrala1' AND a.status NOT IN ('superseded','announced')) AS ec_open "
-                "FROM tenant.att_entry a "
-                "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
-                "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-                "WHERE a.tenant_id=2 AND a.entry_date=CURRENT_DATE AND e.user_id IS NOT NULL "
-                "GROUP BY e.user_id")).fetchall()
-            for r in srows:
-                nl = (r[3] or "").lower()
-                if ("jedu" in nl) or ("cest" in nl):
-                    st = "jedu"
-                elif r[1]:
-                    # Marti 13.6.: ve směně + zakázka NEBO režie = Makám; ve směně bez práce = Čekám
-                    st = "makam" if r[5] else "cekam"
-                elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
-                    st = "pauza"
-                elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
-                    st = "pryc"
-                elif (r[2] or 0) > 0:
-                    st = "byl"
-                else:
-                    st = ""
-                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or ""), "ec": bool(r[6])}
-        except Exception:
-            stavinfo = {}
-
-        ordered = []
-        if gid > 0:
-            g = s.execute(_t("SELECT id, name, COALESCE(NULLIF(icon,''),'👥'), leader_user_id, deputy_user_id "
-                             "FROM tenant.staff_group WHERE tenant_id=2 AND id=:g"), {"g": gid}).first()
-            if not g:
-                return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-            group = {"id": g[0], "name": g[1], "icon": g[2]}
-            seen = set()
-            if g[3]:
-                ordered.append((g[3], "lead", None))
-                seen.add(g[3])
-            if g[4] and g[4] not in seen:
-                ordered.append((g[4], "deputy", None))
-                seen.add(g[4])
-            for m in s.execute(_t("SELECT user_id, score FROM tenant.staff_group_member "
-                                  "WHERE tenant_id=2 AND group_id=:g AND user_id IS NOT NULL "
-                                  "ORDER BY COALESCE(score,0) DESC, user_id"), {"g": gid}).fetchall():
-                if m[0] in seen:
-                    continue
-                ordered.append((m[0], "member", m[1]))
-                seen.add(m[0])
-        else:
-            group = {"id": 0, "name": "Všichni", "icon": "🌐"}
-            leaders, deputies = set(), set()
-            for r in s.execute(_t("SELECT leader_user_id, deputy_user_id FROM tenant.staff_group "
-                                  "WHERE tenant_id=2 AND COALESCE(archived,false)=false")).fetchall():
-                if r[0]:
-                    leaders.add(r[0])
-                if r[1]:
-                    deputies.add(r[1])
-            scoremap = {}
-            for r in s.execute(_t("SELECT user_id, max(score) FROM tenant.staff_group_member "
-                                  "WHERE tenant_id=2 AND user_id IS NOT NULL GROUP BY user_id")).fetchall():
-                scoremap[r[0]] = r[1]
-            # „Všichni" = DISTINCT union lidí ze VŠECH skupin (vedoucí + zástupci +
-            # členové) + docházkový roster — ať nikdo nevypadne, i když není v docházce
-            # (Marti 10.6.: PLC členové chyběli, protože nebyli v att_employee).
-            for r in s.execute(_t(
-                "SELECT user_id FROM tenant.att_employee WHERE tenant_id=2 AND user_id IS NOT NULL AND is_active=true "
-                "UNION SELECT leader_user_id FROM tenant.staff_group "
-                "  WHERE tenant_id=2 AND leader_user_id IS NOT NULL AND COALESCE(archived,false)=false "
-                "UNION SELECT deputy_user_id FROM tenant.staff_group "
-                "  WHERE tenant_id=2 AND deputy_user_id IS NOT NULL AND COALESCE(archived,false)=false "
-                "UNION SELECT m.user_id FROM tenant.staff_group_member m "
-                "  JOIN tenant.staff_group g ON g.id=m.group_id "
-                "  WHERE g.tenant_id=2 AND m.user_id IS NOT NULL AND COALESCE(g.archived,false)=false")).fetchall():
-                u = r[0]
-                role = "lead" if u in leaders else ("deputy" if u in deputies else "member")
-                ordered.append((u, role, scoremap.get(u)))
-
-        uids = [u for (u, _, _) in ordered]
-        names = {}
-        if uids:
-            for r in s.execute(_t(
-                "SELECT id, NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
-                "FROM public.users WHERE id = ANY(:ids)"), {"ids": uids}).fetchall():
-                names[r[0]] = r[1]
-        planoff = set()
-        try:
-            for r in s.execute(_t(
-                "SELECT user_id, expected_hours, day_type FROM tenant.att_plan_effective "
-                "WHERE tenant_id=2 AND plan_date=CURRENT_DATE")).fetchall():
-                if float(r[1] or 0) <= 0 or (r[2] in ("weekend", "holiday", "off")):
-                    planoff.add(r[0])
-        except Exception:
-            planoff = set()
-        lidi = []
-        for (u, role, score) in ordered:
-            si = stavinfo.get(u, {})
-            _st = si.get("st", "")
-            if _st == "" and u in planoff:
-                _st = "mimo_plan"
-            lidi.append({"user_id": u, "jmeno": names.get(u) or ("#" + str(u)),
-                         "role": role, "score": score, "stav": _st,
-                         "stav_pozn": si.get("note", ""), "stav_zak": si.get("proj", ""),
-                         "ec_old": bool(si.get("ec", False))})
-        if gid == 0:
-            _rr = {"lead": 0, "deputy": 1, "member": 2}
-            lidi.sort(key=lambda x: (_rr.get(x["role"], 2),
-                                     -(x["score"] if x["score"] is not None else -9999),
-                                     (x["jmeno"] or "").lower()))
-        s.commit()
-        return JSONResponse(jsonable_encoder({"ok": True, "group": group, "lidi": lidi}))
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_skupina_lidi", uid, req.query_params.get("gid", "0"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/all-users")

@@ -107,7 +107,7 @@ tehoz dne, rozhodl Jirka Honomichl:**
 | Osirely soubor | Kde obsah zije dnes | Osud souboru |
 |---|---|---|
 | `doc-mzdy-vyhodnoceni-zakazek` | `doc-vyroba-vyhodnoceni-zakazek` (presun z oblasti mzdy do vyroba) | **smazan**, commit `b556406a` |
-| `doc-system-g2007-120-claude-zevnitr-co-chybi` | `doc-go-120-claude-zevnitr-co-chybi` | **smazan**, tyz commit |
+| `doc-system-g2007-120-claude-zevnitr-co-chybi` | `doc-system-g2007-go-120-claude-zevnitr-co-chybi` | **smazan**, tyz commit |
 | `doc-mzdy-mzdy-podklad-zdroj-pravdy` | rozpadlo se do `doc-dochazka-att-day-summary-z-att-entry` + `doc-mzdy-zrcadlo-dochazky-ze-strategie` | **PONECHAN SCHVALNE** |
 
 **Proc treti zustava.** Ma od 14. 8. 2026 varovny banner ("ZASTARALE - znalost zije v DB pod

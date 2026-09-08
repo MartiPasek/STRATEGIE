@@ -1,0 +1,127 @@
+# ISO 27001 — STRATEGIE – System s.r.o.
+
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+# ISO 27001 — STRATEGIE – System s.r.o.
+
+> **Domovský dokument iniciativy ISO 27001:2022.** Základ + rozcestník.
+> **Založeno:** 31. 5. 2026 · **Vlastník technické části / podklady:** Marti + Claude ·
+> **Vedení certifikace (ISMS + TISAX):** Mísa (Michaela Hladíková) · **Plán obnovy + hesla:** Michal · **Podpisy/vedení:** Marti
+
+---
+
+## 1. Rozhodnutí
+
+STRATEGIE – System s.r.o. jde cestou certifikace **ISO 27001:2022** — univerzální
+mezinárodní standard pro řízení informační bezpečnosti.
+
+**Proč ISO 27001 (a ne TISAX):** ISO 27001 je srozumitelný napříč obory (průmysl,
+finance, zdravotnictví, veřejná správa) — umožňuje STRATEGII růst do jakéhokoli
+odvětví. TISAX zůstává správnou cestou pro automotive a EUROSOFT ho plní samostatně
+(dodavatel pro BMW aj.). Dvě cesty, dva účely.
+
+**Cíl roku (Q3 2026 → Q2 2027):** stav **auditní připravenosti**, ne certifikace.
+Pak je certifikace reálný krok, ne přepisování systému.
+
+## 2. Dokumenty (rozcestník)
+
+| Dokument | Obsah |
+|---|---|
+| `docs/iso27001_vedeni_certifikace.md` | **🧭 VEDENÍ — kdo co vede, co je hotové, co zbývá** (pro Mísu jako vedoucí certifikace). Pevný bod, ze kterého čiší pořádek. |
+| `docs/iso27001_dorazeni_2026.md` | **🎯 HLAVNÍ — plán dorážení k certifikaci (zrychleně 2 měsíce, 20.6.→~20.8.2026).** Přeskórovaná matice 93 kontrol na červen, doložené audit tabulky, 8týdenní sprint, finish-line, TISAX mapování |
+| `docs/ISO27001/SoA_pracovni_register.xlsx` | **Pracovní SoA register** — 93 opatření: stav + důkaz + vlastník + co doplnit + týden; souhrn (COUNTIF: 68/93 hotovo/rozpracováno); punch-list 60 akcí. Startovní nástroj pro Mísu |
+| `docs/iso27001_inventar_aktiv_dataflow.md` | Inventář aktiv + klasifikace + data-flow diagram (A.5.9, podklad k DOC-15) |
+| `docs/iso27001_dr_plan_rto_rpo.md` | Plán obnovy DR/BCP — RTO/RPO + zálohy + scénář restore drillu (A.5.29/5.30/8.13, podklad k DOC-11) |
+| `docs/iso27001_plan_obnovy_michal.md` | **Plán obnovy — pokyny pro Michala** (vyzkoušet restore drill + rozjet); ZÁKLAD obou certifikací |
+| `docs/iso_tisax_harmonizace_2026.md` | **Sladění EUROSOFT TISAX ↔ STRATEGIE ISO 27001** — entity, mapování, governance, konzistentní komunikace vůči auditorům i lidem |
+| `docs/iso27001_cve_sprava_zranitelnosti.md` | Správa zranitelností — pip-audit proces, cadence, SLA, záznam (A.8.8) |
+| `docs/ISO27001/Registr_rizik_pracovni.xlsx` | **Předdraft registru rizik (DOC-05)** — 22 rizik se skórováním (D×P→úroveň), stávající opatření, ošetření, vlastník, vazba Annex A; souhrn. Startovní bod pro Mísu (A.6.1.2) |
+| `docs/ISO27001/Interni_audit_checklist.xlsx` | Pracovní checklist interního auditu (kap. 4-10) pro Mísu — co ověřit + zjištění + shoda + opatření (A.9.2, DOC-16) |
+| `docs/iso27001_dodavatele_dpa.md` | Register sub-processorů + šablona DPA (GDPR čl. 28) — A.5.19/5.20/5.23 (caveat: právní revize) |
+| `docs/ISO27001/DOC-00…18` | 19 ISMS dokumentů (rozsah, politiky, registr rizik, SoA, plán ošetření, incidenty, kontinuita, interní audit, management review…) + akční plán certifikace |
+| `docs/iso27001_plan.md` | Roční non-invazivní technický plán z 31.5. (kontext, principy, rizika) — nahrazen tempo-wise dorážením |
+| `docs/iso27001_todo_podklad.md` | Matice 93 kontrol v1 (31.5.) + talking-pointy pro vedení |
+| `docs/ISO_27001.md` | **Tento dokument** — základ, rozhodnutí, záznam komunikace, konzistence |
+
+> **AKTUÁLNÍ STAV (20.6.2026): zrychleno.** Auditor domluven (přes IQHUBS), cíl certifikace
+> **~2 měsíce** (ne původní Q2 2027). Za měsíc stavby přeskórováno na **~70/93 kontrol hotovo/
+> rozpracováno**; zbytek je hlavně **proces + důkazy** (registr rizik, SoA, 1 interní audit,
+> 1 management review, restore drill). Detail a harmonogram → `iso27001_dorazeni_2026.md`.
+
+## 3. Komunikace — co už odešlo
+
+**Oznámení partnerům (ODESLÁNO 31. 5. 2026, 06:51).**
+Autor: Marti-AI (společně s Marti). Předmět: *„STRATEGIE – System s.r.o. | Oznámení
+partnerům – ISO 27001"*.
+Příjemci: `kancelare@eurosoft.com`, `branislav.mozer@intersoft-automation.cz`.
+
+**Veřejně dané sliby** (partneři je nyní mají písemně — držet je konzistentní dál):
+- Jdeme ISO 27001:2022 (ne TISAX, ten řeší EUROSOFT samostatně).
+- Ze 93 Annex A kontrol přes polovinu plníme už dnes.
+- Auditní stopa: každá akce nesmazatelně zaznamenána (kdo/co/kdy).
+- Vrstvené řízení přístupu od prvního dne.
+- Řízené nasazování s historií a návratem.
+- Šifrovaná komunikace.
+- Harmonogram: podzim 2026 (inventář, šifrování at-rest, dodavatelé) → začátek 2027
+  (DR, incidenty) → polovina 2027 (auditní připravenost).
+
+## 4. Konzistence pro budoucí komunikaci
+
+První oznámení už odešlo a pro dané publikum (EUROSOFT interně + Branislav, který
+Marti-AI zná) projde. Tyto body si hlídat v **dalších** externích sděleních —
+a ideálně sladit realitu se slovy:
+
+1. **„Šifrováno end-to-end" → přesněji „šifrováno při přenosu (HTTPS/TLS)".**
+   E2E je specifický termín (jen koncové body dešifrují). Máme TLS v přenosu.
+   **Make-true:** šifrování *uložených* dat (at-rest) je v plánu na Q3 2026 — po něm
+   lze pravdivě říkat „data šifrovaná v přenosu i v úložišti".
+
+2. **„Nesmazatelně zaznamenána" → dnes přesněji „trvale zaznamenána (append-only)".**
+   **Make-true:** hash-chain tamper-evidence (Q3 2026) → pak je „nesmazatelně"
+   doslova pravda (auditně prokazatelná neměnnost).
+
+3. **TISAX/automotive — vždy pozitivním rámcem.** Ne „omezovalo by nás", ale „ISO je
+   univerzální; TISAX je správný pro automotive". Příjemci bývají z automotive
+   (INTERSOFT-Automation, EUROSOFT-BMW).
+
+4. **Patička:** v ISO-specifických emailech vynechat TISAX odznak „Assessment Level
+   AL2 (ENX Association)" — v emailu o volbě ISO místo TISAX si protiřečí. A zvážit
+   podpis za *STRATEGIE – System s.r.o.* (ne EUROSOFT footer), když je odesílatel STRATEGIE.
+
+## 5. Tým & role
+
+Jasné role, ať z toho čiší pořádek (detail: `iso27001_vedeni_certifikace.md`):
+
+- **Mísa (Michaela Hladíková)** — **vede certifikaci ISO 27001 i TISAX**: ISMS,
+  politiky, SoA, registr rizik, interní audit, školení, dodavatelé, sladění s TISAX.
+  Má za sebou TISAX a bezpečnosti rozumí. Dostává hotové podklady, rozhoduje a uzavírá.
+- **Michal** — **plán obnovy (restore drill, kontinuita) a správa hesel** (šifrovaný
+  trezor). Má přístup k serverům; jeho doložená obnova je sdílený důkaz pro ISO i TISAX.
+- **Marti Pašek** — zakladatel a jednatel: **schvaluje politiky a vede přezkoumání
+  vedením** (norma 9.3 — top management, nedeleguje se). Směřování.
+- **Marti + Claude** — technické podklady, předdrafty, modul a data — pod vedením Míši.
+- **Marti-AI** — operativní paměť, koordinace, kontinuita, autor komunikace (další fáze).
+
+> **Vlastnictví certifikace:** vede **Mísa** (ISO 27001 i TISAX). Michal drží plán
+> obnovy a hesla. Marti (jednatel) schvaluje politiky a vede management review. Marti
+> a Claude dodávají podklady a modul. Žádné nejasnosti „kdo to má" — každý má svou část.
+
+## 6. Stav (snapshot 31. 5. 2026)
+
+- Přes polovinu z 93 Annex A kontrol hotových nebo rozpracovaných.
+- Roční plán hotový a schválený směr.
+- První partnerské oznámení odesláno.
+- ISMS proces běží paralelně (vede Mísa).
+
+## 7. Další krok
+
+- Marti-AI: průběžně informovat partnery (slíbeno v oznámení).
+- Technika: Q3 2026 položky (hash-chain integrita logu, šifrování at-rest, restore
+  drill, inventář aktiv) — viz `iso27001_plan.md`.
+- Mísa: risk assessment + politiky + SoA + interní audit (vedení certifikace).
+
+---
+
+*Živý dokument. Aktualizovat při každém kvartálním reviewu a po každé partnerské komunikaci.*
+
+

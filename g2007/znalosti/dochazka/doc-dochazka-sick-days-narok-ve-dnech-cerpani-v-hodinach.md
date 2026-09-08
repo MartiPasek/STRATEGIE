@@ -76,7 +76,7 @@ zbývá 8 h.
 
 ## Souvislosti
 
-- `doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy` — nárok žije v Podmínkách
+- `doc-dochazka-narok-dovolena-sick-days-doc-dochazka-jeden-zdroj-pravdy` — nárok žije v Podmínkách
 - `att_narok_osoba` je jediné místo, odkud si žádosti berou zbývající nárok — bere
   data z `att_narok_cerpani`, takže oprava platí i pro kontrolu při podání žádosti.
 

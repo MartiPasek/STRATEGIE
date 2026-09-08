@@ -11,7 +11,7 @@
 - **NEpřesunuto (správně):** `ec_*` zrcadla — nejsou čistě kalkulační, sahá na ně celý ERP; `proj.kalk_*` si je čte přes schéma.
 
 ## Rozhodnutí o schématu (Marti, 22.7.2026)
-Jedno schéma **`proj`** = domov pro **řízení a vedení projektů** (výhledově celá firma). Prefixy: **`proj.kalk_*`** (kalkulace) + **`proj.cenik_*`** (ceník) + do budoucna **`proj.plan_*`/`proj.zakazka_*`/`proj.ukol_*`** (provoz, dle „všechno je plán" — `doc-vp-ai-rizeni-vize`).
+Jedno schéma **`proj`** = domov pro **řízení a vedení projektů** (výhledově celá firma). Prefixy: **`proj.kalk_*`** (kalkulace) + **`proj.cenik_*`** (ceník) + do budoucna **`proj.plan_*`/`proj.zakazka_*`/`proj.ukol_*`** (provoz, dle „všechno je plán" — `doc-system-g2007-vp-ai-rizeni-vize`).
 
 ## Úklid — VERDIKTY (finalizováno 22.7. večer, ověřeno kódem)
 - **NECHAT:** celé `proj.kalk_*` + `proj.cenik_*`. Také **`es_doklad_zbozi`** — NENÍ mrtvá (empty jen dočasně): zrcadlo **ES faktur/dokladů z Heliosu**, `bank_api.py` do ní syncuje i z ní čte. (Oprava dřívějšího chybného „smazat".)
@@ -25,5 +25,5 @@ Jedno schéma **`proj`** = domov pro **řízení a vedení projektů** (výhledo
 3. `ec_cenik_vzorec*` — použití/duplicita vůči `proj.cenik_vzorec`?
 
 ## Vazby
-Datová mapa: `doc-kalkulace-rozvadecu-datova-mapa-tabulky`. Vize AI-řízení VP: `doc-vp-ai-rizeni-vize`.
+Datová mapa: `doc-kalkulace-rozvadecu-datova-mapa-tabulky`. Vize AI-řízení VP: `doc-system-g2007-vp-ai-rizeni-vize`.
 

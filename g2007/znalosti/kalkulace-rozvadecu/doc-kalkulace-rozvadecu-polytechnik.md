@@ -5,7 +5,7 @@
 # 🏭 Zákazník Polytechnik — profil, model spolupráce a případ PolyClean (EN263390)
 
 **Oblast:** kalkulace‑rozvaděčů · **Zapsal:** Claude‑26 (Marti), 20. 7. 2026
-**Typ:** zákaznický modul. Navazuje na `doc-carkovani-plan-kalkulace`, `doc-srdce-firmy-kalkulace-nabidky-analyza`, `doc-kalkulace-standard-struktura`.
+**Typ:** zákaznický modul. Navazuje na `doc-kalkulace-rozvadecu-carkovani-plan-kalkulace`, `doc-kalkulace-rozvadecu-srdce-firmy-kalkulace-nabidky-analyza`, `doc-kalkulace-rozvadecu-kalkulace-standard-struktura`.
 
 ## 1. Kdo je Polytechnik
 **POLYTECHNIK Luft- und Feuerungstechnik GmbH** — rakouský výrobce technologií pro
@@ -65,7 +65,7 @@ Ověřeno: v Complex kusovníku, ve vestavěné Stückliste EPLANu (SIE = 0,00) 
   (Brandl → Hellmayer, cc Brenner), EPLAN PDF, oba Complex kusovníky.
 - Nabídka: `D:\Data\nabidky\EN263390` — kalkulace `EK263390_PolyClean_RH_260720.xlsx`,
   Complex kusovníky, podsložka `Jednotlivé kusovníky\BJY30.xlsx|BJY31.xlsx`.
-  (Kalkulace EK sdílí adresář nabídky — viz `doc-go-adresar_ec_orgadresare`.)
+  (Kalkulace EK sdílí adresář nabídky — viz `doc-system-g2007-go-adresar_ec_orgadresare`.)
 
 ## 7. Nálezy z ověření úplnosti (EPLAN ↔ kusovník)
 `.xls` kusovník je věrný export vestavěné `Artikelsummenstückliste` EPLANu — koncové

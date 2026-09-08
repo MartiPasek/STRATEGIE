@@ -109,7 +109,7 @@ Když sedí součet na znak, nic jiného ze stránky nezmizelo. Doporučuju to p
 publikování — je to levnější než porovnávání stránky před a po.
 
 Souvisí- [[doc-dochazka-hlidani-stropu-dovolene-a-sick-day]] ·
-[[doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy]] ·
+[[doc-dochazka-narok-dovolena-sick-days-doc-dochazka-jeden-zdroj-pravdy]] ·
 [[doc-dochazka-rozpad-dovolene-zakladni-a-navic]] ·
 [[doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje]]
 

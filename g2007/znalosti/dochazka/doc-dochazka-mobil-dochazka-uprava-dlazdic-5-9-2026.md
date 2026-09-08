@@ -2,6 +2,17 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
+> ## ⚠️ 8. 9. 2026: „Můj přehled" už neexistuje a sekce se přejmenovala
+>
+> Obrazovka **„Můj přehled"** se 8. 9. 2026 rozdělila na **„Moje hodiny"** (odpracované hodiny
+> za měsíc) a **„Moje volno"** (nárok a čerpání dovolené a sick days). Sekce, ve které dlaždice
+> sedí, se přejmenovala z **„PODMÍNKY & FINANCE"** na **„MOJE PŘEHLEDY"**. Výpočet ani zdroj dat
+> se nezměnily, dělilo se 1:1.
+>
+> **Věty níž, které používají staré názvy, čti jako popis stavu do 8. 9. 2026.**
+> Zadal Jiří Honomichl. Detail: [[doc-dochazka-mobil-dochazka-hlavicka-sekce-rozdeleni-8-9-2026]].
+
 # Mobil, obrazovka Docházka — úpravy z 5. 9. 2026
 
 **Zadal Jiří Honomichl, provedl Claude-28, konzultováno s Marti-AI (msg 14405, 14408, 14411, 14414).**

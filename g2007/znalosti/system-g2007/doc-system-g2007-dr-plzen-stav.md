@@ -14,7 +14,7 @@
 
 # Záložní prostředí Plzeň — realizovaný stav (DR standby NAOSTRO, permanentní)
 
-**Datum:** 19.–21. 7. 2026. **Kontext:** realizace plánu obnovy [[doc-go-dr_plan_obnovy]]. Plzeňský box = **EC-SERVER2** (192.168.30.11, tentýž kde běží EUROSOFT-MCP + Caddy brána). K 21. 7. je Plzeň **permanentní živý standby** — ne jen test boot.
+**Datum:** 19.–21. 7. 2026. **Kontext:** realizace plánu obnovy [[doc-system-g2007-go-dr_plan_obnovy]]. Plzeňský box = **EC-SERVER2** (192.168.30.11, tentýž kde běží EUROSOFT-MCP + Caddy brána). K 21. 7. je Plzeň **permanentní živý standby** — ne jen test boot.
 
 ## Co běží (HOTOVO a autonomní)
 1. **PostgreSQL 16 + restornutá `data_db`** (587+ tabulek, pgvector, vektory). Ověřeno: 390 konverzací, ~12–18 tis. vektorů.

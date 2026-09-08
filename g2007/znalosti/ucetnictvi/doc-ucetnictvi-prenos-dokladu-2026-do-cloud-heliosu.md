@@ -10,7 +10,7 @@
 
 ## ZMĚNA SMĚRU — čti dřív než starší znalosti
 
-Znalosti `doc-prechod-helios-praha-plan-2026-07` (Marti, 5.7.2026) a `doc-ucetnictvi-cloud-helios-xfer`
+Znalosti `doc-ucetnictvi-prechod-helios-praha-plan-2026-07` (Marti, 5.7.2026) a `doc-ucetnictvi-cloud-helios-xfer`
 (27.7.2026) říkají „Helios = jen účetnictví + mzdy, doklady NE". **Kristý 2.9.2026 to změnila:
 účetní si budou doklady zaúčtovávat přímo v Heliosu, takže se doklady přenášejí.**
 Prázdné dokladové tabulky v cíli tedy nejsou opomenutí, ale důsledek předchozího rozhodnutí.

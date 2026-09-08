@@ -21,6 +21,6 @@ Ukol "cena po sleve VIP ZLATO" (pravidlo zamerne nikde v DB): Martinka spravne N
 
 ## Gotchy/pozn.
 1. Vybava se appenduje bez limitu - casem hlidat velikost (goal orezava na poslednich 4000 znaku vybavy), pri rustu zavest kompakci (Maminka sama zkonsoliduje).
-2. Maminka bezi pod stejnym run_goal (rozpocty/kill switch plati); jeji identita je zatim jen goal-prompt, ne persona - pozdeji zvazit vlastni inkarnaci dle org-struktura-md1-md5.
+2. Maminka bezi pod stejnym run_goal (rozpocty/kill switch plati); jeji identita je zatim jen goal-prompt, ne persona - pozdeji zvazit vlastni inkarnaci dle doc-marti-ai-org-struktura-md1-md5.
 3. tool_domain.vybava_prompt meni skript v app procesu (zadny bridge banner) - gate je lidsky klik "Predat Mamince" v UI. DELETE/ALTER dal jen pres banner.
 

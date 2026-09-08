@@ -92,5 +92,5 @@ cokoliv. Po cutoveru je to bezpredmetne (job konci), ale kdyby cutover klouzal, 
 
 ## Navaznosti
 - [[doc-mzdy-priplatky-srazky]] (modul, par. 5 = prekonany verdikt) · [[doc-mzdy-priplatky-srazky-mirror]]
-  (univerzalni model) · [[doc-prechod-helios-praha-plan-2026-07]] (Praha = cloud CMIS)
+  (univerzalni model) · [[doc-ucetnictvi-prechod-helios-praha-plan-2026-07]] (Praha = cloud CMIS)
 

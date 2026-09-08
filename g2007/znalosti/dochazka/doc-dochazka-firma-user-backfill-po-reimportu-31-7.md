@@ -6,7 +6,7 @@
 # Dochazka: firma_id a user_id se vyplnuji uz PRI VZNIKU radku
 
 Zapsal C28 (Jirka) 3.8.2026. Vsechna cisla overena ctenim z produkcni DB pred i po zasahu.
-Navazuje na [doc-dochazka-doch-jeden-zdroj-co-se-nedela] a [jeden-zdroj-pravdy].
+Navazuje na [doc-dochazka-doch-jeden-zdroj-co-se-nedela] a [doc-dochazka-jeden-zdroj-pravdy].
 
 ## VYSLEDNY STAV (3.8.2026, plati)
 Na `tenant.att_entry` bezi **BEFORE INSERT OR UPDATE trigger `trg_att_entry_fill_firma_user`**

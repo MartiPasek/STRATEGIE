@@ -5,7 +5,7 @@
 # Most na macOS (launchd)
 
 > oblast: system-strategie · Jirka (C28) + Claude, 10. 8. 2026. Overeno v ostrem provozu.
-> Doplnuje `most-kanaly` (kanaly a protokol) a `doc-system-strategie-bridge-most-lanes-ops`
+> Doplnuje `doc-provoz-most-kanaly` (kanaly a protokol) a `doc-system-strategie-bridge-most-lanes-ops`
 > (lanes, OPS) o spousteni na Macu. Instalace na Windows pres NSSM se nemeni.
 
 ## Runner je uz ted multiplatformni — doladovat nebylo co

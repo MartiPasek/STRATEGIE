@@ -30,7 +30,7 @@ Fallback: `<input type="file" accept="audio/*" capture>` otevře nativní zázna
 AMR jde vyřešit jen **převodem na serveru** (AMR→wav před Whisperem). Projekt schválně **nemá systémový ffmpeg** (pozn. v `pyproject.toml`). Doporučený způsob bez systémové instalace: pip balíček **`imageio-ffmpeg`** (bundluje ffmpeg binárku) → `subprocess` převod v `/app/transcribe`. Chce jednorázový `poetry install` + restart API na cloudu.
 - **Rozhodnutí:** neřešit teď — Kristý diktování používat nebude, na PC jede. **Otestovat u Pavla** (obchodník) na jeho mobilu; když jeho telefon dělá m4a, půjde to i v mobilu, jinak teprve pak dodělat převod.
 
-## Provozní pozn. z Coworku (doplněk k `doc-go-121-claude-operacni`)
+## Provozní pozn. z Coworku (doplněk k `doc-system-g2007-go-121-claude-operacni`)
 - Bridge **cloud‑deploy** občas vrátí `HTTP 401 „Nejsi přihlášen"` (deploy token/session) — commit+push proběhne, ale cloud se nenasadí. Řešení: nasadit přes **🚀 v ERP** (parent session, pravý horní roh) nebo počkat na obnovu tokenu.
 - Z Cowork session **nejde smazat `.git/index.lock` přes bash mount** („Operation not permitted") — musí ho smazat uživatel v PowerShellu: `Remove-Item C:\PROJEKTY\Strategie\.git\index.lock -Force` (doktrína #15; nikdy git přes bash mount).
 

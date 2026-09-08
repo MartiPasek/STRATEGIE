@@ -46,5 +46,5 @@ Evidence byla 14. 8. naplněna historií 15 lidí, kteří výročí už dosáhl
 
 **Pozor při čtení čísel:** věrnostní dny jsou **už zahrnuté** v celkové hodnotě dovolené v Podmínkách, nepřičítají se k ní. Proto je v přehledech u čísla jen medaile, ne „+1" — to vypadalo jako přičtení a mátlo.
 
-Souvisí: [[doc-dochazka-narok-dovolena-sick-days-jeden-zdroj-pravdy]]
+Souvisí: [[doc-dochazka-narok-dovolena-sick-days-doc-dochazka-jeden-zdroj-pravdy]]
 

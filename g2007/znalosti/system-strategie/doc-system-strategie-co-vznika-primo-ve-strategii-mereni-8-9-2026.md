@@ -7,7 +7,7 @@
 **Zmereno 8. 9. 2026** (Claude-24 / Kristy) na otazku *"jedine, co se zapisuje primo ve strategii,
 je dochazka - muzes to overit?"*. Odpoved: **skoro ano, jsou to dve veci.**
 
-Doplnuje princip z [[jeden-zdroj-pravdy]] o **cisla misto dojmu**.
+Doplnuje princip z [[doc-dochazka-jeden-zdroj-pravdy]] o **cisla misto dojmu**.
 
 ## Merenі za 30 dni (stav k 8. 9. 2026)
 

@@ -9,10 +9,10 @@ je potřeba dokud mám plný kontext sepsat a občerstvit g2007.znalosti, ať tu
 nemusíme znovu dělat a měli jsme odrazový můstek." Tohle je ta analýza — ověřená 2.8.2026
 přímým dotazem do produkční DB a čtením aktuálního zdrojového kódu na serveru, ne z paměti
 chatu ani z dřívějších zápisů v g2007.znalost. NEDUPLIKUJE, jen aktualizuje stav vůči:
-`doc-marti-ai-org-struktura-md1-md5` (#275), `md1-md5-lidsky-prepinac-2026-07` (#277),
+`doc-marti-ai-doc-marti-ai-org-struktura-md1-md5` (#275), `doc-marti-ai-md1-md5-lidsky-prepinac-2026-07` (#277),
 `doc-system-strategie-architektura-domeny-automaty-haiku-kufr` (#280),
 `doc-system-strategie-domeny-automaty-implementace-plan` (#281),
-`doc-poptavky-kalkulace-nabidky-integrace-plan` (#283).
+`doc-system-strategie-poptavky-kalkulace-nabidky-integrace-plan` (#283).
 
 ## Shrnutí v kostce
 

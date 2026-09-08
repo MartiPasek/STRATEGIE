@@ -30,5 +30,5 @@ Migrace HR osobních spisů z Centrály (`osoba_hr` → `tenant.employee_documen
 
 Vzor správné konfigurace měl už předtím řádek **id 25 (`poptavky`) = `D:\Data\poptavky`**. Ostatní řádky `dir_config_storage` (id 4–22) mají UNC tvar — **při jejich příštím použití počítej s tímtéž problémem a přepiš je na `D:\Data\...`**.
 
-Souvisí: [[doc-go-strategie_lookupy_adresar]] (dir_config + resolver + protokol eurosoftdir://), [[doc-go-adresar_ec_orgadresare]] (zdroj pravdy v Centrále).
+Souvisí: [[doc-system-g2007-go-strategie_lookupy_adresar]] (dir_config + resolver + protokol eurosoftdir://), [[doc-system-g2007-go-adresar_ec_orgadresare]] (zdroj pravdy v Centrále).
 

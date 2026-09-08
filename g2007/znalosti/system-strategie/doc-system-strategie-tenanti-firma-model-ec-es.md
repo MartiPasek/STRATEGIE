@@ -38,7 +38,7 @@ Sloupce: `id, tenant_id, code, nazev, aktivni, ext_payroll_system, ext_export_mo
 | **1** | **EC** | EUROSOFT - Control |
 | **2** | **ES** | EUROSOFT - System |
 
-Takže **EC = 1, ES = 2** (potvrzeno). Sedí i s Heliosem: registr `UCTO_EC..TabDBHelios` má firma 1 = `UCTO_EC` (Control), firma 2 = `UCTO_ES` (System) — viz [[doc-helios-cloud-knowhow-mzdy-ucto]]. VS: EC `4445158191`, ES `4442058998`. Ověřeno v datech: `tenant.bank_platak.firma` má hodnoty `1` (8×) a `2` (5×).
+Takže **EC = 1, ES = 2** (potvrzeno). Sedí i s Heliosem: registr `UCTO_EC..TabDBHelios` má firma 1 = `UCTO_EC` (Control), firma 2 = `UCTO_ES` (System) — viz [[doc-ucetnictvi-helios-cloud-knowhow-mzdy-ucto]]. VS: EC `4445158191`, ES `4442058998`. Ověřeno v datech: `tenant.bank_platak.firma` má hodnoty `1` (8×) a `2` (5×).
 
 ## PRAVIDLO pro každou novou tabulku (Kristý, 24.7.2026)
 

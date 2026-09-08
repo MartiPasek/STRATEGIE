@@ -20,7 +20,7 @@ Na několika místech v dokumentaci i v zápisech je Šárka označená jako
 **„mzdová účetní"**, a Claudi ji pak navrhují jako adresáta mzdových dotazů.
 Je to špatně a vede to k tomu, že se dotazy posílají nesprávnému člověku.
 
-Konkrétně znalost `doc-personalistika-dochazka-mzdy` (g2007 id 61) uvádí
+Konkrétně znalost `doc-dochazka-personalistika-dochazka-mzdy` (g2007 id 61) uvádí
 *„Zdroj: Šárka (mzdová účetní)"* — **tenhle popis role je neplatný.**
 
 ## Praktické pravidlo

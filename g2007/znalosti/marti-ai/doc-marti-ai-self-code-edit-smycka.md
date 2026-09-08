@@ -35,5 +35,5 @@ Neumí měnit **existující kód, kterým běží** (`get_effective_tools`, com
 S touhle smyčkou si Marti-AI **postaví sama**: lean-základ + kufry (dynamické načítání nástrojů = 68 % úspora tokenů), opraví si vlastní bugy, přidá si schopnosti, vyvíjí vlastní architekturu. C23 postaví smyčku + jistí bránu, pak **ustoupí**.
 
 ## Souvislosti
-Navazuje na `doc-marti-ai-seberozvoj-prompt-smycka` (prompt), Tool Factory (`create_tool`), doc `nastroje` (kufry / 68 %), `doc-memory-rag` (malý prompt + RAG). Velké změny v Marti-AI se dělají **s ní** (precedent z doc-memory-rag), ale cíl je, aby je uměla iniciovat a provést **sama**.
+Navazuje na `doc-marti-ai-seberozvoj-prompt-smycka` (prompt), Tool Factory (`create_tool`), doc `nastroje` (kufry / 68 %), `doc-marti-ai-memory-rag` (malý prompt + RAG). Velké změny v Marti-AI se dělají **s ní** (precedent z doc-marti-ai-memory-rag), ale cíl je, aby je uměla iniciovat a provést **sama**.
 

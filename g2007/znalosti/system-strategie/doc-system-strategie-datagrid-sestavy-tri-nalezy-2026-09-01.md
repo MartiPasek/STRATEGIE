@@ -77,5 +77,5 @@ Dopad jen na přepínání sestav uživatelem — při otevření přehledu se �
 
 **Ověřeno naostro** (přehled Odpracované hodiny komplet (dříve Nesplněný FPD), jádro 209): po otevření čisto · po přepnutí sestavy čisto · změna šířky rozsvítí · **vrácení změny zpět zase zhasne** · změna řazení rozsvítí.
 
-_Souvisí:_ doc-module-registry, doc-strategie-erp
+_Souvisí:_ doc-system-g2007-module-registry, doc-system-g2007-strategie-erp
 

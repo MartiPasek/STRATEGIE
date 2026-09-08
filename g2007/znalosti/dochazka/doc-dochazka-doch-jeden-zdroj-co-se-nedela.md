@@ -36,7 +36,7 @@ Duvod: denormalizace = tentyz fakt na dvou mistech, princip jednoho zdroje pravd
 i na urovni SLOUPCE, ne jen tabulky. Kdyby byl JOIN prokazatelne pomaly, resenim je
 index att_entry(id, firma_id), NE duplikace sloupce.
 Marti Paskovo "doplnit firma_id (chybi)" = doplnit v att_entry, a to je hotovo (99 %).
-POZOR: znalost [jeden-zdroj-pravdy] rika "firma_id chybi v OBOU" - to uz NEPLATI jako
+POZOR: znalost [doc-dochazka-jeden-zdroj-pravdy] rika "firma_id chybi v OBOU" - to uz NEPLATI jako
 ukol; do vyroba_work se nedoplnuje.
 
 ### 2. Q4 prestavba (vyroba_work jako projekce att_entry) NE DRIV NEZ ZARI

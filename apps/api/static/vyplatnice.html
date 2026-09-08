@@ -526,9 +526,10 @@ function nactiZamek(){
 function prepniZamek(){
   if(ZAMEK === null) return;
   var zamknout = !ZAMEK.zamceno;
+  var _p = rm(); var _obd = _p.m + '/' + _p.r;
   var otazka = zamknout
     ? 'Uzamknout úpravy ve mzdách?<br><span style="color:#8fa3bd">Lidé v appce přestanou vidět výplatnici za zpracovávaný měsíc. Odemkneš až po výplatě.</span>'
-    : 'Odemknout úpravy ve mzdách?<br><span style="color:#8fa3bd">Lidem se v appce hned zpřístupní výplatnice za poslední uzavřený měsíc.</span>';
+    : 'Odemknout úpravy ve mzdách?<br><span style="color:#8fa3bd">Lidem se v appce hned zpřístupní výplatnice za poslední uzavřený měsíc.<br><br>Zároveň označím příplatky a srážky za <b>' + _obd + '</b> jako vyplacené — do mzdy už podruhé nepůjdou. Když je nahoře vybraný jiný měsíc, než který se vyplácí, přepni ho <b>před</b> odemknutím.</span>';
   confirmBox(otazka,
              (zamknout ? '🔒 Uzamknout mzdy?' : '🔓 Odemknout mzdy?'),
              (zamknout ? 'Ano, uzamknout' : 'Ano, odemknout')).then(function(ok){
@@ -536,7 +537,7 @@ function prepniZamek(){
     var b = document.getElementById('zamekBtn'); if(b) b.disabled = true;
     fetch('/api/v1/erp/app/mzdy/zamek',{method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({akce: (zamknout ? 'zamknout' : 'odemknout')})})
+      body: JSON.stringify({akce: (zamknout ? 'zamknout' : 'odemknout'), rok: _p.r, mesic: _p.m})})
       .then(function(r){ return r.json(); })
       .then(function(j){
         if(b) b.disabled = false;

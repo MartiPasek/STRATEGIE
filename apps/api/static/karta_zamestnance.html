@@ -1800,9 +1800,10 @@ function renderTable(){
     const foto=p.user_id?('<div class="tini"><img class="tavatar" src="'+API+'/app/hr/photo/'+p.user_id+'" alt="" '+
       'onerror="this.remove();this.parentNode.textContent=\''+fi+'\'"></div>'):('<div class="tini">'+fi+'</div>');
     const zeme=zemeZMesta(p.mesto);
-    const mail=p.prac_email?('<a href="mailto:'+esc(p.prac_email)+'" onclick="event.stopPropagation()">'+esc(p.prac_email)+'</a>'):'<span class="muted">—</span>';
-    const telN=String(p.prac_telefon||'').replace(/\s+/g,'');
-    const tel=p.prac_telefon?('<a href="tel:'+esc(telN)+'" onclick="event.stopPropagation()">'+esc(p.prac_telefon)+'</a>'):'<span class="muted">—</span>';
+    const _mailv=p.email||p.prac_email; const _telv=p.telefon||p.prac_telefon;
+    const mail=_mailv?('<a href="mailto:'+esc(_mailv)+'" onclick="event.stopPropagation()">'+esc(_mailv)+'</a>'):'<span class="muted">—</span>';
+    const telN=String(_telv||'').replace(/\s+/g,'');
+    const tel=_telv?('<a href="tel:'+esc(telN)+'" onclick="event.stopPropagation()">'+esc(_telv)+'</a>'):'<span class="muted">—</span>';
     const stav=p.ma_pomer?'<span class="schip ok">Aktivní</span>':'<span class="schip old">Bývalý</span>';
     const trk=p.user_id?(' onclick="openFromTable('+p.user_id+')" style="cursor:pointer"'):' style="opacity:.72"';
     const cardnote=p.user_id?'':' <span class="muted" style="font-size:11px">(jen docházka)</span>';

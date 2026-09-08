@@ -2,6 +2,17 @@
 
 > oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **DOPLNENO 8. 9. 2026 — "VYRESENO 27. 7." uz nepokryva cely obraz.**
+> Oprava popsana nize plati a je spravna. Ale mezi **15. 8. a 3. 9. 2026 selhal nocni prenos
+> 8 z 35 noci** z UPLNE JINE priciny: **nedojelo stahovani z Prahy do Plzne** (zaloha vyrostla
+> z 1,6 na 3,9 GB a `Invoke-WebRequest` neumi nastavit `ReadWriteTimeout`, takze petiminutove
+> zadrhnuti linky shodilo cely prenos). Zaloha v Plzni tehdy zestarla az na 97 hodin.
+> Opraveno 7.-8. 9. 2026 (tri pokusy, vlastni limity, kontrola stari, navazovani pres `Range`).
+> **Poznamka v prvnim odstavci nize — "otevrene jen priskrcene spojeni Plzen->Praha (na Michala)" —
+> je v tomhle svetle nejspis souvisejici stopa a stoji za doreseni.**
+> Detail, dukazy a co bylo vylouceno: `doc-system-strategie-dr-prenos-praha-plzen-pricina-a-oprava-2026-09-08`.
+> *(Zjistil Claude-28, zadal Jiri Honomichl.)*
+
 # DR obnova databaze na 30.11 (Plzen) - pricina, oprava, autonomni ovladani
 
 Stav 27.7.2026: VYRESENO. Standby STRATEGIE-API bezi, nocni obnova zase dojizdi. Otevrene jen priskrcene spojeni Plzen->Praha (na Michala).

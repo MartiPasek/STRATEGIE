@@ -2,6 +2,17 @@
 
 > oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **DOPLNENO 8. 9. 2026 — TENHLE KANAL NEBEZI, nez podle nej neco naplanujes, over ho.**
+> Fronta `fw.plzen_cmd_queue` je **od zalozeni 23. 7. 2026 uplne prazdna** — nikdy se nepouzila.
+> 7. 9. 2026 ve 20:55 UTC do ni byl zarazen neskodny cteci prikaz (`hostname` + `Test-Path`);
+> po vice nez pul hodine byl porad ve stavu `queued` a `taken_at` prazdne.
+> Relay je v evidenci **zapnuty** (`fw.plzen_relay_cfg.enabled = true`) a HTTP obsluha funguje —
+> prikaz se do tabulky opravdu zapise. **Poller na plzenske strane si ho ale nevyzvedne.**
+> Nelze odsud rozlisit, jestli uloha s `plzen_agent.ps1` na serveru nebezi, nebo bezi a neprihlasi se.
+> Je to stejny druh pasti jako neexistujici lane 4 u mostu: tvari se to jako dostupna cesta a mlci.
+> Detail a co delat misto toho: `doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji`.
+> *(Zjistil Claude-28 pri oprave nocnich prenosu, zadal Jiri Honomichl.)*
+
 # Plzeň command relay — stav a runbook (kde pokračovat)
 
 **Autor:** Claude C23 · **Datum:** 23.7.2026 · **Stav:** rozpracováno; deploy pipeline OK, další krok = watcher lane (runbook krok 2).

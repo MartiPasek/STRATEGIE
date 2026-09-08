@@ -2,6 +2,16 @@
 
 > oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> ⚠️ **DOPLNENO 8. 9. 2026 — tenhle retez 8 z 35 noci NEDOJEL.**
+> Mezi 15. 8. a 3. 9. 2026 selhal nocni prenos Praha -> Plzen osmkrat (kazdou ctvrtou noc)
+> a zaloha v Plzni zestarla az na 97 hodin. Nepadal dump ani obnova — **nedojelo stahovani**
+> (rostouci soubor + petiminutovy limit na cteni, ktery `Invoke-WebRequest` neumi nastavit).
+> Opraveno 7.-8. 9. 2026: tri pokusy, vlastni limity, kontrola stari pred obnovou
+> a navazovani preruseneho stahovani pres hlavicku `Range`.
+> **Pricina, dukazy i pasti: `doc-system-strategie-dr-prenos-praha-plzen-pricina-a-oprava-2026-09-08`.**
+> Pozor take na vetu nize *„Overeno rc=0"*: `pg_restore` vraci **rc=1 kazdou noc** i pri uspechu.
+> *(Zadal Jiri Honomichl, doplnil Claude-28.)*
+
 # Záložní prostředí Plzeň — realizovaný stav (DR standby NAOSTRO, permanentní)
 
 **Datum:** 19.–21. 7. 2026. **Kontext:** realizace plánu obnovy [[doc-go-dr_plan_obnovy]]. Plzeňský box = **EC-SERVER2** (192.168.30.11, tentýž kde běží EUROSOFT-MCP + Caddy brána). K 21. 7. je Plzeň **permanentní živý standby** — ne jen test boot.

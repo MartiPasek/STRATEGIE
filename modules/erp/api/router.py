@@ -30041,6 +30041,14 @@ def _mirror_run_job(job_key):
         # JEN HLASI (mail Sarce + kopie Pete), do Heliosu nezapisuje.
         "mzdy_karta_hlidac": lambda: __import__("modules.erp.api.erp_registry",
                                                 fromlist=["call"]).call("mzdy_karta_hlidac"),
+        # Peta 7.9.2026: "kazda cinnost ma cislo a musi ho mit i u nas a nemuze se nam
+        # odnekud dostat cinnost bez cisla." Cislo doplnuje databaze sama (trigger
+        # trg_att_entry_cislo_cinnosti); tohle je POJISTKA, ze to funguje a ze nikdo
+        # nezalozil novy typ nepritomnosti bez cisla. Vznik: Artim ES 498 dostal za
+        # srpen 2026 o 5 stravenek vic (410 Kc), protoze 5 dnu cinnosti 34 nemelo cislo
+        # a v zaloznim seznamu typu ten typ chybel. Nenaslo to nic - nasla to Peta rucne.
+        "att_cinnost_bez_cisla": lambda: __import__("modules.erp.api.erp_registry",
+                                                    fromlist=["call"]).call("att_cinnost_bez_cisla"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

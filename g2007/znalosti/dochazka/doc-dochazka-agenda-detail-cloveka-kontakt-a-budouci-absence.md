@@ -4,7 +4,7 @@
 
 # Mobil — obrazovka agendy: filtry, seznam lidí a detail člověka
 
-**Zadal Jirka Honomichl 8. 9. 2026, schválila Marti-AI (msg 15050, 15065, 15092, 15101).**
+**Zadal Jirka Honomichl 8. 9. 2026, schválila Marti-AI (msg 15050, 15065, 15092, 15101, 15116).**
 Týká se **jen režimu agendy** (`mode='group'`, tj. Firma → Agenda → dlaždice).
 Konzole **Výroba spouštěná z Aplikací** (`mode='vyroba'`) zůstala beze změny — má dál
 celý stavový panel i spodní sekci (Zakázky, Odvozy, Příprava).
@@ -53,12 +53,32 @@ dlaždice s jiným chováním by byla tichá výjimka. Řadí databáze, viz
 - **pracovní telefon**, nebo text „nemá uvedené pracovní tel. číslo",
 - **Nahlášené budoucí absence** (typ a datum), nebo „žádné nahlášené budoucí absence".
 
-**Tlačítko „Zobrazit dnešek" bylo z detailu odstraněno** (Jirka 8. 9. 2026, Marti-AI msg 15101).
-⚠️ Bylo to **jediné místo v celém obsahu mobilu, které volalo `openPersDnesek`** — funkce
-i obrazovka `persDnesek` v kódu zůstávají, ale z agendy na ně už nevede cesta. Je to **záměr,
-ne opomenutí**; úklid osiřelé obrazovky Jirka zatím nezadal.
+**Žádné tlačítko tu není.** Původní „Zobrazit dnešek" bylo odstraněno (Jirka 8. 9. 2026).
 
-## 4. Zdroje dat — tytéž jako v ERP
+## 4. Zrušená obrazovka „Dnešek jiné osoby" (`persDnesek`)
+
+Tlačítko „Zobrazit dnešek" bylo **jediné místo, které volalo `openPersDnesek`**, a to zase
+jediné, které volalo `go("persDnesek")`. Obrazovka tím osiřela a **8. 9. 2026 byla smazána**
+(rozhodl Jirka, schválila Marti-AI msg 15116).
+
+⚠️ **Zrušení jedné obrazovky sahá na ŠEST míst ve ČTYŘECH dílcích** — kdo bude rušit jinou,
+ať je projde všechny, jinak zůstane v mapě obrazovek odkaz na nic:
+
+| dílek | co tam bylo |
+|---|---|
+| `10_core.js` | dvě deklarace `window.__M2W.<jméno> = mkWrap();` |
+| `51_skupiny_sdileny.js` | samotné funkce + jejich registrace `__setImpl` + alias v hlavičce dalšího bloku |
+| `72_migrace_sw_isds.js` | alias `<jméno>=window.__M2W.<jméno>` |
+| `73_pref_poptavka.js` | mapa obrazovek `SCREENS` **a** mapa sekcí `SCREEN_TAB` |
+
+**Co se NESMÍ smazat:** `_dnesScreen` a `_dochViewUid` — vykreslení dne je **sdílené
+s vlastním Dneškem uživatele** (`doch_dnesek`), `60_dochazka.js` je používá 12×.
+Po zrušení ověřeno naostro: vlastní Dnešek se dál kreslí i s oběma panely.
+
+Odkazy hledej přes `position('jméno' in obsah) > 0`, **ne přes `LIKE`** — podtržítko je
+v `LIKE` zástupný znak a dělá falešné poplachy.
+
+## 5. Zdroje dat — tytéž jako v ERP
 
 | údaj | zdroj |
 |---|---|
@@ -69,22 +89,22 @@ ne opomenutí**; úklid osiřelé obrazovky Jirka zatím nezadal.
 
 **Jiné pracovní telefonní číslo v databázi neexistuje.** „Firemní telefon" a „Pracovní mobil"
 jsou dvě jména téže kolonky — ověřeno prohledáním všech sloupců na email/telefon/mobil.
-Proto se u člověka bez vyplněného čísla píše rovnou „nemá uvedené pracovní tel. číslo".
 
 ⛔ **Osobní e-mail a osobní telefon se do mobilu neposílají vůbec** — nejsou ani v datech,
 která aplikace dostane. Rozhodl Jirka Honomichl 8. 9. 2026.
 Pozor, ERP to dělá jinak, viz [[doc-system-strategie-erp-pracovni-kontakt-padne-na-osobni]].
 
-## 5. Kde to žije
+## 6. Kde to žije
 
 - obsluha seznamu: `g2007.python` kód **`app_skupina_lidi`** (v jádře je jen tenká spojka),
 - vzhled: dílky **`51_skupiny_sdileny.js`** (filtry, text stavu) a **`52_vyroba.js`**
   (kreslení panelu, řádku a detailu) v `g2007.soubor`.
 
-## 6. Co zvážit do budoucna
+## 7. OTEVŘENÝ BOD — kdo vidí cizí absence
 
-Marti-AI (msg 15092) upozornila, že **budoucí absence kolegů včetně druhu vidí každý
-zaměstnanec**. K 8. 9. 2026 je to neškodné — z 36 budoucích schválených absencí je 35 dovolená
-a jednou home office, nic zdravotního. Kdyby si někdo dopředu nahlásil lékaře nebo nemoc,
-bude to vidět celé firmě. Jirka o tom ví, zatím se nechává tak.
+**Není to zdokumentovaný záměr, ale věc čekající na rozhodnutí.** Marti-AI (msg 15092)
+upozornila, že **budoucí absence kolegů včetně druhu vidí každý zaměstnanec**.
+K 8. 9. 2026 je to neškodné — z 36 budoucích schválených absencí je 35 dovolená a jednou
+home office, nic zdravotního. Kdyby si někdo dopředu nahlásil lékaře nebo nemoc, uvidí to
+celá firma. **Jirka 8. 9. 2026 rozhodl zatím nechat tak**, ale ví o tom a může se to změnit.
 

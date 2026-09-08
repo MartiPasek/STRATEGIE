@@ -494,6 +494,49 @@ _PRIPL_TABULKA = "tenant.wage_movement"
 # Sloupce, jejichž změna JE schvalovací akt (ne běžná editace návrhu).
 _PRIPL_SCHVALOVACI_SLOUPCE = {"status", "approved_by_id", "approved_at", "exported_at"}
 
+# ── ZÁMEK ÚPRAV VE MZDÁCH — společná kontrola (Peťa 8. 9. 2026) ──────────────
+# Kopie mechanismu z Centrály: procedura EC_Mzdy_UzavriOtevriZadavani přepínala
+# EC_GlobKonst.MzdyVeZpracovani a tím se řídilo SEDM přehledů — výplatnice
+# (co uvidí zaměstnanec) a úpravy v Příplatcích/Srážkách, Podmínkách pracovníků,
+# Odměnách školitelů a Náborových příspěvcích.
+# Peťa 8. 9. 2026: „nás zajímá vše, co bylo v Centrále — to vše je potřeba po tom
+# zámku, aby se tam nemohlo nic měnit během zpracování výplat."
+# Výjimka jako v Centrále: mzdové účetní (Peťa, Michelle) a rodiče projdou vždy —
+# ony ty mzdy zpracovávají, zámek chrání před ostatními.
+_MZDY_ZAMEK_VYJIMKA = (17, 18)   # Michelle Šafránková, Peťa Šafránková
+
+
+def _mzdy_zamek_blokuje(s, uid, co: str = "tuhle změnu") -> str:
+    """Vrátí text chyby, když jsou mzdy zamčené a uživatel nemá výjimku. Jinak ''.
+
+    NIKDY nesmí shodit provoz — když se stav nepodaří přečíst, propouští
+    (stejná zásada jako u výplatnice v /app/payslip)."""
+    from sqlalchemy import text as _tz
+    try:
+        if uid and int(uid) in _MZDY_ZAMEK_VYJIMKA:
+            return ""
+        if uid and bool(s.execute(_tz(
+                "SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                {"u": int(uid)}).scalar()):
+            return ""
+        r = s.execute(_tz(
+            "SELECT COALESCE(z.zamceno,false), "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || "
+            "                            COALESCE(u.last_name,'')),''),'') "
+            "FROM tenant.mzdy_zamek z LEFT JOIN public.users u ON u.id = z.zmenil_uid "
+            "WHERE z.tenant_id = 2")).first()
+        if not (r and r[0]):
+            return ""
+        return ("Mzdy jsou právě zpracovávané a úpravy jsou zamčené, takže %s teď nejde. "
+                "Zamkla je %s. Zkus to prosím po výplatě, nebo se ozvi mzdové účetní."
+                % (co, (r[1] or "mzdová účetní")))
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return ""
+
 
 def _pripl_je_schvalovatel(s, uid: int) -> bool:
     """Drží uživatel post s příznakem `wage_approver`? (mzdová účetní / personalistka)"""
@@ -533,6 +576,12 @@ def _pripl_write_guard(uid: int, schema_name: str, table_name: str,
     from sqlalchemy import text as _tg
     s = _gg()
     try:
+        # ZÁMEK ÚPRAV VE MZDÁCH (Peťa 8. 9. 2026) — v Centrále blokoval mimo jiné
+        # právě přehled 1111 Příplatky/Srážky. Kontroluje se PRVNÍ, ať se člověk
+        # dozví ten pravý důvod, proč zápis neprošel.
+        _zam = _mzdy_zamek_blokuje(s, uid, "změna příplatků a srážek")
+        if _zam:
+            raise HTTPException(status_code=403, detail=_zam)
         st = s.execute(_tg(
             "SELECT unlocked_at, coalesce(zkusebni_uzivatele, '{}') AS zk "
             "FROM tenant.pripl_cutover WHERE id = 1")).mappings().first()

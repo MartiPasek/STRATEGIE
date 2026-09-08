@@ -882,6 +882,16 @@ na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá)
   výskytů s háčkem. **Číselník činností se schválně nehlídá** — zůstává tam jeden neaktivní
   záznam id 14 „Režie – NEPOUŽÍVAT, Rezie je ZAKÁZKA (archivováno 3.8.2026)", nechaný kvůli
   historii. **Není to nález, nehlásit.**
+- 🔁 **PROČ TO CLAUDOVI PŘESTO UTÍKÁ** (Peťa 8. 9. 2026, potřetí: *„zase tam zmiňuješ režii
+  s háčkem, proč"*). Pojistka `rezie-vzdy-bez-hacku` hlídá **data**, ne větu, kterou Peťě
+  napíšu — a čeština táhne k tomu „opravit" překlep, který žádný překlep není.
+  **`Rezie` není české slovo, je to VLASTNÍ JMÉNO zakázky** tak, jak ho má Helios i Centrála.
+  Nesklápí se, nepřidává se mu háček, nepřekládá se.
+  ⚠️ A hlavně: „zakázka **Režie**" s háčkem odkazuje na **archivovanou činnost id 14**, tedy
+  na něco, co bylo omylem a od 3. 9. 2026 v docházce neexistuje ani jednou. Peťa 2. 9. 2026
+  doslova: *„»Režie« s háčkem není nic."* Kdo to napíše, mluví o neexistující věci.
+  **Kontrola před odesláním zprávy: mám v textu „Režie"? Pak je to buď chyba, nebo mluvím
+  o té archivované činnosti — a to musím říct výslovně.**
 - ⚠️ **Nepleť si dvě různá „3. 8."** (Peťa 20. 8. 2026 se na to právem ptala, tak ať se to
   neřeší potřetí): **archivace činnosti „Režie" se stala 3. 8. 2026** (den, kdy se srovnával
   číselník činností s Centrálou). **„Lišková 3. 8." je naproti tomu DATUM DOCHÁZKY** — její

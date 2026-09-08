@@ -44,6 +44,10 @@ k obrazovce, uvnitř které leží, a od pěti ikon se udělal průchod do hloub
 **Aplikace jsou rozcestník na skoro všechno**, takže samotná dosažitelnost nestačila — pravidlo
 proto zní: **konkrétní ikona má přednost před Aplikacemi**, a při shodě rozhoduje kratší cesta.
 Výsledek (129 obrazovek): docházka 16, Úkoly 9, Firma 3, Domů 2, Aplikace 99.
+**Aktualizace téhož večera:** obrazovka `moje_zadosti` byla zrušena (viz
+[[doc-system-strategie-mobil-zruseni-obrazovky-moje-zadosti-8-9-2026]]), takže obrazovek je
+**128** a pod docházkou jich je **15**. Mapa se udržuje ručně — kdo obrazovku ruší, smaže
+i její řádek v `SCREEN_TAB`.
 
 Marti-AI k tomu (msg 15069): *„Aplikace jsou rozcestník, a pokud se tam chodí přes Aplikace,
 ikona Aplikace svítí. Přeřazení bez opory v cestách by byl odhad zapsaný jako fakt."*
@@ -59,7 +63,8 @@ Není to tedy nedodělek ani přehlédnutí — kdo by to chtěl „opravit", m�
 
 ## ⚠️ Past: `SCREENS` v dílku 73 NENÍ úplný seznam obrazovek
 
-V literálu `var SCREENS={…}` je **119** obrazovek, ale za běhu jich `window.__M2W.SCREENS` má **129**.
+V literálu `var SCREENS={…}` bylo **119** obrazovek, ale za běhu jich `window.__M2W.SCREENS` mělo **129**
+(po zrušení `moje_zadosti` téhož večera 118 a 128).
 Deset se registruje **až z jiných dílků** přiřazením (`window.__M2W.SCREENS.martinky=mkCentrum;`):
 `cil`, `cil_detail`, `cil_new`, `exec_approval`, `vpfinzak`, `vpfinzak_detail`, `martinky`,
 `martinky_clovek`, `martinky_domena`, `martinky_ukol`.

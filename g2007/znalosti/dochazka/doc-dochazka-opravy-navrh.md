@@ -589,6 +589,10 @@ totéž): staženo `https://strategie-ai.com/mobile` s device cookie → `doch_o
   (tvrdý zámek, §16.1). Uživatel se to dozví až od editora.
 - Odeslaná žádost **není vidět v „📋 Moje žádosti"** (ta ukazuje jen
   `announced-future`) — člověk má jen potvrzení hned po odeslání.
+  > ⚠️ **NEPLATÍ od 8. 9. 2026: obrazovka „Moje žádosti" byla ZRUŠENA** (rozhodl Jiří Honomichl).
+  > Už od 11. 8. 2026 navíc neukazovala jen `announced-future`, ale i stavy žádostí.
+  > Dnes seznam žádostí i jejich rušení najdeš v **Moje absence**, ohlášené nepřítomnosti
+  > v **Můj plán**. Detail: [[doc-system-strategie-mobil-zruseni-obrazovky-moje-zadosti-8-9-2026]].
 
 ### 19.7 Rozeslání a komunikace (21. 7. 2026)
 

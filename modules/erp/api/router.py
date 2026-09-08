@@ -25835,7 +25835,10 @@ async def app_skupiny_bar(req: Request) -> JSONResponse:
     try:
         rows = s.execute(_t(
             "SELECT g.id, g.name, COALESCE(NULLIF(g.icon,''),'👥'), g.leader_user_id, g.deputy_user_id, "
-            " EXISTS(SELECT 1 FROM tenant.staff_group_member m WHERE m.group_id=g.id AND m.user_id=:u) je_clen "
+            " EXISTS(SELECT 1 FROM tenant.staff_group_member m WHERE m.group_id=g.id AND m.user_id=:u) je_clen, "
+            " g.parent_id, "
+            " EXISTS(SELECT 1 FROM tenant.staff_group c WHERE c.parent_id=g.id "
+            "        AND c.tenant_id=2 AND COALESCE(c.archived,false)=false) je_slozka "
             "FROM tenant.staff_group g "
             "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false "
             "ORDER BY g.sort_order, g.name"), {"u": int(uid)}).fetchall()
@@ -25849,7 +25852,11 @@ async def app_skupiny_bar(req: Request) -> JSONResponse:
                 rel = "member"
             else:
                 rel = "other"
-            out.append({"id": r[0], "name": r[1], "icon": r[2], "rel": rel})
+            # Jirka 8.9.2026 (schvalila Marti-AI msg 15014): mobil kresli agendy
+            # v sekcich podle nadrazene slozky, proto posilame i parent_id
+            # a priznak, ze skupina sama je nadrazena slozka (ma pod sebou dalsi).
+            out.append({"id": r[0], "name": r[1], "icon": r[2], "rel": rel,
+                        "parent_id": r[6], "je_slozka": bool(r[7])})
         s.commit()
         return JSONResponse({"ok": True, "groups": out})
     finally:

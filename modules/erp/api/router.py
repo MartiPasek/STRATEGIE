@@ -10318,32 +10318,16 @@ _HR_CREATE_TYPY = [
 
 @api_router.get("/app/hr/create-meta")
 async def app_hr_create_meta(req: Request) -> JSONResponse:
-    """Číselníky pro formulář Přidat zaměstnance (pozice, skupiny, posty, firmy, role, typy)."""
+    """Ciselniky pro formular "Pridat zamestnance" (pozice, skupiny, posty, firmy,
+    role, typy). TENKA SPOJKA - logika zije v g2007.python kod=hr_create_meta
+    (preneseno 8.9.2026, Jirka Honomichl, schvalila Marti-AI msg 15029)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        pozice = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
-            "SELECT id, label FROM tenant.job_position WHERE tenant_id=2 AND aktivni "
-            "ORDER BY sort_order NULLS LAST, label")).fetchall()]
-        skupiny = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
-            "SELECT id, name FROM tenant.staff_group "
-            "WHERE tenant_id=2 AND NOT COALESCE(archived,false) ORDER BY 2")).fetchall()]
-        posty = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
-            "SELECT id, nazev FROM tenant.org_post WHERE tenant_id=2 AND aktivni ORDER BY nazev")).fetchall()]
-        return JSONResponse({"ok": True,
-                             "firmy": [{"id": 1, "label": "EUROSOFT - Control"}, {"id": 2, "label": "EUROSOFT - System"}],
-                             "role": _HR_CREATE_ROLES, "typy": _HR_CREATE_TYPY,
-                             "pozice": pozice, "skupiny": skupiny, "posty": posty})
-    except Exception as exc:
-        logger.exception("[hr_create_meta] %s", exc)
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_create_meta", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.post("/app/hr/employee-create")
@@ -14446,8 +14430,9 @@ async def app_hr_podminky_prehled(req: Request):
 
 @api_router.get("/app/hr/person-groups")
 async def app_hr_person_groups(req: Request):
-    """Skupiny, do kterých člověk patří (tenant.staff_group) — pro HR."""
-    from sqlalchemy import text as _t
+    """Skupiny (agendy), do kterych clovek patri - dlazdice "Skupiny a kvalifikace"
+    v karte zamestnance. TENKA SPOJKA - logika zije v g2007.python kod=hr_person_groups
+    (preneseno 8.9.2026, Jirka Honomichl, schvalila Marti-AI msg 15029)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -14455,21 +14440,10 @@ async def app_hr_person_groups(req: Request):
         tuid = int(req.query_params.get("uid") or 0)
     except Exception:
         tuid = 0
-    cm, s = _att_session()
-    try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT g.name "
-            "FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
-            "WHERE g.tenant_id=2 AND NOT COALESCE(g.archived,false) AND m.user_id=:u "
-            "ORDER BY 1"), {"u": tuid}).fetchall()
-        return JSONResponse({"ok": True, "skupiny": [r[0] for r in rows if r[0]]})
-    except Exception as exc:
-        logger.exception("[hr_person_groups] %s", exc)
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("hr_person_groups", uid, tuid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/hr/person-absence")
@@ -25825,42 +25799,17 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
 
 @api_router.get("/app/skupiny/bar")
 async def app_skupiny_bar(req: Request) -> JSONResponse:
-    """Skupiny pro spodní lištu Firma, s mým vztahem (vedoucí/zástupce/člen/
-    ostatní) pro řazení zprava doleva. Marti 10.6.2026. Zatím vidí všichni vše."""
+    """Seznam agend (skupin) pro mobil - obrazovka Firma, zalozka Agenda, vcetne
+    parent_id a priznaku nadrazene slozky. TENKA SPOJKA - logika zije
+    v g2007.python kod=app_skupiny_bar (preneseno 8.9.2026, Jirka Honomichl,
+    schvalila Marti-AI msg 15029)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT g.id, g.name, COALESCE(NULLIF(g.icon,''),'👥'), g.leader_user_id, g.deputy_user_id, "
-            " EXISTS(SELECT 1 FROM tenant.staff_group_member m WHERE m.group_id=g.id AND m.user_id=:u) je_clen, "
-            " g.parent_id, "
-            " EXISTS(SELECT 1 FROM tenant.staff_group c WHERE c.parent_id=g.id "
-            "        AND c.tenant_id=2 AND COALESCE(c.archived,false)=false) je_slozka "
-            "FROM tenant.staff_group g "
-            "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false "
-            "ORDER BY g.sort_order, g.name"), {"u": int(uid)}).fetchall()
-        out = []
-        for r in rows:
-            if r[3] == int(uid):
-                rel = "lead"
-            elif r[4] == int(uid):
-                rel = "deputy"
-            elif r[5]:
-                rel = "member"
-            else:
-                rel = "other"
-            # Jirka 8.9.2026 (schvalila Marti-AI msg 15014): mobil kresli agendy
-            # v sekcich podle nadrazene slozky, proto posilame i parent_id
-            # a priznak, ze skupina sama je nadrazena slozka (ma pod sebou dalsi).
-            out.append({"id": r[0], "name": r[1], "icon": r[2], "rel": rel,
-                        "parent_id": r[6], "je_slozka": bool(r[7])})
-        s.commit()
-        return JSONResponse({"ok": True, "groups": out})
-    finally:
-        cm.__exit__(None, None, None)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("app_skupiny_bar", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
 
 
 @api_router.get("/app/skupina/lidi")

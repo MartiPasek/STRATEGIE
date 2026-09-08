@@ -24187,6 +24187,26 @@ async def app_payslip(req: Request) -> JSONResponse:
         from datetime import date as _d_ps
         _dn_ps = _d_ps.today()
         _cur_ps = _dn_ps.year * 100 + _dn_ps.month
+        # ZÁMEK ÚPRAV VE MZDÁCH (Peťa 8. 9. 2026) — kopie mechanismu z Centrály.
+        # Filtr výše ukazuje každý měsíc starší než ten běžící. To ale nestačí:
+        # 8. 9. 2026 přišel pan Trunec, že vidí srpnovou pásku, přestože srpnová
+        # mzda ještě nebyla zpracovaná — srpen je starší měsíc, tak prošel.
+        # Dokud je zamčeno, posuneme hranici o měsíc zpět, takže se schová i ten
+        # poslední (právě zpracovávaný) měsíc. Po výplatě Peťa odemkne a pásky se
+        # lidem objeví — přesně jak to dělala Centrála (EC_GlobKonst.MzdyVeZpracovani,
+        # přehled 1033: zamčeno `IdObdobi <` × odemčeno `IdObdobi <=`).
+        # Zámek NIKDY nesmí shodit pásku: když se dotaz nepovede, zůstává původní
+        # chování (jen běžící měsíc skrytý).
+        try:
+            _zam_ps = bool(s.execute(_t(
+                "SELECT COALESCE(zamceno,false) FROM tenant.mzdy_zamek WHERE tenant_id = 2")).scalar())
+        except Exception:
+            s.rollback()
+            _zam_ps = False
+        if _zam_ps:
+            from datetime import timedelta as _td_ps
+            _prev_ps = _dn_ps.replace(day=1) - _td_ps(days=1)
+            _cur_ps = _prev_ps.year * 100 + _prev_ps.month
         periods = s.execute(_t(
             "SELECT DISTINCT rok, mesic FROM tenant.payslip_item "
             "WHERE tenant_id = 2 AND employee_id = ANY(:e) "
@@ -34732,6 +34752,43 @@ async def mzdy_vyplatnice(req: Request) -> JSONResponse:
     mesic_param = req.query_params.get("mesic")
     from modules.erp.api import erp_registry as _ereg
     result = _ereg.call("mzdy_vyplatnice", uid, firma_param, rok_param, mesic_param)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
+# ── ZÁMEK ÚPRAV VE MZDÁCH (Peťa 8. 9. 2026) ──────────────────────────────────
+# Kopie mechanismu z Centrály (EC_GlobKonst.MzdyVeZpracovani + tlačítka „Uzamkni /
+# Odemkni úpravy ve mzdách" v přehledu 1450). Dokud je zamčeno, lidé v appce
+# NEVIDÍ výplatnici za zpracovávaný měsíc — po výplatě se ručně odemkne.
+# Vznik: 8. 9. 2026 přišel pan Trunec, že už vidí srpnovou pásku, přestože
+# srpnová mzda ještě nebyla hotová. Detail v g2007.python kod=mzdy_zamek.
+@api_router.get("/app/mzdy/zamek")
+async def mzdy_zamek_stav(req: Request) -> JSONResponse:
+    """Stav zámku úprav ve mzdách (jen čte)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_zamek", uid)
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
+@api_router.post("/app/mzdy/zamek")
+async def mzdy_zamek_prepni(req: Request) -> JSONResponse:
+    """Zamkne nebo odemkne úpravy ve mzdách. Body {akce: 'zamknout'|'odemknout'}."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("mzdy_zamek", uid,
+                        akce=(body or {}).get("akce"),
+                        rok=(body or {}).get("rok"),
+                        mesic=(body or {}).get("mesic"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

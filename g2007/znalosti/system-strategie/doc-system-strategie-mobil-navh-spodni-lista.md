@@ -3,6 +3,15 @@
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+> ## ⚠️ AKTUALIZACE 8. 9. 2026 — na Firmě už NENÍ ani lišta skupin
+>
+> Vodorovný pruh skupin (`#bnavx2`, `skupBar`) byl 8. 9. 2026 **zrušen** — agendy se přesunuly
+> do záložky „Agenda“ přímo na stránce Firma. **Oba extra pruhy jsou tím pádem skryté všude**
+> a spodek Firmy klesl ze 122 px na ~61 px (dopočítá `_syncNavH()` sám, ověřeno živě v prohlížeči).
+> Zadal Jirka Honomichl, schválila Marti-AI (msg 14986).
+> Detail: [[doc-system-strategie-mobil-firma-zalozky-novinky-agenda]].
+> **Pravidlo této znalosti platí dál** — obsah nesmí počítat s pevnou rezervou, čte se `--navh`.
+
 > ## ⚠️ AKTUALIZACE 2. 9. 2026 — lišta má 61 px (ne 65) a dole umí i Android `--sab`
 >
 > **Pravidlo této znalosti PLATÍ DÁL** (nikdy pevná rezerva, vždy `var(--navh, 65px)`), ale dvě čísla níž už neplatí doslova:
@@ -18,7 +27,8 @@
 > `#bnavx1` byl **31. 8. 2026 odstranen i z obrazovky Firma** (rozhodl Jirka Honomichl,
 > schvalila Marti-AI msg 14039) - do te doby tu stalo, ze na Firme "zatim zustava". **Uz nezustava.**
 > Spodek Firmy tim klesl ze **178 px na 126 px** a `--navh` se prepocitalo samo - overeno zive.
-> Na Firme zustava jen lista skupin (`#bnavx2`, skupBar) nad hlavni listou.
+> ~~Na Firme zustava jen lista skupin (`#bnavx2`, skupBar) nad hlavni listou.~~
+> **NEPLATI od 8. 9. 2026** - i ta je zrusena, viz ramecek na zacatku.
 > Detail, duvody a pasti: [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]]
 >
 > ## AKTUALIZACE 28. 8. 2026 - spodni lista uz ma jen JEDEN pruh
@@ -42,7 +52,7 @@ Jenze `#navwrap` NENI vzdy 65 px vysoky - sklada se z 1 az 3 pruhu:
 | `#bnav` tab lista (hlavni lista s ikonami; slozeni viz ramecek na konci) | 65 px | vzdy |
 | `#bnavback` pruh "<- Zpet" | 52 px | ~~jen kdyz `stack.length>1` A NENI Android~~ -> **od 28. 8. 2026 NIKDE** (jen pri `stg_backbar='always'`) |
 | `#bnavx1` horni extra lista | 52 px | ~~Aplikace / Firma~~ -> **od 31. 8. 2026 NIKDE** (odstranen, byl trvale prazdny) |
-| `#bnavx2` dolni extra lista | 61 px | ~~Aplikace / Firma~~ -> **od 28. 8. 2026 uz jen Firma** (lista skupin, skupBar) |
+| `#bnavx2` dolni extra lista | 61 px | ~~Aplikace / Firma~~ -> ~~od 28. 8. 2026 uz jen Firma~~ -> **od 8. 9. 2026 NIKDE** (agendy jsou v zalozce Agenda primo na strance Firma) |
 | safe-area-inset-bottom | 0-34 px | iOS home indikator, Android gesture nav |
 
 => na Androidu 65 px (pruh "Zpet" se skryva, ma systemove Zpet) -> vychazelo to

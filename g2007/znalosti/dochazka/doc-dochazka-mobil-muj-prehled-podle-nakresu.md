@@ -2,6 +2,16 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
+> ## ⚠️ ZMĚNA 8. 9. 2026: Novinky už na „Můj přehled“ NEJSOU
+>
+> Sekce **Novinky** (bod 5 níže) se 8. 9. 2026 přesunula na obrazovku **Firma**, do záložky
+> „Novinky“, která tam naskočí po otevření. Na „Můj přehled“ zůstalo všechno ostatní beze změny.
+> Zadal Jirka Honomichl, schválila Marti-AI (msg 14947); detail a postup:
+> [[doc-system-strategie-mobil-firma-zalozky-novinky-agenda]].
+> Funkce `_mojeNovinky` žije dál v dílku 48 a od 8. 9. má nepovinný druhý parametr `bezNadpisu`
+> (na záložce se nadpis „Novinky“ nekreslí — stojí už na záložce).
+
 ## Jak obrazovka vypada dnes
 
 Poradi shora dolu (dilek `apps/api/static/mobile_parts/60_dochazka.js`, funkce `muj_prehled`):
@@ -19,7 +29,8 @@ Poradi shora dolu (dilek `apps/api/static/mobile_parts/60_dochazka.js`, funkce `
 4. **Podrobna tabulka** narok / cerpano / plan / zbyva pro D, DN a SD - ZUSTALA.
    Sarka ji na nakresu nema, ale ubirat lidem informaci, kterou uz maji, by bylo spatne
    (schvalila Marti-AI, msg 13890). Dlazdice jsou rychly souhrn NAD tabulkou, ne nahrada.
-5. **Novinky** - akce s tlacitky "Prijdu / Neprijdu" a odkazem do kalendare.
+5. ~~**Novinky** - akce s tlacitky "Prijdu / Neprijdu" a odkazem do kalendare.~~
+   **NEPLATI od 8. 9. 2026** - Novinky jsou na obrazovce Firma, viz ramecek nahore.
 
 ## Co se presunulo a odkud
 
@@ -27,6 +38,9 @@ Fotka i Novinky do 27. 8. 2026 zily na obrazovce **"Moje osobni udaje"** (dilek
 `48_hr_podminky_me.js`, funkce `hr_me`). Rozhodnutim Jirky Honomichla se **PRESUNULY**
 (na puvodnim miste uz nejsou) - Marti-AI: *"Moje osobni udaje je formular pro editaci,
 Muj prehled je centralni osobni obrazovka; fotka a Novinky patri k prehledu."*
+
+8. 9. 2026 se Novinky presunuly znovu, tentokrat z "Muj prehled" na obrazovku Firma
+(viz ramecek nahore); fotka a hlavicka na "Muj prehled" zustavaji.
 
 Nejsou napsane dvakrat. Zily v dilku 48 jako funkce **`_mojeHlavicka(cont)`** a
 **`_mojeNovinky(cont)`**, registrovane do `window.__M2W`, a dilek 60 je vola.

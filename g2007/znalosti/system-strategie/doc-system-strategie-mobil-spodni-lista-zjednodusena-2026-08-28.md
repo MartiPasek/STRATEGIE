@@ -1,7 +1,17 @@
-# Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026; 7. 9. 2026 nové složení, jméno člověka místo popisku docházky a srovnaná nápověda)
+# Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026; 7. 9. 2026 nové složení, jméno člověka místo popisku docházky a srovnané snímky návodu)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
+> ## ⚠️ AKTUALIZACE 8. 9. 2026 — z Firmy zmizel i pruh skupin (`#bnavx2`)
+>
+> Níže se na víc místech píše, že **lišta skupin na Firmě zůstává beze změny** — **to už neplatí.**
+> 8. 9. 2026 byla zrušena a agendy se přesunuly do záložky „Agenda“ přímo na stránce Firma.
+> **Oba extra pruhy jsou tím skryté všude**, `#navwrap` na Firmě má ~61 px místo 122 px.
+> Funkce `skupBar()` zůstala v kódu, ale **už ji nikdo nevolá**; větev `if(firmaBar){…}`
+> v dílku 74 byla nahrazena trvalým skrytím.
+> Zadal Jirka Honomichl, schválila Marti-AI (msg 14986).
+> Detail: [[doc-system-strategie-mobil-firma-zalozky-novinky-agenda]].
 
 ## Co se změnilo (zadal Jirka Honomichl, schválila Marti-AI msg 13953 a 13962)
 
@@ -13,7 +23,7 @@ lišta s ikonami `#bnav`. Na obrazovce Aplikace se výška spodku snížila ze 1
 | `#bnav` — hlavní lišta s ikonami | vždy | **beze změny, vždy** (složení ikon se 7. 9. 2026 změnilo, viz rámeček na konci) |
 | `#bnavback` — „← Zpět" | v prohlížeči (na Androidu i v iOS appce skryto) | **nikde**; zapnout jde jen `localStorage stg_backbar='always'` |
 | `#bnavx1` — horní extra pruh | zobrazen na Aplikacích i na Firmě, **vždy prázdný** | **pryč všude** — na Aplikacích 28. 8. 2026, na Firmě 31. 8. 2026 (viz níže) |
-| `#bnavx2` — dolní extra pruh | na Aplikacích jen ikona ⚙ Nastavení; na Firmě lišta skupin | na Aplikacích pryč; **na Firmě beze změny (skupBar)** |
+| `#bnavx2` — dolní extra pruh | na Aplikacích jen ikona ⚙ Nastavení; na Firmě lišta skupin | na Aplikacích pryč; ~~na Firmě beze změny (skupBar)~~ → **od 8. 9. 2026 pryč i z Firmy** |
 
 Ikona Nastavení je nově **dlaždice v nové sekci „⚙️ NASTAVENÍ" úplně dole** na obrazovce Aplikace
 (`35_apps_vedeni.js`, konec `buildApps`), volá `window.__M2W.selectTab("settings")`.
@@ -51,7 +61,7 @@ uložení do `window.__M2W`, `innerHTML=""` a přepínání `display`. Žádné 
 
 ## Pasti, na které narazíš
 
-- **`#bnavx2` má na Firmě úplně jinou roli** než na Aplikacích — je to vodorovně posuvná lišta
+- **`#bnavx2` měl na Firmě úplně jinou roli** než na Aplikacích (do 8. 9. 2026) — byla to vodorovně posuvná lišta
   skupin (`skupBar()`, 20 tlačítek). Kdo smaže „ten pruh s Nastavením" plošně, rozbije Firmu.
   Měnit se smí jen větev `if(atApps){...}`, ne `else if(firmaBar){...}`.
 - **Nezapisuj do `apps/api/static_db/mobile.html`** — to je sestavený artefakt. Zdroj je dílek

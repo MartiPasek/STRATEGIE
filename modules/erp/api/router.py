@@ -25187,10 +25187,13 @@ async def att_fix_add(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     from modules.erp.api import erp_registry as _ereg
+    # Peťa 8.9.2026: deleni / deleni_umim — pauza vložená doprostřed práce
+    # nabídne rozdělení toho pracovního záznamu. Logika je v g2007.python.
     result = _ereg.call("att_fix_add", uid,
                          (body or {}).get("uid"), (body or {}).get("zac"), (body or {}).get("kon"),
                          (body or {}).get("type_code"), (body or {}).get("cinnost_id"), (body or {}).get("project_ref"),
-                         (body or {}).get("reason"), (body or {}).get("day"))
+                         (body or {}).get("reason"), (body or {}).get("day"),
+                         (body or {}).get("deleni"), bool((body or {}).get("deleni_umim")))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

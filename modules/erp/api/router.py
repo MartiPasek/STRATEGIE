@@ -10331,7 +10331,7 @@ async def app_hr_create_meta(req: Request) -> JSONResponse:
             "SELECT id, label FROM tenant.job_position WHERE tenant_id=2 AND aktivni "
             "ORDER BY sort_order NULLS LAST, label")).fetchall()]
         skupiny = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
-            "SELECT id, COALESCE(NULLIF(TRIM(label),''), name) FROM tenant.staff_group "
+            "SELECT id, name FROM tenant.staff_group "
             "WHERE tenant_id=2 AND NOT COALESCE(archived,false) ORDER BY 2")).fetchall()]
         posty = [{"id": int(r[0]), "label": r[1]} for r in s.execute(_t(
             "SELECT id, nazev FROM tenant.org_post WHERE tenant_id=2 AND aktivni ORDER BY nazev")).fetchall()]
@@ -14460,7 +14460,7 @@ async def app_hr_person_groups(req: Request):
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
-            "SELECT COALESCE(NULLIF(TRIM(g.label),''), g.name) "
+            "SELECT g.name "
             "FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
             "WHERE g.tenant_id=2 AND NOT COALESCE(g.archived,false) AND m.user_id=:u "
             "ORDER BY 1"), {"u": tuid}).fetchall()

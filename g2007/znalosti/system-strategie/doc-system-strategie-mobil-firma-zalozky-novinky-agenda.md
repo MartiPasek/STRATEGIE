@@ -1,8 +1,22 @@
-# Mobil, obrazovka Firma: dvě záložky (Novinky + Agenda) a zrušený vodorovný pruh skupin (8. 9. 2026)
+# Mobil, obrazovka Firma: dvě záložky (Novinky + Agenda) a zrušený vodorovný pruh skupin (8. 9. 2026; večer sekce podle nadrazéných složek)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-
+> ## ⚠️ DOPLNENO 8. 9. 2026 VECER — mrizka uz NENI plocha, agendy jsou v SEKCICH
+>
+> Text nize popisuje stav z dopoledne 8. 9. 2026. Tyz den vecer zadal Jirka Honomichl
+> zmenu (schvalila Marti-AI, msg 15014): **nadrazene slozky se uz nekresli jako dlazdice**
+> — delaji **nadpis sekce** nad svymi agendami. Duvod: slozky KANCELAŘE, VÝROBA
+> a EXTERNÍ (v `tenant.staff_group` na ne ukazuje `parent_id` ostatnich skupin) nemaji
+> vlastni cleny, takze v ploche mrizce vypadaly jako obycejna agenda s nula lidmi
+> — vedle sebe byly **dve „Výroba“** a lide se ptali, proc jedna nema nikoho.
+>
+> **Co plati od vecera 8. 9. 2026:** nahore samostatna dlazdice „🌐 Všichni“, pod ni sekce
+> **Kanceláře / Výroba / Externí** a sekce **Ostatní** pro agendy bez nadrazene slozky
+> (dnes DOCHÁZKA - OPRAVY a DOCHÁZKA - SCHVALOVÁNÍ VŠECH). **Poradi uvnitr sekce
+> zustava** takove, jak ho popisuje text nize — nejdriv moje agendy se zelenou teckou.
+> Pocet u zalozky uz **nepocita nadrazene slozky** (19 → 16).
+> Detail: [[doc-system-strategie-agendy-zdroj-staff-group-a-nadrazene-slozky]].
 
 ## Co se změnilo
 
@@ -11,10 +25,10 @@ Obrazovka **Firma** v mobilní aplikaci má od 8. 9. 2026 **dvě záložky**:
 1. **📣 Novinky** — výchozí po každém otevření Firmy (nepamatuje si poslední záložku).
    Obsah kreslí funkce `_mojeNovinky` z dílku `48_hr_podminky_me.js`. Do 8. 9. seděly Novinky
    na konci obrazovky „Můj přehled“ (Šárčin nákres) — odtud jsou **přesunuty**, ne zkopírovány.
-2. **🗂 Agenda** *(u záložky je počet, dnes 19)* — mřížka 4 sloupců se skupinami. Do 8. 9. to byl
+2. **🗂 Agenda** *(u záložky je počet; dopoledne 8. 9. bylo 19, od večera 16 — nadrazéné složky se nepočítají)* — mřížka 4 sloupců se skupinami, **od večera 8. 9. rozdělená do sekcí** (viz rámeček nahoře). Do 8. 9. to byl
    **vodorovný pruh nad spodní lištou** (`bnavx2`, plnila ho `skupBar()`); **ten je zrušen**.
 
-**Pořadí dlaždic je záměrně OPAČNÉ než mělo pruh:** nejdřív skupiny, kde je člověk člen,
+**Pořadí dlaždic je záměrně OPAČNÉ než mělo pruh** (od večera 8. 9. platí **uvnitř každé sekce**, ne přes celou mřížku)**:** nejdřív skupiny, kde je člověk člen,
 zástupce nebo vedoucí (poznají se **zelenou tečkou**), pak „🌐 Všichni“, pak ostatní. Pruh řadil
 vzestupně podle `rank`, tedy „moje“ až na konci. Mřížka řadí podle toho, co je pro člověka
 podstatné.
@@ -31,8 +45,8 @@ podstatné.
 | Novinky | `48_hr_podminky_me.js`, `_mojeNovinky(cont, bezNadpisu)` |
 | Skrytí pruhu | `74_claude27_render_init.js` — větev `if(firmaBar){…}` nahrazena trvalým skrytím |
 
-Data mřížky: `GET /api/v1/erp/app/skupiny/bar` → `{groups:[{id,name,icon,rel}]}`, kde `rel` je
-`lead` / `deputy` / `member` / `other`. Sdílí se **stejná mezipaměť** `_skupBarCache`, co měl pruh.
+Data mřížky: `GET /api/v1/erp/app/skupiny/bar` → `{groups:[{id,name,icon,rel,parent_id,je_slozka}]}`, kde `rel` je
+`lead` / `deputy` / `member` / `other`. Pole `parent_id` a `je_slozka` přibyla **8. 9. 2026 večer** kvůli sekcím (`je_slozka` = na skupinu ukazuje `parent_id` jiné nearchivované skupiny). Adresu **nevolá nic jiného než mobil** — ověřeno v gitu i v `g2007.soubor` 8. 9. 2026. Sdílí se **stejná mezipaměť** `_skupBarCache`, co měl pruh.
 
 ## Na co si dát pozor
 

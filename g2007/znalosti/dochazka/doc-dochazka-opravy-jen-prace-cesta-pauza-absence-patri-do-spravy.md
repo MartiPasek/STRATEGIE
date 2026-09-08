@@ -1,6 +1,30 @@
-# V Opravach dochazky jen Prace, Cesta a Pauza - absence patri vyhradne do Spravy
+# V Opravach jen Prace a Pauza (od 8.9.2026 uz bez Cesty) - absence patri vyhradne do Spravy dochazky
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+
+
+> ## AKTUALIZACE 8. 9. 2026 - CESTA UZ V OPRAVACH NENI
+>
+> Peta 8. 9. 2026: *"minuly tyden jsem se spatne rozhodla... spatne jsem usoudila, ze by
+> tam cesta mela zustat, ale je to nesmysl. Pokud to bude cesta, musi to byt vybrano jako
+> prace a cinnost sluzebni nebo pracovni cesta."*
+>
+> **V Opravach dochazky zustavaji uz jen PRACE a PAUZA.** Sluzebni cesta se zapisuje jako
+> **Prace** s cinnosti **9 Sluzebni cesta / montaz (nutny cestak)** nebo
+> **113 Pracovni cesta - nakup / lakovna / ostatni (bez cestaku)** - obe jsou v ciselniku aktivni
+> (overeno v datech 8. 9. 2026).
+>
+> Zmeneno: `_ATT_FIX_TYPES` v `att_fix_entry` i `att_fix_add` na `("work","break")`,
+> `OPRAVY_TYPY` v `dochazka-opravy.html` na `['work','break']`, a v mobilu `_fixMkTyp`
+> nove filtruje podle `_FIX_TYPY_POVOLENE` (do 8. 9. 2026 mobil nabizel VSECHNY typy
+> vcetne Rezie a Home office, i kdyz je server odmital - tichy rozpor, ktery se timhle srovnal).
+>
+> **Stary typ zaznam nechava.** Kdo uz Cestu (nebo Rezii ci Home office) v zaznamu ma,
+> v roletce ji uvidi a pri oprave casu si ji zaznam nechá; prepnout NA ni uz ale nejde
+> (server vrati hlasku s odkazem na cinnosti 9 a 113). K 8. 9. 2026 je takovych zaznamu
+> **sest** - dva v cervnu, jeden v cervenci, tri v srpnu, zadny v zari.
+>
+> Text nize je puvodni zneni z 1. 9. 2026 a plati beze zmeny krome poctu typu.
 
 
 # V Opravách jen Práce, Cesta a Pauza — absence patří výhradně do Správy docházky

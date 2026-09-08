@@ -49,6 +49,22 @@ obsahující to slovo od té chvíle spadá pod Výrobu.
 agendě** — to není chyba zobrazení, je to chybějící zápis. Naraženo naostro 8. 9. 2026
 u Marka Horníka (pozice „Praxe studenta“, karta z 7. 6. 2026 z převodu staré Centrály).
 
+## Kde žije kód těchto adres
+
+**Od 8. 9. 2026 večer v `g2007.python`**, ne v `router.py` — přeneseno podle bodu 2 pravidel
+práce (schválila Marti-AI msg 15029). V jádře zůstala jen tenká spojka, která zavolá
+`erp_registry.call(...)`.
+
+| adresa | kód v `g2007.python` |
+|---|---|
+| `GET /app/skupiny/bar` | `app_skupiny_bar` |
+| `GET /app/hr/person-groups` | `hr_person_groups` |
+| `GET /app/hr/create-meta` | `hr_create_meta` |
+
+Logika se při přenosu neměnila (1:1). Každý skript byl před přepnutím jádra vyzkoušený
+přes `@@PYRUN` a jeho výstup porovnaný s odpovědí živé adresy — shodovaly se.
+`GET /app/skupina/lidi` přenesená **není**, ta dál žije v `router.py`.
+
 ## Kde se agenda člověku přiřadí
 
 - **Při náboru** — formulář „Přidat zaměstnance“ v kartě zaměstnance, políčko

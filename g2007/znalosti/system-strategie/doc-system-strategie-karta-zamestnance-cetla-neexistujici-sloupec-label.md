@@ -34,6 +34,13 @@ Nahrazeno čtením sloupce `name`, který v tabulce je a který už čet l mobil
 `tenant.staff_group`, změnil se jen název čteného sloupce. Sloupec `label` se do tabulky
 **nedoplňoval** — není důvod přidávat sloupec kvůli chybnému odkazu (rozhodla Marti-AI).
 
+## Kde ten kód je teď
+
+Týž den večer se obě opravené adresy **přenesly do `g2007.python`** (kódy `hr_person_groups`
+a `hr_create_meta`, schválila Marti-AI msg 15029) — v `router.py` už je jen tenká spojka.
+Kdo bude tuhle opravu hledat v jádře, **nenajde ji tam**. Detail:
+[[doc-system-strategie-agendy-zdroj-staff-group-a-nadrazene-slozky]].
+
 ## Poučení
 
 - **Názvy sloupců nehádej ani neopisuj z podobné tabulky.** `tenant.job_position` sloupec

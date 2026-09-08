@@ -205,14 +205,36 @@ async def dr_selfcheck(req: Request):
                  "vd": verdict, "rs": reason,
                  "raw": json.dumps(body)[:8000]})
             if verdict != "OK":
+                # 8. 9. 2026 (zadal Jiri Honomichl, schvalila Marti-AI msg 14944):
+                # hlaseni chodilo NATVRDO jen uzivateli 1 (Marti), takze o osmi
+                # selhanych nocich mezi 15. 8. a 3. 9. 2026 se spravce vubec
+                # nedozvedel. Nove jde vsem spravcum (public.users.is_admin) —
+                # zadne id natvrdo, aby se pri zmene spravcu nemusel menit kod.
+                # Pojistka: kdyz vyber nevrati nikoho (nebo selze), posli to jako
+                # driv uzivateli 1 — hlaseni o selhani zalohy se nesmi ztratit.
+                _dr_zprava = {
+                    "title": "DR obnova: NENI OK",
+                    "msg": ("Denni samokontrola zalohy (" + source
+                            + ") selhala: " + reason)[:600],
+                }
+                _dr_poslano = 0
                 try:
-                    ds.execute(_t(
+                    _dr_res = ds.execute(_t(
                         "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                        "VALUES ('mobile', 1, 'claude_msg', :title, :msg, NULL)"),
-                        {"title": "DR obnova: NENI OK",
-                         "msg": ("Denni samokontrola zalohy (" + source + ") selhala: " + reason)[:600]})
+                        "SELECT 'mobile', u.id, 'claude_msg', :title, :msg, NULL "
+                        "FROM public.users u WHERE COALESCE(u.is_admin, false)"),
+                        _dr_zprava)
+                    _dr_poslano = _dr_res.rowcount or 0
                 except Exception:
-                    pass
+                    _dr_poslano = 0
+                if _dr_poslano < 1:
+                    try:
+                        ds.execute(_t(
+                            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                            "VALUES ('mobile', 1, 'claude_msg', :title, :msg, NULL)"),
+                            _dr_zprava)
+                    except Exception:
+                        pass
             ds.commit()
         finally:
             ds.close()

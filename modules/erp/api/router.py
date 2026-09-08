@@ -25167,10 +25167,13 @@ async def att_fix_entry(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     from modules.erp.api import erp_registry as _ereg
+    # Peťa 8.9.2026: navaz / navaz_umim — nabídka opravit i navazující záznam
+    # (zapomenutá pauza → posun navazující práce). Logika je v g2007.python.
     result = _ereg.call("att_fix_entry", uid,
                          (body or {}).get("id"), (body or {}).get("zac"), (body or {}).get("kon"),
                          (body or {}).get("type_code"), (body or {}).get("reason"), (body or {}).get("cinnost_id"),
-                         (body or {}).get("project_ref"), isinstance(body, dict) and ("project_ref" in body))
+                         (body or {}).get("project_ref"), isinstance(body, dict) and ("project_ref" in body),
+                         (body or {}).get("navaz"), bool((body or {}).get("navaz_umim")))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

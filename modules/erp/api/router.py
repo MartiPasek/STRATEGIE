@@ -46295,6 +46295,10 @@ _OPS_ACTIONS = {
         "label": "🌐 Caddy: přidat ucto.strategie-ai.com (Helios pro účetní přes prohlížeč)",
         "target": "cloud", "remote": False,
     },
+    "caddy_drop_older_routes": {
+        "label": "🧹 Caddy: zrušit mrtvá pravidla pro starší verze (8004 = testovací data, 8005 = nic)",
+        "target": "cloud", "remote": False,
+    },
     "publish_app_mobile": {
         "label": "Nahrát mobilní APK z buildu (NB → server)",
         "target": "instance:23", "remote": True, "op": "publish_app_mobile",
@@ -50515,6 +50519,109 @@ def _ops_caddy_pin_failover() -> dict:
             % (", ".join(changed) or "0", reload_msg, bak)}
 
 
+def _ops_caddy_drop_older_routes() -> dict:
+    """Zrusi ze ZIVEHO Caddyfile dve MRTVA pravidla pro starsi verze (Jirka 8.9.2026,
+    schvalila Marti-AI msg 15104). Duvod: cookie `strategie_api_version=older_1` vede na
+    port 8004, kde dnes bezi APID TESTOVACI prostredi nad `data_db_test` (drive tam byl
+    starsi produkcni kod), a `older_2` na 8005, kde neposlouchá nic. Bezneho uzivatele to
+    neohrozi (cookie plati 24 h a aplikace starsi verze nenabizi), ale kdo si ji nastavi
+    rucne pri diagnostice, muze necekane cist testovaci data a myslet si, ze cte produkci.
+    `@versionPrevious` (8003) se NEDOTYKAME - ten je zivy a potrebny.
+
+    Postup je stejny jako u _ops_caddy_pin_failover: zaloha s casovym razitkem -> cilena
+    uprava -> reload pres Caddy admin API (validuje atomicky) -> pri chybe rollback.
+    Hranice bloku se urcuje POCITANIM slozenych zavorek od `reverse_proxy` daneho matcheru,
+    ne vzorem - heuristika by mohla ukrojit i sousedni blok. Idempotentni."""
+    import os as _os, shutil as _sh, time as _tm
+    cfg = _os.environ.get("STRATEGIE_CADDYFILE") or r"C:\caddy\Caddyfile"
+    if not _os.path.isfile(cfg):
+        return {"ok": False, "result": "Caddyfile nenalezen: %s" % cfg}
+    try:
+        with open(cfg, "r", encoding="utf-8") as f:
+            txt = f.read()
+    except Exception as exc:
+        return {"ok": False, "result": "cteni Caddyfile selhalo: %s" % exc}
+
+    def _vyriznout(text, matcher):
+        """Odstrani radek s matcherem i cely jeho reverse_proxy blok. Vraci (text, popis)."""
+        i_m = text.find("@%s header_regexp" % matcher)
+        if i_m < 0:
+            return text, "%s tam uz neni" % matcher
+        zacatek = text.rfind(chr(10), 0, i_m)
+        zacatek = 0 if zacatek < 0 else zacatek + 1
+        i_rp = text.find("reverse_proxy @%s" % matcher, i_m)
+        if i_rp < 0:
+            return text, "%s POZOR - matcher je tam, ale jeho reverse_proxy ne; nechavam byt" % matcher
+        i_open = text.find("{", i_rp)
+        if i_open < 0:
+            return text, "%s POZOR - blok nema oteviraci zavorku; nechavam byt" % matcher
+        hloubka = 0
+        konec = -1
+        for j in range(i_open, len(text)):
+            if text[j] == "{":
+                hloubka += 1
+            elif text[j] == "}":
+                hloubka -= 1
+                if hloubka == 0:
+                    konec = j + 1
+                    break
+        if konec < 0:
+            return text, "%s POZOR - neuzavrena zavorka; nechavam byt" % matcher
+        while konec < len(text) and text[konec] in (chr(13), chr(10)):
+            konec += 1
+        return text[:zacatek] + text[konec:], "%s odstranen" % matcher
+
+    novy = txt
+    popisy = []
+    for m in ("versionOlder1", "versionOlder2"):
+        novy, popis = _vyriznout(novy, m)
+        popisy.append(popis)
+    # Uklid i v komentari nahore, at nepopisuje pravidla, ktera uz neexistuji (bod 14 -
+    # postup se meni VSUDE). Mazou se JEN radky komentare, ktere ten matcher zminuji.
+    _radky = novy.split(chr(10))
+    _bez_komentaru = [r for r in _radky
+                      if not (r.strip().startswith("#") and "versionOlder" in r)]
+    if len(_bez_komentaru) != len(_radky):
+        popisy.append("komentar uklizen (%d radku)" % (len(_radky) - len(_bez_komentaru)))
+        novy = chr(10).join(_bez_komentaru)
+    if novy == txt:
+        return {"ok": True, "result": "Zadna zmena. " + " | ".join(popisy)}
+    if "@versionPrevious" not in novy:
+        return {"ok": False, "result": "POJISTKA: po uprave by chybel @versionPrevious - "
+                                       "nic jsem nezapsal. " + " | ".join(popisy)}
+
+    bak = cfg + ".bak_older_" + _tm.strftime("%Y%m%d_%H%M%S")
+    try:
+        _sh.copyfile(cfg, bak)
+        with open(cfg, "w", encoding="utf-8") as f:
+            f.write(novy)
+    except Exception as exc:
+        return {"ok": False, "result": "zapis Caddyfile selhal: %s" % exc}
+
+    admin = _os.environ.get("STRATEGIE_CADDY_ADMIN") or "http://localhost:2019"
+    try:
+        import urllib.request as _u
+        rq = _u.Request(admin.rstrip("/") + "/load", data=novy.encode("utf-8"),
+                        headers={"Content-Type": "text/caddyfile"}, method="POST")
+        with _u.urlopen(rq, timeout=30) as resp:
+            if not (200 <= getattr(resp, "status", 200) < 300):
+                raise RuntimeError("admin /load HTTP %s" % getattr(resp, "status", "?"))
+        return {"ok": True, "result": "HOTOVO: %s. Caddy znovu nacten (admin API). Zaloha: %s"
+                                      % (" | ".join(popisy), bak)}
+    except Exception as exc:
+        try:
+            _sh.copyfile(bak, cfg)
+            import urllib.request as _u2
+            rq2 = _u2.Request(admin.rstrip("/") + "/load", data=txt.encode("utf-8"),
+                              headers={"Content-Type": "text/caddyfile"}, method="POST")
+            _u2.urlopen(rq2, timeout=30)
+            return {"ok": False, "result": "Reload selhal (%s) - VRACENO ze zalohy %s a puvodni "
+                                           "config znovu nacten." % (exc, bak)}
+        except Exception as exc2:
+            return {"ok": False, "result": "Reload selhal (%s) a rollback take (%s). Zaloha je "
+                                           "v %s - RESIT RUCNE." % (exc, exc2, bak)}
+
+
 def _ops_caddy_add_ucto() -> dict:
     """Přidá do ŽIVÉHO Caddyfile (C:\\caddy\\Caddyfile) blok pro
     'ucto.strategie-ai.com' → reverse_proxy na lokální Guacamole (127.0.0.1:8080),
@@ -50618,6 +50725,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             result = out.get("result") or ""
         elif action_key == "caddy_add_ucto":
             out = _ops_caddy_add_ucto()
+            status = "done" if out.get("ok") else "error"
+            result = out.get("result") or ""
+        elif action_key == "caddy_drop_older_routes":
+            out = _ops_caddy_drop_older_routes()
             status = "done" if out.get("ok") else "error"
             result = out.get("result") or ""
         elif action_key == "sync_zakazky":

@@ -153,6 +153,66 @@ def _severity_from_sort_order(sort_order: int) -> str:
         return "older"
 
 
+# Ziva verze zalohy (Jirka 8.9.2026, schvalila Marti-AI). Do 8.9. paticka ukazovala
+# u zalohy git_sha a datum z fw.api_version - ta se ale u zalohy aktualizuje jen tim,
+# ze si nekdo otevre stranku stavu (naposledy 7.9. 9-38). Vypadalo to, ze zaloha stoji
+# na vcerejsim kodu, pritom od 10.7.2026 se srovnava po KAZDEM nasazeni a bezi tentyz
+# kod. Kdo by se pri spatnem nasazeni prepnul na zalohu "kvuli starsimu kodu", dostal
+# by presne tentyz kod - a datum v paticce ho v tom omylu utvrdilo.
+# Reseni: zeptat se bezici instance primo (/api-info na jejim portu, localhost) a rict
+# pravdu v popisku. Kratka pamet (30 s), aby polling po 60 s nezatezoval.
+_LIVE_CACHE: dict[int, tuple[float, Optional[str]]] = {}
+_LIVE_TTL_SEC = 30.0
+_LIVE_TIMEOUT_SEC = 1.5
+
+
+def _live_commit(port: int) -> Optional[str]:
+    """Commit, ktery instance na danem portu SKUTECNE hlasi. None = neodpovedela."""
+    import time as _t
+    now = _t.time()
+    hit = _LIVE_CACHE.get(port)
+    if hit and (now - hit[0]) < _LIVE_TTL_SEC:
+        return hit[1]
+    sha = None
+    try:
+        import requests as _rq
+        j = _rq.get("http://127.0.0.1:%s/api/v1/api-info" % port,
+                    timeout=_LIVE_TIMEOUT_SEC).json()
+        sha = (j or {}).get("commit") or None
+        if sha in ("unknown", ""):
+            sha = None
+    except Exception:
+        sha = None
+    _LIVE_CACHE[port] = (now, sha)
+    return sha
+
+
+def _oprav_podle_zive_instance(versions: list) -> list:
+    """U jinych nez aktualni verze nahradi udaje z databaze tim, co instance opravdu
+    hlasi. Kdyz neodpovi, popisek to rekne misto tichého zobrazeni stareho zaznamu."""
+    if not versions:
+        return versions
+    soucasna = next((v for v in versions if v.version_code == "current"), None)
+    soucasna_sha = (soucasna.git_sha or "") if soucasna else ""
+    for v in versions:
+        if v.version_code == "current":
+            continue
+        ziva = _live_commit(v.port)
+        if not ziva:
+            v.version_label = "Zaloha - neodpovida"
+            continue
+        v.git_sha = ziva
+        stejny = bool(soucasna_sha) and (soucasna_sha.startswith(ziva) or ziva.startswith(soucasna_sha))
+        if stejny:
+            v.version_label = "Zaloha - stejny kod jako aktualni"
+            if soucasna is not None:
+                v.version_string = soucasna.version_string
+                v.released_at = soucasna.released_at
+        else:
+            v.version_label = "Zaloha - starsi kod"
+    return versions
+
+
 def _row_to_version_info(row) -> ApiVersionInfo:
     return ApiVersionInfo(
         id=row.id,
@@ -221,7 +281,7 @@ async def list_versions(
         ORDER BY sort_order
     """)).all()
 
-    versions = [_row_to_version_info(r) for r in rows]
+    versions = _oprav_podle_zive_instance([_row_to_version_info(r) for r in rows])
 
     # User's current pin (pokud existuje a neexpiroval)
     current_pin = None

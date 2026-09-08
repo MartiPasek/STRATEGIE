@@ -466,13 +466,18 @@ async function printAll(){
   setTimeout(function(){ document.body.classList.remove('printing-all'); box.innerHTML=''; }, 800);
 }
 function closePas(){document.getElementById('ovl').classList.remove('on'); if(window.__verPending){ location.reload(); }}
-function confirmBox(msg){
+// Nadpis a popisek potvrzovacího tlačítka jdou přebít (Peťa 8.9.2026 — okno se
+// používá i pro zámek mezd, kde by „Ano, generovat" bylo matoucí). Bez parametrů
+// se chová jako dřív.
+// ⚠️ POZOR (chyba z 8.9.2026): parametry se MUSÍ číst tady, ve vnější funkci.
+// Uvnitř `new Promise(function(resolve, reject){…})` je `arguments` sada argumentů
+// TÉ vnitřní funkce, takže `arguments[1]` byl `reject` a do nadpisu se vypsalo
+// „function () { [native code] }".
+function confirmBox(msg, nadpis, ano){
+  var _t = nadpis || '⚠️ Přegenerovat mzdy?';
+  var _y = ano || 'Ano, generovat';
   return new Promise(function(resolve){
     const ov=document.createElement('div'); ov.className='cfmov';
-    // Nadpis a popisek tlačítka jdou přebít (Peťa 8.9.2026 — okno se používá i pro
-    // zámek mezd, kde by „Ano, generovat" bylo matoucí). Bez parametrů se chová jako dřív.
-    var _t = (arguments.length>1 && arguments[1]) ? arguments[1] : '⚠️ Přegenerovat mzdy?';
-    var _y = (arguments.length>2 && arguments[2]) ? arguments[2] : 'Ano, generovat';
     ov.innerHTML='<div class="cfmbox"><div class="cfmt">'+_t+'</div><div class="cfmm">'+msg+'</div><div class="cfmr"><button type="button" class="cfmno">Ne</button><button type="button" class="cfmyes">'+_y+'</button></div></div>';
     document.body.appendChild(ov);
     function done(v){ document.removeEventListener('keydown',onkey,true); ov.remove(); resolve(v); }

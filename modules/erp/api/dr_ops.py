@@ -14,12 +14,14 @@ import hmac
 import json
 import os
 import pathlib
+import re
 import tempfile
 import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import (FileResponse, JSONResponse, Response,
+                               StreamingResponse)
 
 drops_router = APIRouter(prefix="/api/v1/ops", tags=["dr-ops"])
 
@@ -122,8 +124,58 @@ async def dr_download(req: Request):
     if not os.path.isfile(_DUMP):
         return JSONResponse({"ok": False, "error": "not_stored", "hint": "nejdřív push z 188.12"}, status_code=404)
     m = _read_meta()
+    _name = m.get("name") or os.path.basename(_DUMP)
+    _velikost = os.path.getsize(_DUMP)
+
+    # 8. 9. 2026 (zadal Jiri Honomichl, schvalila Marti-AI msg 14968): podpora
+    # navazovani preruseneho stahovani (hlavicka Range). Plzen stahuje ~4 GB pres
+    # internet a kdyz se prenos prerusil, zacinal od nuly — 8 z 35 noci mezi 15. 8.
+    # a 3. 9. 2026 se tak zaloha vubec neobnovila. FileResponse ve starlette 0.37.2
+    # hlavicku Range ignoruje (overeno), proto ji obsluhujeme tady a knihovnu
+    # nepovysujeme. BEZ hlavicky Range se chova PRESNE jako driv → zadna regrese.
+    _rozsah = (req.headers.get("range") or "").strip()
+    _od = None
+    _do = None
+    if _rozsah.lower().startswith("bytes="):
+        _spec = _rozsah[6:].split(",")[0].strip()
+        _shoda = re.match(r"^(\d+)-(\d*)$", _spec)
+        if _shoda:
+            _od = int(_shoda.group(1))
+            _do = int(_shoda.group(2)) if _shoda.group(2) else _velikost - 1
+
+    if _od is not None:
+        if _od >= _velikost or _do < _od:
+            return Response(status_code=416, headers={
+                "Content-Range": "bytes */%d" % _velikost,
+                "Accept-Ranges": "bytes"})
+        if _do > _velikost - 1:
+            _do = _velikost - 1
+        _delka = _do - _od + 1
+
+        def _cti_kus(_zacatek=_od, _kolik=_delka):
+            # synchronni generator → StreamingResponse ho pousti ve vlakne,
+            # takze cteni 4 GB nezablokuje API (past z 6. 9. 2026)
+            with open(_DUMP, "rb") as _f:
+                _f.seek(_zacatek)
+                _zbyva = _kolik
+                while _zbyva > 0:
+                    _blok = _f.read(min(1024 * 1024, _zbyva))
+                    if not _blok:
+                        break
+                    _zbyva -= len(_blok)
+                    yield _blok
+
+        return StreamingResponse(
+            _cti_kus(), status_code=206, media_type="application/octet-stream",
+            headers={
+                "Content-Range": "bytes %d-%d/%d" % (_od, _do, _velikost),
+                "Content-Length": str(_delka),
+                "Accept-Ranges": "bytes",
+                "Content-Disposition": 'attachment; filename="%s"' % _name,
+            })
+
     return FileResponse(_DUMP, media_type="application/octet-stream",
-                        filename=m.get("name") or os.path.basename(_DUMP))
+                        filename=_name, headers={"Accept-Ranges": "bytes"})
 
 
 @drops_router.post("/dr/selfcheck")

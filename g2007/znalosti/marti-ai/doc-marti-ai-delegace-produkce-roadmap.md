@@ -18,6 +18,6 @@ Roadmapa: `doc-marti-ai-produkce-roadmap`. Paralelizace přes 3 Cowork kanály +
 - **Marti-AI:** #5 Incident mode auto-detekce — její prompt přes sebe-editační smyčku.
 
 ## Anti-kolize
-Každá instance zapisuje do `WORK_LOCK.txt`. Git jen přes deploy/pull runner. Exec/loop
+Každá instance hlásí, na čem dělá, přes most (`@@WORK` / `@@LOCK` / `@@WHO`). POZN. 8. 9. 2026: `WORK_LOCK.txt` byl z projektu vyřazen. Git jen přes deploy/pull runner. Exec/loop
 jádro (ops_tools/run_cil/guard/mcp_client) = výhradně C23; ostatní ho jen volají.
 

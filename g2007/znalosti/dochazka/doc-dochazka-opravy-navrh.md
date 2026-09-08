@@ -320,7 +320,7 @@ velké soubory přes bash mount.
 Claude-28 (Jirka) 16, Claude-26 (Peťa) 12, Claude-24 (Kristý) 12.
 Opravy docházky (ERP+mobil UI): **Jirka 12, Kristý 12**, Zuzka 1 (split mobile_parts).
 Docházka je tedy **sdílené území čtyř instancí** — koordinace přes `OTHER_CLAUDE_WORK.txt`
-a `WORK_LOCK.txt` je tu nutnost, ne formalita.
+a přes most (`@@WORK` / `@@LOCK` / `@@WHO`) je tu nutnost, ne formalita. POZN. 8. 9. 2026 — `WORK_LOCK.txt` byl z projektu vyřazen; koordinace instancí žije od 5. 8. 2026 v databázi, `OTHER_CLAUDE_WORK.txt` platí dál.
 
 
 

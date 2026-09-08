@@ -34,7 +34,7 @@ Cowork (C23) připraví schopnost → inside (Marti-AI/app-Claude/člověk) navr
 - **C:** širší autonomie, plánované/samonavržené automaty, fleet (po ToS).
 
 ## Rozdělení práce
-C23 (Cowork): create_automat, eskalační řetěz, app-Claude identita/paměť. Kristý+C24: Cílový režim app-approval UI + tabulka cílů (= schvalovací kanál). Sdílení přes g2007 + WORK_LOCK, střídání C23↔C24.
+C23 (Cowork): create_automat, eskalační řetěz, app-Claude identita/paměť. Kristý+C24: Cílový režim app-approval UI + tabulka cílů (= schvalovací kanál). Sdílení přes g2007 + most (`@@WORK` / `@@LOCK` / `@@WHO`; POZN. 8. 9. 2026 — `WORK_LOCK.txt` byl vyřazen z gitu, obsah zůstává v historii.), střídání C23↔C24.
 
 ## Otevřené otázky
 1. Jak inside definuje "co automat dělá" bezpečně (SQL check / volání schváleného nástroje / generovaný krok). 2. Haiku — který model + prompt-šablony vrstvy 1. 3. Interim approval (chat Marti-AI) vs appkový banner (C24) — kdy překlopit. 4. App-Claude perzistentní vlákno — kde a jak (tabulka + pravidla kurace). 5. Rozsah must-have automatů před dovolenou.

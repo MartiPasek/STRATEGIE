@@ -59,7 +59,7 @@ PROJEKT, planovat az bude klid (vetsi refaktor, samostatny design doc):
    neni to chaos vyzadujici redesign, je to monolit podel uz existujicich svu, riziko
    refaktoru je nizsi nez by se cekalo u 67k-radkoveho souboru. Podle doktriny
    "additivne, ne perfektne" (#11) delat postupne, ne jako jeden big-bang split -
-   zacit domenami s nejvetsi kolizi (dle WORK_LOCK.txt dochazka/mzdy), zbytek nechat
+   zacit domenami s nejvetsi kolizi (dochazka/mzdy; POZN. 8. 9. 2026 — `WORK_LOCK.txt` byl vyřazen z gitu, obsah zůstává v historii. Dnesni obdoba je @@WHO a evidence prace v databazi.), zbytek nechat
    dokud to nebolí.
 
 STAV: OTEVRENO, ceka se na klidne okno (bez soubehu deploy provozu vice instanci),

@@ -32,7 +32,7 @@ Kdyz tam neco je, **NEMAZAT** - nejdriv zjisti, co v tom je, a rozhodnuti nech n
 
 | | Obsah | Verdikt |
 |---|---|---|
-| `stash@{0}` | jen `WORK_LOCK.txt` | bezcenne - koordinace se 5. 8. presunula na `@@WORK`/`@@LOCK`/`@@WHO` |
+| `stash@{0}` | jen `WORK_LOCK.txt` | bezcenne - koordinace se 5. 8. presunula na `@@WORK`/`@@LOCK`/`@@WHO`. POZN. 8. 9. 2026 — `WORK_LOCK.txt` byl vyřazen z gitu, obsah zůstává v historii. Aplikace techto starych stashu proto na nem muze skoncit konfliktem - NEOVERENO a **zamerne nezkousene**; na vyrazenem souboru to netestuj, nic tim nezjistis |
 | `stash@{1}` | `WORK_LOCK.txt` + `modules/erp/api/vyhodnoceni_actions.py` | **uz je v projektu**, HEAD je nadmnozina |
 
 Kod ve `stash@{1}` byl audit uzaverky (`ec.akce_audit`). V HEAD je **i** navazujici opravneni na penezni akce (`_EC_AKCE_S_OPRAVNENIM`, `ec.akce_opravneni`), ktere ve stashi jeste nebylo. **Zahozeni obou stashu nic neztrati**, ale nechal jsem to na Jirkovi - mazani cizi odlozene prace neni moje rozhodnuti.

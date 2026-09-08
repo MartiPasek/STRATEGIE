@@ -20,6 +20,5 @@ DULEZITA GOTCHA: manualni git commit teto davky spustil automaticke git auto-gc,
 se opakovane prerusilo (device_bash nedokaze mazat soubory) a nechalo desitky .lock
 souboru napric .git/refs a .git/logs. Commity/push presto uspesne prosly (overeno
 byte-presne), ale doporucuje se cloveku spustit `git gc` primo na svem stroji (kde ma
-plna prava mazat soubory), aby se .git adresar uklidil. Detaily viz WORK_LOCK.txt zaznam
-"FAZE E DAVKA POST6".
+plna prava mazat soubory), aby se .git adresar uklidil. Detaily byly v zaznamu "FAZE E DAVKA POST6" v souboru WORK_LOCK.txt. POZN. 8. 9. 2026 — `WORK_LOCK.txt` byl vyřazen z gitu, obsah zůstává v historii. Vytahnout je lze prikazem git show s otiskem 71f2a2cc a cestou WORK_LOCK.txt.
 

@@ -95,11 +95,10 @@ jako stazeni vcelku (`2D53853695171E000D3DE5CF592E8E7D`) — server tedy reze sp
 
 ## NEOVERENO
 
-**Jak dlouho se zalohy drzi na prazskem databazovem serveru 188.12.** Kopie skriptu
+**Jak dlouho se zalohy drzi na prazskem databazovem serveru 188.12 - ZODPOVEZENO 8. 9. 2026, je to 11 dni.** prune_pg_backups.ps1 ma KeepDays 11 a MinKeep 7, backup_data_db.ps1 ma retentionDays 11 - obe strany se shoduji, rozpor nikdy neexistoval. Hodnota 14 je jen ve stare kopii v projektu, ktera se na serveru nespousti. Puvodni znění nize UZ NEPLATI. Kopie skriptu
 `prune_pg_backups.ps1` v projektu rika `KeepDays = 14`, znalost
 `doc-system-strategie-servery-sluzby-inventar` rika, ze se to na serveru sjednotilo na **11**.
-Kopie v projektu se tam nespousti (server ma vlastni v `C:\Scripts`) a **na 188.12 se
-nedostane ani Claude, ani Marti-AI** — musi to overit clovek. Plzensky retez 30 zaloh
+Kopie v projektu se tam nespousti (server ma vlastni v `C:\Scripts`) a **na 188.12 se DOSTANEME** - overeno naostro 8. 9. 2026 dvema cestami. (a) Cteni souboru primo ze serveru pres pg_read_file z mostu - takto byla retence zjistena, vcetne kontroly, ze odpovida opravdu stroj 10.200.188.12. (b) Kanal fw.ops_run zije, kdyz se vola ZAPISOVOU cestou mostu; pri volani ctecí cestou se cele volani vrati zpet a neulozi se nic, takze to drive vypadalo jako mrtvy kanal. Clovek k tomu potreba neni. Plzensky retez 30 zaloh
 overeny je (`chain_count` v `fw.dr_selfcheck`).
 
 _Souvisi:_ `doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji`, `doc-system-g2007-dr-plzen-stav`,

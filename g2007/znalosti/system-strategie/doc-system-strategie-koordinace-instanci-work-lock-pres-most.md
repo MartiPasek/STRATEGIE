@@ -2,6 +2,10 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+> **POZN. 8. 9. 2026 — soubor uz neexistuje ani jako prechodna cesta.** `WORK_LOCK.txt` byl
+> pridan do `.gitignore` a odstranen z evidence gitu (commit `12341d0a`). Plati **vyhradne**
+> `@@WORK` / `@@LOCK` / `@@WHO`. Obsah do 6. 8. 2026 zustava dohledatelny v historii gitu.
+
 ## Proc
 `WORK_LOCK.txt` (git-trackovany sdileny soubor) se dostaval do merge konfliktu (`UU`), ktere blokovaly commit VSEM instancim na stroji. Bod 2 (Marti 5.8.2026) to presouva do databaze.
 

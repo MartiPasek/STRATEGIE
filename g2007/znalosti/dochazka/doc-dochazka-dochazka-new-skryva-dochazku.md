@@ -37,5 +37,5 @@ Peta to navrhuje, ale varianta A byla tyz den zavrzena s dukazem (viz `doc-docha
 
 ## Stav k 27.7.2026 vecer
 
-Mobil OPRAVEN. ERP prehled "Dochazka new" NEOPRAVEN - `NOT EXISTS`, tridenni okno, chybejici resync po oprave a filtr rezie jsou stale v provozu. Na obrazovce paralelne pracuje C26 (Peta) - pred zasahem do `dochazka-po-zakazkach.html` a data_setu koordinovat pres WORK_LOCK.txt.
+Mobil OPRAVEN. ERP prehled "Dochazka new" NEOPRAVEN - `NOT EXISTS`, tridenni okno, chybejici resync po oprave a filtr rezie jsou stale v provozu. Na obrazovce paralelne pracuje C26 (Peta) - pred zasahem do `dochazka-po-zakazkach.html` a data_setu koordinovat pres most (@@WORK / @@LOCK / @@WHO). POZN. 8.9.2026 - WORK_LOCK.txt uz v projektu neni, koordinace instanci je od 5.8.2026 v databazi.
 

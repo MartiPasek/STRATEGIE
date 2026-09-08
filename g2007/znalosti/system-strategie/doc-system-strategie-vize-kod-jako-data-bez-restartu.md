@@ -53,7 +53,7 @@ V Pythonu navíc odpadá otázka "zdrojový vs. zkompilovaný kód" — na rozd�
 
 **Fáze 0 — dnes večer, nutný základ:** Doladit `expected_version` optimistickou pojistku proti přepsání (společná pro G2007 i nový kód-registr). Bez tohohle nezačínat s migrací kódu.
 
-**Fáze 1 — pilot na jedné funkci:** Vybrat jednu nekritickou, ale reálnou funkci z docházky nebo mezd (podle `WORK_LOCK.txt` jsou to nejvytíženější domény) a přenést ji přes `tool_registry`-styl mechanismus do DB-řízeného běhu. Ověřit end-to-end: úprava v DB → efekt bez restartu API → self-test → schválení.
+**Fáze 1 — pilot na jedné funkci:** Vybrat jednu nekritickou, ale reálnou funkci z docházky nebo mezd (podle tehdejšího `WORK_LOCK.txt` to byly nejvytíženější domény; POZN. 8. 9. 2026 — `WORK_LOCK.txt` byl vyřazen z gitu, obsah zůstává v historii.) a přenést ji přes `tool_registry`-styl mechanismus do DB-řízeného běhu. Ověřit end-to-end: úprava v DB → efekt bez restartu API → self-test → schválení.
 
 **Fáze 2 — rozšířit governance:** Zobecnit Tool Factory lifecycle (sandbox/schválení/aktivace) tak, aby fungoval i pro ERP endpointy, ne jen AI nástroje.
 

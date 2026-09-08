@@ -17,8 +17,8 @@ Víc souběžných Cowork session psalo do jednoho kanálu (`CLAUDE_SQL.sql`/`CL
 - Lane 2: `CLAUDE2_*`. Lane 3: `CLAUDE3_*` (přidáno 21.7. pro Kristý+Peťu, kteří jedou 3 session naráz).
 - DEFAULT runneru = lanes 1–3 (`CLAUDE_EXTRA_LANES` default `"2,3"`); víc přes env `CLAUDE_EXTRA_LANES="2,3,4"`.
 - Prefix `CLAUDE<N>_` (ne `__N`) schválně — nekoliduje s nonce úklidem lane1.
-- Společné (ne per-lane): deploy/pull/notify/build/docpush/OPS, `WORK_LOCK.txt`, heartbeat. Jen SQL dotaz má lane.
-- Session svůj Cowork title NEVIDÍ (`get_device_info` vrací jen deviceName+složky) → self-identifikace řádkem do `WORK_LOCK.txt` na startu; novou session ber na první volnou lane (1→2→3). **Kterou lane si vzit → viz sekce „Která lane je volná — ZAMKNI si ji, neměř ji“ na konci tohoto dokumentu.** Ve zkratce: obsazenost se ze souborů zjistit NEDÁ, lane si zaber přes `@@LOCK lane <N>`.
+- Společné (ne per-lane): deploy/pull/notify/build/docpush/OPS, heartbeat. Jen SQL dotaz má lane.
+- Session svůj Cowork title NEVIDÍ (`get_device_info` vrací jen deviceName+složky) → self-identifikace přes `@@WORK` na startu (POZN. 8. 9. 2026: `WORK_LOCK.txt` byl z projektu vyřazen); novou session ber na první volnou lane (1→2→3). **Kterou lane si vzit → viz sekce „Která lane je volná — ZAMKNI si ji, neměř ji“ na konci tohoto dokumentu.** Ve zkratce: obsazenost se ze souborů zjistit NEDÁ, lane si zaber přes `@@LOCK lane <N>`.
 
 ## OPS lane — restart služeb PŘÍMO z mostu (bez schvalování, s auditem)
 Motivace: Claude nemá shell na Windows hostu (device_bash = izolovaný Linux VM jen se složkou; cloud bash = jiný stroj), takže služby nešly restartovat. Watcher ale na Windows běží → dá se to přes trigger soubor.

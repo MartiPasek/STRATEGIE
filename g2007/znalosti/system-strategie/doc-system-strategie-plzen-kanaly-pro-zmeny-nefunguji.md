@@ -11,7 +11,15 @@ Zadal Jiri Honomichl, overil Claude-28, potvrdila Marti-AI (msg 14929).
 v `C:\scripts\`, musi to udelat CLOVEK pres vzdalenou plochu.** Obe automaticke cesty,
 ktere by se k tomu nabizely, jsou k tomu nepouzitelne. Nehledej treti — neni.
 
-## 1. Fronta prikazu `fw.plzen_cmd_queue` NEBEZI
+## 1. Fronta prikazu `fw.plzen_cmd_queue` — OFICIALNE ZRUSENA 8. 9. 2026
+
+> **Rozhodl Jiri Honomichl 8. 9. 2026.** Kanal uz se netvari jako dostupny — obe obsluhy
+> (`/api/v1/ops/plzen/enqueue` i `/plzen/pending`) vraci **410** s vysvetlenim a datem
+> (nasazeno commitem `b3c6b734`, overeno naostro). Prepinac `fw.plzen_relay_cfg.enabled`
+> je `false`. Tabulky ani audit se nemazaly. **Do fronty uz nic nezarazuj — nikdo si to
+> nevyzvedne.** Pozor, pouhe vypnuti prepinace by NESTACILO: `enqueue` ho vubec necetl,
+> takze by prikaz dal prijal a vratil ok.
+
 
 V evidenci vypada dostupne: `fw.plzen_relay_cfg` ma `enabled = true` a HTTP obsluha
 (`/api/v1/ops/plzen/enqueue` a `/plzen/pending` v `dr_ops.py`) funguje — prikaz se do
@@ -20,8 +28,7 @@ tabulky opravdu zapise.
 **Ale poller na plzenske strane si ho nevyzvedne.** 7. 9. 2026 ve 20:55 UTC tam byl
 zarazen neskodny cteci prikaz (`hostname` + `Test-Path`); po vice nez pul hodine byl
 porad ve stavu `queued`, `taken_at` prazdne. **Tabulka byla od sveho zalozeni 23. 7. 2026
-uplne prazdna — kanal se nikdy nepouzil.** Nelze odsud rozlisit, jestli naplanovana uloha
-s `plzen_agent.ps1` na serveru nebezi, nebo bezi a neprihlasi se.
+uplne prazdna — kanal se nikdy nepouzil.** ZODPOVEZENO 8. 9. 2026 - na serveru NENI ani ta uloha, ani ten skript. Vypis vsech naplanovanych uloh na EC-SERVER2 ma jen ctyri polozky (DiskWatch, DR-Archive, DR-PullRestore, DR-SelfCheck) a ve slozce se skripty lezi jediny soubor, dr_pull_restore.ps1. Kanal se tedy nikdy nedokoncil - neni kdo by z fronty vybiral. Kdo do ni neco zaradi, ceka marne.
 
 **Je to stejny druh pasti jako neexistujici lane 4 u mostu:** tvari se to jako dostupna
 cesta a pritom mlci. Kdo tam neco zaradi a ceka, ceka marne.

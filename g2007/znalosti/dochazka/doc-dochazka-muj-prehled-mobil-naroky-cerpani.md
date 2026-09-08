@@ -2,6 +2,21 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
+> ## ⚠️ ZMĚNA 8. 9. 2026: obrazovka „Můj přehled" UŽ NEEXISTUJE
+>
+> Rozdělila se na dvě: **„Moje hodiny"** (⏱ měsíční odpracované hodiny) a **„Moje volno"**
+> (🌴 nárok a čerpání dovolené a sick days). **Obsah tohoto dokumentu — nároky, čerpání,
+> dvě dlaždice a obě tabulky — dnes žije na obrazovce „Moje volno".** Výpočet ani zdroj dat
+> se nezměnily, dělilo se 1:1.
+>
+> Změnil se i **název sekce**: „PODMÍNKY & FINANCE" se jmenuje **„MOJE PŘEHLEDY"**.
+> Hlavička s fotkou, jménem a zařazením, popsaná níž, se přesunula **nahoru na obrazovku
+> docházky** — na „Moje volno" ani „Moje hodiny" už není.
+>
+> Zadal Jiří Honomichl 8. 9. 2026. Detail: [[doc-dochazka-mobil-dochazka-hlavicka-sekce-rozdeleni-8-9-2026]].
+> Věty níž o „Můj přehled" čti jako popis obrazovky, která se dnes jmenuje jinak.
+
 # Můj přehled v mobilu (Jirka Honomichl 19. 8. 2026, schválila Marti-AI, konverzace 363 msg 12917)
 
 ## Co to je

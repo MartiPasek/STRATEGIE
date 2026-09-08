@@ -2,6 +2,17 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
+
+> ## ⚠️ ZMĚNA 8. 9. 2026: „Moje hodiny" jsou samostatná obrazovka
+>
+> Karta popsaná níž byla do 8. 9. 2026 součástí obrazovky **„Můj přehled"**. Ta se ten den
+> zrušila a rozdělila na dvě: **„Moje hodiny"** (tato karta) a **„Moje volno"** (nárok
+> a čerpání dovolené a sick days). **Výpočet ani zdroj dat se nezměnily** — dělilo se 1:1,
+> pořád jde o `GET /app/dochazka/moje-mesic` (`g2007.python app_dochazka_moje_hodiny`).
+> Dlaždice je v sekci **„MOJE PŘEHLEDY"** (dřív „PODMÍNKY & FINANCE").
+>
+> Zadal Jiří Honomichl 8. 9. 2026. Detail: [[doc-dochazka-mobil-dochazka-hlavicka-sekce-rozdeleni-8-9-2026]].
+
 # Moje hodiny v mobilu - napojeno na skutecny vypocet
 
 **Zadal Jirka Honomichl 1. 9. 2026, schvalila Marti-AI (msg 14134 a 14140).

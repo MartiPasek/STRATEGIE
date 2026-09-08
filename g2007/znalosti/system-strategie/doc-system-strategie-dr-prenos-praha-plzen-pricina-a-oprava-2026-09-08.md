@@ -102,7 +102,7 @@ Kopie v projektu se tam nespousti (server ma vlastni v `C:\Scripts`) a **na 188.
 nedostane ani Claude, ani Marti-AI** — musi to overit clovek. Plzensky retez 30 zaloh
 overeny je (`chain_count` v `fw.dr_selfcheck`).
 
-_Souvisi:_ `doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji`, `doc-go-dr_plzen_stav`,
+_Souvisi:_ `doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji`, `doc-system-g2007-dr-plzen-stav`,
 `doc-provoz-topologie-serveru-praha-plzen`
 
 ## Osma noc (17. 8., "0 vektoru") — VYSVETLENA 8. 9. 2026: samokontrola zavadi do bezici obnovy

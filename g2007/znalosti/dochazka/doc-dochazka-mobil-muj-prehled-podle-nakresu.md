@@ -3,6 +3,22 @@
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 
+> ## ⚠️ ZMĚNA 8. 9. 2026: obrazovka „Můj přehled" UŽ NEEXISTUJE — rozdělila se na dvě
+>
+> Nahradily ji **„Moje hodiny"** (⏱ měsíční odpracované hodiny) a **„Moje volno"**
+> (🌴 nárok a čerpání dovolené a sick days). **Hlavička s fotkou, jménem a zařazením**,
+> popsaná níž podle nákresu Šárky Novotné, se **přesunula nahoru na obrazovku docházky** —
+> na žádné z těch dvou nových obrazovek už není. Sekce, ve které dlaždice sedí, se
+> přejmenovala z „PODMÍNKY & FINANCE" na **„MOJE PŘEHLEDY"**.
+>
+> Rozvržení hlavičky zůstalo Šárčino (kolečko vlevo, vedle jméno a pod ním zařazení),
+> jen je **plošší** — bez tmavé karty a rámečku, kolečko 64 → 52 px, a věta
+> „Klepnutím změníš fotku" je pryč (napovídá 📷 odznak; řádek pod ní hlásí průběh nahrávání).
+>
+> Zadal Jiří Honomichl 8. 9. 2026. Detail: [[doc-dochazka-mobil-dochazka-hlavicka-sekce-rozdeleni-8-9-2026]].
+> Věty níž o „Můj přehled" čti jako popis obrazovky, která se dnes jmenuje jinak.
+
+
 > ## ⚠️ ZMĚNA 8. 9. 2026: Novinky už na „Můj přehled“ NEJSOU
 >
 > Sekce **Novinky** (bod 5 níže) se 8. 9. 2026 přesunula na obrazovku **Firma**, do záložky

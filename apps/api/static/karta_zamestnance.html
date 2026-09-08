@@ -30,7 +30,16 @@
   .avatar{width:54px;height:54px;border-radius:50%;background:#1f2a37;color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800}
   .phead .nm{font-size:20px;font-weight:800;color:var(--title)}
   .phead .mt{font-size:13px;color:var(--muted);margin-top:2px}
-  .sects{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;padding:10px 16px 14px}
+  .sects{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;padding:6px 16px 10px}
+  .sects.big{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+  .sects.small{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;padding-top:4px}
+  .sec.big{padding:12px 12px;border-color:#2b3a4a;background:#141c25}
+  .sec.big .si{flex:0 0 38px;height:38px;font-size:20px}
+  .sec.big .st{font-size:13.5px}
+  .sec.small{padding:7px 9px;align-items:center}
+  .sec.small .si{flex:0 0 26px;height:26px;font-size:14px;border-radius:7px}
+  .sec.small .st{font-size:12.5px;font-weight:600}
+  .zona{padding:8px 16px 0;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#5d6b7c}
   .sec{display:flex;gap:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#12181f;align-items:flex-start}
   .sec.on{cursor:pointer}
   .sec.on:hover{background:#1b232d;border-color:#2b3a4a}
@@ -548,17 +557,19 @@ function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).
 
 // Sekce karty (dle Pinya „Profil pracovníka" × Centrála). on=napojeno, go=cíl.
 const SEKCE=[
-  {ic:"🧾",t:"Obecné",d:"Osobní údaje, adresy, kontakty, doklady.",on:true,key:'zakladni'},
-  {ic:"💼",t:"Personální a finanční podmínky",d:"Poměr, smlouva, úvazek, mzdové podmínky, dovolená, sick days, bonusy a srážky — vše na jednom místě (jako v Centrále).",on:true,key:'pmf'},
-  {ic:"🕓",t:"Historie změn",d:"Jak se v čase měnily podmínky, úvazek, smlouva a finanční podmínky. Jen čtení.",on:true,key:'historie'},
-  {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true,key:'dokumenty'},
-  {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, docházka po dnech, absence.",on:true,key:'absence'},
-  {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost'},
-  {ic:"🗒️",t:"Personální zápisy",d:"Pohovory, události, poznámky HR (jen HR).",on:true,key:'zapisy'},
-  {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti prohlídek + upomínka před vypršením (z Centrály).",on:true,key:'lekar'},
-  {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny'},
+  // Šárka 8. 9. 2026: pořadí podle toho, co HR používá nejvíc (odhad, bez měření) — prio 1 = denní práce (velké),
+  // prio 2 = občas (kompaktní), on:false = připravujeme (sbalené do jedné řádky, ať nezabírají místo).
+  {ic:"💼",t:"Personální a finanční podmínky",d:"Poměr, smlouva, úvazek, podmínky, daně, mzda.",on:true,key:'pmf',prio:1},
+  {ic:"🕐",t:"Docházka",d:"Odpracováno vs. fond, dny, absence.",on:true,key:'absence',prio:1},
+  {ic:"📄",t:"Dokumenty",d:"Spis: smlouvy, dodatky, prohlášení, doklady.",on:true,key:'dokumenty',prio:1},
+  {ic:"🧾",t:"Obecné",d:"Osobní údaje, adresy, kontakty, účet pro výplatu.",on:true,key:'zakladni',prio:1},
+  {ic:"🗒️",t:"Personální zápisy",d:"Pohovory, události, poznámky HR.",on:true,key:'zapisy',prio:2},
+  {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti + upomínky.",on:true,key:'lekar',prio:2},
+  {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, protokoly.",on:true,key:'majetek',prio:2},
+  {ic:"🕓",t:"Historie změn",d:"Jak se měnily podmínky a smlouva.",on:true,key:'historie',prio:2},
+  {ic:"🛡️",t:"Odpovědnost",d:"Kdo kontroluje docházku a schvaluje volno.",on:true,key:'odpovednost',prio:2},
+  {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true,key:'skupiny',prio:2},
   {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
-  {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, oblečení, protokol.",on:true,key:'majetek'},
   {ic:"🧭",t:"Onboarding",d:"Nástupní checklist a úkoly.",on:false},
   {ic:"👋",t:"Offboarding",d:"Ukončení poměru, dopočet dovolené, vrácení majetku, archivace.",on:false},
   {ic:"📚",t:"Interní předpisy",d:"Seznámení se směrnicemi.",on:false},
@@ -2066,21 +2077,28 @@ function openP(uid,row){
   // schvalila Marti-AI msg 13658). Historicky rezim je JEN KE CTENI — misto sekci
   // se vykresli snimek k tomu dni, takze se v nem principialne neda nic ulozit
   // a nikdo nemuze omylem prepsat dnesni hodnotu tou starou.
-  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 16px;padding:8px 12px;border:1px solid #2a3442;border-radius:8px;background:#141b23;font-size:12.5px">'+
-     '<span style="color:#7f8ea0">\u23F1 Zobrazit kartu ke dni:</span>'+
-     '<input type="date" id="kartadatum" style="background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:4px 8px;font:inherit">'+
-     '<a href="#" onclick="kartaKDatu('+uid+');return false;" style="color:#aac8ec;font-weight:800;text-decoration:none">Zobrazit</a>'+
-     '<span style="color:#5d6b7c;margin-left:auto">jen ke čtení · kde si nepamatujeme, napíše se to</span></div>';
-  h+='<div class="sects">';
-  for(const s of SEKCE){
-    const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
-    const ACT={zakladni:'zakUdaje',pmf:'pmfUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',historie:'histUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
+  // „Karta ke dni" (Jirka 25. 8. 2026) zůstává, ale jako drobný odkaz — používá se výjimečně (Šárka 8. 9. 2026).
+  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 16px 0;font-size:12px;color:#5d6b7c">'+
+     '<span>\u23F1 Karta ke dni:</span>'+
+     '<input type="date" id="kartadatum" style="background:#12181f;border:1px solid #233040;border-radius:6px;color:#e8eef5;padding:2px 6px;font:inherit;font-size:12px">'+
+     '<a href="#" onclick="kartaKDatu('+uid+');return false;" style="color:#aac8ec;font-weight:700;text-decoration:none">Zobrazit</a>'+
+     '<span style="color:#3f4b59">· jen ke čtení</span></div>';
+  const ACT={zakladni:'zakUdaje',pmf:'pmfUdaje',pracovni:'pracUdaje',skupiny:'skupUdaje',absence:'absUdaje',finance:'finUdaje',dokumenty:'dokUdaje',podminky:'podmUdaje',historie:'histUdaje',odpovednost:'odpUdaje',majetek:'majetekUdaje',zapisy:'zapisyUdaje',lekar:'lekarUdaje'};
+  const tile=(s,big)=>{
     const klik = ACT[s.key] ? (' onclick="'+ACT[s.key]+'()"') : (s.go?(' onclick="window.open(\''+s.go+'?uid='+uid+'\',\'_blank\')"'):'');
-    const cls='sec'+((s.go||ACT[s.key])?' on':'');
-    h+='<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div>'+
-      '<div class="st">'+esc(s.t)+' '+tag+'</div><div class="sd">'+esc(s.d)+'</div></div></div>';
+    const cls='sec'+((s.go||ACT[s.key])?' on':'')+(big?' big':' small');
+    return '<div class="'+cls+'"'+klik+'><div class="si">'+s.ic+'</div><div style="min-width:0">'+
+      '<div class="st">'+esc(s.t)+'</div>'+(big?('<div class="sd">'+esc(s.d)+'</div>'):'')+'</div></div>';
+  };
+  const P1=SEKCE.filter(x=>x.on&&x.prio===1), P2=SEKCE.filter(x=>x.on&&x.prio!==1), P0=SEKCE.filter(x=>!x.on);
+  h+='<div class="zona">Denní práce</div><div class="sects big">'+P1.map(x=>tile(x,true)).join('')+'</div>';
+  h+='<div class="zona">Občas</div><div class="sects small">'+P2.map(x=>tile(x,false)).join('')+'</div>';
+  if(P0.length){
+    h+='<div class="zona" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:#3f4b59">'+
+       '<a href="#" onclick="const e=document.getElementById(\'pripr\');e.style.display=(e.style.display===\'none\'?\'\':\'none\');return false;" style="color:#5d6b7c;text-decoration:none">Připravujeme ('+P0.length+') ▾</a>'+
+       '<span style="font-weight:500;letter-spacing:0;text-transform:none;color:#3f4b59">'+P0.map(x=>esc(x.t)).join(' · ')+'</span></div>'+
+       '<div id="pripr" class="sects small" style="display:none">'+P0.map(x=>'<div class="sec small" style="opacity:.55"><div class="si">'+x.ic+'</div><div><div class="st">'+esc(x.t)+' <span class="tag soon">připravujeme</span></div></div></div>').join('')+'</div>';
   }
-  h+='</div>';
   det.innerHTML=h;
   loadLeave(uid);
 }

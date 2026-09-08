@@ -32724,7 +32724,7 @@ async def coord_board(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _app_admin(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         inst = s.execute(_t(
             "SELECT instance_id, coalesce(instance_name,''), coalesce(hostname,''), "
@@ -50919,6 +50919,17 @@ def _app_parent(s, uid):
     return bool(r and r[0])
 
 
+def _app_admin(s, uid):
+    """Spravce (users.is_admin) NEBO rodic (is_marti_parent).
+    Rozhodla Kristyna Maresova (rodic, users.id=11) 7. 9. 2026 pro Ops akce, Migraci
+    a Sit Claudu; potvrzeno souhlasem v mobilu 8. 9. 2026 (fw.mobile_command 23999).
+    POZOR: _app_parent se nesmi menit - visi na ni mzdy a HR (sest dalsich mist)."""
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT COALESCE(is_admin,false) OR COALESCE(is_marti_parent,false) "
+                     "FROM public.users WHERE id=:u"), {"u": uid}).first()
+    return bool(r and r[0])
+
+
 @api_router.get("/app/ops/actions")
 async def app_ops_actions(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -50926,7 +50937,7 @@ async def app_ops_actions(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     cm, s = _att_session()
     try:
-        if not _app_parent(s, uid):
+        if not _app_admin(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         return JSONResponse({"ok": True, "actions": [
             {"action_key": k, "label": v["label"], "target": v["target"],
@@ -50943,7 +50954,7 @@ async def app_ops_log(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _app_parent(s, uid):
+        if not _app_admin(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
             "SELECT id, action_key, target, status, requested_by_name, "
@@ -50972,7 +50983,7 @@ async def app_ops_run(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "neznámá akce (mimo whitelist)"}, status_code=400)
     cm, s = _att_session()
     try:
-        if not _app_parent(s, uid):
+        if not _app_admin(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         nm = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') FROM public.users WHERE id=:u"), {"u": uid}).scalar()
         rid = s.execute(_t(
@@ -51528,7 +51539,7 @@ async def app_migrace_steps(req: Request) -> JSONResponse:
     steps_def = _MIGRACE_STEPS.get(domain) or []
     cm, s = _att_session()
     try:
-        if not _app_parent(s, uid):
+        if not _app_admin(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         out = []
         for st in steps_def:

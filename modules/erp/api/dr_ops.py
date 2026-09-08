@@ -374,10 +374,30 @@ def _plzen_token_guard(req: Request, want_token: str):
     return None
 
 
+# Kanal ZRUSEN 8. 9. 2026 (rozhodl Jiri Honomichl, schvalila Marti-AI msg 15089).
+# Duvod: na plzenskem serveru EC-SERVER2 NENI ani naplanovana uloha, ani skript
+# plzen_agent.ps1 - overeno vypisem uloh a obsahu slozky se skripty. Fronta byla od
+# zalozeni 23. 7. 2026 prazdna, protoze si z ni nikdy nemel kdo prikaz vyzvednout.
+# Kanal se ale tvaril jako dostupny (enqueue prijal prikaz a vratil ok), takze kdo do
+# nej neco zaradil, cekal marne - stejny druh pasti jako neexistujici lane 4 mostu.
+# Proto obe obsluhy vraci 410 (existovalo, bylo zruseno) s vysvetlenim, misto aby
+# mlcely. Tabulky ani audit se nemazou.
+_PLZEN_ZRUSENO = {
+    "ok": False,
+    "error": "kanal_zrusen",
+    "zprava": ("Fronta prikazu do Plzne byla 8. 9. 2026 zrusena. Na serveru EC-SERVER2 "
+               "neni zadna obsluha, ktera by si prikaz vyzvedla, takze fronta nikdy "
+               "nefungovala. Zmenu na plzenskem serveru udela CLOVEK pres vzdalenou "
+               "plochu; cist odtud umi Marti-AI. Detail ve znalosti "
+               "doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji."),
+}
+
+
 @drops_router.post("/plzen/enqueue")
 async def plzen_enqueue(req: Request):
     """Most/watcher (X-Deploy-Token) zařadí PowerShell příkaz pro 30.11 do fronty.
     Body: {command, label?, created_by?, nonce?}. Vrátí {ok, id, nonce}."""
+    return JSONResponse(_PLZEN_ZRUSENO, status_code=410)
     g = _plzen_deploy_guard(req)
     if g is not None:
         return g
@@ -416,6 +436,7 @@ async def plzen_enqueue(req: Request):
 async def plzen_pending(req: Request):
     """Poller (X-Plzen-Token) si atomicky vyzvedne nejstarší 'queued' příkaz (→ 'taken').
     Když je relay vypnutá (enabled=false) nebo fronta prázdná, vrátí cmd=null."""
+    return JSONResponse(_PLZEN_ZRUSENO, status_code=410)
     try:
         from core.database_data import get_data_session as _gds
         from sqlalchemy import text as _t

@@ -9603,7 +9603,9 @@ def _poz_style(s):
 _VYROBA_KW = ("montér", "monter", "mechanik", "zámeč", "zamec", "přípravář", "pripravar",
               "sklad", "obráb", "obrab", "výrob", "vyrob", "dílna", "dilna", "svář", "svar",
               "dělník", "delnik", "příjem zboží", "prijem zbozi", "zámečník", "zamecnik",
-              "zkušební", "zkusebni")
+              "zkušební", "zkusebni",
+              # Šárka 8.9.2026: praxe studenta (SOUE) vždy spadá pod Výrobu
+              "praxe", "praxi", "praktikant")
 
 
 _SW_KW = ("plc",)  # jen PLC = SW; SQL programátoři patří do Kanceláře (Šárka 26.8.)

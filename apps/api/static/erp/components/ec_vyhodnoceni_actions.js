@@ -8,11 +8,24 @@
   "use strict";
 
   var CORE_CODE = "ec.vyhodnoceni_jadro";
+  /* POŘADÍ TLAČÍTEK = POŘADÍ KROKŮ (C24 / Kristý, 9. 9. 2026).
+   * Do 9. 9. byla lišta v pořadí Připravit → Přepočet → Nastav koeficienty, což svádělo
+   * klikat je zleva doprava a počítat prémie ze starých hodnot. Závislost v DB je totiž:
+   *   1) ec.priprava_vyhodnoceni   naplní ec.vyhodnoceni_osoba z odpracovaných hodin
+   *                                (uvnitř si volá přepočet, ale ještě nad starou hlavičkou),
+   *   2) ec.vypocet_konstant       z těch hodin spočítá HLAVIČKU zakázky
+   *                                (kalk_hod_celkem_s_ef, odpracovano, limit_pro_srazku),
+   *   3) ec.prepocet_vyhodnoceni   teprve Z HLAVIČKY počítá prémii na osobu jako
+   *                                (hodiny osoby / odpracovano) × (kalk_s_ef − odpracovano_ef) × sazba.
+   * Koeficienty tedy MUSÍ běžet před přepočtem, jinak přepočet pracuje s hlavičkou,
+   * která ještě neodpovídá aktuálním hodinám. Ověřeno na VR10686 9. 9. 2026 —
+   * v tomhle pořadí vyšlo ušetřeno 4,059 h a prémie 535 Kč, ověřeno proti ruční kontrole.
+   */
   var ACTIONS = [
-    { code: "priprava",         label: "▶️ Připravit hodnocení", confirm: null },
-    { code: "prepocet",         label: "🔄 Přepočet hodnocení", confirm: null },
-    { code: "vypocet_konstant", label: "⚙️ Nastav koeficienty", confirm: null },
-    { code: "uzavrit",          label: "🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
+    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: null },
+    { code: "vypocet_konstant", label: "2️⃣ ⚙️ Nastav koeficienty", confirm: null },
+    { code: "prepocet",         label: "3️⃣ 🔄 Přepočet hodnocení", confirm: null },
+    { code: "uzavrit",          label: "4️⃣ 🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
     { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokračovat?" }
   ];
 

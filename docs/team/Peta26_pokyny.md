@@ -584,6 +584,31 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
 - nabídka existuje, ale fakturovaný díl v ní není:
   `2065 - faktura ok, je tam nabídka, ale díl v nabídce není`
 
+### 📄 PDF faktury — kde leží a jak ho přečíst (doplněno 9. 9. 2026)
+
+**Cesta k PDF** dá sama Centrála: `dbo.EC_Doklad_NajdiDokument(D.ID)` v hlavičkovém dotazu
+vrátí `\\192.168.30.11\data\FakturyP\FP<ID>\<soubor>.pdf` (= `Z:\FakturyP\FP<ID>`).
+Když funkce nevrátí nic (doklad rozdělaný, příloha přiložená jinam), **najdi soubor
+Glob-em** přes `Z:\FakturyP\FP<ID>\*` — 7. 9. 2026 to takhle zachránilo fakturu 2282 (TEZAP),
+kde `EC_Doklad_NajdiDokument` mlčela, ale PDF ve složce bylo.
+
+Tři věci, které mě už stály čas:
+
+- **`Z:` vidí jen Read / Glob / Grep, ne bash.** Síťový disk není v linuxovém sandboxu
+  namountovaný, takže žádné `ls`, `cp`, `pdftotext`. Kdo sáhne po bashi, dostane
+  „no such file".
+- **Read volej BEZ parametru `pages`.** S `pages` chce převod přes `pdftoppm`, který
+  v sandboxu není, a spadne to. Bez něj se PDF přečte celé i s obrázkem stránky.
+- **`.xls` přílohy nepřečtu vůbec** (2268 Mózer, 2269 Pašek nájemné, 26. 8. 2026).
+  Nepředstírat, že ano — říct to rovnou; Peťa si je zkontroluje ručně.
+
+⚠️ **Když Read na `Z:` selže** (jiná session to 9. 9. 2026 hlásila u nové verze Coworku —
+adresář přečte, soubor ne): existuje **obchvat přes SQL server** — PDF načte server ze
+sdílené složky a pošle ho přes most. Je to o dvě otočky navíc, ale funguje.
+**Není to ale výchozí postup** — v téže dny mi přímé čtení `Z:\FakturyP\...` fungovalo
+normálně (2277–2284), takže **nejdřív zkus Read napřímo** a k obchvatu sáhni, až když
+opravdu selže. Neopisovat cizí zkušenost jako svoje pravidlo.
+
 ### Nabídka k faktuře — jak se k ní dostat (ověřeno 21. 8. 2026)
 
 **Řetěz:** faktura → `TabDokladyZbozi.NavaznaObjednavka` → objednávka (**řada 800**,

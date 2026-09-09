@@ -1,0 +1,117 @@
+PREDANI DO NOVE KONVERZACE - Peta + Claude-26, 5. 8. 2026 (vecer)
+=================================================================
+Tema: mzdy za cervenec 2026 - vstupy, svatky, stravenky, prescasy.
+
+NEJDRIV SI PRECTI
+-----------------
+- docs/team/Peta26_mzdy.md ... "velka zed", vsechna mzdova pravidla pohromade
+- docs/team/Peta26_pokyny.md ... trvale pokyny (odkazuji na tu zed)
+- G2007: doc-mzdy-vstupy-ze-strategie, doc-mzdy-svatky-fond-stravenky-prescas
+- Na startu spustit: SELECT * FROM tenant.pojistky_check();
+
+
+CO JE HOTOVO (5. 8. 2026)
+=========================
+
+1) VSTUPY DO MEZD UZ JDOU CELE ZE STRATEGIE
+   - hodiny, fond, prescas -> tenant.att_den_hodiny (nase dochazka vc. oprav)
+   - stravenky -> tenant.att_entry podle CISLA CINNOSTI (ec_druh)
+   - pracovni dny a svatky -> tenant.firemni_kalendar
+   - zaklad, osobko, hodinova sazba prescasu -> tenant.helios_wage_snapshot
+   - priplatky, odmeny, srazky -> tenant.wage_movement
+   - premie ze zakazek -> priplatky do slozky 651 (stara dochazkova cesta VYPNUTA)
+   - jednatele a DPP -> tenant.mzdy_rucni_slozka
+   Zrcadlo Centraly tenant.att_day_summary se do mezd NEPOUZIVA (nema nase opravy).
+   Duvod (Peta): "vetsina dochazky uz v cervenci v Centrale neni."
+   Hlida pojistka mzdy-vstupy-ze-strategie + hlavicka primo ve skriptu mzdy_generuj.
+
+2) SVATKY
+   - svatek na pracovni den se PROPLATI, ale NEMA se odpracovat
+   - do fondu pro prescas NEPATRI (cervenec 2026 = 22 dnu = 176 h, ne 184)
+   - stravenka za svatek NENALEZI (drive ji za 6. 7. dostal kazdy navic)
+   - kdo ve svatek pracoval, ma priplatek koeficientem 2,00
+
+3) FPD (fond pracovni doby)
+   - VYROBA:   odpracovano + absence          (hodiny_mzdove + hodiny_absence)
+   - KANCELAR: odpracovano + absence - nenarokova cast nad fond
+               (hodiny_mzdove + hodiny_absence - hodiny_nad_fond)
+   - prescas = FPD minus mesicni fond
+   Overeno: Veverka 177,01 - 0,77 = 176,24 h (sedi s appkou).
+
+4) PRIPLATKY ZA PRESCAS (od Tynky, overeno i v procedure Centraly)
+   svatek 2,00 | vikend 1,35 | bezny den 1,25
+   "nahrazeny" (kryje placene volno): 1,10 / 0,45 / 0,35
+   Kaskada: nejdriv svatky, pak vikendy, pak zbytek. Vse do slozky 651.
+   Plati JEN pro vyrobu; kancelar ("Volna kancelarska doba (bez prescasu)", 23 lidi) ne.
+   Hodinova sazba = HrHodsFK, tedy S FK (ne bez FK!), ulozena presne na halere.
+   Overeno proti Centrale na cervnu: 14 z 16 lidi sedi na setiny.
+
+5) STRAVENKY
+   - narok: HPP + po zkusebni dobe + denni uvazek >= 6 h, sazba 82 Kc/den
+   - dny = pracovni dny z kalendare (bez svatku) minus dny s vyloucenou cinnosti
+   - vyloucene cinnosti (cisla z Centraly): 9, 10, 12, 14, 20, 21, 22, 23, 25, 33, 34, 35,
+     36, 39, 47, 50, 51, 54, 132, 133, 138
+   - NEvylucuje: 30 dovolena navic (stravenka nalezi!), 31 sick day, 8 home office,
+     24 prac. uraz, 37 nepritomnost OSVC
+   - kdyz u zaznamu chybi cislo cinnosti, rozhodne typ zaznamu
+
+6) KALENDAR SE DOPLNUJE SAM
+   Skript kalendar_zajisti (g2007.python) dopocita ceske svatky vc. pohyblivych Velikonoc,
+   vola se automaticky ze stravenek i z prescasu. Existujici dny neprepisuje.
+   Kdyz kalendar chybi, vypocet NESPADNE potichu - vyhodi hlasitou chybu.
+
+7) VYPLATNICE (stranka) - Peta 5. 8.
+   - pri generovani je videt stav a bezici cas, pruhovany ukazatel, na konci zelene HOTOVO
+   - pri prepnuti firmy se stary postup smaze (drive visel a matl)
+   - varovani ze serveru (co se nepodarilo postavit) se nove ZOBRAZUJI oranzove pod tlacitkem
+   - v poznamce upozorneni, ze se stranka nesmi behem generovani zavrit
+
+8) DALSI OPRAVY Z DNESKA
+   - jednatele: EC 2 Pasek, EC 47 Mozer, ES 41 Pasek (cislo 15 NEEXISTUJE) + pojistka
+   - odmena garanta a korekce firemni kultury dostaly napojeni na slozky 651 / 432
+   - zalozena slozka "Odmeny z financi zakazek" (typ 50) -> 651
+   - z Petina excelu doplneno 48 cervencovych priplatku (11 870 Kc) + 16 radku OSVC pro historii
+   - OSVC se do mezd NEPOSILAJI (podminka na typ uvazku ve vyberu priplatku)
+
+
+STAV CERVENCE 2026 (k 22:40)
+============================
+- ES (System): 33 vyplatnic, EC (Control): 17 vyplatnic - vygenerovano PRED temito zmenami,
+  takze se ma pregenerovat znovu (cista voda) pro obe firmy.
+- prescas po oprave: 18 lidi, nejvic Civis 16,34 h, Svatos 9,66 h (7,92 ve svatek),
+  Divis 7,94 h (6,02 ve svatek)
+- stravenky z nasi dochazky: 43 lidi, 772 dnu, 63 304 Kc
+  (Michelle Safrankova na materske = 0, spravne)
+- POZOR: cisla z drivejsiho vypoctu pres zrcadlo NEPOROVNAVAT - v Centrale uz cervencova
+  dochazka vetsinou neni.
+
+
+OTEVRENE VECI
+=============
+1. Hlidac pojistek hlasi dve ZTRACENE domluvy (starsi, dnes se neresily):
+   - opravy-zavod-odpovedi (opravy dochazky musi zahazovat opozdene odpovedi)
+   - sd-pulden-fondu (sick day na pulden = presne polovina denniho fondu)
+2. Jirka: import priplatku z Centraly zna jen 14 druhu, ostatni tise zahazuje.
+   Peta mu poslala zpravu; do STRATEGIE se to zatim doplnuje z excelu.
+3. Hrdinka (429) - odmena 1 000 Kc ze zakazek se nepridala, nema aktivni uvazek.
+   Peta rekla vynechat (je tam omylem) - overit, jestli ma byt zamestnanec.
+4. Snimek mzdovych podminek (helios_wage_snapshot) se plni rucni akci
+   /app/wage-compare/sync (parent-only). Naposledy 30. 6. Dnes overeno proti Petinu
+   excelu - data JSOU spravna vc. Duspivove (uvazek 8 -> 7 h). Do budoucna by to chtelo
+   spoustet automaticky.
+5. Dochazka za cervenec se dnes rucne doplnovala (druha konverzace) - pred generovanim
+   overit, ze uz nikomu nechybi dny.
+
+
+GOTCHY (at se to neopakuje)
+===========================
+- Most (bridge): povelove soubory jsou v scripts/claude_sql/, NIKDY v korenu.
+  Obcas vraci HTTP 401 "Nejsi prihlasen" - staci poslat znovu, neni to chyba dotazu.
+- Do SQL pres most se NESMI dostat dvojtecka pred pismenem (:y, :mo) - SQLAlchemy ji bere
+  jako svuj parametr. Resi se psanim § a nahradou replace(..., '§', chr(58)).
+- Zapis do g2007.python jde primo (bez banneru); zmeny dat jdou pres schvalovaci banner Petre.
+- Po KAZDE uprave skriptu overit syntax (stahnout zdroj a py_compile) - jednou se takhle
+  rozbil retezec pres dva radky.
+- Nazev tabulky helios_wage_snapshot mate: je to NASE tabulka ve STRATEGII, ne v Heliosu.
+- Zrcadlo "Finance lidi (EC_FinZamPodminky)" v ridicim pultu plni engagement/wage_component/
+  att_employee/nároky - NEplni helios_wage_snapshot. Jsou to dve ruzne veci.

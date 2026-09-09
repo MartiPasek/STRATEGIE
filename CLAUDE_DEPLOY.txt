@@ -1,0 +1,2 @@
+Zkusebni doba: posun o dny nemoci (HPP) jako denni automat - registrace v mirror fnmap
+modules/erp/api/router.py

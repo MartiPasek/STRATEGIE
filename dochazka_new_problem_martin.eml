@@ -1,0 +1,27 @@
+From: p.safrankova@eurosoft.com
+To:
+Subject: Zaseknute nasazovani na cloud - dirty working tree
+X-Unsent: 1
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5">
+
+<p>Ahoj Martine,</p>
+
+<p>nejde nasazovat na cloud – deploy hlásí <b>„Cloud APP working tree není clean –
+manuální intervence vyžadována" (dirty working tree)</b>. Na cloud APP serveru zůstaly
+rozdělané/nesrovnané soubory, a nasazení je odmítá přepsat.</p>
+
+<p>Blokuje to nasazování (mě, nejspíš i ostatní instance). Chtělo by to na cloud APP serveru
+ruční <b>git reset / git checkout</b>, aby byl strom čistý a deploy zase prošel.</p>
+
+<p>Změny v databázi jsou živé, akorát se nenahrává kód na cloud.</p>
+
+<p>Můžeš se na to prosím podívat? Díky!<br>Peťa</p>
+
+</body>
+</html>

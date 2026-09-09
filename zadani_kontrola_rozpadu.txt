@@ -1,0 +1,85 @@
+ZADÁNÍ PRO DRUHOU KONVERZACI — najdi chybějící úseky rozpadu za červenec 2026
+==============================================================================
+(zadala Peťa 4. 8. 2026; našel Claude-26 u Duspivové)
+
+CO SE STALO
+U Duspivové (číslo 50) měl 15. 7. den v docházce DVA pracovní úseky:
+  08:06–13:30  5,41 h  Rezie
+  13:36–16:40  3,06 h  Rezie
+ale v rozpadu na zakázky byl jen ten dopolední. Odpolední úsek nikdy nevznikl —
+ani jako stornovaný. Den proto ukazoval docházka 8,47 h × rozpad 5,40 h.
+Doplnili jsme ho ručně (tenant.vyroba_work, source_system='manual_fix').
+
+Nápadné je, že rozpad na to dopoledne vznikl až 29. 7., tedy dva týdny zpětně —
+doplňoval se dodatečně a odpoledne u toho vypadlo. Je pravděpodobné, že se to
+stalo i jinde.
+
+ÚKOL
+Projdi ČERVENEC 2026 (1.–31. 7.) u VŠECH lidí a najdi dny, kde docházka a rozpad
+nesedí o VÍC než 0,05 h. Vypiš jen ty — kdo, který den, kolik v docházce,
+kolik v rozpadu, kolik chybí.
+
+DŮLEŽITÉ — CO NEHLÁSIT
+Rozdíly do 0,05 h (setiny) NEHLÁS. To je známý systematický jev: každý úsek se
+zaokrouhluje zvlášť v docházce a zvlášť v rozpadu a rozdíly se sčítají. Peťa o tom
+ví a řeší se to až po výplatách. Zajímají ji jen případy, kde CHYBÍ CELÝ ÚSEK.
+
+DOTAZ (přes most, db=pg — funguje, ověřeno)
+
+WITH prace AS (
+  SELECT em.id AS emp_id, em.user_id, em.cislo_zam, em.full_name,
+         e.entry_date AS den, SUM(e.hours) AS h_dochazka
+  FROM tenant.att_entry e
+  JOIN tenant.att_employee em ON em.id = e.employee_id AND em.tenant_id = 2
+  JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+  WHERE e.tenant_id = 2 AND et.code IN ('work','overhead')
+    AND COALESCE(e.status,'') <> 'superseded'
+    AND e.entry_date BETWEEN DATE '2026-07-01' AND DATE '2026-07-31'
+  GROUP BY em.id, em.user_id, em.cislo_zam, em.full_name, e.entry_date
+),
+rozpad AS (
+  SELECT w.user_id, w.datum AS den, SUM(COALESCE(w.hodiny,0)) AS h_rozpad
+  FROM tenant.vyroba_work w
+  WHERE w.tenant_id = 2 AND w.is_active
+    AND w.datum BETWEEN DATE '2026-07-01' AND DATE '2026-07-31'
+  GROUP BY w.user_id, w.datum
+)
+SELECT p.cislo_zam AS cislo, p.full_name AS jmeno, CAST(p.den AS text) AS den,
+       CAST(round(p.h_dochazka,2) AS text) AS dochazka_h,
+       CAST(round(COALESCE(r.h_rozpad,0),2) AS text) AS rozpad_h,
+       CAST(round(p.h_dochazka - COALESCE(r.h_rozpad,0),2) AS text) AS chybi_h
+FROM prace p
+LEFT JOIN rozpad r ON r.user_id = p.user_id AND r.den = p.den
+WHERE abs(p.h_dochazka - COALESCE(r.h_rozpad,0)) > 0.05
+ORDER BY abs(p.h_dochazka - COALESCE(r.h_rozpad,0)) DESC, p.full_name, p.den;
+
+U KAŽDÉHO NÁLEZU pak rozepiš ten den do detailu (docházka vedle rozpadu),
+ať je vidět, KTERÝ úsek chybí:
+
+WITH emp AS (SELECT id AS emp_id, user_id FROM tenant.att_employee
+             WHERE tenant_id = 2 AND cislo_zam = '<ČÍSLO>')
+SELECT 'DOCHAZKA' AS zdroj,
+       to_char(e.started_at,'HH24:MI') || '-' || COALESCE(to_char(e.ended_at,'HH24:MI'),'?') AS cas,
+       CAST(e.hours AS text) AS hodin, et.label AS co, COALESCE(e.project_ref,'') AS zakazka
+FROM tenant.att_entry e
+JOIN emp ON emp.emp_id = e.employee_id
+JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+WHERE e.tenant_id = 2 AND e.entry_date = DATE '<DEN>'
+UNION ALL
+SELECT 'ROZPAD', to_char(w.od,'HH24:MI') || '-' || COALESCE(to_char(w.konec,'HH24:MI'),'?'),
+       CAST(w.hodiny AS text), COALESCE(vc.name,'(bez činnosti)'), COALESCE(w.zakazka_ref,'')
+FROM tenant.vyroba_work w
+JOIN emp ON emp.user_id = w.user_id
+LEFT JOIN tenant.vyroba_cinnost vc ON vc.id = w.cinnost_id
+WHERE w.tenant_id = 2 AND w.datum = DATE '<DEN>' AND w.is_active
+ORDER BY 1, 2;
+
+NEOPRAVUJ NIC SÁM. Jen vypiš seznam a dej ho Petře — ona rozhodne, co doplnit.
+Jde to do mezd, takže žádné odhady.
+
+JAK SE OPRAVUJE (až Peťa řekne)
+INSERT do tenant.vyroba_work se source_system='manual_fix', att_entry_id = id
+chybějícího úseku docházky, cinnost_id se vezme ze zbytku dne, a do poznámky
+napsat proč a kdo. Po zápisu VŽDY ověřit čtením, že den sedí.
+
+Claude-26 / Peťa

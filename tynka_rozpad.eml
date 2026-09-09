@@ -1,0 +1,44 @@
+From: p.safrankova@eurosoft.com
+To: 
+Subject: =?UTF-8?B?RG9jaMOhemthIOKAkyByb3pwYWQgc2UgdSBuxJtrdGVyw71jaCB6w6F6bmFtxa8gbmVkb3BsxYh1amUgKGRvdGF6KQ==?=
+X-Unsent: 1
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Ahoj Týnko,
+
+říkalas, že by se rozpad měl doplňovat sám. Dívali jsme se na to a vypadá to, že to platí,
+ale jen na části cest – a narazili jsme přitom ještě na jednu věc.
+
+1) Kaskáda se nevolá všude
+- Kaskáda att_sync_vyroba_work chybějící řádek do rozpadu opravdu založí, i když u něj
+  není zakázka.
+- Volají ji ale jen opravy docházky: fix/entry, fix/add, fix/void, fix/merge, fix/resync.
+- Úseky, které vzniknou potvrzením z notifikace (source notif_confirm) nebo zápisem
+  absence, ji nespustí – a rozpad k nim tedy vůbec nevznikne.
+
+Příklady:
+- Šárka Novotná, 6. 8. – práce 9:34–16:48 (7,24 h), v rozpadu nic.
+- Erika Sedláčková, 5. 8. – úsek 5:15–10:52 (5,63 h) chybí; zbytek dne z mobilu tam je.
+- Michaela Hladíková, 16. 7. – home office 6:00–8:19 (2,33 h) chybí.
+
+Dnes jsme těch pár dnů dorovnali ručním resyncem a rozpad se doplnil správně.
+
+2) Potvrzení z notifikace zakládá desítky nulových záznamů
+Ve stejné minutě vznikne 20–30 záznamů typu „práce" s nulovou délkou:
+- Eliška Kolářová, 7. 8. – 27 záznamů 10:49–10:49 (0,00–0,02 h)
+- Kristýna Marešová, 3. 8. – 24 záznamů 08:45–08:45 (0,00–0,01 h)
+Na hodiny to skoro nemá vliv, ale kaskáda je bere jako plnohodnotné úseky a chce k nim
+založit stejný počet prázdných řádků v rozpadu. Nám to při opravě rozhodilo dva dny,
+museli jsme je vracet zpátky.
+
+Otázky na tebe:
+- Má se kaskáda volat i po potvrzení z notifikace a po zápisu absence?
+- Dá se ošetřit, aby potvrzení z notifikace nezakládalo ty nulové záznamy?
+
+Díky,
+
+Peťa + Claude-26
+Petra Šafránková, logistika, nákup
+p.safrankova@eurosoft.com

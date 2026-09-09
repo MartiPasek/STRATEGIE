@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Návrh přehledu — Kdo na koho čeká</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0d10; color:#dbe6f3;
+         font-family:"Segoe UI",Roboto,Arial,sans-serif; font-size:13px; }
+  .wrap { max-width:1500px; margin:0 auto; padding:14px 16px 40px; }
+
+  .nahled { background:#1e293b; border:1px solid #475569; border-left:5px solid #64748b;
+            border-radius:8px; padding:8px 12px; margin-bottom:12px; color:#cbd5e1; }
+
+  h1 { font-size:19px; margin:0 0 2px; color:#fff; font-weight:700; }
+  .sub { color:#8fa3bb; margin:0 0 14px; }
+
+  /* ── horní pruh: co hoří ── */
+  .hori { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .kpi { flex:1 1 190px; background:#111826; border:1px solid #2a3546; border-radius:8px;
+         padding:10px 12px; border-left:5px solid #2a3546; cursor:pointer; }
+  .kpi:hover { background:#16202f; }
+  .kpi .n { font-size:26px; font-weight:700; line-height:1.05; }
+  .kpi .t { color:#9fb2c8; font-size:12px; margin-top:2px; }
+  .kpi.cerv { border-left-color:#dc2626; } .kpi.cerv .n { color:#f87171; }
+  .kpi.oran { border-left-color:#f59e0b; } .kpi.oran .n { color:#fbbf24; }
+  .kpi.modr { border-left-color:#3b82f6; } .kpi.modr .n { color:#60a5fa; }
+  .kpi.zele { border-left-color:#16a34a; } .kpi.zele .n { color:#4ade80; }
+
+  /* ── kdo se dívá ── */
+  .kdo { display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .kdo span { color:#8fa3bb; }
+  .kdo button { background:#0b0d10; color:#c8d6e8; border:1px solid #363b43; border-radius:16px;
+                padding:5px 13px; cursor:pointer; font-size:12px; }
+  .kdo button.on { background:#0f2a22; color:#4fe0aa; border-color:#2dd4bf; font-weight:600; }
+
+  /* ── tři sloupce ── */
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; align-items:start; }
+  .col { background:#111826; border:1px solid #2a3546; border-radius:8px; overflow:hidden; }
+  .col > h2 { margin:0; font-size:12px; letter-spacing:.5px; text-transform:uppercase;
+              font-weight:700; color:#fff; background:#1c2636; padding:9px 12px;
+              border-bottom:2px solid #34506f; display:flex; justify-content:space-between; }
+  .col > h2 .cnt { color:#8fa3bb; font-weight:600; }
+  .col .body { padding:8px; display:flex; flex-direction:column; gap:7px; min-height:56px; }
+  .prazdno { color:#64748b; padding:12px; text-align:center; font-style:italic; }
+
+  /* ── karta ── */
+  .k { background:#0e1520; border:1px solid #2a3546; border-left:5px solid #3b82f6;
+       border-radius:6px; padding:8px 10px; }
+  .k.cerv { border-left-color:#dc2626; background:#1a1012; }
+  .k.oran { border-left-color:#f59e0b; }
+  .k.zele { border-left-color:#16a34a; }
+  .k .kdo2 { color:#9fb2c8; font-size:11.5px; margin-bottom:2px; }
+  .k .kdo2 b { color:#dbe6f3; }
+  .k .pr { font-weight:600; color:#eef4fb; line-height:1.35; }
+  .k .meta { margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .st { font-size:11px; padding:1.5px 7px; border-radius:10px; border:1px solid; }
+  .st.cerv { color:#fca5a5; border-color:#991b1b; background:#2a1113; }
+  .st.oran { color:#fcd34d; border-color:#92400e; background:#2a1e08; }
+  .st.modr { color:#93c5fd; border-color:#1e40af; background:#0d1a30; }
+  .st.zele { color:#86efac; border-color:#166534; background:#0c2015; }
+  .st.sed  { color:#94a3b8; border-color:#3b4657; background:#141b26; }
+  .akce { margin-top:7px; display:flex; gap:5px; flex-wrap:wrap; }
+  .akce button { background:#16202f; color:#c8d6e8; border:1px solid #34506f; border-radius:5px;
+                 padding:3px 9px; font-size:11.5px; cursor:pointer; }
+  .akce button:hover { background:#1e2b3d; }
+  .akce button.hl { background:#0f2a22; color:#4fe0aa; border-color:#2dd4bf; }
+  .akce button.rd { background:#2a1113; color:#fca5a5; border-color:#991b1b; }
+
+  /* ── spodní pruh: kdo na čem dělá ── */
+  .tym { margin-top:14px; background:#111826; border:1px solid #2a3546; border-radius:8px; overflow:hidden; }
+  .tym h2 { margin:0; font-size:12px; letter-spacing:.5px; text-transform:uppercase; font-weight:700;
+            color:#fff; background:#1c2636; padding:9px 12px; border-bottom:2px solid #34506f; }
+  .tym .body { padding:10px; display:flex; gap:10px; flex-wrap:wrap; }
+  .os { background:#0e1520; border:1px solid #2a3546; border-radius:6px; padding:8px 11px; min-width:190px; flex:1 1 190px; }
+  .os .jm { font-weight:700; color:#eef4fb; display:flex; justify-content:space-between; align-items:center; }
+  .os .jm .b { font-size:11px; color:#9fb2c8; font-weight:600; }
+  .os ul { margin:6px 0 0; padding-left:15px; color:#9fb2c8; line-height:1.5; font-size:12px; }
+  .os .vykr { color:#f87171; }
+  .pozn { margin-top:16px; color:#8fa3bb; line-height:1.6; }
+  .pozn b { color:#dbe6f3; }
+  @media (max-width:1100px) { .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="nahled">
+    <b>NÁHLED NÁVRHU</b> — data jsou <b>skutečná</b> z <code>tenant.task</code> ke 20. 8. 2026.
+    Tlačítka zatím nic nedělají, jsou tu, aby bylo vidět, co by šlo udělat.
+    Přepínač „dívám se očima" je jen pro ukázku — v ostrém přehledu uvidíš svůj pohled rovnou.
+  </div>
+
+  <h1>Kdo na koho čeká</h1>
+  <p class="sub">Jedna obrazovka místo Teams, mailů a hlavy. Zdroj: úkoly STRATEGIE (nic nového se nezakládá).</p>
+
+  <div class="hori" id="hori"></div>
+
+  <div class="kdo">
+    <span>Dívám se očima:</span>
+    <button data-u="13">Šárka Novotná</button>
+    <button data-u="11">Kristýna Marešová</button>
+    <button data-u="61">Vladimír Navrátil</button>
+    <button data-u="32">Radek Hellmayer</button>
+    <button data-u="20">Jiří Honomichl</button>
+    <button data-u="0">— celý tým —</button>
+  </div>
+
+  <div class="grid">
+    <div class="col"><h2><span>🟠 Čekám na někom</span><span class="cnt" id="c1"></span></h2><div class="body" id="s1"></div></div>
+    <div class="col"><h2><span>🔴 Čekají na mně</span><span class="cnt" id="c2"></span></h2><div class="body" id="s2"></div></div>
+    <div class="col"><h2><span>🔵 Moje vlastní</span><span class="cnt" id="c3"></span></h2><div class="body" id="s3"></div></div>
+  </div>
+
+  <div class="tym">
+    <h2>Kdo na čem právě dělá — ať se práce nedubluje</h2>
+    <div class="body" id="tym"></div>
+  </div>
+
+  <div class="pozn">
+    <b>Co v tom je navíc proti dnešku:</b><br>
+    • <b>„Už to nepotřebuju"</b> a <b>„Vyřešila jsem si to sama"</b> — zruší požadavek a druhému to hned cinkne do mobilu, ať na tom nedělá zbytečně. <i>Dnes to systém neumí — stav si může přepnout jen řešitel sám sobě.</i><br>
+    • <b>„Beru" / „Kdy to bude"</b> na příchozím — zadavatel hned vidí, že to žije, a nemusí urgovat.<br>
+    • <b>Červená = nikdo se toho nechytil</b> nebo je to po termínu. Oranžová = někdo to vzal a čeká se. Zelená = hotovo. Modrá = informace.<br>
+    • <b>Spodní pruh</b> = kdo na čem dělá, aby dva lidi nedělali totéž.
+  </div>
+</div>
+
+<script>
+// ── skutečná data z tenant.task (tenant 2), staženo 20. 8. 2026 ──
+// stav: 0 zadáno · 1 přijato · 2 zahájeno · 3 vykonáno · 4 reportováno · 5 uzavřeno
+const DNES = new Date(2026, 7, 20);
+const U = {13:"Šárka Novotná", 11:"Kristýna Marešová", 61:"Vladimír Navrátil",
+           32:"Radek Hellmayer", 20:"Jiří Honomichl", 2:"Marti-AI", 1:"Marti Pašek",
+           23:"Claude‑23", 0:"(nikdo)"};
+const T = [
+ {id:31, pr:"Připravit článek na LinkedIn — týden od 25. 8. 2026", zad:13, res:[[13,0]], zadano:"2026-08-19", termin:"2026-08-25"},
+ {id:30, pr:"Dát do firemního telefonu tužkové baterie",           zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:29, pr:"Manpower / Šebek – monitoring provize",                zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:28, pr:"Rozesílání zpráv do aplikace + ankety",                zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:27, pr:"Modul Fakturace (Dušan kontrola + Šárka vystavování)", zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:26, pr:"HR nástěnka do mobilní aplikace",                      zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:25, pr:"Kvalifikace + směrnice ve STRATEGII (audit 12/2026)",  zad:13, res:[[13,0]], zadano:"2026-08-18", termin:"2026-12-01"},
+ {id:24, pr:"Školení + lékařské prohlídky do karty (+ upomínky)",   zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:23, pr:"Sick days – pojistka proti záporu",                    zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:22, pr:"Dušan – zařadit v přehledech jako výroba",             zad:13, res:[[13,0]], zadano:"2026-08-18", termin:null},
+ {id:21, pr:"Zakázka č. VR10674 / zákazník Junker",                 zad:61, res:[[32,0]], zadano:"2026-08-14", termin:"2026-08-18"},
+ {id:20, pr:"Organizační tabule (ISO 9001) — Q3/2026",              zad:13, res:[[13,0]], zadano:"2026-08-12", termin:"2026-09-23"},
+ {id:19, pr:"Potvrzení, zda lze vyřezat dveře — VR10676, Junker",   zad:61, res:[[32,0]], zadano:"2026-08-12", termin:"2026-08-14"},
+ {id:18, pr:"Připravit článek na LinkedIn — týden od 18. 8. 2026",  zad:13, res:[[13,3]], zadano:"2026-08-12", termin:"2026-08-18"},
+ {id:16, pr:"Marti Pašek — 20 let ve firmě: certifikát",            zad:13, res:[[13,0]], zadano:"2026-08-03", termin:"2026-08-29"},
+ {id:14, pr:"Google Play od 14. 8. vyžaduje souhlas s předáním informací třetím stranám", zad:20, res:[[2,0],[20,0],[1,0]], zadano:"2026-07-29", termin:null},
+ {id:9,  pr:"Poslat výrobní směrnice (Dušan) — Q3/2026",            zad:13, res:[[13,0]], zadano:"2026-07-23", termin:"2026-09-30"},
+ {id:6,  pr:"EUROSOFT docházka: obousměrná deaktivace Centrály + osiřelý PraceAktivni (2 bugy)", zad:11, res:[], zadano:"2026-07-15", termin:null},
+ {id:5,  pr:"Napiš scénář offline průvodce appkou",                 zad:23, res:[[2,4]], zadano:"2026-06-09", termin:null},
+ {id:4,  pr:"Konzultace: HR modul Benefity — věrnostní poukázka",   zad:23, res:[[2,4]], zadano:"2026-06-09", termin:null},
+ {id:3,  pr:"Konzultace: autonomie (úkoly → DDL/DML → report)",     zad:23, res:[[2,4]], zadano:"2026-06-09", termin:null},
+ {id:2,  pr:"Teď rozběhni tu autonomii Marti-AI",                   zad:1,  res:[[23,2]], zadano:"2026-06-09", termin:null},
+ {id:1,  pr:"Potřebuji dořešit tu autonomii Marti-AI",              zad:1,  res:[[1,0]],  zadano:"2026-06-09", termin:null}
+];
+const STAV = {0:"zadáno", 1:"přijato", 2:"zahájeno", 3:"vykonáno", 4:"reportováno", 5:"uzavřeno"};
+const dnu = s => Math.round((DNES - new Date(s)) / 86400000);
+const dat = s => s ? new Date(s).toLocaleDateString("cs-CZ") : "";
+
+function karta(t, rezim) {
+  const otevr = t.res.filter(r => r[1] < 3);
+  const nikdo = t.res.length === 0;
+  const nechytl = nikdo || otevr.every(r => r[1] === 0);
+  const pozde = t.termin && new Date(t.termin) < DNES && otevr.length > 0;
+  const hotovo = t.res.length > 0 && otevr.length === 0;
+
+  let bar = "modr";
+  if (hotovo) bar = "zele";
+  else if (pozde || (nikdo && rezim !== "moje")) bar = "cerv";
+  else if (nechytl && rezim === "cekam") bar = "cerv";
+  else if (rezim !== "moje") bar = "oran";
+
+  const jm = t.res.length ? t.res.map(r => U[r[0]]).join(" + ") : "(nikomu nepřidělené)";
+  let hlav = "";
+  if (rezim === "cekam")  hlav = 'čeká na: <b>' + jm + '</b>';
+  if (rezim === "prisly") hlav = 'zadal(a): <b>' + U[t.zad] + '</b>';
+  if (rezim === "moje")   hlav = 'moje vlastní';
+
+  const chip = [];
+  if (hotovo) chip.push('<span class="st zele">✓ ' + STAV[Math.max(...t.res.map(r => r[1]))] + '</span>');
+  else if (nikdo) chip.push('<span class="st cerv">nikomu nepřidělené</span>');
+  else if (nechytl) chip.push('<span class="st cerv">nikdo nezareagoval</span>');
+  else chip.push('<span class="st oran">' + STAV[Math.max(...otevr.map(r => r[1]))] + '</span>');
+  chip.push('<span class="st sed">čeká ' + dnu(t.zadano) + ' dní</span>');
+  if (t.termin) chip.push('<span class="st ' + (pozde ? 'cerv">⚠ termín ' : 'modr">termín ') + dat(t.termin) + '</span>');
+
+  let akce = "";
+  if (rezim === "cekam" && !hotovo)
+    akce = '<div class="akce"><button class="rd">✕ Už to nepotřebuju</button>' +
+           '<button>Vyřešila jsem si to sama</button><button>Urgovat</button></div>';
+  if (rezim === "prisly" && !hotovo)
+    akce = '<div class="akce"><button class="hl">✓ Beru</button><button>Kdy to bude…</button>' +
+           '<button>Vrátit zadavateli</button></div>';
+  if (rezim === "moje" && !hotovo)
+    akce = '<div class="akce"><button class="hl">✓ Hotovo</button><button>Předat někomu</button></div>';
+
+  return '<div class="k ' + bar + '"><div class="kdo2">' + hlav + '</div><div class="pr">' +
+         t.pr + '</div><div class="meta">' + chip.join("") + '</div>' + akce + '</div>';
+}
+
+function vykresli(uid) {
+  const cekam = [], prisly = [], moje = [];
+  T.forEach(t => {
+    const jsemRes = t.res.some(r => r[0] === uid);
+    const jsemZad = t.zad === uid;
+    const hotovo = t.res.length > 0 && t.res.every(r => r[1] >= 3);
+    if (uid === 0) { (t.zad === (t.res[0] || [])[0] ? moje : cekam).push(t); return; }
+    if (jsemZad && jsemRes) { if (!hotovo) moje.push(t); }
+    else if (jsemZad) { if (!hotovo) cekam.push(t); }
+    else if (jsemRes) { if (!hotovo) prisly.push(t); }
+  });
+  const put = (id, arr, rezim, prazdny) => {
+    document.getElementById(id).innerHTML =
+      arr.length ? arr.map(t => karta(t, rezim)).join("") : '<div class="prazdno">' + prazdny + '</div>';
+  };
+  put("s1", cekam, "cekam", "Na nikom nečekáš.");
+  put("s2", prisly, "prisly", "Nikdo nic nechce. 🙂");
+  put("s3", moje, "moje", "Nic vlastního.");
+  c1.textContent = cekam.length; c2.textContent = prisly.length; c3.textContent = moje.length;
+
+  // horní pruh
+  const vse = T.filter(t => !(t.res.length && t.res.every(r => r[1] >= 3)));
+  const poTerminu = vse.filter(t => t.termin && new Date(t.termin) < DNES).length;
+  const bezReakce = vse.filter(t => t.res.length && t.res.every(r => r[1] === 0) && dnu(t.zadano) > 2).length;
+  const nikomu = vse.filter(t => t.res.length === 0).length;
+  const hotovo = T.filter(t => t.res.length && t.res.every(r => r[1] >= 3)).length;
+  document.getElementById("hori").innerHTML =
+    '<div class="kpi cerv"><div class="n">' + poTerminu + '</div><div class="t">po termínu</div></div>' +
+    '<div class="kpi cerv"><div class="n">' + nikomu + '</div><div class="t">nikomu nepřidělené — spadlo do prázdna</div></div>' +
+    '<div class="kpi oran"><div class="n">' + bezReakce + '</div><div class="t">nikdo nezareagoval déle než 2 dny</div></div>' +
+    '<div class="kpi zele"><div class="n">' + hotovo + '</div><div class="t">hotovo</div></div>';
+
+  // spodní pruh — kdo na čem dělá
+  const lidi = {};
+  T.forEach(t => t.res.forEach(r => {
+    if (r[1] >= 3) return;
+    (lidi[r[0]] = lidi[r[0]] || []).push({ pr: t.pr, pozde: t.termin && new Date(t.termin) < DNES });
+  }));
+  document.getElementById("tym").innerHTML = Object.keys(lidi).map(k => {
+    const l = lidi[k], vic = l.length > 3 ? '<li>… a další ' + (l.length - 3) + '</li>' : '';
+    return '<div class="os"><div class="jm">' + U[k] + '<span class="b">' + l.length + ' otevřených</span></div><ul>' +
+      l.slice(0, 3).map(x => '<li' + (x.pozde ? ' class="vykr"' : '') + '>' +
+        (x.pozde ? '⚠ ' : '') + x.pr.slice(0, 42) + (x.pr.length > 42 ? '…' : '') + '</li>').join("") + vic + '</ul></div>';
+  }).join("");
+}
+
+document.querySelectorAll(".kdo button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".kdo button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  vykresli(+b.dataset.u);
+});
+document.querySelector('.kdo button[data-u="61"]').click();
+</script>
+</body>
+</html>

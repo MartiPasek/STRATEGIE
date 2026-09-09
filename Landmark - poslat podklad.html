@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Landmark – poslat podklad</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;color:#222}
+  h1{font-size:22px;color:#1F4E78}
+  .karta{border:1px solid #ddd;border-radius:12px;padding:22px;margin:18px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .btn{display:inline-block;background:#1F4E78;color:#fff;text-decoration:none;padding:14px 22px;border-radius:10px;font-size:16px;font-weight:600;border:none;cursor:pointer}
+  .btn:hover{background:#163a5a}
+  label{display:inline-block;margin:6px 10px 6px 0}
+  input,select{padding:8px;border:1px solid #bbb;border-radius:8px;font-size:15px}
+  .pozn{color:#666;font-size:13px;line-height:1.5}
+  .maly{background:#f4f7fb}
+</style>
+</head>
+<body>
+  <h1>📤 Landmark – poslat podklad mezd</h1>
+  <p class="pozn">Podklad (oblečení + HO po lidech za EC i ES) se pošle e‑mailem na
+     <b>nakup@eurosoft.com</b>. Musíš být přihlášená do STRATEGIE ve stejném prohlížeči.
+     <br>Normálně to <b>netřeba</b> — každého 15. se posílá automaticky. Tohle je jen na
+     odeslání mimo pořadí.</p>
+
+  <div class="karta">
+    <h3 style="margin-top:0">Za předchozí měsíc (běžný případ)</h3>
+    <a class="btn" href="https://strategie-ai.com/api/v1/erp/app/mzdy/landmark-send" target="_blank" rel="noopener">Poslat podklad za předchozí měsíc</a>
+  </div>
+
+  <div class="karta maly">
+    <h3 style="margin-top:0">Za konkrétní měsíc</h3>
+    <label>Rok: <input id="rok" type="number" value="2026" style="width:90px"></label>
+    <label>Měsíc:
+      <select id="mesic">
+        <option value="1">leden</option><option value="2">únor</option>
+        <option value="3">březen</option><option value="4">duben</option>
+        <option value="5">květen</option><option value="6" selected>červen</option>
+        <option value="7">červenec</option><option value="8">srpen</option>
+        <option value="9">září</option><option value="10">říjen</option>
+        <option value="11">listopad</option><option value="12">prosinec</option>
+      </select>
+    </label>
+    <br><br>
+    <button class="btn" onclick="posli()">Poslat za zvolený měsíc</button>
+  </div>
+
+  <p class="pozn">Po odeslání se otevře nová záložka s technickou hláškou —
+     když začíná <code>{"ok":true</code>, je odesláno. Pak zkontroluj schránku Nákup.
+     Když daný měsíc ještě není domzdovaný (uzávěrka), mail nepřijde a hláška to napíše.</p>
+
+  <script>
+    function posli(){
+      var r=document.getElementById('rok').value;
+      var m=document.getElementById('mesic').value;
+      window.open('https://strategie-ai.com/api/v1/erp/app/mzdy/landmark-send?rok='+r+'&mesic='+m,'_blank','noopener');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+Činnost                                       kategorie       naše      C  stav
+------------------------------------------------------------------------------------------
+Neplacené volno                               nepritomnost      47     39  LIŠÍ SE
+Lékař                                         nepritomnost      48     21  LIŠÍ SE
+Dovolená                                      nepritomnost      49     20  LIŠÍ SE
+Režie                                         rezie             14      —  BEZ PROTĚJŠKU v C
+Zastupování vedoucího výroby                  rezie             19    101  LIŠÍ SE
+Rozhovor s vedoucím pracovníkem               rezie             20    104  LIŠÍ SE
+Nakládka zakázky                              rezie             21    107  LIŠÍ SE
+Školení (BOZP, PO, …)                         rezie             22    102  LIŠÍ SE
+Pravidelná porada                             rezie             23    105  LIŠÍ SE
+Obalové hospodářství                          rezie             24    108  LIŠÍ SE
+Zaučování                                     rezie             25    103  LIŠÍ SE
+Meeting                                       rezie             26    106  LIŠÍ SE
+Archivace dokončených zakázek                 rezie             27    109  LIŠÍ SE
+Údržba budovy                                 rezie             28    121  LIŠÍ SE
+Přípravné, pomocné práce pro SIEMENS          rezie             29    122  LIŠÍ SE
+Úklid firmy                                   rezie             30    124  LIŠÍ SE
+PLC-zaškolování                               rezie             31    134  LIŠÍ SE
+Nakládka, vykládka SIEMENS                    rezie             32    135  LIŠÍ SE
+Eplan-zaškolování                             rezie             33    137  LIŠÍ SE
+Úklid pracoviště / po zakázce                 rezie             34    110  LIŠÍ SE
+Směrnice                                      rezie             35    111  LIŠÍ SE
+Oprava / servis nářadí                        rezie             36    112  LIŠÍ SE
+Pracovní cesta – nákup / lakovna / ostatní    rezie             37    113  LIŠÍ SE
+Garant                                        rezie             38    114  LIŠÍ SE
+Pravidelná kontrola – údržba zařízení         rezie             39    115  LIŠÍ SE
+Ostatní - výroba                              rezie             40    116  LIŠÍ SE
+Nákup                                         rezie             41    117  LIŠÍ SE
+Objednávání VKM zboží                         rezie             42    118  LIŠÍ SE
+Bez rozlišení činnosti                        rezie             43      —  BEZ PROTĚJŠKU v C
+home office                                   rezie             44      8  LIŠÍ SE
+ostatní - kanceláře                           rezie             45      6  LIŠÍ SE
+Přípravné práce                               standard           1      1  sedí
+Mechanické práce                              standard           2      2  sedí
+Zámečnické práce                              standard           3      3  sedí
+Drátování                                     standard           4      4  sedí
+Zkoušení                                      standard           5      5  sedí
+Kabely, vodiče – zakončování, holení, piny    standard           6     11  LIŠÍ SE
+Dokončovací práce                             standard           7     13  LIŠÍ SE
+Balení                                        standard           8     38  LIŠÍ SE
+Značení vodičů                                standard           9     40  LIŠÍ SE
+Přebírání materiálu Siemens                   standard          10     41  LIŠÍ SE
+Gravírování                                   standard          11     42  LIŠÍ SE
+Perforex                                      standard          12      7  LIŠÍ SE
+Ostatní – výroba                              standard          13    116  LIŠÍ SE
+Ostatní – kanceláře                           standard          15      6  LIŠÍ SE
+Služební cesta / montáž                       standard          16      —  BEZ PROTĚJŠKU v C
+Brigáda                                       standard          17     43  LIŠÍ SE
+Učeň                                          standard          18     44  LIŠÍ SE
+
+SHRNUTÍ: sedí 5 · LIŠÍ SE 40 · bez protějšku 3 · celkem 48

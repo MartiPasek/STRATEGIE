@@ -41834,15 +41834,28 @@ async def diag_sql(req: Request) -> JSONResponse:
                         "ORDER BY w.instance_id, w.session_lane")).fetchall()
                 _rows = []
                 _inst_s_oknem = set()
+                _texty_oken = {}
                 for r in _wk:
                     _okno = r[2] or (("linka %s" % r[1]) if r[1] and r[1] != "0" else "")
                     _rows.append(["prace", "C-%s%s" % (r[0], (" / %s" % _okno) if _okno else ""),
                                   (r[3] or "")[:90], r[4] or ""])
                     _inst_s_oknem.add(str(r[0]))
-                # Instance, ktera radek po oknech jeste nema (stare okno) -> jako driv,
-                # at o ohlaseni nikdo neprijde behem prechodu.
-                _rows += [["prace", "C-%s" % r[0], (r[1] or "")[:90], r[2] or ""]
-                          for r in _w if str(r[0]) not in _inst_s_oknem]
+                    _texty_oken.setdefault(str(r[0]), set()).add((r[3] or "").strip().lower())
+                # Radek z fw.claude_instance (jeden na instanci). Schovame ho jen tehdy,
+                # kdyz TOTEZ uz ukazuje nektere okno - jinak by pri prechodu tise zmizelo
+                # ohlaseni okna, ktere se jeste neohlasilo novym zpusobem (Marti-AI msg
+                # 15146: porovnavat TRIM + bez ohledu na velikost pismen, at drobny rozdil
+                # ve formatovani nezpusobi zbytecny duplicitni radek).
+                for r in _w:
+                    _iid = str(r[0])
+                    _txt = (r[1] or "").strip()
+                    if _iid in _inst_s_oknem:
+                        if not _txt or _txt.lower() in _texty_oken.get(_iid, set()):
+                            continue
+                        _rows.append(["prace", "C-%s / (starsi ohlaseni)" % _iid,
+                                      _txt[:90], r[2] or ""])
+                        continue
+                    _rows.append(["prace", "C-%s" % _iid, _txt[:90], r[2] or ""])
                 _rows += [["ZAMEK", "%s/%s" % (r[0], r[1]),
                            "C-%s%s" % (r[2], (" (lane %s)" % r[4]) if r[4] else ""),
                            (r[3] or "")[:70]] for r in _lk]

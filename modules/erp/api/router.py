@@ -505,6 +505,35 @@ _PRIPL_SCHVALOVACI_SLOUPCE = {"status", "approved_by_id", "approved_at", "export
 # ony ty mzdy zpracovávají, zámek chrání před ostatními.
 _MZDY_ZAMEK_VYJIMKA = (17, 18)   # Michelle Šafránková, Peťa Šafránková
 
+# ── KDO VŮBEC SMÍ SÁHNOUT NA MZDY (Peťa 9. 9. 2026) ─────────────────────────
+# Peťa 9. 9. 2026: „aby nikdo kromě nás nemohl změnit výplaty ani rodiče" a
+# „aby nikomu nešli změnit / přegenerovat atd."
+# Do 9. 9. 2026 mohlo mzdy vygenerovat i přegenerovat DEVĚT lidí, protože brána
+# byla `_is_cockpit` (= rodič NEBO scoped approver NEBO skupina Finance/HR):
+# Marti Pašek (1), Kristýna Marešová (11), Michelle Šafránková (17), Peťa (18),
+# Šárka Novotná (13), Jiří Honomichl (20), Marta Šafaříková (108), Petra
+# Fajmonová (107), Tomáš Hrbek (109).
+# Nově smí jen mzdové účetní — tatáž dvojice, která má výjimku ze zámku mezd.
+# RODIČOVSKÝ BYPASS TU NEPLATÍ. Je to jediné místo v aplikaci, kde rodič
+# neprojde; udělané vědomě na Petin pokyn (mzdy jsou jejich teritorium).
+_MZDY_UCETNI = (17, 18)   # Michelle Šafránková, Peťa Šafránková
+
+
+def _mzdy_smi(uid) -> bool:
+    """Smí tenhle člověk měnit / generovat mzdy? Jen mzdové účetní, rodiče ne."""
+    try:
+        return bool(uid) and int(uid) in _MZDY_UCETNI
+    except Exception:
+        return False
+
+
+def _mzdy_zakaz(co: str = "měnit") -> dict:
+    """Jednotná odmítavá odpověď (403). Endpointy si z ní udělají JSONResponse."""
+    return {"ok": False, "_status_code": 403,
+            "error": ("Mzdy může " + co + " jen mzdová účetní — Peťa nebo Michelle. "
+                      "Zúženo 9. 9. 2026 na Petin pokyn; dřív to mohlo devět lidí "
+                      "včetně rodičů a skupiny Finance/HR.")}
+
 
 def _mzdy_zamek_blokuje(s, uid, co: str = "tuhle změnu") -> str:
     """Vrátí text chyby, když jsou mzdy zamčené a uživatel nemá výjimku. Jinak ''.
@@ -34710,6 +34739,10 @@ async def mzdy_zamek_prepni(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    # Zamykat a hlavně ODEMYKAT mzdy smí jen mzdová účetní (Peťa 9. 9. 2026).
+    # Odemčení je klíč od všeho ostatního, proto tu rodič neprojde.
+    if not _mzdy_smi(uid):
+        return JSONResponse(_mzdy_zakaz("zamykat a odemykat"), status_code=403)
     try:
         body = await req.json()
     except Exception:
@@ -35786,16 +35819,13 @@ _MZD_A_PROC = {
 
 @api_router.post("/app/ucto/mzdy-akce")
 def ucto_mzdy_akce(req: Request):
-    """Path A: spustí EC mzdovou proceduru na office Heliosu pro období (parent).
+    """Path A: spustí EC mzdovou proceduru na office Heliosu pro období.
     akce: vstupni | generovat | kontrola | smazat. Jen EC (procedury jsou EC_)."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    finally:
-        s.close()
+    # Tenhle endpoint umí i SMAZAT celé mzdové období (TabMzSloz + TabPredzp).
+    # Od 9. 9. 2026 jen mzdová účetní — dřív sem `_is_cockpit` pustil devět lidí.
+    if not _mzdy_smi(uid):
+        return JSONResponse(_mzdy_zakaz("generovat a mazat"), status_code=403)
     firma = (req.query_params.get("firma") or "EC").upper()
     akce = (req.query_params.get("akce") or "").lower()
     import datetime as _dt
@@ -44410,43 +44440,19 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   (tenant.mzdy_rucni_slozka) — durable, přežije přegenerování. Např. DPP odměna (složka 700).
     #   castka=0 → složku deaktivuje. Peta 7.7.2026 (chyběl zápisový nástroj; můstek umí jen čtení).
     if sql.upper().startswith("@@RUCNI"):
-        import traceback as _tbru
-        try:
-            _rp = sql[len("@@RUCNI"):].strip().split()
-            if len(_rp) < 4:
-                return JSONResponse({"ok": False, "error": "@@RUCNI <firma> <cislo> <cislo_ms> <castka> [dny]"})
-            _rf = _rp[0].upper()
-            _rf = 'EC' if _rf in ('EC', '1') else ('ES' if _rf in ('ES', '2') else _rf)
-            _rcislo = str(int(_rp[1]))
-            _rms = int(_rp[2])
-            _rkc = int(round(float(_rp[3])))
-            _rdny = int(_rp[4]) if len(_rp) > 4 else 0
-            from modules.strategie_pg.application import service as _pgru
-            from sqlalchemy import text as _tru
-            _cmru = _pgru.get_session()
-            _sru = _cmru.__enter__()
-            try:
-                _akt = (_rkc != 0 or _rdny != 0)
-                _upd = _sru.execute(_tru(
-                    "UPDATE tenant.mzdy_rucni_slozka SET castka=:kc, dny=:dny, aktivni=:ak "
-                    "WHERE tenant_id=2 AND firma=:f AND cislo=:c AND cislo_ms=:ms"),
-                    {"kc": _rkc, "dny": _rdny, "ak": _akt, "f": _rf, "c": _rcislo, "ms": _rms})
-                if _upd.rowcount == 0:
-                    _sru.execute(_tru(
-                        "INSERT INTO tenant.mzdy_rucni_slozka (tenant_id, firma, cislo, cislo_ms, castka, dny, aktivni) "
-                        "VALUES (2, :f, :c, :ms, :kc, :dny, :ak)"),
-                        {"f": _rf, "c": _rcislo, "ms": _rms, "kc": _rkc, "dny": _rdny, "ak": _akt})
-                    _akce = "vloženo"
-                else:
-                    _akce = "upraveno"
-                _sru.commit()
-            finally:
-                _cmru.__exit__(None, None, None)
-            return JSONResponse({"ok": True, "akce": _akce, "firma": _rf, "cislo": _rcislo,
-                                 "cislo_ms": _rms, "castka": _rkc, "dny": _rdny, "aktivni": _akt})
-        except Exception as _rue:
-            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_rue).__name__, str(_rue)[:200]),
-                                 "tb": _tbru.format_exc()[-600:]})
+        # ZAVŘENO 9. 9. 2026 (Peťa: „aby nikomu nešli změnit/přegenerovat"). Tahle
+        # zkratka zapisovala do tenant.mzdy_rucni_slozka rovnou, bez schvalovacího
+        # banneru — obcházela zámek mezd, který jinak drží, že zápis do mzdových
+        # tabulek schválí jen Peťa (18). Ruční složka se teď zakládá běžným SQL,
+        # které projde banner jako každý jiný zápis do mezd.
+        return JSONResponse({
+            "ok": False,
+            "error": ("@@RUCNI je zavřená (Peťa 9. 9. 2026) — obcházela schvalovací "
+                      "banner u mezd. Použij běžné SQL, projde bannerem a schválí ho "
+                      "mzdová účetní:\n"
+                      "UPDATE tenant.mzdy_rucni_slozka SET castka=<kc>, dny=<dny>, "
+                      "aktivni=true WHERE tenant_id=2 AND firma='<EC|ES>' AND "
+                      "cislo='<cislo>' AND cislo_ms=<slozka>;")})
 
     #   @@ARES <ICO>  → ověří firmu v registru ARES (REST) — název, adresa, DIČ, aktivní/zaniklý.
     if sql.upper().startswith("@@ARES"):

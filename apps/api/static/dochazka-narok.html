@@ -42,6 +42,12 @@
      přehledy). Dvojklik na úchyt = zpět na výchozí šířku. Šířky si pamatuje prohlížeč. */
   table.dokl thead th{position:sticky}
   .colgrip{position:absolute;right:0;top:0;width:7px;height:100%;cursor:ew-resize;z-index:6}
+  /* Peťa 9.9.2026: převedeno z minulého roku se zadává přímo v přehledu */
+  td.edit input{width:100%;box-sizing:border-box;background:#0b0d10;border:1px solid #3a4a5f;border-radius:4px;
+                color:#e9eef5;padding:2px 4px;font-size:12px;text-align:right}
+  td.edit input:focus{border-color:#4fe0aa;outline:none}
+  td.edit input.ok{border-color:#2dd4bf;background:#0f2a22}
+  td.edit input.err{border-color:#e0788a;background:#2a1216}
   td.mk{width:20px;text-align:center;color:#5aa0ff;font-weight:700;padding:2px 0}
   .fx{width:20px;text-align:center;cursor:pointer;color:#8aa0bd;font-weight:700}
   .ctxm{position:fixed;z-index:400;background:#1c2636;border:1px solid #2a3546;border-radius:8px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.55);font-size:13px;min-width:170px}
@@ -75,6 +81,7 @@ function load(hotovo){
     .then(function(r){return r.json();}).then(function(j){
       if(!j||!j.ok){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">'+esc((j&&j.error)||'Nepodařilo se načíst.')+'</td></tr>';if(hotovo)hotovo();return;}
       COLS=j.columns||[]; ROWS=j.rows||[];
+      ROK=j.rok||(new Date()).getFullYear(); MUZE_PREVOD=!!j.muze_prevod;
       $('title').textContent=j.title||'Nárok a čerpání dovolené';
       document.title=j.title||'Nárok a čerpání dovolené';
       $('sub').textContent=j.podtitul||'';
@@ -83,7 +90,23 @@ function load(hotovo){
     }).catch(function(){$('tab').getElementsByTagName('tbody')[0].innerHTML='<tr><td class="ld">Chyba spojení.</td></tr>';if(hotovo)hotovo();});
 }
 function _gcls(c){return c&&c.grp?(' g-'+c.grp):'';}
+var MUZE_PREVOD=false, ROK=(new Date()).getFullYear();
 var _COLW={}; try{_COLW=JSON.parse(localStorage.getItem('narok_colw')||'{}')||{};}catch(e){_COLW={};}
+// Peťa 9.9.2026: zápis převodu z minulého roku. Uloží se hned po opuštění políčka
+// (nebo Enterem), políčko blikne zeleně. Chyba = červeně a text u počtu řádků.
+function prevodUloz(inp){
+  var cz=inp.getAttribute('data-cz'), pole=inp.getAttribute('data-pole');
+  var v=String(inp.value||'').trim().replace(',','.');
+  if(v==='')v='0';
+  if(isNaN(Number(v))){ inp.className='err'; return; }
+  inp.className='';
+  fetch('/api/v1/erp/app/dochazka-narok/prevod',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cislo_zam:cz,rok:ROK,pole:pole,hodnota:Number(v)})})
+   .then(function(r){return r.json();}).then(function(j){
+      if(j&&j.ok){ inp.className='ok'; setTimeout(function(){inp.className='';},900); reloadData(); }
+      else { inp.className='err'; alert((j&&j.error)||'Uložení se nepovedlo.'); }
+   }).catch(function(){ inp.className='err'; });
+}
 function _colw(c){ return (_COLW[c.k]||c.w||90); }
 function _colwSave(){ try{localStorage.setItem('narok_colw',JSON.stringify(_COLW));}catch(e){} }
 function _bindResize(){
@@ -158,9 +181,18 @@ function render(){
       if(c.k==='vykr'){h+='<td class="warn" title="Čerpání nesedí na celé/půl dny fondu — podívat se na to">'+esc(v)+'</td>';return;}
       if(c.num&&v!=null&&v!==''){ if(Number(v)<0)cls+=' minus';
         v=Number(v).toLocaleString('cs',{minimumFractionDigits:0,maximumFractionDigits:2}); }
+      if(c.edit&&MUZE_PREVOD){
+        h+='<td class="edit '+cls.trim()+'"><input data-cz="'+esc(r.cislo)+'" data-pole="'+esc(c.k.replace('prevod_',''))+'" value="'+esc(r[c.k]!=null&&Number(r[c.k])!==0?r[c.k]:'')+'" placeholder="0" title="Převedeno z minulého roku — zapíše se a o tolik se zvýší nárok"></td>';
+        return; }
       h+='<td class="'+cls.trim()+'" title="'+esc(r[c.k])+'">'+esc(v)+'</td>';});
     h+='</tr>';});
   tb.innerHTML=h; updInfo();
+  // Peťa 9.9.2026: políčka pro převod z minulého roku — uloží se po opuštění nebo Enterem.
+  [].forEach.call(tb.querySelectorAll('td.edit input'),function(inp){
+    inp.addEventListener('change',function(){ prevodUloz(inp); });
+    inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
+    inp.addEventListener('click',function(e){ e.stopPropagation(); });
+  });
 }
 function updInfo(){var s=0;for(var k in SELSET)if(SELSET[k])s++;
   var btn=SORT.k?('<a href="#" onclick="resetSort();return false" style="display:inline-block;background:#0f2a22;color:#4fe0aa;border:1px solid #2dd4bf;border-radius:5px;padding:1px 8px;margin-right:10px;font-size:11px;font-weight:600;text-decoration:none">↺ výchozí řazení</a>'):'';

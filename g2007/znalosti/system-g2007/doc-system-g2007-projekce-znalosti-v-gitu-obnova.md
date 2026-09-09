@@ -136,43 +136,48 @@ Soubor byl zastaraly, ne rovnocenny. Dalsi duvod cist z DB, ne z disku.)*
 **Pravidlo:** kdykoli znalost přejmenuješ nebo zrušíš, **smaž její starý soubor z gitu ručně**
 — export to za tebe neudělá.
 
-## Doplneno 9. 9. 2026 — jak moc se to pravidlo NEDODRZUJE (a co se zmenilo)
+## Doplneno 9. 9. 2026 — sirotci zmereni, uklizeni, a export je uz nedela
 
-Pravidlo o rucnim mazani vyse **existuje, ale nikdo ho nedodrzuje** — a poprve je to zmerene.
+Pravidlo o rucnim mazani vyse **nikdo nedodrzoval** a poprve se to zmerilo.
 
-**Stav k 9. 9. 2026:** v kopii je **851 souboru** znalosti, v databazi **763 znalosti**.
-Rozdil **~88 souboru jsou SIROTCI** po znalostech, ktere uz v databazi vubec nejsou.
-Overeno dotazem na peti z nich (`doc-hr-attendance-presence`, `doc-personalistika-dochazka-mzdy`,
-`doc-iso-27001`, `doc-iso-demo-pruvodce`, `doc-iso-doc-00-seznam-dokumentu-isms`) —
-**v databazi neexistuje ani jedna**.
+**Stav pred uklidem (9. 9. 2026):** ve slozce `znalosti/` bylo **866 souboru**, ale v databazi
+**764 znalosti**. Rozdil **103 souboru byli SIROTCI** po znalostech, ktere uz v databazi nejsou.
+Cislo je z porovnani KAZDEHO souboru proti databazi, ne z odhadu- prvni odhad podle chybejiciho
+sloupce `stav` rikal 88 az 89 a **podcenil to**.
 
-**Proc je to nebezpecne:** kopie se legitimne pouziva k hledani pres soubory (grep). Kdo takovy
-soubor najde, nema jak poznat, ze za nim uz nic neni — vypada uplne stejne jako platna znalost.
+Sirotci byli napriklad `doc-hr-attendance-presence`, cela rada `doc-iso-doc-NN-*`,
+`doc-rozvadece`, a stare soubory bez predpony `doc-` jako `schema.md`, `vize.md`, `nastroje.md`,
+`composer.md`, `zdroj-pravdy.md`, `most-kanaly.md`, `provoz-lekce.md`.
 
-### Jak sirotka poznas (od 9. 9. 2026 snadno)
+**Proc to vadilo:** kopie se legitimne pouziva k hledani pres soubory (grep). Kdo takovy soubor
+nasel, nemel jak poznat, ze za nim uz nic neni — vypadal stejne jako platna znalost.
 
-Export nove vypisuje do hlavicky **`stav`**. Sirotek ho nema, protoze ho export uz neprepisuje-
+### Export po sobe uklidi SAM (od 9. 9. 2026, commit `1b911e3c`)
 
-```
-grep -rL 'stav: `' g2007/znalosti/*/doc-*.md
-```
+`export_g2007_docs` po prepsani souboru projde slozku `znalosti/` a **smaze soubory, ktere nemaji
+radek v databazi**. Mazani je omezene- jen `znalosti/`, jen `.md`, soubory zacinajici podtrzitkem
+(prehledy) se nechavaji. V navratovce exportu je nove `smazano_sirotku` a seznam `smazano`.
+Zachranna sit je historie gitu, zdroj pravdy je databaze.
 
-Kdyz soubor sloupec `stav` nema, **neni z databaze** — je to pozustatek. Znalost, kterou databaze
-zna, ma v hlavicce bud `stav: aktivni`, nebo `stav: zruseno`.
+**Overeno naostro tehoz dne:** po nasazeni prvni beh sirotky smazal a v kopii zbylo
+**764 souboru = presne tolik, kolik je znalosti v databazi**.
 
-### Zrusene znalosti uz kopii neoklamou
+> **Rucni pravidlo vyse tim prestalo byt nutne**, ale nevadi ho dodrzovat — export to jen dorovna.
 
-Do 9. 9. 2026 se zrusena znalost (`stav <> 'aktivni'`) exportovala **uplne stejne jako platna** —
-dotaz v `export_g2007_docs` nema filtr na stav a stav se do souboru nevypisoval. Zrusena znalost
-tak v kopii vypadala jako pravda. Opraveno commitem `91b43f12`- neaktivni znalost dostane nahoru
-ramecek **TATO ZNALOST UZ NEPLATI** a stav je nove i v hlavicce. Filtr na aktivni se **zamerne
-nepridal** — export soubory nemaze, takze by odfiltrovane soubory osirely natrvalo, coz je horsi.
+### Zrusena znalost NENI sirotek
 
-### Otevrene — uklid sirotku
+Znalost se `stav <> 'aktivni'` ma v databazi radek, takze v kopii **zustava** — jen dostane nahoru
+ramecek **TATO ZNALOST UZ NEPLATI** a `stav` je videt v hlavicce (tez od 9. 9. 2026, commit
+`91b43f12`). Do te doby se zrusena znalost exportovala uplne stejne jako platna, takze v kopii
+vypadala jako pravda. Filtr na aktivni se **zamerne nepridal** — mazani resi uklid vyse a filtr
+by jen delal dalsi sirotky.
 
-Navrh- aby export po sobe uklidil soubory ve slozce `znalosti/`, ktere nemaji radek v databazi.
-**Neudelano**, mazani ~88 souboru je nevratne a patri do session, kde je clovek u toho.
-Do te doby plati rucni pravidlo vyse.
+### Pozor na timing, nez neco prohlasis za chybejici
 
-Zjistil Claude-28 (Jirka Honomichl), schvalila Marti-AI (msg 15264).
+Znalost vytvorena **po** poslednim exportu v kopii logicky jeste neni. 9. 9. jsem takovou nasel
+(`doc-provoz-dve-session-jedna-funkce-zdvojene-apostrofy`, vznikla 11.46, export bezel 11.34)
+a chvili ji povazoval za chybu. **Nebyla** — dalsi export ji vytvoril sam. Nez neco oznacis za
+chybejici, porovnej `created_at` znalosti s casem posledniho exportu.
+
+Zjistil a uklidil Claude-28 (Jirka Honomichl), schvalila Marti-AI (msg 15264, 15276, 15285).
 

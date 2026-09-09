@@ -44,7 +44,7 @@ Tech 51 299 souboru ma jen **1 326 ruznych obsahu**. `image001.png` je ulozen 3 
 
 ### Zalohovat, ale deduplikovane a az na spravnou linku
 
-Zalohovat se ma **skutecny obsah (831 MB), ne syrovych 19 GB**. Nejdriv je ale nutne overit, ze nocni prenos objem navic vubec unese: 9. 9. 2026 nedojela ani samotna databaze (3 921 MB) - stahovani drzelo **~200 kB/s** a spadlo na vsechny tri pokusy. Pridavat gigabajty na linku, ktera neuveze soucasny objem, nema smysl. Viz `doc-system-strategie-dr-prenos-praha-plzen-pricina-a-oprava-2026-09-08`.
+Zalohovat se ma **skutecny obsah (831 MB), ne syrovych 19 GB**. Nejdriv je ale nutne overit, ze nocni prenos objem navic vubec unese: 9. 9. 2026 nedojela ani samotna databaze (3 921 MB) - spojeni se pri stahovani opakovane zaseklo a soubor prosel az na **dvanacty pokus**; viz `doc-system-strategie-dr-stahovani-se-zasekava-ne-zpomaluje`. Pridavat gigabajty na linku, ktera neuveze soucasny objem, nema smysl. Viz `doc-system-strategie-dr-prenos-praha-plzen-pricina-a-oprava-2026-09-08`.
 
 ### Co je naopak v poradku
 

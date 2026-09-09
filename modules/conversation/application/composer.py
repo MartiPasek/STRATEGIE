@@ -4905,10 +4905,19 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
             znal_by_oblast.setdefault(z["oblast_kod"], []).append(z)
         for z in zrows:
             scope = "globální (všichni tenanti)" if z["tenant_id"] is None else f"tenant {z['tenant_id']}"
-            L = [f"# {z['nadpis']}", "",
-                 f"> oblast: `{z['oblast_kod']}` · úroveň: {z['uroven'] or ''} · typ: {z['typ'] or ''} "
-                 f"· verze: {z['verze']} · rozsah: {scope}", "",
-                 z["obsah"] or "", ""]
+            # Jirka 9.9.2026 (schválila Marti-AI msg 15258): projekce vysypávala i znalosti,
+            # které už NEJSOU aktivní, a stav se do souboru nikdy nevypisoval — zrušená
+            # znalost tak v kopii vypadala jako platná. Export soubory nemaže, proto se
+            # neaktivní NEfiltrují (osiřely by natrvalo), ale viditelně označí.
+            stav = (z["stav"] or "").strip()
+            L = [f"# {z['nadpis']}", ""]
+            if stav != "aktivni":
+                L += [f"> ⛔ **TATO ZNALOST UŽ NEPLATÍ — stav `{stav or 'neznámý'}`.** "
+                      "Neřiď se jí a necituj ji. Zůstává tu jen kvůli historii; "
+                      "zdroj pravdy je databáze `g2007.znalost`.", ""]
+            L += [f"> oblast: `{z['oblast_kod']}` · úroveň: {z['uroven'] or ''} · typ: {z['typ'] or ''} "
+                  f"· verze: {z['verze']} · stav: `{stav or '—'}` · rozsah: {scope}", "",
+                  z["obsah"] or "", ""]
             w(f"znalosti/{z['oblast_kod']}/{z['kod']}.md", "\n".join(L) + "\n")
         ZP = ["# Znalosti — přehled oblastí", "",
               "> Zdroj pravdy o vědění systému i oborů. Multitenant (globální = pro všechny).", "",

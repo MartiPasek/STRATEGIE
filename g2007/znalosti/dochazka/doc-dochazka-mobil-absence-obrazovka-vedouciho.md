@@ -1,6 +1,6 @@
 # Mobil, obrazovka Absence: poradi sekci pro vedouciho + uzavirani notifikace
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## ⚠️ NEPLATI JEDEN RADEK NIZE (doplneno 2. 9. 2026)
 >

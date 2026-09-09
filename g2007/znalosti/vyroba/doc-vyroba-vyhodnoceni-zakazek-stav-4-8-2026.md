@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek: stav k 4.8.2026 (co hotovo, na cem to stoji, pasti)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Vyhodnoceni zakazek - stav k 4.8.2026

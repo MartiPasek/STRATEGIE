@@ -1,6 +1,6 @@
 # Chrome - "zamrzla stranka" byva ve skutecnosti posunute klikani (zoom) plus pomale nacitani, ne pad
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Priznak
 

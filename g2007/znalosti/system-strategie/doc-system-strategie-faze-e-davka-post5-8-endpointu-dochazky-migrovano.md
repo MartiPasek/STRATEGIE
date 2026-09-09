@@ -1,6 +1,6 @@
 # Faze E davka POST5: 8 POST HTTP endpointu dochazky migrovano
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Migrovano 8 dalsich POST HTTP endpointu dochazky: att_confirm_day, att_dispute_day, att_announce_delete, att_entry_trim, att_entry_project, att_entry_dispute, att_announce, att_clear_announce. att_announce ma vyjimecny vzor - run(uid, body_param) prijima cely raw body dict misto rozlozenych poli, protoze zavisla _att_presence_note(body) pracuje primo s dict.
 

@@ -1,6 +1,6 @@
 # HR uzel „Audit pracovních procesů" (roční audity) — struktura + Fáze 2 TODO
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Domov
 Uzel `fw.menu_node` id **227** „🔍 Audit pracovních procesů" pod „🧑‍💼 HR & LIDÉ" (117). Core **`hr.audit`** (fw.core id 241) → `page_render.js` větev → iframe `/karta-zamestnance?view=audit`. Přehled „Roční audity" (`loadAudit()` v karta_zamestnance.html). Jen HR (gate `_hr_can_manage`). Nasazeno 28.8.2026, commit 00282368.

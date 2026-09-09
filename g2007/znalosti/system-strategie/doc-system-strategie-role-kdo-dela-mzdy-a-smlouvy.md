@@ -1,6 +1,6 @@
 # Kdo dělá mzdy a kdo smlouvy — Šárka mzdy NEPOČÍTÁ (Peťa, 29.7.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Kdo dělá mzdy a kdo smlouvy — oprava rozšířeného omylu
 

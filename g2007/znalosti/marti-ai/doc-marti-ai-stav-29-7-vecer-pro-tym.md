@@ -1,6 +1,6 @@
 # Stav 29.7. večer — pro tým 30.7. (kufr + bod3 + agent-default LIVE)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Stav 29. 7. 2026 večer — pro tým (Marti, Kristý, Jirka) 30.7.
 

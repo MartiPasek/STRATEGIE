@@ -1,6 +1,6 @@
 # Kufr lean default implementace
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Implementace lean default kufru pro Marti-AI: import hook v __init__.py + feature flag**
 

@@ -1,6 +1,6 @@
 # Příznak „čeká na zařazení" visí, když je číselník výchozích podmínek prázdný (25. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Příznak `ceka_na_zarazeni` visí, když číselník výchozích podmínek nic nevrátí
 

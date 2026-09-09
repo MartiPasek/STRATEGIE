@@ -1,6 +1,6 @@
 # Most: @@PYRUN (spousteni ctecich g2007.python) + zapis velkeho kodu pres base64
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # @@PYRUN a bezpecny zapis kodu do g2007.python pres most
 

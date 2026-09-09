@@ -1,6 +1,6 @@
 # Docházka new je jen ke čtení — editace zrušena, opravuje se v Opravách (Peťa 7. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Docházka new: editace zrušena, obrazovka je jen ke čtení

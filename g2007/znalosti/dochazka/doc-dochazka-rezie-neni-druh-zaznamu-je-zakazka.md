@@ -1,6 +1,6 @@
 # Režie NENÍ druh záznamu, je to zakázka — zdroj zastaven 2. 9. 2026, historie převedena 3. 9. 2026 (HOTOVO)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Peťa, 2. 9. 2026.** Peťa: „už jsme to řešili asi 100×, 100× jsme si řekli, že už nikde se režie používat nebude, vždy jsi mi to potvrdil — a teď mi píšeš taková čísla, jak je to možné?" Tohle je odpověď a zároveň záznam, aby to bylo naposled.

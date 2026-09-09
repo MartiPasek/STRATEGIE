@@ -1,6 +1,6 @@
 # MZDY - VELKA ZED: odkud se berou hodiny, co je FPD, svatky, stravenky a priplatky za prescas (Peta 5.8.2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # ⭐ VELKA ZED - PLATI VZDY, PRO VSECHNY INSTANCE

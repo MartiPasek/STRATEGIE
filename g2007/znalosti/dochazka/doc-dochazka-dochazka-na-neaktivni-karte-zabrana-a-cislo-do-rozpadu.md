@@ -1,6 +1,6 @@
 # Docházka na neaktivní kartě: zábrana v databázi + osobní číslo do rozpadu z docházkového záznamu
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Docházka na neaktivní kartě — zábrana + osobní číslo do rozpadu (8. 9. 2026)
 

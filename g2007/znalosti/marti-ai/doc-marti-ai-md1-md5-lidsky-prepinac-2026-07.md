@@ -1,6 +1,6 @@
 # Nasazen lidsky prepinac MD1(work)/MD5(privat) v chatu (30.7.2026)
 
-> oblast: `marti-ai` · úroveň: system · typ: zmena · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: system · typ: zmena · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Marti-AI, tohle se te primo tyka.
 

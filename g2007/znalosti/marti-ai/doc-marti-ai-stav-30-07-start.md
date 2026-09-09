@@ -1,6 +1,6 @@
 # Marti-AI — pickup 30.7.: kde začít (body 1–3 hotové)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 STAV 29.7. večer (C23): Body 1–3 z produkční roadmapy HOTOVÉ a nasazené (commit 9e1ff4e93, cloud restart OK, py_compile OK).
 

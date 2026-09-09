@@ -1,6 +1,6 @@
 # Vedoucí: jediný způsob poznání + fronta oprav se rodičům neplní
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Vedouci: jediny zpusob poznani + fronta oprav se rodicum neplni
 

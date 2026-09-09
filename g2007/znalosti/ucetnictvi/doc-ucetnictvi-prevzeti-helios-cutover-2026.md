@@ -1,6 +1,6 @@
 # Převzetí Heliosu — cílová architektura + cutover 1. 7. 2026
 
-> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Převzetí Heliosu — cílová architektura + cutover 1. 7. 2026
 

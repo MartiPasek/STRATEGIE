@@ -1,6 +1,6 @@
 # Neplacené volno z mobilu = jen ohlášení vedoucímu + písemná žádost, do docházky nic
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Neplacené volno z mobilu — jen ohlášení, do docházky nic
 

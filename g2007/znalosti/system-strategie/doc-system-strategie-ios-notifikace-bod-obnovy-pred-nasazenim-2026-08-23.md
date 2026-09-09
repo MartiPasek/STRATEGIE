@@ -1,6 +1,6 @@
 # iOS notifikace (APNs): bod obnovy poriseny tesne pred nasazenim PR 5 (23.8.2026) + co se od te doby zmenilo
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod obnovy pred nasazenim iOS notifikaci (23.8.2026 18:30 UTC)

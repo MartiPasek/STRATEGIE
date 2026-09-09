@@ -1,6 +1,6 @@
 # JMHZ 07/2026 — proč generátor tiše vyrobil vadné hlášení a jak se to opravilo
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # JMHZ 07/2026 — tichý propad generátoru do defaultů
 

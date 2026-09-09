@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek: tlacitka Sefmonter a Hodnotit spolecne (body 4+5, hotovo 6.8.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Tlacitka Sefmonter a Slucovani zakazek
 

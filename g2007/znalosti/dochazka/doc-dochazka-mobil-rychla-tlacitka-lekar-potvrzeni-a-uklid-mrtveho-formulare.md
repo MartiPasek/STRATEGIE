@@ -1,6 +1,6 @@
 # Rychlá tlačítka u lékaře dostala potvrzení + úklid mrtvého formuláře absencí (26. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Rychlá tlačítka u lékaře + úklid mrtvého formuláře

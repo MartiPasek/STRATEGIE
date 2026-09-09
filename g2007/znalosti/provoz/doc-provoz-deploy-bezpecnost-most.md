@@ -1,6 +1,6 @@
 # Deploy-bezpecnost: git-write pres device most NEJDE + lokal EC-Martin je zamotany
 
-> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Deploy-bezpecnost: co (ne)jde pres device most (C23, 31.7.2026, po incidentu)
 

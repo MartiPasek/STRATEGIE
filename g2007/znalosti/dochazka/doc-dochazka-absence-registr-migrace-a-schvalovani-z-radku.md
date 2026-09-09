@@ -1,6 +1,6 @@
 # Registr absenci: migrace endpointu do g2007.python, req_id a schvalovani pravym klikem na radek
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Registr absenci — migrace endpointu, req_id, schvalovani z radku

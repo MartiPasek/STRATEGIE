@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek: nas vypocet POROVNAN s Centralou (5.8.2026) - sedi
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Porovnani naseho vypoctu proti Centrale
 

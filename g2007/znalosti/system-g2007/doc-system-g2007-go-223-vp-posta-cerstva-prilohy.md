@@ -1,6 +1,6 @@
 # 223 — GO VP: pošta projects@ znovu živá + dobírka příloh
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 223 — GO VP: pošta projects@ znovu živá + dobírka příloh (co splnilo bod 8/9 z 222)
 

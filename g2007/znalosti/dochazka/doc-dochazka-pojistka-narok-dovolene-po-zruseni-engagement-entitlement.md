@@ -1,6 +1,6 @@
 # Pojistka narok-dovolene-pravidla prepsana na Podminky (17.8.2026) - a proc pevna cisla v pojistkach nevydrzi
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Co se stalo
 

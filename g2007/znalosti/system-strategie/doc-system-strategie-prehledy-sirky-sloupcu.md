@@ -1,6 +1,6 @@
 # Standard přehledů — šířky sloupců (osobni do DB, Claude povysi na vychozi, v Chromu)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Standard přehledů — šířky sloupců: finální mechanismus (22.7.2026)
 

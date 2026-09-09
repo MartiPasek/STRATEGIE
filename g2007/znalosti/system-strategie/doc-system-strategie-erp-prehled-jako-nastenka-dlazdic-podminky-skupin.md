@@ -1,6 +1,6 @@
 # Prehled ERP jako nastenka dlazdic misto tabulky - vzor "Vychozi podminky skupin" (jadro 235)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Prehled ERP jako nastenka dlazdic misto tabulky
 

@@ -1,6 +1,6 @@
 # Doktrina "konstruktivni operace autonomne" rozsirena o g2007.denik (1.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Marti 21.7.2026 zavedl doktrinu pro @@G2007ADD: "konstruktivni operace musi jet autonomne,
 updaty taky; jen mazani se schvaluje." Marti 31.7.2026 ji rozsiril na INSERT/UPDATE do

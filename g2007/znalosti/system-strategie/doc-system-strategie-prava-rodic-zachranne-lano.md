@@ -1,6 +1,6 @@
 # Práva: rodič/admin nikdy nesmí spadnout na False (záchranné lano)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Práva: rodič/admin nikdy nesmí spadnout na False (záchranné lano)
 

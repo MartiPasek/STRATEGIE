@@ -1,6 +1,6 @@
 # Fotky pro výrobu — fotodokumentační modul (Etapa 1)
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > **ZMENA 6. 9. 2026 - dlazdice se dnes jmenuje jinak a druha cesta byla zrusena.**
 > Dlazdice v Aplikacich se nove jmenuje **📷 Foťáky výroba** (driv byla bez hacku) a druha dlazdice „Fotky“ na pracovni

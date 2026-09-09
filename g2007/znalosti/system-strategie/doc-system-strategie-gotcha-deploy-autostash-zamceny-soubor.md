@@ -1,6 +1,6 @@
 # GOTCHA: deploy most + zamceny soubor = rozdelana prace zmizi do autostashe, ktery NENI v git stash list (27.7.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Co se stalo (i28, 27.7.2026)

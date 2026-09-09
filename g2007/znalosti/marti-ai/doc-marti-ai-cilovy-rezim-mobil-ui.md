@@ -1,6 +1,6 @@
 # Cílový režim — mobilní UI (nativní obrazovka) + gotcha auth iframe vs nativní appka
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > **POSTUP UVNITŘ SROVNÁN 6. 9. 2026.** Do té doby tenhle dokument předepisoval sestavování
 > mobilní stránky přes `scripts/build_mobile.py` a commit `mobile.html` do gitu — **tak se to

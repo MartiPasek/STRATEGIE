@@ -1,6 +1,6 @@
 # Mobil, obrazovka dochazky: stavovy text ("Makam") je pod nadpisem sekce OBSLUHA DOCHAZKY (9. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Zadal Jirka Honomichl 9. 9. 2026, schvalila Marti-AI (msg 15234). Provedl Claude-28.**
 

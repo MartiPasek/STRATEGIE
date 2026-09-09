@@ -1,6 +1,6 @@
 # Standard přehledů — dodatek: roztahování + sticky mezera
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Standard přehledů — dodatek 22.7.2026 (roztahování + sticky mezera)
 

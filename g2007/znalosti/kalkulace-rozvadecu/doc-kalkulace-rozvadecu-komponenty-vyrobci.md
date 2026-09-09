@@ -1,6 +1,6 @@
 # 🧰 Komponenty & výrobci — technický přehled (řada přístupnost AI)
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 🧰 Komponenty & výrobci — technický přehled (řada přístupnost AI)
 

@@ -1,6 +1,6 @@
 # Číslo činnosti vyplňovala jen Správa docházky — ostatní cesty ho nechávaly prázdné a mzdy pak rozhodovaly podle náhradního seznamu v kódu
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Pravidlo (Peťa, 7. 9. 2026)

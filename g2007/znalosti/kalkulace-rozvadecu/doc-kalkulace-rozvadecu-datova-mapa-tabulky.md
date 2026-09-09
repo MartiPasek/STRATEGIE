@@ -1,6 +1,6 @@
 # Datová mapa kalkulace — Centrála (DB_EC) ↔ STRATEGIE (PG)
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Datová mapa kalkulace — Centrála (DB_EC) ↔ STRATEGIE (PG)
 

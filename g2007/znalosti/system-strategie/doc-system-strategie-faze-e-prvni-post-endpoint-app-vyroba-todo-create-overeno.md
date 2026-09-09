@@ -1,6 +1,6 @@
 # Faze E: prvni POST/zapisovy HTTP endpoint (app_vyroba_todo_create) overeny a nasazeny
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Prvni POST/zapisovy HTTP endpoint Faze E (31.7.2026 17:58-18:21 UTC, commit 886b4f32c): app_vyroba_todo_create (POST /app/vyroba/todo).
 

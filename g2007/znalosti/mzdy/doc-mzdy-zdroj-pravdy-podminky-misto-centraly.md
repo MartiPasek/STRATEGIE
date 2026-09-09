@@ -1,6 +1,6 @@
 # Mzdy berou základ a osobní ohodnocení z Podmínek, ne z kopie Centrály — přepnuto 26. 8. 2026
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Zdroj pravdy pro mzdy: Podmínky ve STRATEGII, ne kopie staré Centrály

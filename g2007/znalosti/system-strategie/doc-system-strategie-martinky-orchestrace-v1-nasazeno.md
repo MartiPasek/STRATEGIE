@@ -1,6 +1,6 @@
 # Orchestrace Martinek v1 - NASAZENO A OVERENO E2E (2.8.2026): g2007.ukol + dispatcher + Agent Inbox UI
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co je nasazeno (2.8.2026, C23 + Marti, plan v docs/martinky_org_struktura_navrh_2026-08-02.md)

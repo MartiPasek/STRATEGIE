@@ -1,6 +1,6 @@
 # Maminka-rozdelovacka: ukol bez domeny prideli Maminka dle profilu - NASAZENO+OVERENO E2E 3.8.2026 (Smer 1 KOMPLETNI)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co je nasazeno (#1692 + UI v5)

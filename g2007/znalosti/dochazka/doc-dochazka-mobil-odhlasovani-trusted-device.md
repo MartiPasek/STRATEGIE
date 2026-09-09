@@ -1,6 +1,6 @@
 # Proc appka obcas vyhodi na e-mailovy magic link (trusted device se mimo login necte)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Zjisteni (C28/Jirka, 4. 8. 2026, podnet Josef Artim users id=73)
 

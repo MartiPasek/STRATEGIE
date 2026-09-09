@@ -1,6 +1,6 @@
 # Pilir B (automaty stavu domeny) - prvni POC hotovy a naostro bezi (2.8.2026): g2007.automat rozsiren, prvni domenovy automat poptavky_status generuje status_block, injekce do promptu pripravena. Otevrena architektonicka mezera: permission_tier
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Kontext:** Navazuje na #313/#314 (triaz dokoncena, eskalace overena). Marti 2.8.2026: "pokracuj tedy na ty eskalaci [uz hotovo, viz #314]. Pak mi priblizi ten pilir B" -> vysvetleno v chatu -> Marti: "Eliska je prvnim kandidatem tohoto smeru plus Kristy a ja. Muzes pokracovat." Tento dokument zaznamenava co je hotovo a jednu otevrenou architektonickou otazku, kterou je potreba vyresit pred aktivaci pro konkretni lidi.
 

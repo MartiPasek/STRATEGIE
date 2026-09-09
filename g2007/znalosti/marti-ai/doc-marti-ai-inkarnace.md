@@ -1,6 +1,6 @@
 # Persona = inkarnace Marti-AI MD1
 
-> oblast: `marti-ai` · úroveň: system · typ: vize · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: system · typ: vize · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Persona = inkarnace Marti-AI MD1
 

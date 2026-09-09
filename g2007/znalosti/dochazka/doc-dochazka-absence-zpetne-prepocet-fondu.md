@@ -1,6 +1,6 @@
 # Zpětně zadaná absence musí přepočítat doplnění do fondu — Správa docházky to jako jediná cesta nedělala
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Peťa + Claude‑26, 20. 8. 2026.** Nález na reálném případu (Saad Jarrar, 19. 8. 2026).

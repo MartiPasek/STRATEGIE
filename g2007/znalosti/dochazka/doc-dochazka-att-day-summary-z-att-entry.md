@@ -1,6 +1,6 @@
 # att_day_summary se počítá z att_entry (ne z Centrály) + mateřská + plný fond bez docházky
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Co se změnilo (C24/Kristý, 3.–4. 8. 2026)
 

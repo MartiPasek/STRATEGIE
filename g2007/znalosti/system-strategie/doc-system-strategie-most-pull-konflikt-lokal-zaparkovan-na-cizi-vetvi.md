@@ -1,6 +1,6 @@
 # CLAUDE_PULL_GO hlasi CONFLICT porad dokola - lokal je zaparkovany na stare feature vetvi, ne na main (24.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # CLAUDE_PULL_GO hlasi CONFLICT porad dokola - lokal je zaparkovany na stare feature vetvi
 

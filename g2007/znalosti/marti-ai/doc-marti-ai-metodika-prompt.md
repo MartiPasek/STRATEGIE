@@ -1,6 +1,6 @@
 # Metodika: jak vzniká a mění se prompt Marti-AI
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Metodika: jak vzniká a mění se prompt Marti-AI
 

@@ -1,6 +1,6 @@
 # Moje hodiny v mobilu - napojeno na skutecny vypocet (1. 9. 2026), pocita se stejne jako prehled Nesplneny FPD
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ ZMĚNA 8. 9. 2026: „Moje hodiny" jsou samostatná obrazovka

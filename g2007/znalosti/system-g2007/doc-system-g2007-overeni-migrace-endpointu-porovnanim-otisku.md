@@ -1,6 +1,6 @@
 # Jak nasucho ověřit přenos adresy do g2007.python: porovnání otisku staré a nové cesty
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Ověření přenosu adresy do `g2007.python` porovnáním otisku
 

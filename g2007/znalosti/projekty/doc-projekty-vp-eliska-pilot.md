@@ -1,6 +1,6 @@
 # Vp Eliska Pilot
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Pilot: Claude+Marti-AI vedou Eliščin mail a zakázky pod kontrolou Marti; návrh→schválení**
 

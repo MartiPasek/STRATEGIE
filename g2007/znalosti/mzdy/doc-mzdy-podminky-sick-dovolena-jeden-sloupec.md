@@ -1,6 +1,6 @@
 # Podmínky: sick days a dovolená v jednom sloupci
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Podmínky zaměstnanců — sick days a dovolená v JEDNOM sloupci (rozhodnutí Šárka, 26. 8. 2026)
 

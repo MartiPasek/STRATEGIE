@@ -1,6 +1,6 @@
 # Hodiny na zakazkach: STRATEGIE vs Centrala sedi (overeno 4.8.2026) + jak spravne porovnavat
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Hodiny na zakazkach: STRATEGIE vs Centrala
 

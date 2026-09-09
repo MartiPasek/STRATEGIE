@@ -1,6 +1,6 @@
 # ERP komponenty vs. 11 artefaktu: NENI to stejny vzor (upresneni od autorky varianty A, 6.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # ERP komponenty do g2007.soubor: pribuzny, ale VETSI krok
 

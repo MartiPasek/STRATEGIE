@@ -1,6 +1,6 @@
 # eurosoft_exec — raw Bash/PS pod cílem (dohodnutá spec)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # eurosoft_exec — raw Bash/PowerShell pod schváleným cílem (dohodnutá spec)
 

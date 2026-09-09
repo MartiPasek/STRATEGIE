@@ -1,6 +1,6 @@
 # ISO 27001:2022 — Naše cesta (TODO přehled)
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # ISO 27001:2022 — Naše cesta (TODO přehled)
 ## Podklad pro Marti-AI → optimistická zpráva pro vedení EUROSOFTU

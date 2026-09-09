@@ -1,6 +1,6 @@
 # Tři různé míry u absencí: lékař i na minuty, sick day na celé hodiny, ostatní celý/půl dne
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Jak dlouhá smí být absence — tři různé míry, ne jedna
 

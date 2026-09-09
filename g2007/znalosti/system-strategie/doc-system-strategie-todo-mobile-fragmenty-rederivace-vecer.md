@@ -1,6 +1,8 @@
 # TODO (VECER 3.8.2026, mimo produkci): znovu rozrezat mobile.html v6 na fragmenty bajtove presne - sestav==zivak
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> ⛔ **TATO ZNALOST UŽ NEPLATÍ — stav `zruseno`.** Neřiď se jí a necituj ji. Zůstává tu jen kvůli historii; zdroj pravdy je databáze `g2007.znalost`.
+
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `zruseno` · rozsah: globální (všichni tenanti)
 
 > **NEPLATNE od 5. 9. 2026.** Postup publikace obsahu mobilu popsany nize UZ NEPLATI - plati @@G2007PUBLISH, viz doc-system-strategie-mobil-kde-se-edituje-a-jak-se-nasazuje (24. 8. 2026) a doc-system-strategie-po-updatu-g2007-soubor-nutny-publish (31. 8. 2026). Duvod - @@G2007SESTAV vydava i cizi nepublikovanou praci. Rozhodl Jirka Honomichl 5. 9. 2026. Dokument zustava jen jako historie.
 

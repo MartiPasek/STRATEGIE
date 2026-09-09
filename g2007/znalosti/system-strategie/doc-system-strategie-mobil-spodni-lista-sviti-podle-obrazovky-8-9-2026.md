@@ -1,6 +1,6 @@
 # Mobil: spodní lišta svítí podle obrazovky, na které člověk je (mapa SCREEN_TAB, 8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > Zadal Jiří Honomichl 8. 9. 2026 („je označená ikona Domů, to se nesmí stávat, ani u ostatních

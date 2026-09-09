@@ -1,6 +1,6 @@
 # Dilky mobilu NEJSOU jedna spolecna closure - funkce sdilena mezi dilky se musi zaregistrovat do window.__M2W (27. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ 8. 9. 2026: „Můj přehled" už neexistuje a sekce se přejmenovala

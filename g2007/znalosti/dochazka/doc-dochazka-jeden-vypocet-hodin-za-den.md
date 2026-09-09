@@ -1,6 +1,6 @@
 # Hodiny za den - jedna sdilena definice (tenant.att_den_hodiny)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Hodiny za den - jedna sdilena definice

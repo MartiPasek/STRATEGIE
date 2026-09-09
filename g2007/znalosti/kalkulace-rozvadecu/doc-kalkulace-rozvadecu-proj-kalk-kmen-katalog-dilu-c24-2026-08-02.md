@@ -1,6 +1,6 @@
 # proj.kalk_kmen (katalog dilu Kristy+C24, 1749 dilu) - nalezen a analyzovan 2.8.2026. DULEZITE: existujici compute()/@@KALKABS je rozbity (spatne schema), compute_absv1()/@@KALKABSV1 tenhle katalog vubec nepouziva
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Kontext:** Marti 2.8.2026 upozornil, ze v PG existuji nove tabulky pro kalkulovani (katalog dilu a ceniky), ktere delala Kristy s C24 - pozadal me je prozkoumat a analyzovat jako zaklad pro kalkulovani.
 

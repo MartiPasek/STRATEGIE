@@ -1,6 +1,6 @@
 # Zápis do g2007.python přes most: dvojtečky v kódu jsou bind parametry — posílej zdroj přes base64
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Problém
 

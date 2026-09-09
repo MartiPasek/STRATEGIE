@@ -1,6 +1,6 @@
 # Adresář dokladů: EC_OrgAdresare (Centrála přehled 115) + resolver EC_ZjistiAdresar
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Adresář dokladů: EC_OrgAdresare (Centrála přehled 115) + resolver EC_ZjistiAdresar
 

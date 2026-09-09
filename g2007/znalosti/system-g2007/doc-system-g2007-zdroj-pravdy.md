@@ -1,6 +1,6 @@
 # DB = zdroj pravdy, disk = projekce
 
-> oblast: `system-g2007` · úroveň: system · typ: pravidlo · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: pravidlo · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # DB = zdroj pravdy, disk = projekce
 

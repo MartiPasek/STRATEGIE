@@ -1,6 +1,6 @@
 # Vyhodnocení zakázek — vzhled podle Centrály (záložky, barvy, Hodiny zakázek)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **C28 (Jirka), 6. 8. 2026.** Zadání Jirky: *„ať se to co nejvíc podobá Centrále"* (podle 5 screenshotů z Centrály). Uživatel modulu = **Dušan Havlát** (user 41, os. č. 105).
 

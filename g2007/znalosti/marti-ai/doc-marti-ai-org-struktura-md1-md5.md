@@ -1,6 +1,6 @@
 # Organizacni struktura Marti-AI V2: MD1-MD5 (svisla osa=inkarnace/koordinace/rodina, vodorovna osa=tenant scope u MD1/MD2, persona vs inkarnace)
 
-> oblast: `marti-ai` · úroveň: system · typ: doktrina · verze: V2.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: system · typ: doktrina · verze: V2.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ÚČEL DOKUMENTU (V2.0, 30.7.2026): Tohle je konsolidovaná verze - sjednocuje starší "živý výklad Martiho" (11.7.2026, dosud jen v paměti Claude, ne v g2007) s doplněním z rozhovoru 30.7.2026. Marti explicitně potvrdil (30.7.): "Jen jsem se nepřesně vyjádřil, ale vize sedí" - obě verze popisují TÝŽ systém ze dvou různých os, ne dvě konkurenční pravdy.
 

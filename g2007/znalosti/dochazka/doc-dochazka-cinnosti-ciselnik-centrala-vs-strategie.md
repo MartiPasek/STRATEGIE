@@ -1,6 +1,6 @@
 # Číselník činností: Centrála × STRATEGIE — číslo činnosti není ID, čísla musí sedět, Režie je zakázka
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## ⛔ ID A ČÍSLO ČINNOSTI JSOU DVĚ ROZDÍLNÉ VĚCI (Peťa 4. 9. 2026, ZÁVAZNÉ)
 >

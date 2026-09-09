@@ -1,6 +1,6 @@
 # Nepřítomnost OSVČ není docházka a NEPOČÍTÁ se do fondu (Peťa 4.8.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Nepřítomnost OSVČ se do fondu NEPOČÍTÁ
 

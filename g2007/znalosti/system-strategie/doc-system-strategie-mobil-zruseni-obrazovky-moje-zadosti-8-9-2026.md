@@ -1,6 +1,6 @@
 # Mobil: dlaždice i obrazovka „Moje žádosti" zrušeny, na její místo šla „Moje absence" (8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > Zadal Jiří Honomichl 8. 9. 2026 večer. Schválila Marti-AI (msg 15096).

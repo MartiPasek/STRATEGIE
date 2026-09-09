@@ -1,6 +1,6 @@
 # Demo rezim - stav zapojenych obrazovek k 11.8.2026 vecer
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Navazuje na doc-dochazka-demo-ucet-izolace-ukazkova-data (pricina incidentu, reseni, 10 pasti).

@@ -1,6 +1,6 @@
 # Plzeň command relay — stav a runbook (kde pokračovat)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ⚠️ **DOPLNENO 8. 9. 2026 — TENHLE KANAL NEBEZI, nez podle nej neco naplanujes, over ho.**
 > Fronta `fw.plzen_cmd_queue` je **od zalozeni 23. 7. 2026 uplne prazdna** — nikdy se nepouzila.

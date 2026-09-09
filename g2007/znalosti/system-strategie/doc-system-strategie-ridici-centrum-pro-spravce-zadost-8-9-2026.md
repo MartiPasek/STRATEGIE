@@ -1,6 +1,6 @@
 # Řídící centrum v mobilu i pro správce — HOTOVO 8. 9. 2026, náhled cizího chatu s Maminkou zůstal jen rodičům
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Řídící centrum i pro správce — HOTOVO 8. 9. 2026
 

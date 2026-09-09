@@ -1,6 +1,6 @@
 # Vp Zastup Lide
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Zástupy a vytížení lidí NEJSOU v datech; Eliščin zástup = Petra Dvořáková, ne Čepický**
 

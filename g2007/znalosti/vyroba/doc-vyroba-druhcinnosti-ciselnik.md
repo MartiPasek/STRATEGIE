@@ -1,6 +1,6 @@
 # Druhcinnosti Ciselnik
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **DruhCinnosti (číselník EC_DilnaCinnosti): 1=Přípravné, 2=Mechanické, 3=Zámečnické, 4=Drátování, 5=Zkoušení, 6=Ostatní-kanceláře | výrobní činnosti dokončovací zámečnické drátování zkušebna**
 

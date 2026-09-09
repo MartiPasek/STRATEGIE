@@ -1,6 +1,6 @@
 # Projekce znalosti do gitu (obnova pres /g2007/export?git=1) - nyni i s pravidlem o sirotcich
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Fakt, ktery je potreba znat

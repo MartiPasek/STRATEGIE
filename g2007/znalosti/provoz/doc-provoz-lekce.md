@@ -1,6 +1,6 @@
 # Provozní lekce (gotchas)
 
-> oblast: `provoz` · úroveň: system · typ: pravidlo · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: system · typ: pravidlo · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Provozní lekce (gotchas)
 

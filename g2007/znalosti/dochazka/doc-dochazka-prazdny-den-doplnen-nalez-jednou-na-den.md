@@ -1,6 +1,6 @@
 # Nález "prázdný den doplněný fondem" se vracel každou půlnoc — váže se nově na DEN, ne na id doplňovacího řádku (oprava 1. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 1. 9. 2026.** Peťa: *„už jsem to potvrzovala, ale něco to vrací
 na červenou."* A k tomu, jak to má fungovat: *„dá se tam dopíchnutí do fondu, pak se mě to

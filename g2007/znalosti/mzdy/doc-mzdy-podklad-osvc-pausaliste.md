@@ -1,6 +1,6 @@
 # Podklad fakturace OSVC: pausaliste (Hodinovka=0) - jak to resi Centrala a co z toho plyne pro STRATEGII
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Pausaliste v podkladu fakturace OSVC (Hodinovka = 0)
 

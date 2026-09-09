@@ -1,6 +1,6 @@
 # Mobil, obrazovka Úkoly — dlaždice „Moje TODO" přejmenována na „Úkoly STRATEGIE", dlaždice úkolů ze staré Centrály odstraněna (8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobil, obrazovka Úkoly — úprava dlaždic 8. 9. 2026
 

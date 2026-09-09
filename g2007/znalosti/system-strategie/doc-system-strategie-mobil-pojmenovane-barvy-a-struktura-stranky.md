@@ -1,6 +1,6 @@
 # Mobil - pojmenovane barvy pro tlacitka a odznaky, a past s tmavym textem na zelene
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Mobilní appka — pojmenované barvy a struktura stránky (stav k 2. 9. 2026)

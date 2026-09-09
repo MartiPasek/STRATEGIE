@@ -1,6 +1,6 @@
 # Zkusebni doba se prodluzuje o dny nemoci - denni automat, plati VSEM HPP (3.9.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Zkusebni doba: posun o dny nemoci

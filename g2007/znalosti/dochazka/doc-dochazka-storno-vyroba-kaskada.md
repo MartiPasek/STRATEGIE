@@ -1,6 +1,6 @@
 # Storno dochazky kaskaduje do vyroba_work (prehled Dochazka po zakazkach nepocita storna)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Storno dochazky kaskaduje do vyroba_work (prehled "Dochazka po zakazkach")
 

@@ -1,6 +1,6 @@
 # Sdílená hodnota — nejdřív MAPA (kdo zapisuje a kdo čte), teprve pak měnit (Kristý + Claude-24, 12. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Sdílená hodnota - nejdřív MAPA, teprve pak měnit
 

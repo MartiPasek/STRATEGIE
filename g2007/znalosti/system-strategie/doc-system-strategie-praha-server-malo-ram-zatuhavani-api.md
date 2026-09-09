@@ -1,6 +1,6 @@
 # Prazsky server: pamet vyresena 6.9.2026 a zamrzani kazdych 5 minut take - delala ho obsluha hlaseni ze site na hlavnim vlakne (opraveno tyz den)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Prazsky server ma malo pameti — API se zadrhava a hlidka ho restartuje

@@ -1,6 +1,6 @@
 # Real. hod. v Dusanove sesitu se berou z hodin STRATEGIE, ne z dochazky Centraly (11.8.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Zadani (Jirka 11.8.2026)

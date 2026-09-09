@@ -1,6 +1,6 @@
 # Zaverecne overeni rozpadu dovolene a hlidani stropu (17. 8. 2026) + nalez zastarale pojistky g2007-soubor-vs-git
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Zaverecne overeni prace na dovolene a sick days (Jirka, 17. 8. 2026)

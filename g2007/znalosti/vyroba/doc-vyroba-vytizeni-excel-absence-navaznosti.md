@@ -1,6 +1,6 @@
 # Excel „Plánování vytížení" (Dušan) — navaznosti absencí na DB_EC + zadání dořešení
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Excel „Plánování vytížení" (Dušan, vedoucí výroby) — absence ze STRATEGIE
 

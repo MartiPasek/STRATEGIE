@@ -1,6 +1,6 @@
 # Prevod priplatku a odmen z Centraly: prevodnik druhu se cte z ciselniku, ne z konstanty v kodu
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Problem (nahlasila Peta 6.8.2026)
 Odmeny, priplatky a srazky zadane v Centrale se neprenasely do STRATEGIE. Za 7/2026 jich bylo

@@ -1,6 +1,6 @@
 # Podklad fakturace OSVC: finalni logika zakazkove casti (19.8.2026) + dva platebni kanaly
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Zakazkova cast podkladu OSVC — finalni logika (19. 8. 2026)
 

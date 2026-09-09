@@ -1,6 +1,6 @@
 # Migrace Helios do cloudu a očista účetnictví — proč a co to pro nás znamená
 
-> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Migrace Helios do cloudu a očista účetnictví — proč a co to pro nás znamená
 

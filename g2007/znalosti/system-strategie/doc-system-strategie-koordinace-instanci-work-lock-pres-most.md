@@ -1,6 +1,6 @@
 # Koordinace instanci: @@WORK/@@LOCK/@@WHO pres most misto WORK_LOCK.txt (bod 2)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > **ZMENA 9. 9. 2026 — ohlaseni prace je nove po OKNECH, ne po instancich.**
 > `@@WORK` / `@@WORKDONE` uz nepisou do `fw.claude_instance` podle `instance_id`, ale do

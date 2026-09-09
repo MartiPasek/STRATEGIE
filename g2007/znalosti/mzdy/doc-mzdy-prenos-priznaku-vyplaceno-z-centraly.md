@@ -1,6 +1,6 @@
 # Prenos priznaku Vyplaceno z Centraly do mzdovych pohybu (5. 9. 2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ZMENA 8. 9. 2026 - cast textu nize UZ NEPLATI

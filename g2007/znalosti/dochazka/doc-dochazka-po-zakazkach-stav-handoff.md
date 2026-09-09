@@ -1,6 +1,6 @@
 # Docházka po zakázkách — stav a handoff 22.7.2026
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Handoff pro pokračování v nové konverzaci (Claude-26 + Peťa, 22.7.2026). Vše NASAZENO a funkční. Detaily: doc-dochazka-po-zakazkach-prehled, doc-system-strategie-prehledy-tabulky-standard, doc-system-strategie-prehledy-sirky-sloupcu.

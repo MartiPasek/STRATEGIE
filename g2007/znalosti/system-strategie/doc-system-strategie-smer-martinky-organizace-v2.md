@@ -1,6 +1,6 @@
 # SMER (Marti 3.8.2026): Organizace Martinek v2 - Martinka vlastni svou oblast, Maminka prideluje dle schopnosti
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Zavazny smer od Marti Paska (3.8.2026 dopoledne, po zprovozneni motoru v1)

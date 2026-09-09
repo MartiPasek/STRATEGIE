@@ -1,6 +1,6 @@
 # Trvalé přihlášení v appce - klouzavá session 90 dní + tiché obnovení ze známého zařízení (10.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se dělo (příznak)

@@ -1,6 +1,6 @@
 # Mobil: celoaplikacni naslouchace a casovace registruj pod klicem pres __M2W.onGlobal / __M2W.everyMs (jinak se pri opakovanem spusteni dilku zdvoji)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobil: celoaplikační naslouchače a časovače registruj pod klíčem
 

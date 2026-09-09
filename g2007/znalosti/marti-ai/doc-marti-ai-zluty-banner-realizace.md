@@ -1,6 +1,6 @@
 # Žlutý banner + expirace (#3) — realizace + OVĚŘENO NAOSTRO
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Žlutý banner + expirace (#3) — realizace
 

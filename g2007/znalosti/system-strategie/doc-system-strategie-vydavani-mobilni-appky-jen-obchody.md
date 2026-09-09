@@ -1,6 +1,6 @@
 # ZAVAZNE - nove verze mobilni appky se vydavaji JEN pres Google Play a Apple App Store (Jirka 10.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Vydavani novych verzi mobilni appky - jen Google Play a Apple App Store

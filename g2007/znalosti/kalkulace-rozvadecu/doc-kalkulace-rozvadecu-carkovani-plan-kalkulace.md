@@ -1,6 +1,6 @@
 # 🎯 Čárkování — z Schaltplanu (PDF) na kalkulaci (nejvyšší know-how, řada AI)
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 🎯 Čárkování — z Schaltplanu (PDF) na kalkulaci (nejvyšší know-how, řada AI)
 

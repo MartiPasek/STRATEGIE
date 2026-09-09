@@ -1,6 +1,6 @@
 # Správa docházky: fajfka = schválení (jako v Centrále), sundání fajfky nic neruší
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Správa docházky — fajfka, schvalování a co je pod jedním řádkem
 

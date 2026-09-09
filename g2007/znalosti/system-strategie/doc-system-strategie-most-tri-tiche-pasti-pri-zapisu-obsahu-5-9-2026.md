@@ -1,6 +1,6 @@
 # Most: tři tiché pasti při zápisu (UPDATE hlásí úspěch i když nic nenašel, emoji přes příkazovou řádku, ztracený zápis v rychlé dávce)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Tři tiché pasti mostu při zápisu do `g2007.soubor`
 

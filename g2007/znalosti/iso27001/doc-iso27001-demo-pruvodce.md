@@ -1,6 +1,6 @@
 # Demo průvodce — ISO 27001 / TISAX modul (prezentace certifikační firmě)
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Demo průvodce — ISO 27001 / TISAX modul (prezentace certifikační firmě)
 

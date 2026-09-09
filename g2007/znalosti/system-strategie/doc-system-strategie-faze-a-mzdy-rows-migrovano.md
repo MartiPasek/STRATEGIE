@@ -1,6 +1,6 @@
 # Faze A: 6 mzdovych _rows funkci migrovano do g2007.python
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Faze A: 6 mzdovych _rows funkci migrovano do g2007.python (31.7.2026)

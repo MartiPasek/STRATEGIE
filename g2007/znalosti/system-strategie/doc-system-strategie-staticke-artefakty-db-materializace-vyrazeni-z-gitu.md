@@ -1,6 +1,6 @@
 # Staticke artefakty: DB je zdroj pravdy, vyradit z gitu + materializace pri startu (varianta A)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Problem — tri zdroje pravdy
 Servirovane staticke soubory (`apps/api/static/*.html`) mohou zit ve TREH mistech: **git** (historie), **g2007.soubor** (DB, zdroj pravdy dle doktriny "kod jako data" 1.-2.8.2026), **disk cloudu** (co appka realne servíruje). Kdyz je soubor trackovany v gitu **I** ulozeny v g2007.soubor, ty dva "vlastnici" se rozjedou a nastava:

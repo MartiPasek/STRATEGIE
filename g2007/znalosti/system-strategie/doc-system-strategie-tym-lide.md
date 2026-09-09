@@ -1,6 +1,6 @@
 # Tým STRATEGIE — lidé (identita, oslovení, rody)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > Zapisuje C24 (Kristý) 29. 7. 2026. Sem doplňovat další členy týmu podle potřeby.

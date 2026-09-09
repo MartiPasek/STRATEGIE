@@ -1,6 +1,6 @@
 # Most: hlidac odmita klicova slova i v TEXTU, @@G2007ADD prida uvodni zlom radku, a lane 3 nemusi na stroji vubec jet (23.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Tri pasti mostu z ostreho provozu 23.8.2026

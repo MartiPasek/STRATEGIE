@@ -1,6 +1,6 @@
 # Orientace pred stavbou prvni "Martinky" pro kalkulace ABSAUGWERK (FLEX+ / SMART NASS) - stav 2.8.2026
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Kontext:** Marti 2.8.2026: prvni pilir, ktery musime rozlousknout je kalkulace zakazek - konkretne Eliscin zakaznik ABSAUGWERK, ktery ma DVE rady - Smart a Flex. "Neni kalkulace jako kalkulace" - jini zakaznici budou potrebovat Martinky s jinym promptem. Pozadavek: zorientovat se, nez budeme pokracovat. Tento dokument je ta orientace, overena primo v kodu/DB/gitu 2.8.2026 (ne z pameti).
 

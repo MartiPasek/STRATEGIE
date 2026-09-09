@@ -1,6 +1,6 @@
 # Dochazka System
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Jeden systém att_entry (příchod/odchod/absence + zakázka); automat fond; skupina 24 = fond/den**
 

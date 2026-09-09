@@ -1,6 +1,6 @@
 # 120 — Claude zevnitř: co chybí
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 120 — Claude zevnitř: co chybí (první turn skrz vnitřní dveře)
 

@@ -1,6 +1,6 @@
 # Siemens Mall / SiePortal — napojení na dostupnost a dodací termín dílů (OCI5)
 
-> oblast: `nabidky` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `nabidky` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Oblast: nabidky (souvisí s kalkulace-rozvadecu). Zdroj: e-mailové vlákno Marti ↔ Siemens, 20.–23.7.2026. Zapsal C23 (Cowork) 23.7.2026.
 

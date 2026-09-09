@@ -1,6 +1,6 @@
 # Řádek „Korekce Landmark" na výplatnici četl zastaralé zrcadlo mzdových karet — opraveno 4. 9. 2026
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Řádek 4320 „Korekce Landmark" ukazoval nesmysl u lidí se změnou poměru

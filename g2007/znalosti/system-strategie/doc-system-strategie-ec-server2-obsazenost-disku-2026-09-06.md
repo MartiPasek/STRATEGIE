@@ -1,6 +1,6 @@
 # Cim je zaplneny plzensky EC-SERVER2 (zmereno 6.9.2026) a kde by se dalo uvolnit misto
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Cim je zaplneny plzensky server EC-SERVER2 (stav 6. 9. 2026)
 

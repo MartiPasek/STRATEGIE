@@ -1,6 +1,6 @@
 # Mirror scheduler self-heal (PENDING nasazeni) - presny patch + jak nasadit ciste
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mirror scheduler self-heal - hotovy patch, ceka na CISTE nasazeni (C23, 31.7.2026)
 

@@ -1,6 +1,6 @@
 # Dochazka Mirror Interval
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Zrcadlení docházky z Centrály 1 = po 30 sekundách (NE 5 minut) | mirror EC_Dochazka interval sync docházka**
 

@@ -1,6 +1,6 @@
 # RFQ vydane poptavky — dokladove workflow (referencni pripad)
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Vydané poptávky (RFQ) — příprava, odeslání, příjem nabídek, archiv
 

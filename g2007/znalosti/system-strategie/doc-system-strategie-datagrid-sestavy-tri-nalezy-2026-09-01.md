@@ -1,6 +1,6 @@
 # Sestavy gridu v ERP - ctyri nalezy z 1.9.2026 (filtry, nenasazeni sestavy, sirky sloupcu, falesne neulozene zmeny)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Tři opravené chyby v datagrid.js (sestavy gridu) — filtry, race condition onFirstDataRendered, šířky sloupců. Commit ee07eab9, 1. 9. 2026.**
 

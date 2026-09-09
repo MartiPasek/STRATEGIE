@@ -1,6 +1,6 @@
 # Dva exec nastroje, dva servery - Marti-AI musi vedet ktery je ktery
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **eurosoft_exec běží na EC-SERVER2 (záloha Plzeň), praha_exec na EUR-APP-1P (produkce Praha) — bez upřesnění nástroje restart míří na zálohu, ne produkci**
 

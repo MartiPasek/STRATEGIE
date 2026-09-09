@@ -1,6 +1,6 @@
 # Maminka v1: schvalena potreba -> Maminka upravi VYBAVU domeny -> ukol se sam dokonci (NASAZENO+OVERENO 3.8.2026 v noci)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Princip (Marti 2.8. vecer: "abych Mamince odsouhlasil potrebu nastroje pro danou Martinku a ta aby upravila patricne prompt")

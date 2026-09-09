@@ -1,6 +1,6 @@
 # Mobil: formular vlastni zadosti o absenci se skryva schvalovatelum i lidem BEZ karty zamestnance (obrazovka Absence + chip na tydennim planu) + TestovaciSkupina (25.8.2026; dvere pres zeleny pruh nahrazeny dlazdici 1.9.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 

@@ -1,6 +1,6 @@
 # Ohlášení nemoc/OČR/lékař z mobilu — dvě zprávy vedoucímu a klamavé hlášky (opraveno 26. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Ohlášení nemoc / OČR / lékař z mobilu — čtyři vady v tom, co vidí člověk

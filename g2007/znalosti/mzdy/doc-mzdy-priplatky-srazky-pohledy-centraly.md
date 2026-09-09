@@ -1,6 +1,6 @@
 # Priplatky a srazky: jak jsou pohledy (pojisteni/tarif/kvalita) v Centrale SKUTECNE definovane + oprava chybneho zaveru z 27.7.
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Priplatky a srazky - pohledy Centraly, overeno primo v definicich (C28, 29. 7. 2026)
 

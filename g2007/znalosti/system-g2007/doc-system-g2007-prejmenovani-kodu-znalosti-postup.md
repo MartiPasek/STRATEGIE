@@ -1,6 +1,6 @@
 # Přejmenování kódu znalosti — proč a jak, aby nezmrtvěly odkazy ani vyhledávání (25. 8. 2026)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Přejmenování kódu znalosti v G2007 — proč a jak, aby nic nezmrtvělo
 

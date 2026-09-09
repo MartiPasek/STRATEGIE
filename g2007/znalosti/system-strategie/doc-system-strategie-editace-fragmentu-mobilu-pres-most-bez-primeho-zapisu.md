@@ -1,6 +1,6 @@
 # Editace fragmentu mobilu z mostu - kolo base64 pro vymenu celeho obsahu; primy zapis do g2007.soubor uz ZAKAZANY NENI (opraveno 25.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## !! NEPLATI k 28. 8. 2026 v jednom bodu: fragmenty NEJSOU jedna spolecna closure
 > 

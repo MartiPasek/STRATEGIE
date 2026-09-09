@@ -1,6 +1,6 @@
 # Profily Elisciných domen + nastroje per domena (dispatch v8) - NASAZENO+OVERENO 3.8.2026
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Krok 1 smeru organizace-v2 hotov pro Elisciny domeny:

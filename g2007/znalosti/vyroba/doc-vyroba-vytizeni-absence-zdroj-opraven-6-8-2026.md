@@ -1,6 +1,6 @@
 # Plan absenci pro Dusana: zdroj absenci opraven ze zamrzleho zrcadla Centraly na nasi dochazku (6.8.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Plan absenci pro Dusana - oprava zdroje (C28/Jirka, 6.8.2026)

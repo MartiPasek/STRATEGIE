@@ -1,6 +1,6 @@
 # Fronta chyb dochazky ve STRATEGII: 857 z 857 uzavrenych se zavrelo SAMO, rucne neodbavil nikdo (26. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## OPRAVA 26. 8. 2026 (tyz den, o dve hodiny pozdeji) - "0 rucne" UZ NEPLATI
 >

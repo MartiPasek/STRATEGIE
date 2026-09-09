@@ -1,6 +1,6 @@
 # Období nemoci/OČR/lékaře do mezd se bere z dokladu, ne z pracovních dnů (Peťa 4.9.2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Období nemoci do mezd se bere z dokladu, ne z pracovních dnů

@@ -1,6 +1,6 @@
 # MZDY - VSTUPY SE BEROU ZE STRATEGIE, NE Z CENTRALY (Peta 5.8.2026, zavazne)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # ⭐ ZAVAZNE PRAVIDLO

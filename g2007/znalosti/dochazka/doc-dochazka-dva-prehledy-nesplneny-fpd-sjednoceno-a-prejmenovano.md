@@ -1,6 +1,6 @@
 # Dva prehledy Nesplneny FPD - sjednoceny 31.8.2026, prejmenovany, znamenko zustava opacne (UZAVRENO)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Dva přehledy „Nesplněný FPD" — sjednoceno, přejmenováno, UZAVŘENO

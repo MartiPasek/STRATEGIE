@@ -1,6 +1,6 @@
 # Opravy dochazky: tlacitko "Prevod dne" (presun cele dochazky na jiny den)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## K cemu to je

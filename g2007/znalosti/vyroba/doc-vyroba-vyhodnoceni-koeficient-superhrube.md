@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek: koeficient superhrube - NALEZ, OPRAVA A VERDIKT ucetni (5.8.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Koeficient superhrube: 1,4 NENI plosny - vyreseno
 

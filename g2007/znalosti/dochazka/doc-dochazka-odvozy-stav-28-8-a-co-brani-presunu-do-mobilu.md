@@ -1,6 +1,6 @@
 # Odvozy: stav k 28. 8. 2026 a co konkretne brani presunu potvrzovani do mobilu
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > Navazuje na [[doc-dochazka-odvozy-potvrzovani-stoji-od-22-7-2026]] (rozbor pricin z 25. 8.)
 > a [[doc-dochazka-vypnuti-centrala-tablet-tlacitka]]. Tady je **cerstve mereni a soupis

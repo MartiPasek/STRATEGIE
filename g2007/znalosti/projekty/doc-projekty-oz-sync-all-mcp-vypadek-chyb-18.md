@@ -1,6 +1,6 @@
 # Oz sync all mcp vypadek chyb 18
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **oz_sync_all chyb=18 = přechodný výpadek EUROSOFT MCP, data bezpečná, samo se zhojí**
 

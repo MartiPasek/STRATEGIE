@@ -1,6 +1,6 @@
 # Přepočet doplnění do fondu po absenci - tři vrstvy a díra v žádostech z appky (27. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Zadala Peťa, postavil Claude-26, 27. 8. 2026.** Vše ověřeno v živém kódu a datech.

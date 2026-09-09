@@ -1,6 +1,6 @@
 # Hlídací pravidla (tenant.pojistka) — čím se spouští a komu chodí nálezy (ZAPNUTO 28. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Hlídací pravidla (`tenant.pojistka`) — proč nikdy neběžela a čím se spouští
 

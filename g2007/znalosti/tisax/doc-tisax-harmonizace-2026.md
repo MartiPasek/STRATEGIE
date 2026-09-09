@@ -1,6 +1,6 @@
 # Harmonizace EUROSOFT TISAX ↔ STRATEGIE ISO 27001
 
-> oblast: `tisax` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `tisax` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Harmonizace EUROSOFT TISAX ↔ STRATEGIE ISO 27001
 

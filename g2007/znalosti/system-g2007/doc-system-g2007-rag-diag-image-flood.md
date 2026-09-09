@@ -1,6 +1,6 @@
 # RAG: obrazky z e-mailu zaplavovaly diag_log (storage_only fallback)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # RAG: obrázky z e-mailů zaplavovaly diag_log (storage_only fallback)
 

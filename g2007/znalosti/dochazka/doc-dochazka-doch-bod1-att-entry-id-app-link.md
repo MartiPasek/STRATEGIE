@@ -1,6 +1,6 @@
 # Dochazka: link att_entry_id u app vyroba_work radku (bod 1 Marti Paska, 27.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod z emailu Marti Paska: "pri vzniku rozpadu vyplnit att_entry_id". Centrala se linkuje pres source_id (95,5% - drivejsi session). Zbyvajicich ~4,5% = APP radky (z work_alloc) bez sdileneho id. HOTOVO 27.7.2026.

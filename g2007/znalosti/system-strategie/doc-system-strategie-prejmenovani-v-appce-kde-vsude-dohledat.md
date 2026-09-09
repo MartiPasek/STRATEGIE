@@ -1,6 +1,6 @@
 # Přejmenování tlačítka nebo obrazovky: šest míst, kde se to musí dohledat (jinak vznikne tichý rozpor)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Přejmenoval jsi něco v appce? Projdi těchhle šest míst
 

@@ -1,6 +1,6 @@
 # Věrnostní den dovolené za odsloužená léta — pravidlo, automat a evidence
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Věrnostní den dovolené za odsloužená léta
 

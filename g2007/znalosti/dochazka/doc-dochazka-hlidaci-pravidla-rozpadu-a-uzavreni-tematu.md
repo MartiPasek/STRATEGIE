@@ -1,6 +1,6 @@
 # Hlídací pravidla rozpadu (chybi_zakazka, chybi_rozpad) a uzavření tématu docházka × rozpad (19. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Třetí a poslední díl.** Předchozí: `doc-dochazka-rozkol-hodiny-vs-casy-a-spousteni-kaskady`

@@ -1,6 +1,6 @@
 # Hláška od člověka v Opravách začínala datem, které vypadalo jako den docházky (Peťa 9. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 9. 9. 2026.** Peťa: *„ty hlášky od lidí jsou hrozně zmatečné — první mi napadne, že hlásí, že to mělo být na 4. 9., a ne že to hlásí čtvrtého devátého."*
 

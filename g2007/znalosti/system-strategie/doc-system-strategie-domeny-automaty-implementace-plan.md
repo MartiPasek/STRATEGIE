@@ -1,6 +1,6 @@
 # Implementační plán: Doménové Martinky + Automaty + Kufr (navazuje na #280)
 
-> oblast: `system-strategie` · úroveň:  · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň:  · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Implementační plán: Doménové Martinky + Automaty + Kufr (navazuje na #280)
 

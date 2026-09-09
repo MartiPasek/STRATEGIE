@@ -1,6 +1,6 @@
 # Navsteva lekare cerpa PREDNOSTNE sick day, po vycerpani se zapise Lekar a je potreba listecek
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Prednostni cerpani sick day pri navsteve lekare

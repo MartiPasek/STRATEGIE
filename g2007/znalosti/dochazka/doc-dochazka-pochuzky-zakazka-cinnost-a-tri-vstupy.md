@@ -1,6 +1,6 @@
 # Pochůzky a služební cesty: zakázka + činnost (9/113), tři vstupy v appce a proč trip nezakládal rozpad
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Pochůzky a služební cesty — zakázka a činnost (zadala Kristý 8. 9. 2026)
 

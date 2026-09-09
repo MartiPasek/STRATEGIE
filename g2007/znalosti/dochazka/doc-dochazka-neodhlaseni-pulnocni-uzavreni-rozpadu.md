@@ -1,6 +1,6 @@
 # Zapomenutý odchod: půlnoční automat uzavírá i položky rozpadu — a měsíc přitom umlčoval hlídač, který to měl hlásit (oprava 2. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Co se dělo špatně (nález Peťa 4.8.2026)
 

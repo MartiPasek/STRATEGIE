@@ -1,6 +1,6 @@
 # Mobil, agenda (Firma → Agenda → dlaždice): tři filtry, řádek člověka a jeho detail (8. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobil — obrazovka agendy: filtry, seznam lidí a detail člověka
 

@@ -1,6 +1,6 @@
 # Mobil - rozhodnuti k bodum E, F, G, H auditu duplicitnich cest (6. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobil — rozhodnutí k bodům E, F, G, H auditu duplicitních cest (6. 9. 2026)
 

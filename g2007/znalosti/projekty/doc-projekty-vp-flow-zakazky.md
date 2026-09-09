@@ -1,6 +1,6 @@
 # Vp Flow Zakazky
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Flow zakázky poptávka→zaplaceno na klíč cislo_zakazky; zdroje per fáze**
 

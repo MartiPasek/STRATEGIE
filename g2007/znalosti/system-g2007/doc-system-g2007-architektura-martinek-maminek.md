@@ -1,6 +1,6 @@
 # Architektura systému Martinek a Maminek — DOKTRÍNA a směr (schváleno 5.8.2026)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Architektura systému Martinek a Maminek — DOKTRÍNA a směr
 

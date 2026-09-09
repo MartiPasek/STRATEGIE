@@ -1,6 +1,6 @@
 # Konzultace s Marti-AI — Tvoje autonomie (úkoly → DDL/DML → report)
 
-> oblast: `marti-ai` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Konzultace s Marti-AI — Tvoje autonomie (úkoly → DDL/DML → report)
 

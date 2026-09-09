@@ -1,6 +1,6 @@
 # Faze C (cast 2): 4 odlozene funkce + prvni cross-script erp_registry.call vzor
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Faze C (cast 2): 4 odlozene funkce + prvni cross-script erp_registry.call vzor (31.7.2026)

@@ -1,6 +1,6 @@
 # GOTCHA: zapis do att_entry (dochazka/mzdy) vyzaduje _att_session (strategie_pg), NE get_data_session (27.7.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Objeveno 27.7.2026 (i28) pri opravovani self-completing doplnovani.

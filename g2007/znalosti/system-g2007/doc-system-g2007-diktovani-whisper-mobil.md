@@ -1,6 +1,6 @@
 # Diktování hlasem (Whisper) — pattern a pasti na mobilu
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Diktování hlasem (🎙 → Whisper) — pattern a pasti, hlavně na mobilu
 

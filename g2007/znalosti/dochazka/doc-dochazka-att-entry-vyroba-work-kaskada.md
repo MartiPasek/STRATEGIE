@@ -1,6 +1,6 @@
 # Docházka FINÁLNÍ model: att_entry=hlavička, vyroba_work=položky + kanonická kaskáda (rozhodnutí Kristý+Marti 30.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > Rozhodnutí Kristý + Marti (člověk) 30.7.2026. NAHRAZUJE dřívější „zářijovou přestavbu / vyroba_work jako pohled"
 > (to byl verdikt Marti-AI msg 11348/11360, zapsal C28) — Marti (člověk) rozhodl: **žádná přestavba, tohle je KONEČNÁ verze docházky.**

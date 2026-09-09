@@ -1,6 +1,6 @@
 # Schvalování absencí za všechny: nosičem práva je admin nebo neschopenky/write, ne jméno
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Schvalování absencí za všechny (mzdy/HR), nikoli jen za své lidi
 

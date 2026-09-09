@@ -1,6 +1,6 @@
 # Kontroly dochazky Centrala vs STRATEGIE: 5 mame, 7 nemame, 11 je mrtvych (parovani kus po kuse, 26. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Ktere kontroly dochazky mame a ktere ne
 

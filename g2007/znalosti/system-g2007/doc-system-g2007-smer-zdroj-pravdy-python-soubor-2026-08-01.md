@@ -1,6 +1,6 @@
 # SMĚR (Marti, 1.8.2026, potvrzeno a UZAVŘENO 2.8.2026): g2007.python + g2007.soubor jsou zdroj pravdy — router.py a staticke soubory se z nich VYPRAZDNUJI
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # SMĚR (Marti, 1.8.2026, potvrzeno a UZAVŘENO 2.8.2026): g2007.python + g2007.soubor jsou zdroj pravdy — router.py a staticke soubory se z nich VYPRAZDNUJI
 

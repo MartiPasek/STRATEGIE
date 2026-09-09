@@ -1,6 +1,6 @@
 # Nemoc, OČR a lékař z mobilu = jen informace vedoucímu, do docházky nic
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Pravidlo (Peťa 19. 8., 24. 8., 25. 8. a závazně 26. 8. 2026)

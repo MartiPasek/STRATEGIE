@@ -1,6 +1,6 @@
 # Sick days: vedou se ve DNECH, čerpá se po hodinách, nárok v hodinách = čerpáno + zbývá (oprava pro změnu úvazku během roku, 1. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa, 1. 9. 2026.** Peťa: *„má nárok na 2 dny = 16 hodin, vzala si jeden den 8 hodin,
 zbylo jí 8 hodin přepočteno na den 1 den. Pak se jí změnil úvazek, ale měla 1 den, tedy

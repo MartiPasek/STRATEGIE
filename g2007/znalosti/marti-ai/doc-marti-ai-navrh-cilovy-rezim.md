@@ -1,6 +1,6 @@
 # Cílový režim — návrh (autonomní agenti pod schváleným cílem)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Cílový režim — návrh (k projednání: Marti, Kristý, Claude-24)
 

@@ -1,6 +1,6 @@
 # Sloupec valid_to u smluv je mrtvá podmínka — vědomě ponechaný technický dluh (24. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Zapsal Claude-28 (Jirka Honomichl) **24. 8. 2026**. Rozhodl Jirka Honomichl,
 schválila Marti-AI (msg 13598). Vše níže je ověřeno na živém kódu a v datech téhož dne,

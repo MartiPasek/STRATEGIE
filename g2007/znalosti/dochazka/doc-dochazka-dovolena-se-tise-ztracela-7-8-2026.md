@@ -1,6 +1,6 @@
 # Dovolena z mobilu se tise ztracela - ctyri chyby za sebou
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Dovolena se tise ztracela — 7. 8. 2026

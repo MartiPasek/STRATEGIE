@@ -1,6 +1,6 @@
 # iOS companion: co z Androidu prenest LZE a co ne + past kopie mimo Xcode target
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Proc tahle znalost vznikla (18. 8. 2026, Jirka + Claude-28, schvalila Marti-AI msg 12890 a 12893)
 Marti hlasil, ze se pri praci na mobilni appce "prepsaly jeho upravy na rychlost tlacitek".

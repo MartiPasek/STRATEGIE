@@ -1,6 +1,6 @@
 # ISO podklady pro Antoše + odpovědi Míse + DEFINICE PRODUKTU (4.8.2026)
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # ISO 27001 — podklady pro poradce Antoše + odpovědi Míse (4. 8. 2026)
 

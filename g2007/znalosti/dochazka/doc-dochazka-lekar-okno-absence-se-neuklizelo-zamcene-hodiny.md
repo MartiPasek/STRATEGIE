@@ -1,6 +1,6 @@
 # Lekar ve Sprave dochazky - okno se neuklidilo po sobe, casy z minula zamkly hodiny a Dopocitat se zacyklilo
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Lékař — okno „Nová absence" se neuklízelo po sobě, hodiny zůstaly zamčené

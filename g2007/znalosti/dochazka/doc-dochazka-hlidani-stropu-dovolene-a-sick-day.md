@@ -1,6 +1,6 @@
 # Hlidani stropu naroku pri zadosti o dovolenou a sick day, lazy kalendar, oprava kalendar_zajisti
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Hlidani stropu naroku (Jirka 16. 8. 2026, schvalila Marti-AI msg 12770, 12779 a 12782)

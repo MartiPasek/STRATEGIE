@@ -1,6 +1,6 @@
 # Docházka: sync z Centrály klasifikuje absence dle DruhCinnosti (Fáze 1 + Fáze 2 backlog)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > C24 (Kristý) 29. 7. 2026. Souvisí: doc-dochazka-model-tabulky-dochazky, doc-mzdy-mzdy-podklad-zdroj-pravdy.

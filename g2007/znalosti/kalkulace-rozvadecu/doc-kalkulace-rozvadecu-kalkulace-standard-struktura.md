@@ -1,6 +1,6 @@
 # 📐 Kalkulace — struktura STANDARDu, skládačka skříní a tvorba obj. čísel (řada AI)
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 📐 Kalkulace — struktura STANDARDu, skládačka skříní a tvorba obj. čísel (řada AI)
 

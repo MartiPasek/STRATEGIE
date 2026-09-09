@@ -1,6 +1,6 @@
 # Kalkulace Cenotvorba
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Finální cena = lidský cit, engine dává jen náklad; materiál něm. + ČR marže**
 

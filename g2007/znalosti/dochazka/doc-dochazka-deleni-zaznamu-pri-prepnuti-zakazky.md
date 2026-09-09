@@ -1,6 +1,6 @@
 # Prepnuti zakazky za chodu DELI dochazkovy zaznam (koren problemu hlavicka vs rozpad) - nasazeno a OVERENO 20.8.2026
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se zmenilo

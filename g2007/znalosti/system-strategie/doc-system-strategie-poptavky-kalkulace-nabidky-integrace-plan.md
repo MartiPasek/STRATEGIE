@@ -1,6 +1,6 @@
 # Integrovaný tok: e-mail → poptávka → kalkulace → nabídka (implementační plán)
 
-> oblast: `system-strategie` · úroveň:  · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň:  · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Integrovaný tok poptávky → kalkulace → nabídka (C23, 31.7.2026)
 

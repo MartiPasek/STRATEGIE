@@ -1,6 +1,6 @@
 # Mobilni editor oprav: useky rozpadu (parita s ERP)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co pribylo (5.8.2026, zadal Jirka)

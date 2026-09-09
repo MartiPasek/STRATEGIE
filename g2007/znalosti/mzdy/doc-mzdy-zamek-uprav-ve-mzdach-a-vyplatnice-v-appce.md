@@ -1,6 +1,6 @@
 # Zámek úprav ve mzdách řídí, kdy lidé uvidí výplatnici (Peťa 8. 9. 2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## DOPLNĚNO 8. 9. 2026 večer — odemknutí zámku nově označí příplatky za vyplacené

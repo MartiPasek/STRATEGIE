@@ -1,6 +1,6 @@
 # DOC-01 Rozsah ISMS
 
-> oblast: `iso27001` · úroveň: obor · typ: smernice · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: smernice · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 DOC-01
 

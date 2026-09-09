@@ -1,6 +1,6 @@
 # 210 — Poschoďový stroj: automaty → malé role → orchestrace → člověk
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 210 — Poschoďový stroj: automaty → malé role → orchestrace → člověk
 

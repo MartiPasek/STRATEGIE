@@ -1,6 +1,6 @@
 # NEMPRI25 (ošetřovné) — proč ČSSZ zamítá podání a jak se to hlídá
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # NEMPRI25 (ošetřovné, OSE) — proč ČSSZ zamítá podání a jak se to hlídá
 

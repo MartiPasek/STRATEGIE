@@ -1,6 +1,6 @@
 # Async JS most appky (callAsync) visel necommitnuty 5.-18.8. - VYRESENO: vydano v 1.83 (18.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se stalo

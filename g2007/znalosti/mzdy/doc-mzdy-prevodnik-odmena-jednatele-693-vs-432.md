@@ -1,6 +1,6 @@
 # Převodník složek: „Odměna OD jednatele" mířila na 693 místo 432 — opraveno 26. 8. 2026
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Převodník složek: odměna OD jednatele × odměna PRO jednatele

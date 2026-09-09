@@ -1,6 +1,6 @@
 # Agendy (skupiny) — zdroj je tenant.staff_group pro ERP i mobil, nadrazéné složky nejsou agendy a kategorie Výroba/Kancelář není zařazení (8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Agendy (skupiny) — odkud se berou, co jsou nadrazéné složky a co agenda NENÍ
 

@@ -1,6 +1,6 @@
 # Most: hláška "TVUJ LOKAL JE POZADI o N commitu" může přetrvat i po úspěšném pullu
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Pozorováno 26. 8. 2026, C-28 (Mac).** Po `CLAUDE_PULL_GO.txt` (odpověď `PULL: OK`,

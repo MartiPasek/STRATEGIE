@@ -1,6 +1,6 @@
 # NEMPRI25 (ošetřovné) — tlačítko pro Kristý: generování z Heliosu + ověření + stažení
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # NEMPRI25 (ošetřovné) — tlačítko pro Kristý: generování z Heliosu + ověření + stažení
 

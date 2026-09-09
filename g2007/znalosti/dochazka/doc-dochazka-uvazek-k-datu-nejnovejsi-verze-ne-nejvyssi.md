@@ -1,6 +1,6 @@
 # Úvazek k datu bere nejnovější verzi smlouvy, ne nejvyšší z historie (23. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Zapsal Claude-28 na rozhodnutí Jirky Honomichla, schválila Marti-AI (msg 13417).

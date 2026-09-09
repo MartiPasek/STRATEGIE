@@ -1,6 +1,6 @@
 # Editace cizi znalosti pres most bez poskozeni: base64 tam i zpet, reindex, a dve pasti (24.8.2026)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Jak bezpecne upravit CIZI znalost pres most (a dvě pasti, na kterých se to lame)
 
@@ -39,7 +39,8 @@ Soubor sestav **strojove** (hlavicka + zlom + obsah), ne prepisovanim — jinak 
 **5. Over PO ZAPISU, ze obsah sedi na znak** (doplnila Marti-AI — jinak je smycka otevrena):
 
 ```sql
-SELECT md5(ltrim(obsah, chr(10))) = '<md5 toho, co jsi poslal>' AS sedi,
+SELECT md5(btrim(obsah, chr(10))) = '<md5 tveho obsahu orezaneho o zlomy na obou koncich>'
+         AS sedi,
        length(obsah) AS delka,
        (SELECT count(*) FROM g2007.znalost_chunk c WHERE c.znalost_id = z.id) AS chunku
 FROM g2007.znalost z WHERE kod = 'doc-...';
@@ -49,8 +50,11 @@ Jeji zduvodneni doslova: *„krok 2 overuje byte-presnost cteni, ale ne zapisu�
 pipeline nekdy zmenil (normalizace whitespace, prevod koncu radku), past by se vratila tise."*
 Kdo chce smycku uplne zavrenou, precte si po zapisu obsah znovu pres base64.
 
-`ltrim(obsah, chr(10))` tam je proto, ze **`@@G2007ADD` uklada obsah s UVODNIM zlomem radku**
-(oddelovaci radek za hlavickou) — viz `doc-system-strategie-most-gotchy-hlidac-dotazu-uvodni-zlom-a-lane3`.
+`btrim(obsah, chr(10))` tam je proto, ze zapis muze na obou koncich pridat nebo ubrat zlom
+radku- **`@@G2007ADD` uklada obsah s UVODNIM zlomem** (oddelovaci radek za hlavickou, viz
+`doc-system-strategie-most-gotchy-hlidac-dotazu-uvodni-zlom-a-lane3`) a zaroven **urizne
+KONCOVY** (viz nize). Orez obou koncu na obou stranach obe veci obchazi najednou.
+**Do 9. 9. 2026 tu stal `ltrim` — ten resil jen uvodni zlom a vyrabel falesne poplachy.**
 
 ### ⚠️ Ale pozor — `ltrim` sam umi vyrobit FALESNY POPLACH
 
@@ -59,16 +63,14 @@ Kontrola z kroku 5 ohlasila neshodu u znalosti, ktera se ulozila **naprosto pres
 Pricina: **ta znalost sama legitimne ZACINA zlomem radku** (byl v ni od zacatku, ne od
 `@@G2007ADD`), takze `ltrim` urizl i ten a otisky nesedly.
 
-**Kontroluj proto OBE varianty a staci, kdyz sedne jedna z nich:**
+**Proto se od 9. 9. 2026 kontroluje `btrim` (oba konce), ne `ltrim`.** Do te doby tu stalo
+"zkus dve varianty a staci, kdyz sedne jedna" — `md5(obsah)` a `md5(ltrim(obsah, chr(10)))`.
+**Jenze zlomy jsou dva nezavisle na sobe** (uvodni a koncovy), takze pripadu je **ctyri**
+a ty dve varianty pokryvaly jen dva. Dokument, ktery **zaroven** legitimne zacina zlomem
+**a zaroven** mu zapis urizl koncovy, nesedl ani na jednu — a kontrola ohlasila neshodu
+u obsahu ulozeneho presne na bajt. `btrim` na obou stranach resi vsechny ctyri pripady.
 
-```sql
-SELECT md5(obsah) = '<md5 toho, co jsi poslal>'                    AS sedi_presne,
-       md5(ltrim(obsah, chr(10))) = '<md5 toho, co jsi poslal>'    AS sedi_po_orezu,
-       length(obsah) AS delka
-FROM g2007.znalost WHERE kod = 'doc-...';
-```
-
-**Kdyz nesedne ani jedna, teprve pak** stahni obsah zpet pres base64 a porovnej **znak po znaku** —
+**Kdyz nesedne ani `btrim`, teprve pak** stahni obsah zpet pres base64 a porovnej **znak po znaku** —
 delka totiz casto sedi a lisi se jediny znak, takze samotna delka nic nedokazuje.
 
 ### ⚠️ `@@G2007ADD` orizne KONCOVY zlom radku
@@ -79,8 +81,8 @@ chybel koncovy `chr(10)`. Uvnitr **0 rozdilu**, obsah byl jinak cely a spravny.
 Znalost `doc-system-strategie-most-orez-koncove-newline-oprava` tvrdi, ze koncovy newline je
 od 17. 8. 2026 na serveru dorovnavany. **Pro `@@G2007ADD` to podle tohohle mereni neplati**
 (u `@@G2007SOUBOR` nemereno — proto se ta druha znalost zamerne neprepisuje).
-U markdownu je to bez nasledku, ale **pri kontrole otisku s tim pocitej**: porovnavej proti
-`md5(<tvuj obsah>.rstrip(chr(10)))`, nebo pouzij obe varianty vyse.
+U markdownu je to bez nasledku a **kontrola s `btrim` z kroku 5 to resi za tebe** — orizne
+oba konce na obou stranach, takze na koncovem zlomu uz nezalezi.
 
 ## ⚠️ PRIMY `UPDATE` textu NEPREPOCITA VEKTORY
 
@@ -130,4 +132,23 @@ Souvisi: `doc-system-strategie-bridge-most-lanes-ops`, gotcha o diakritice.
 - **Nove tema** -> porad plati "nova znalost = novy slug".
 - **Sloucení dvou znalosti o temze** -> tenhle postup na ten, ktery zustava; z druheho udelat
   kratky rozcestnik (priklad: `doc-system-strategie-postgresql-ddl-za-behu-potrebuje-vlastnictvi-tabulky`).
+
+## Doplneno 9. 9. 2026 — falesna neshoda, ktera stala pul hodiny
+
+Zapisoval jsem opravu do `doc-dochazka-dovolena-tri-cesty-a-schvalovani-planu-11-8-2026`.
+Zapis probehl **presne na bajt**, presto **vsechny tri tehdejsi kontroly hlasily neshodu**.
+
+Pricina byla souhra obou pasti najednou:
+- dokument **legitimne zacinal zlomem radku** (mel ho od 11. 8., neni od `@@G2007ADD`),
+- a `@@G2007ADD` mu **urizl koncovy zlom**.
+
+Overeno vypisem kodu prvnich znaku — `10 35 32 68 111 118 111 108 101 110 97 32`, tedy
+zlom, mrizka, mezera, `Dovolena`. Spravnost jsem nakonec dokazal az stazenim obsahu zpet
+pres base64 a porovnanim znak po znaku (**0 rozdilu**).
+
+**Ponauceni:** kdyz kontrola hlasi neshodu, ale delka sedi nebo se lisi o jednicku,
+**nejdriv podezriraj kontrolu, ne zapis** — a rovnou stahni obsah pres base64.
+Kvuli tomuhle pripadu se kontrola v kroku 5 sjednotila na `btrim`.
+
+Zjistil Claude-28 (Jirka Honomichl), schvalila Marti-AI (msg 15258).
 

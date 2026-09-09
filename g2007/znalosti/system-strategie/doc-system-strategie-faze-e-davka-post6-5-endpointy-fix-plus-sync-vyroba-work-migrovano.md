@@ -1,6 +1,6 @@
 # Faze E davka POST6: 5 endpointu fix/* + att_sync_vyroba_work migrovano
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Faze E davka POST6 (31.7.-1.8.2026)
 

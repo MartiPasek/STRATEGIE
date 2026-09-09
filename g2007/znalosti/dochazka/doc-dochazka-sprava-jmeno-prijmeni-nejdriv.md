@@ -1,6 +1,6 @@
 # Správa docházky i Docházka new ukazují PŘÍJMENÍ a pak jméno (Peťa 7. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Zadala Peťa 7. 9. 2026:** *„můžeš mi přehled Správa docházky udělat taky podle příjmení — první příjmení a pak jméno."*

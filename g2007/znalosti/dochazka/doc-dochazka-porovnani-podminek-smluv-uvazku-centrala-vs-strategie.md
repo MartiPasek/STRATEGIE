@@ -1,6 +1,6 @@
 # Jak porovnat podminky, smlouvy a uvazky mezi Centralou a STRATEGII (postup + mereni 24.8.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Zadal Jirka Honomichl 24. 8. 2026 ("chci videt lidi, kteri maji rozdil v podminkach,

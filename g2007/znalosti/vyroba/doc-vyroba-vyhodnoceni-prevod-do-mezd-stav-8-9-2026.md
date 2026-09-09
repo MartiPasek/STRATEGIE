@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek - prevod do mezd, stav k 8.9.2026 a dve otevrene diry
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Prevod odmen z vyhodnoceni do mezd - stav k 8. 9. 2026

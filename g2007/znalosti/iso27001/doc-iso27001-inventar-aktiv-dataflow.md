@@ -1,6 +1,6 @@
 # Inventář aktiv a tok dat (ISO 27001 — A.5.9, podklad k DOC-15)
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Inventář aktiv a tok dat (ISO 27001 — A.5.9, podklad k DOC-15)
 

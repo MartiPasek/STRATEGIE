@@ -1,6 +1,6 @@
 # Můj přehled v mobilu — nároky D/DN/SD a jejich čerpání (sick days se od 1. 9. 2026 vedou ve dnech, hodiny jsou jen zobrazení)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ ZMĚNA 8. 9. 2026: obrazovka „Můj přehled" UŽ NEEXISTUJE

@@ -1,6 +1,6 @@
 # Podklad OSVČ tahá staré uzavřené zakázky — chybí filtr „od poslední fakturace"
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## ✅ NASAZENO 2.9.2026 (podklad_vyplaceni_pdf verze 10)
 Minimální fix je v PRODUKCI: podklad přeskočí zakázky BEZ práce v posledních 12 měsících. Ověřeno na datech i v podkladu — Voříšek (327): staré VR8xxx (2018–2022) zmizely; Lev (371) a Kilberger (346): aktivní zakázky zůstaly, nic navíc (jejich malé/nulové zbytky jsou správně = po backfillu plně objednané). Implementace: recent_zak = množina zakázek z EC_Dochazka, kde CasZacatek >= DATEADD(MONTH,-12,GETDATE()); ve smyčce přeskoč zak, když recent_zak není None a zak není v hod_map (nedávné PG hodiny) ani v recent_zak. Fallback: při chybě dotazu recent_zak=None → NEfiltruje (bezpečné). Okno 12 měsíců je laditelné. Nasazeno chirurgicky přes base64 replace() na g2007.python.

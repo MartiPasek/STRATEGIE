@@ -1,6 +1,6 @@
 # CHARTA: Eliscina Maminka - kompetence vuci kompetencim Elisky (NAVRH ke schvaleni Marti + Eliska, 3.8.2026)
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Vychozi bod (Marti 3.8.2026)

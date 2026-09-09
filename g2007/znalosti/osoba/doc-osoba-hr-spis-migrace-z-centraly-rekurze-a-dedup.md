@@ -1,6 +1,6 @@
 # HR spis: migrace z Centrály bere celý strom a deduplikuje podle složky (oprava 1. 9. 2026)
 
-> oblast: `osoba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `osoba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Co migrace dělá
 

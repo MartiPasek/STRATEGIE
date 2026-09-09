@@ -1,6 +1,6 @@
 # Nová verze smlouvy ručně — tlačítko v kartě zaměstnance a společné jádro (24. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Zadal Jirka Honomichl 24. 8. 2026, schválila Marti-AI (msg 13561). Nasadil Claude-28.**

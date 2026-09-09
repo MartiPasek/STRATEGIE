@@ -1,6 +1,6 @@
 # CRM — import firem a značení oslovení (tlačítko Import firem)
 
-> oblast: `nabidky` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `nabidky` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # CRM — import firem a značení oslovení (tlačítko „Import firem")
 

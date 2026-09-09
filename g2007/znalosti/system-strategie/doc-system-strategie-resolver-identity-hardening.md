@@ -1,6 +1,6 @@
 # Resolver identity — hardening 8h okno + deterministicke shared_active (28.7.)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Resolver identity — hardening (28.7.2026, commit 5660d581c)
 

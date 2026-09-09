@@ -1,6 +1,6 @@
 # Dochazka: att_entry.firma_id backfill + self-completing z engagement dle data (27.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod z emailu Marti Paska 26.7.: "doplnit firma_id (chybi)". HOTOVO 27.7.2026 (i28 Jirka).

@@ -1,6 +1,6 @@
 # Sick day na budoucí den — v mobilu odblokováno, server kontrolu data nemá záměrně (25. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ⚠️ **DOPLNĚNO TÝŽ DEN VEČER — samotné odblokování pole NESTAČÍ.** Praktická zkouška

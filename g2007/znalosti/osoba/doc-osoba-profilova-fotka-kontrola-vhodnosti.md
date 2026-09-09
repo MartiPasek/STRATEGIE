@@ -1,6 +1,6 @@
 # Profilová fotka: kontrola vhodnosti obsahu (blokace při nahrání + zpětná kontrola)
 
-> oblast: `osoba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `osoba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Profilová fotka — kontrola vhodnosti obsahu
 

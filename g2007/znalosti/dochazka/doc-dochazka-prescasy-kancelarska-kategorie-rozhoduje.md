@@ -1,6 +1,6 @@
 # Prescasy a kancelarska kategorie - co rozhoduje o proplaceni a proc ERP a mobil davaji jine cislo
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Přesčasy kancelář — proč ERP a mobil dávají jiné číslo, co rozhoduje o proplacení (`dopichavat_fond`) a co na to nemá vliv (podmínka `pod_neplaceny_prescas_h_den`, sloupec `bez_prescasu`).**
 

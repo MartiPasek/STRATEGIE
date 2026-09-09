@@ -1,6 +1,6 @@
 # Hlidac volneho mista na disku: prah 20 procent jen pro prazske servery, ostatni zpet na puvodni pravidlo (6.9.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Hlidac volneho mista na disku
 

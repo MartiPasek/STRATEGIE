@@ -1,6 +1,6 @@
 # 🏭 Zákazník Polytechnik — profil, model spolupráce a případ PolyClean (EN263390)
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 🏭 Zákazník Polytechnik — profil, model spolupráce a případ PolyClean (EN263390)
 

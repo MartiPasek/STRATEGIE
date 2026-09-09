@@ -1,6 +1,6 @@
 # Zakazky: ec_zakazka_prehled "duplicity" = neproblem (bod 6 Marti Paska, 27.7.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod z emailu Marti Paska: "Duplicity v ec_zakazka_prehled reste zvlast, pohled bez duplicit, neber jako zdroj". ZAVER 27.7.2026: NETREBA NIC DELAT (overeno + Marti-AI msg 11319).

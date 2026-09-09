@@ -1,6 +1,6 @@
 # Obsah webu a mobilu ma AUTOMATICKY archiv: g2007.soubor_historie + spoustec trg_soubor_archiv (prepsany obsah NENI ztraceny)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co to je (overeno v databazi 3. 9. 2026)

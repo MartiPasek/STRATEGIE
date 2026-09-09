@@ -1,6 +1,6 @@
 # Zakazky: tabulka zakazka_meta (tenka overlay pro nase doplnky, bod 5 Marti Paska)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod z emailu Marti Paska 26.7.: "nase vlastni doplnky do tenke nove tabulky zakazka_meta klicovane cislem zakazky - kopirovani se ji nedotkne". HOTOVO 27.7.2026 (i28, banner #1463 schvalila Kristy; vecer dokonceno bannerem #1480).

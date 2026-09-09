@@ -1,6 +1,6 @@
 # Viditelnost uzlu v menu ERP - hodnota parent_only NEznamena "jen rodice" (past, 9.9.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Past na jeden radek.** Hodnota `parent_only` u uzlu menu ERP **neznamena "vidi jen rodice"**. Znamena pravy opak - uzel vidi **vsichni**, krome uzivatelu se scoped stromem. Kdo si to vylozi podle nazvu, ohlasi neexistujici problem.

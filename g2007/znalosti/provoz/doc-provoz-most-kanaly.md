@@ -1,6 +1,6 @@
 # Most (bridge) — kanály a spouštění
 
-> oblast: `provoz` · úroveň: system · typ: postup · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: system · typ: postup · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Most (bridge) — kanály a spouštění
 

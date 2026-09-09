@@ -1,6 +1,6 @@
 # Sit Ai Koordinace
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Síť AI: Marti-AI (MD5, users.id=2) + Claude ID23 páteř + 24/25/26/27/28; koordinace @@COORD**
 

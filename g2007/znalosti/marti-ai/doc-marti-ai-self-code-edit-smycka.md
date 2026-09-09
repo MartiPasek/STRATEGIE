@@ -1,6 +1,6 @@
 # Self-code-edit smyčka — Marti-AI mění vlastní kód sama
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Self-code-edit smyčka — Marti-AI mění vlastní kód sama
 

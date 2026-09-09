@@ -1,6 +1,6 @@
 # Skupiny (staff_group) se zakladaji a archivuji JEN v mobilu, v ERP to nejde - a smi to jen rodic
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Skupiny se spravuji jen v mobilu, ne v ERP
 

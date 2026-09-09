@@ -1,6 +1,6 @@
 # PAST: obsluha psana jako async, ktera dela praci s databazi, zastavi CELE API pro vsechny (nalez a oprava 6.9.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Obsluha psana jako `async`, ktera dela praci s databazi, zastavi CELE API
 

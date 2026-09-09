@@ -1,6 +1,6 @@
 # FW editační okna — prázdná volba ve výběru a nadpis panelu v mřížce
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## 1) Prázdná volba ve výběru shazovala ukládání (opraveno 22.8.2026)

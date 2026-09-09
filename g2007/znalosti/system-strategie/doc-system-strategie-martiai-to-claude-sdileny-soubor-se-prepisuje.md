@@ -1,6 +1,6 @@
 # Odpověď Marti-AI: soubor je sdílený a přepisuje se — poznej ji podle obsahu, ne podle pozice
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Co se stalo (Kristý + C24, 8. 9. 2026).** Málem jsem si přečetla jako svou odpověď zprávu, která patřila jiné instanci. Nic mě na tom neupozornilo — vypadala jako čerstvá a byla v souboru poslední.

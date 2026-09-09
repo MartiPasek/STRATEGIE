@@ -1,6 +1,6 @@
 # Přepojení posledních míst z pohledu staff_cond (24.–25. 8. 2026) — a past při měření čtenářů
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ 8. 9. 2026: „Můj přehled" už neexistuje a sekce se přejmenovala

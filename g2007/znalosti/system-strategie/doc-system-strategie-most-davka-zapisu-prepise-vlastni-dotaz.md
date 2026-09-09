@@ -1,6 +1,6 @@
 # Most: davka zapisu za sebou si prepise vlastni dotaz - posilej po JEDNOM a cekej na zmizeni GO souboru (2. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Most: dávka zápisů za sebou si přepíše vlastní dotaz
 

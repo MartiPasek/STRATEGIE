@@ -1,6 +1,6 @@
 # MCP eurosoft_strategie_query_raw vraci JEN PRVNI result set — proc nefunguje cteni OUTPUT po EXEC
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # MCP vraci jen PRVNI result set (overeno 20. 8. 2026)
 

@@ -1,6 +1,6 @@
 # g2007.eskalace_log + smoke_eskalace: obe otevrene otazky z #280/#283/#313 UZAVRENY (2.8.2026) - zadny bug, zadna nova tabulka
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Kontext:** Marti 2.8.2026 pozadal pokracovat na "eskalaci" po dokonceni triage (#313). Dve otevrene otazky viselo z #280 (30.7.) a #283 (31.7.), znovu zopakovane v #313 (odrazovy mustek): (1) "g2007.eskalace_log stale neexistuje", (2) "smoke_eskalace last_status=chyba, nediagnostikovano od 30.7.". Overeno primo v DB/kodu 2.8.2026 - obe jsou VYRESENE, zadny kod se psat nemusel.
 

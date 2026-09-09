@@ -1,6 +1,6 @@
 # Tool-smycka Martinek + kalkulacni nastroje ABSAUGWERK - NASAZENO+OVERENO E2E 3.8.2026
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Tool-smycka (martinka_dispatch v6, md5 f9fa59bc...)

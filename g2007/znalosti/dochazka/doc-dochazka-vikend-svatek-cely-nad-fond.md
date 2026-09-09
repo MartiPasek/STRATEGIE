@@ -1,6 +1,6 @@
 # Práce o víkendu a o svátku jde CELÁ nad fond (kancelářští)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Práce o víkendu a o svátku jde CELÁ nad fond (jen kancelářští)

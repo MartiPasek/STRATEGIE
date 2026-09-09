@@ -1,6 +1,6 @@
 # Kontrola, ze text dlazdice sedi s nadpisem obrazovky - metoda, tri pasti a vysledek (6. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Sedi text dlazdice s nadpisem obrazovky, kam vede?

@@ -1,6 +1,6 @@
 # ERP schvalovani absenci: akce v kontextovem menu, fajfka ve sloupci S, hlaska "nic neceka", vlastni poznamka
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # ERP schvalovani absenci — menu, fajfka, hlaska, poznamka

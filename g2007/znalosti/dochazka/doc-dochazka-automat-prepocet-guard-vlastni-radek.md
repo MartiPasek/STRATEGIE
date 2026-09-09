@@ -1,6 +1,6 @@
 # Automat: přepočet fondu si vlastní dopočtený řádek pletl s běžící směnou a přestal se spouštět
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 5. 8. 2026.** Nález na reálném případu (Peťa, 5. 8. 2026).
 

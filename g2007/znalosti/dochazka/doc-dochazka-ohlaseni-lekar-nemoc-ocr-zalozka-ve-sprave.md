@@ -1,6 +1,6 @@
 # Ohlášení nepřítomnosti (lékař, nemoc, OČR, neplacené): záložka ve Správě docházky
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Ohlášení nepřítomnosti — záložka ve Správě docházky
 

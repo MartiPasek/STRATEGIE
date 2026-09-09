@@ -1,6 +1,6 @@
 # Víc oken STRATEGIE naráz (PWA multi-window) + ikonka „Nové okno" v hlavičce ERP
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Kontext
 Peta (C26) chtěla mít STRATEGIE ERP otevřené ve **více oknech naráz** (jako dřív 3 Centrály). Nainstalovaná PWA defaultně jede jako jedno okno. Vyřešeno 30.7.2026.

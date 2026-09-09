@@ -1,6 +1,6 @@
 # Výchozí podmínky — spouštěč četl číselník, ale pevné DB defaulty ho umlčely (oprava 20. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Stav k 20. 8. 2026. Zadal Jirka Honomichl, odsouhlasila Marti-AI, provedl Claude-28.**
 

@@ -1,6 +1,6 @@
 # Android 15/16: carka gest prekryvala spodni listu mobilu - obal predava zony strance pres --sab (2.9.2026, vydano 1.86), opt-out atribut je na targetSdk 36 mrtvy
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Android 15/16: čárka gest překrývala spodní lištu mobilu — obal předává systémové zóny stránce (`--sab`)
 

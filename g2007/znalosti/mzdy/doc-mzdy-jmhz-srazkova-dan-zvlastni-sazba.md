@@ -1,6 +1,6 @@
 # JMHZ — srážková daň (zvláštní sazba § 36) ve formuláři zaměstnance, chyba 40245
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # JMHZ — srážková daň (daň vybíraná srážkou zvláštní sazbou) ve formuláři zaměstnance
 

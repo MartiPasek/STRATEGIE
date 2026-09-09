@@ -1,6 +1,6 @@
 # Hodiny za den se pocitaji na 8 mistech v 5 definicich (audit 29.7.2026, POZASTAVENO)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## NEPLATI k 27.8.2026 v jednom bode (doplnil Claude-28 / Jirka, potvrdila Marti-AI msg 13880)
 >

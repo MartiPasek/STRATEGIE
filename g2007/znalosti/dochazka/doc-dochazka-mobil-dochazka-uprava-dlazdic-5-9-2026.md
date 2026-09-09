@@ -1,6 +1,6 @@
 # Mobil, obrazovka Docházka: přeskupení dlaždic, zrušení duplicitního Výhledu a schování čtyř rozbalovacích sekcí (5. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ 8. 9. 2026: „Můj přehled" už neexistuje a sekce se přejmenovala

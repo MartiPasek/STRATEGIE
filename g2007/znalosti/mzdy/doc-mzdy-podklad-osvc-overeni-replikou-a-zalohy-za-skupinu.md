@@ -1,6 +1,6 @@
 # Jak ověřit podklad OSVČ replikou v SQL — a proč se zálohy MUSÍ sčítat za skupinu
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Ověření podkladu OSVČ replikou v SQL
 

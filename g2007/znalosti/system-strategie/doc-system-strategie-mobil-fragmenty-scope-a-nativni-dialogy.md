@@ -1,6 +1,6 @@
 # Mobil - fragmenty nesdili scope a nativni appka nema JS dialogy (dve pasti, 11.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Mobil - dve pasti, ktere stály cely den (11. 8. 2026)

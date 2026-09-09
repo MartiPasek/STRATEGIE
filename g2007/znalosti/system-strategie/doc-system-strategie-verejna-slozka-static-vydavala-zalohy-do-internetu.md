@@ -1,6 +1,6 @@
 # Verejna slozka /static vydavala zalohy do internetu - nalez, oprava a pojistka do budoucna (23.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Slozka /static je verejna — cokoli tam zbyde, jde stahnout z internetu

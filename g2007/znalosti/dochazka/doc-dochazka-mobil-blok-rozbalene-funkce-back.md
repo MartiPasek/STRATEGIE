@@ -1,6 +1,6 @@
 # Mobil: v každém skriptovém bloku jsou rozbalené jiné pomocné funkce (back chybí) — tichý pád po úspěšném zápisu
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobilní appka: v každém skriptovém bloku jsou rozbalené JINÉ pomocné funkce
 

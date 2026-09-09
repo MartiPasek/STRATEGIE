@@ -1,6 +1,6 @@
 # Odemknuti zamku mezd oznaci priplatky a srazky za vyplacene (8. 9. 2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Odemknuti zamku mezd = "mzda je vyplacena"

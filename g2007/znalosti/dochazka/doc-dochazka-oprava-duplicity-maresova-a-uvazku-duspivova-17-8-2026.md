@@ -1,6 +1,6 @@
 # Oprava dat 17.8.2026 - duplicitni sick day Maresova 30.6. a dovolena 8h pri 7h uvazku u Duspivove
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Oprava dochazkovych dat 17. 8. 2026

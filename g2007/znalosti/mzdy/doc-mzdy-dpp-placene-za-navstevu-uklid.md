@@ -1,6 +1,6 @@
 # DPP placené za návštěvu (úklid): dopočet z docházky místo pevné ruční složky — 26. 8. 2026
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # DPP placené za návštěvu — dopočet z docházky

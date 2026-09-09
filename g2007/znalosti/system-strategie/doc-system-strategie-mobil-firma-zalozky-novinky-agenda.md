@@ -1,6 +1,6 @@
 # Mobil, obrazovka Firma: dvě záložky (Novinky + Agenda) a zrušený vodorovný pruh skupin (8. 9. 2026; večer sekce podle nadrazéných složek)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ 8. 9. 2026: „Můj přehled" už neexistuje a sekce se přejmenovala

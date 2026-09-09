@@ -1,6 +1,6 @@
 # Composer — jak se skládá prompt
 
-> oblast: `system-g2007` · úroveň: system · typ: architektura · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: architektura · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Composer — jak se skládá prompt
 

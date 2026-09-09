@@ -1,6 +1,6 @@
 # Záložní prostředí Plzeň — permanentní standby (realizovaný stav)
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ⚠️ **DOPLNENO 8. 9. 2026 — tenhle retez 8 z 35 noci NEDOJEL.**
 > Mezi 15. 8. a 3. 9. 2026 selhal nocni prenos Praha -> Plzen osmkrat (kazdou ctvrtou noc)

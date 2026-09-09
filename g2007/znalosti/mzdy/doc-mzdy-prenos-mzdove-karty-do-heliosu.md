@@ -1,6 +1,6 @@
 # Mzdová karta v Heliosu (úvazek + kalendář) se do Prahy nepřenášela vůbec — Centrála psala do mrtvé větve
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se stalo (7. 9. 2026, Peťa + Claude-26)

@@ -1,6 +1,6 @@
 # Přehledy — ovládání: datumový filtr a výběr řádků (STANDARD)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Přehledy — ovládání: datumový filtr a výběr řádků (STANDARD)
 

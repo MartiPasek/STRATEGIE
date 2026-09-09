@@ -1,6 +1,6 @@
 # Roadmapa Marti-AI — stav 29. 7. 2026 večer (kufr zapnut + měřen, bod 3 hotov)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Roadmapa „Marti-AI autonomní operátor" — stav 29. 7. 2026 VEČER
 

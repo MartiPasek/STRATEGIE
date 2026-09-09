@@ -1,6 +1,6 @@
 # @@G2007PUBLISH: falesny poplach na poctech tagu (dochazka-po-zakazkach) a kdy pouzit @@G2007EXPORT
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # @@G2007PUBLISH: falesny poplach "nesedi pocty tagu" a nahradni cesta

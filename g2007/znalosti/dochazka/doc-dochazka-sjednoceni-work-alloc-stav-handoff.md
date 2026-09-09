@@ -1,6 +1,6 @@
 # Sjednocení docházky na jednu tabulku vyroba_work — STAV + handoff (29.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > C24 (Kristý) 29. 7. 2026. Handoff soubor: `HANDOFF_dochazka_krok5-11_2026-07-29.md` (v kořeni repa).

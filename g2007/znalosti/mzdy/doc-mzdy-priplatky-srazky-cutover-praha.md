@@ -1,6 +1,6 @@
 # Priplatky a srazky: konec DB_EC, zdroj pravdy = Praha (rozhodnuti Marti Pasek 27.7.2026) + overeny stav a plan cutoveru
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Priplatky a srazky: konec DB_EC, zdroj pravdy = Praha

@@ -1,6 +1,6 @@
 # Podklad OSVC: overeni neorazitkovane rezie a sjednoceni filtru odmen (19.8.2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Overeni razitek rezie + filtr odmen (19. 8. 2026)
 

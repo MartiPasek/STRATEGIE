@@ -1,6 +1,6 @@
 # Změna úvazku se ptá, než založí novou verzi smlouvy (22. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Zadal Jirka Honomichl 22. 8. 2026, schválila Marti-AI (souhlas s modelem i s atomickým nasazením). Nasadil Claude-28.**
 

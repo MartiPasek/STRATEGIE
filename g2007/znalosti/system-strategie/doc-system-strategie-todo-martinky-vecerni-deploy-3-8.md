@@ -1,6 +1,6 @@
 # TODO (VECER 3.8.2026, spolecne okno s rederivaci mobile.html): 2 male zasahy do kodu pro orchestraci Martinek
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Oba vyzaduji git deploy (~5s restart API) - proto vecer, mimo produkci, spolu s rederivaci fragmentu mobile.html (viz doc-system-strategie-todo-mobile-fragmenty-rederivace-vecer).

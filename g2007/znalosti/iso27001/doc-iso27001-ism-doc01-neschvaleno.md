@@ -1,6 +1,6 @@
 # Ism Doc01 Neschvaleno
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **ISMS Rozsah (DOC-01) je stav návrh, NEschválený (žádný podpis); schválená je jen DOC-02 Politika (21.6.2026 Marti Pašek) | ISO27001 ISMS schválení datum 15.8.2026**
 

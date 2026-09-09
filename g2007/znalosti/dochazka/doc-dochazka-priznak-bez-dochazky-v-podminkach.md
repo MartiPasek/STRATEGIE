@@ -1,6 +1,6 @@
 # Bez docházky - jeden příznak v podmínkách místo dvou skrytých evidencí
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Bez docházky — jeden příznak v podmínkách místo dvou skrytých evidencí
 

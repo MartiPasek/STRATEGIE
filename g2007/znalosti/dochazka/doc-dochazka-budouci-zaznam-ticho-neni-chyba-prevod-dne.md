@@ -1,6 +1,6 @@
 # Kontrola "zaznam v budoucnosti" mlci opravnene - a proc to vypada jako zmeskany nalez (overeno 7. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Kontrola `budouci_zaznam` nenasla od 7. 6. 2026 nic. **Neni to chyba a neni to druhy pripad zapomenuteho odchodu.** Overeno ctenim z databaze 7. 9. 2026 (Jirka Honomichl, Claude-28), po dotazu Petry Safrankove.

@@ -1,6 +1,6 @@
 # Mobil: tichá aktualizace obsahu za běhu — jak funguje, co je vyloučené a proč se zrušilo automatické obnovení stránky (2. 9. 2026, oba spouštěče)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 

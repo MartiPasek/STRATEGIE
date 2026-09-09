@@ -1,6 +1,6 @@
 # Docházka: kaskáda att_entry↔vyroba_work — IMPLEMENTACE (30.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > Implementace modelu [[doc-dochazka-att-entry-vyroba-work-kaskada]]. Nasadil C24 (Kristý) 30.7.2026 večer. HOTOVO + backfill července ověřen.
 

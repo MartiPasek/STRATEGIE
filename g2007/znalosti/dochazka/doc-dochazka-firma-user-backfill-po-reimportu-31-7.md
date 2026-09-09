@@ -1,6 +1,6 @@
 # Dochazka: firma_id/user_id se vyplnuji uz PRI VZNIKU radku (trigger, 3.8.2026) + backfill po reimportu 31.7.
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Dochazka: firma_id a user_id se vyplnuji uz PRI VZNIKU radku

@@ -1,6 +1,6 @@
 # Dovolena radna (20) vs dovolena navic (30) - rozpad, deleni zlomoveho dne, stravenky a chyby Centraly
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Dovolena radna vs dovolena navic - jak to ma byt a proc
 

@@ -1,6 +1,6 @@
 # Sync docházky ze staré Centrály je UKONČEN (14. 8. 2026) — co to znamená a jak by se vracel
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Sync docházky ze staré Centrály je UKONČEN (14. 8. 2026)
 

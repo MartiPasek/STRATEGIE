@@ -1,6 +1,6 @@
 # Kompozice CORE — podrobný rozbor vzoru „Karta zákazníka" (core 72)
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Kompozice CORE — podrobný rozbor vzoru „Karta zákazníka" (core 72)
 

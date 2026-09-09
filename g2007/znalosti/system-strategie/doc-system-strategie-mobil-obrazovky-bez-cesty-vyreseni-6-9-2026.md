@@ -1,6 +1,6 @@
 # Mobil: obrazovky bez cesty — jak dosažitelnost měřit (mapa SCREENS), past se čtyřmi registračními místy a co se 6. 9. 2026 zpřístupnilo a zrušilo
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Obrazovky bez cesty v mobilu — jak je poznat a co se s nimi udělalo (6. 9. 2026)
 

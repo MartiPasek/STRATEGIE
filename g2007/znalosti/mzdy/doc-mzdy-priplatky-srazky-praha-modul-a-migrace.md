@@ -1,6 +1,6 @@
 # Priplatky a srazky v Praze: novy modul, prava, zamek a migrace historie (30.7.2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Priplatky a srazky (Praha) - modul, prava, zamek, migrace historie
 

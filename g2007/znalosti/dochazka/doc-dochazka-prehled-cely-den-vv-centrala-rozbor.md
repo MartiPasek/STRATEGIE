@@ -1,6 +1,6 @@
 # Prehled "Cely den - VV" ze stare Centraly - kompletni rozbor pred prenosem do STRATEGIE (25. 8. 2026, doplneno 26. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Prehled "Cely den - VV" — nastroj vedouciho vyroby
 

@@ -1,6 +1,6 @@
 # Smlouvy — verzování úvazku, dotaz před změnou a vyřešená otázka „platnost do" (vyřešeno 24. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Zapsáno 23. 8. 2026 (Claude-28 / Jirka Honomichl). Vše níže je ověřeno čtením živého kódu

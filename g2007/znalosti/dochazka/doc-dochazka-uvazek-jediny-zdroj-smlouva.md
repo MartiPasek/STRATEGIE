@@ -1,6 +1,6 @@
 # Týdenní úvazek — jediný zdroj je smlouva (poměr), ne Podmínky
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > 📌 **POZNÁMKA 4. 9. 2026 (Peťa + C26) — ČTI PŘED ZBYTKEM.**
 >

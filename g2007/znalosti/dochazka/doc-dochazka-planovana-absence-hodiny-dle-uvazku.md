@@ -1,6 +1,6 @@
 # Plán nepřítomností z Centrály zapisoval 8 h i lidem se zkráceným úvazkem
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Hodiny plánované absence musí sedět na denní úvazek
 

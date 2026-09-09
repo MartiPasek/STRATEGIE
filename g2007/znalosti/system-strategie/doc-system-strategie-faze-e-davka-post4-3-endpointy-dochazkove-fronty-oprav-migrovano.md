@@ -1,6 +1,6 @@
 # Faze E davka POST4: 3 POST HTTP endpointy dochazkove fronty oprav migrovano
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Migrovany 3 dalsi POST HTTP endpointy: att_fix_request (zadost o opravu, jen aktualni mesic), att_fix_resolve (odbaveni polozky fronty bez zasahu - anomalie nebo rozpor dne), att_period_lock_set (zamek/odemek mesice pro mzdy). Vsechny vyuzivaji jiz migrovane male delegat-stuby (att_fix_scope/scope_emps/all/audit/can_lock/editors_for_emp) jako inlinovane zavislosti.
 

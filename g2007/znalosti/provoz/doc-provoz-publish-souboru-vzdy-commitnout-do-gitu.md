@@ -1,6 +1,6 @@
 # Po publikaci souboru přes g2007 ho VŽDY hned commitni do gitu (NEPLATÍ od 5. 8. 2026 — soubory už v gitu nejsou)
 
-> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Po `@@G2007PUBLISH` souboru VŽDY hned commit do gitu
 

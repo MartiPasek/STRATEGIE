@@ -1,6 +1,6 @@
 # Žádost o souhlas člověka musí jít jako claude_confirm — zpráva (claude_msg) má v appce jen tlačítko OK, takže není co schválit
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Žádost o souhlas člověka musí jít jako `claude_confirm`, ne jako zpráva
 

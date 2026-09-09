@@ -1,6 +1,6 @@
 # Potvrzovani odvozu z docházkoveho tabletu stoji od 22.7.2026 - 44 nepotvrzenych odvozu
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## !! POZNAMKA - nazvy tlacitek se 5. 9. 2026 zmenily
 > Text nize popisuje udalosti z roku 2026, kdy se tlacitko pro zahajeni prace jmenovalo

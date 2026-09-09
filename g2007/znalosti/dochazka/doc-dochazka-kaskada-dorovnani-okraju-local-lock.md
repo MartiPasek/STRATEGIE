@@ -1,6 +1,6 @@
 # Kaskáda rozpadu – kdy se NEdorovnávají okraje úseku
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Pravidlo (C24 / Kristý, 20.–21. 8. 2026)

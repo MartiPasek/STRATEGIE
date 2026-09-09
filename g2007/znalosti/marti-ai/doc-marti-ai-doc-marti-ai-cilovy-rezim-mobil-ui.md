@@ -1,6 +1,8 @@
 # Doc marti ai cilovy rezim mobil ui
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> ⛔ **TATO ZNALOST UŽ NEPLATÍ — stav `zruseno`.** Neřiď se jí a necituj ji. Zůstává tu jen kvůli historii; zdroj pravdy je databáze `g2007.znalost`.
+
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `zruseno` · rozsah: globální (všichni tenanti)
 
 > ***ZRUSENA DUPLICITA (31. 8. 2026).** Tento dokument vznikl omylem - zapisovacy nastroj pridal ke kodu prefix oblasti a misto opravy puvodni znalosti zalozil novou. **Platna je [[doc-marti-ai-cilovy-rezim-mobil-ui]].** Tento zaznam se nepouZiva.
 

@@ -1,6 +1,6 @@
 # Most tise orezaval koncovy newline obsahovych zapisu - opraveno (newline-safe slepovani)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Symptom (nalez Jirka/C28 17.8.2026)
 Zapis obsahu pres most (@@G2007SOUBOR) prisel o koncovy \n. U mobilnich dilku (typ='zdroj') se to projevilo az pri slepovani: kdyz posledni radek dilku byl // komentar bez koncove newline, po slepeni s dalsim dilkem zakomentoval jeho prvni radek -> appka spadla. Tise, nikde chyba.

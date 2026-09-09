@@ -1,6 +1,6 @@
 # Denní stav 29.7. — co hotovo, kde jsme přestali (pro večerní návaznost)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Denní stav 29.7.2026 — kde jsme přestali
 

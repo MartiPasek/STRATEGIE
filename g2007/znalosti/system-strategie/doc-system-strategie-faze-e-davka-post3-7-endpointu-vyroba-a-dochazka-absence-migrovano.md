@@ -1,6 +1,6 @@
 # Faze E davka POST3: 7 dalsich POST HTTP endpointu (vyroba cinnosti + dochazka absence) migrovano
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Migrovano 7 dalsich POST/zapisovych HTTP endpointu na DB-driven delegaty (Cesta B): app_vyroba_my_cinnosti_toggle, app_vyroba_my_cinnosti_order, app_vyroba_cinnost_master_save, app_vyroba_cinnost_master_order (vsechny 4 pouzivaji _hr_can_manage, ne _vyroba_can_manage jako predchozi davky), att_absence_cancel, att_absence_request (VYSSI RIZIKO - materializuje okamzite do dochazky pres externi modul dochazka_absence_sprava.abs_promitni_zadost), att_absence_decide (VYSSI RIZIKO - vedouci rozhodnuti materializuje/dematerializuje att_entry).
 

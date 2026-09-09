@@ -1,6 +1,6 @@
 # Opravy dochazky - historie rozpadu u stornovanych radku (podnet Nosek 3.-4.8.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ⚠️ POZOR — STAV K 20.8.2026 ZMĚNĚN (Jiří Honomichl, 20.8.2026, znění schválila Marti-AI)
 > Věta „`att_apply_work_selection` přepisuje `att_entry.project_ref` IN-PLACE a řádek NEDĚLÍ" a bod

@@ -1,6 +1,6 @@
 # JMHZ 2026 (Jednotné měsíční hlášení zaměstnavatele) — podání na ČSSZ, chyby a opravy
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # JMHZ 2026 (Jednotné měsíční hlášení zaměstnavatele) — podání na ČSSZ, chyby a opravy
 

@@ -1,6 +1,17 @@
 # DR obnova databaze na 30.11 (Plzen) - pricina, oprava, autonomni ovladani
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
+
+> ## ⛔ POZOR - DOMNENKA O PRISKRCENE LINCE SE NEPOTVRDILA (9. 9. 2026)
+> Nez podle tehle znalosti neco naplanujes, cti `doc-system-strategie-dr-stahovani-se-zasekava-ne-zpomaluje`.
+> Merenim 9. 9. 2026 vyslo, ze **linka Plzen - Praha je v poradku a problem je jinde**: trasa
+> 13 skoku a 4-5 ms bez ztrat; z notebooku na teze siti 9-12 MB/s pres 44 MB bez zpomaleni;
+> **ze samotneho EC-SERVER2 42 MB/s** a pak stani (842 MB v 8.40 a porad 842 MB v 8.54).
+> **Spojeni se nezpomaluje - ono se po nekolika stech megabajtech ZASEKNE a uz se nerozjede**,
+> na promenlivem miste, ve dne i v noci. Prumer "1 MB/s" ci "200 kB/s" je artefakt deleni
+> cekanim na casovy limit, ne namerena propustnost.
+> **Vse nize o priskrcenem spojeni - vcetne bodu 2 a draftu pro Michala - je tim NEPOTVRZENE.**
+> *(Zjistil Claude-28, zadal Jiri Honomichl.)*
 
 > ⚠️ **DOPLNENO 8. 9. 2026 — "VYRESENO 27. 7." uz nepokryva cely obraz.**
 > Oprava popsana nize plati a je spravna. Ale mezi **15. 8. a 3. 9. 2026 selhal nocni prenos
@@ -40,6 +51,8 @@ Oprava (verze "C23 27.7. (2)" v hlavicce skriptu):
 Pozn.: rc=1 je normalni "ignored errors" u pg_restore --clean --if-exists do neprazdne DB (DROP SCHEMA / "schema already exists" u schemat). Data v tabulkach se presto prepisou. Neni to chyba obnovy.
 
 ### 2) Priskrcene spojeni Plzen->Praha (OTEVRENO - na Michala)
+
+⛔ **NEPOTVRZENO 9. 9. 2026 - viz ramecek na zacatku dokumentu.**
 30.11 -> strategie-ai.com jede ~1 MB/s misto obvyklych ~25 MB/s. 746MB dump se stahoval 752 s. Male requesty (META, par kB) jsou na hrane timeoutu a obcas spadnou. Casove sedi na nedavnou zmenu na Mikrotiku/DNS na plzenske strane. Nocni beh (SYSTEM) prochazi, jen pomalu. Pozorovan i obcasny 401/503 na ceste Praha->30.11 (api.eurosoft.com/marti-mcp) pri zatezi.
 
 ## Autonomni ovladani 30.11 z Coworku (bez RDP/VPN)

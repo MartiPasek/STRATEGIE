@@ -1,6 +1,6 @@
 # Párování banka ↔ objednávky ↔ zakázka — kompletní model (Marti + Claude, 24.6.2026 večer)
 
-> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Párování banka ↔ objednávky ↔ zakázka — kompletní model (Marti + Claude, 24.6.2026 večer)
 

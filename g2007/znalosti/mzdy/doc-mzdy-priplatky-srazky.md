@@ -1,6 +1,6 @@
 # Modul Priplatky a srazky (Mzdy) - zive zrcadlo Centraly, smer dat, gotchy
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V2.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V2.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 💰 Modul „Příplatky a srážky" (Mzdy) — HOTOVO k 22. 7. 2026
 

@@ -1,6 +1,6 @@
 # Inventura: vše kolem mezd/docházky/výroby v router.py (298 funkcí, kategorizováno)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Stav: HOTOVO (31.7.2026, C23, na žádost Martiho — "ať nic nezapomeneme")

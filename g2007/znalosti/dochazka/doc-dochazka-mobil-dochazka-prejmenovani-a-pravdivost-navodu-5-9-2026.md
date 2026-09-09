@@ -1,6 +1,6 @@
 # Mobil, Docházka: přejmenování na „Moje docházka", START místo Makat, hlavička jen při směně a plná revize pravdivosti nápovědy (5. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobil, obrazovka Docházky — změny z 5. 9. 2026 (odpoledne)
 

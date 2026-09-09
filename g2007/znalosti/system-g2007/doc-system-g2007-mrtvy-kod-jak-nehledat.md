@@ -1,6 +1,6 @@
 # Mrtvý kód ve STRATEGII — proč grep lže a co NEMAZAT
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mrtvý kód ve STRATEGII — proč grep lže a co NEMAZAT
 

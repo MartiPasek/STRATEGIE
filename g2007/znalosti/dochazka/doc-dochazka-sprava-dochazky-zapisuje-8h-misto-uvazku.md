@@ -1,6 +1,6 @@
 # Sprava dochazky zapisuje absenci 8 h natvrdo, i lidem se zkracenym uvazkem (nalez 17.8.2026, ceka na Petu)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Sprava dochazky zapisuje absenci 8 h misto denniho fondu

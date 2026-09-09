@@ -1,6 +1,6 @@
 # Backfill rozpadu kaskádou — nový příkaz mostu @@DOCHKASKADA a srovnání srpna 2026
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Navazuje na** `doc-dochazka-rozkol-hodiny-vs-casy-a-spousteni-kaskady` (proč docházka a rozpad

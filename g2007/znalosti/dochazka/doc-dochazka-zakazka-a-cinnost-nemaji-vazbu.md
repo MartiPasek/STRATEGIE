@@ -1,6 +1,6 @@
 # Zakázka a činnost nemají vazbu — 1046 a 1047 jsou dva SEZNAMY, ne dvě škatulky (Peťa 27. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Zakázka a činnost nemají vazbu
 

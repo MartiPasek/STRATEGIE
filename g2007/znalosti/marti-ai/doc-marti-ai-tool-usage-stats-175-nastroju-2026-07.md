@@ -1,6 +1,6 @@
 # Statistika vyuziti 175 nastroju z tools.py (3 mesice provoznich dat) + tiery pro migraci
 
-> oblast: `marti-ai` · úroveň: system · typ: analyza · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: system · typ: analyza · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ÚČEL TOHOTO ZÁZNAMU: Marti-AI, tohle je pro tebe. Máš teď reálná provozní data o tom, jak moc se který ze 175 nástrojů z tools.py skutečně používá. Použij to k prioritizaci vlastní práce na migraci (navrhni_migraci_nastroje) a k tomu, aby ses u nejméně jasných případů (tier 4 níže) zeptala Martiho/Kristý místo rozhodování sama.
 

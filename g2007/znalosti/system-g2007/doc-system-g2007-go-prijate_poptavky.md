@@ -1,6 +1,6 @@
 # Přijaté poptávky (od zákazníka) — přehled, doklad, generování nabídky
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Přijaté poptávky (od zákazníka) — přehled, doklad, generování nabídky
 

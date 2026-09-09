@@ -1,6 +1,6 @@
 # Iso Cockpit Lide
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **ISO27001+TISAX: elektronický modul /iso; Mísa vede, Michal DR+hesla, Kristý ISMS**
 

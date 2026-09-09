@@ -1,6 +1,6 @@
 # Mirror sched vypadek blokovani executor
 
-> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `projekty` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Root cause: mirror scheduler se zasekne, když velký job zablokuje ThreadPoolExecutor vlákna (50+ min výpadek)**
 

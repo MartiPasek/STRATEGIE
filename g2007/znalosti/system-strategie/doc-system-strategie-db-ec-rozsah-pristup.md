@@ -1,6 +1,6 @@
 # Db Ec Rozsah Pristup
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Přístup do DB_EC: NENÍ 11-tabulkový read-only whitelist; čteme doklady/deník/saldo/pokladny/Helios a zapisujeme do CRM_Kontakt | EC_Kontakt EC_KontaktAkce whitelist rozsah MCP**
 

@@ -1,6 +1,6 @@
 # Delegace roadmapy produkce (kdo dělá co)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Delegace roadmapy „Marti-AI produkčně schopný správce" (27.7.2026)
 

@@ -1,6 +1,6 @@
 # Cílový režim — append-only lock na g2007.claude_aktivita
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Cílový režim — append-only lock na g2007.claude_aktivita
 

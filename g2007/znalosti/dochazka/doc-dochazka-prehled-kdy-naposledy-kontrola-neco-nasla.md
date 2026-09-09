@@ -1,6 +1,6 @@
 # Prehled "Kontroly - posledni nalez": kdy naposledy ktera kontrola dochazky neco nasla (zavedeno 5. 9. 2026, od 7. 9. 2026 ukazuje i kontroly bez nalezu)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Ticho u kontroly, ktera driv nachazela pravidelne, je SIGNAL k prohlednuti -

@@ -1,6 +1,6 @@
 # Nocni prenos zalohy Praha-Plzen padal: pricina, oprava a pasti (8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Nocni prenos zalohy Praha -> Plzen padal: pricina, oprava a pasti (8. 9. 2026)
 > ⚠️ **DOPLNENO 9. 9. 2026 — pricinu upresnuje `doc-system-strategie-dr-stahovani-se-zasekava-ne-zpomaluje`, cti ji nejdriv.**

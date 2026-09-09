@@ -1,6 +1,6 @@
 # Vecerni deploy balicek HOTOV (3.8.2026): __uid__ v /run, sweeper automat, zruseni uzavira potreby
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Uzavira doc-system-strategie-todo-martinky-vecerni-deploy-3-8. Vse nasazeno a overeno naostro:

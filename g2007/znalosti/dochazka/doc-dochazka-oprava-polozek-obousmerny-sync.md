@@ -1,6 +1,6 @@
 # Oprava/storno docházky na POLOŽKÁCH + obousměrný sync hlavičky
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > Rozšíření [[doc-dochazka-att-entry-vyroba-work-kaskada]]. Kristý 31.7.2026: editace/storno se u pracovních segmentů dělá na POLOŽKÁCH (vyroba_work), ne na hlavičce; hlavička (att_entry) se z položek DOPOČÍTÁ. Obousměrný sync VEDLE kanonické kaskády hlavička→položky (nerozbíjí ji).
 

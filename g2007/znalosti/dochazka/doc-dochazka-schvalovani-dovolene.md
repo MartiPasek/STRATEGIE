@@ -1,6 +1,6 @@
 # Schvalování dovolené / absencí — model a stav (21. 7. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Schvalování dovolené / absencí — model a stav (21. 7. 2026)
 

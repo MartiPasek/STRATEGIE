@@ -1,6 +1,6 @@
 # ISO 27001 — předávací balíček pro Kristý (co máš, co s tím)
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # ISO 27001 — předávací balíček pro Kristý (co máš, co s tím)
 

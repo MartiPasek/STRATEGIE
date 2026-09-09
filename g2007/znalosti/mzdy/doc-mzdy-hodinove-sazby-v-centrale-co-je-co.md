@@ -1,6 +1,6 @@
 # Hodinové sazby v Centrále: která je která a k čemu slouží (27. 8. 2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Hodinové sazby v Centrále — co je co

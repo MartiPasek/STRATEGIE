@@ -1,6 +1,6 @@
 # Mobil: vyska spodni listy (--navh) - obsah nesmi pocitat s pevnou rezervou
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ AKTUALIZACE 8. 9. 2026 — na Firmě už NENÍ ani lišta skupin

@@ -1,6 +1,6 @@
 # Cesta do prace neni prace - "Uz jedu do prace" se pocitalo do odpracovanych hodin a do mezd (pravidlo Peti 9.9.2026, opravu resi Tynka)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # NALEZ - "Uz jedu do prace" se pocita do mzdoveho podkladu

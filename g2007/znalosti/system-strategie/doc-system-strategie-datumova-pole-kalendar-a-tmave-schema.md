@@ -1,6 +1,6 @@
 # Datumová pole: kalendář se otevře jen na klik a bez color-scheme je ikonka neviditelná (24. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Našel Jirka Honomichl 24. 8. 2026 („proč tam není možnost výběru data z kalendáře"), opravil Claude-28.** Platí pro každou obrazovku, ne jen pro tu, kde se to našlo.

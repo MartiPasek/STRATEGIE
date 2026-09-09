@@ -1,6 +1,6 @@
 # 🧮 Kalkulační engine v DB_EC (2014) — inventura, model, plán oživení (řada AI)
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # 🧮 Kalkulační engine v DB_EC (2014) — inventura, model, plán oživení (řada AI)
 

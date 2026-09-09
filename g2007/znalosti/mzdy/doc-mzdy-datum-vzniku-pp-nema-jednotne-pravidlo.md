@@ -1,6 +1,6 @@
 # Datum vzniku PP: Helios ho má u každého jinak (u někoho první nástup, u jiného až druhou smlouvu) — proto se zatím nepřenáší
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Kontext

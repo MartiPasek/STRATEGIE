@@ -1,6 +1,6 @@
 # ZRCADLO DOCHAZKY (att_day_summary) SE PLNI ZE STRATEGIE, NE Z CENTRALY (Peta + Kristy + Tynka 6.8.2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Zrcadlo dochazky se plni ze STRATEGIE, ne z Centraly

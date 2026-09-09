@@ -1,6 +1,6 @@
 # Hlídač nekontroluje chybějící zakázku na HLAVIČCE docházky — jen v rozpadu (nález 3. 9. 2026, doplněno večer)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## ⚠️ ZMĚNA TÉHOŽ DNE VEČER — bod 2 a rozhodnutí o „drobcích" už NEPLATÍ
 >

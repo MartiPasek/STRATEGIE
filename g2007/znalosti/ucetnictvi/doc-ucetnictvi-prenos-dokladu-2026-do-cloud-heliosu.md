@@ -1,6 +1,6 @@
 # Přenos dokladů 2026 z office Heliosu (Plzeň) do cloud Heliosu (UCTO_EC/UCTO_ES) — analýza a gotchy (C24, 2.9.2026)
 
-> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Přenos dokladů 2026: DB_EC (192.168.30.11) → UCTO_EC / UCTO_ES (10.200.188.12)

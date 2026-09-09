@@ -1,6 +1,6 @@
 # Zrcadlo ec.pripl_srazky: proc musi byt PLNY re-import (Centrala vyplnuje IDPolVobj bez zmeny DatZmeny)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Zrcadlo `ec.pripl_srazky` — plny re-import misto inkrementalniho
 

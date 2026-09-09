@@ -1,6 +1,6 @@
 # Podklad OSVC: prvni ostry test zapisu do Heliosu (Vasyl 19.8.2026) — co selhalo a co opravit
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Prvni ostry test zapisu objednavky — Vasyl Namjak, 19. 8. 2026
 

@@ -1,6 +1,6 @@
 # Past: `ZakladReal` v Centrále se nedopočítává — u Svobody 89 000 místo 95 000 (26. 8. 2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # `ZakladReal` v Centrále nemusí sedět se `Zaklad`

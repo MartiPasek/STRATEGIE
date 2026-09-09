@@ -1,6 +1,6 @@
 # Schvalovaci banner obejde SELECT volajici zapisujici funkci - ale zapis se rollbackne (overeno 25.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Schvalovaci banner obejde `SELECT zapisujici_funkce()` — zapis se ale neulozi

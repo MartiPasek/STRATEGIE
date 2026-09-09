@@ -1,6 +1,6 @@
 # Ramec FW - sest gotch pri stavbe edit jadra a vnoreneho gridu z SQL (C28, 11.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Postaveno rucne pres SQL most (edit jadro nad tenant.org_post pro Dusanuv vyrobni grid). Kazda z techto veci stala cas, protoze se navenek projevi jinak, nez je pricina.

@@ -1,6 +1,6 @@
 # Oprava bugu _JEDNATELE_CISLA (jednatelska cisla) v mzdovych skriptech
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Predexistujici produkcni bug (nalezen 31.7.2026 pri migraci Faze E davka 2): funkce mzdy_vyplatnice_detail, mzdy_vyplatnice_slozka_detail a inline blok v mzdy_generuj odkazovaly na nedefinovane jmeno _JEDNATELE_CISLA (konstanty _STRAVENKA_KC/_STRAVENKA_MS/_JEDNATELE_CISLA byly smazany commitem 9ce2af8c) - u vyplatnice_slozka_detail to zpusobovalo 500 error pri rozpisu slozky 432 pro NE-jednatele.
 

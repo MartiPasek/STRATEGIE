@@ -1,6 +1,6 @@
 # Mzdy — měsíční uzávěrka a zaúčtování (runbook)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mzdy — měsíční uzávěrka a zaúčtování (runbook)
 

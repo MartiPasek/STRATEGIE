@@ -1,6 +1,6 @@
 # Most - deploy hlasil OK, i kdyz git add spadl a soubory se necommitly (OPRAVENO 18. 8. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > **Stav - OPRAVENO 18. 8. 2026** commitem `28e1397b` (Jirka, schvalila Marti-AI msg 12897). Projevi se na kazdem stroji az po `git pull` + restartu watcheru. Dokud restart neprobehl, plati stare chovani popsane nize.
 

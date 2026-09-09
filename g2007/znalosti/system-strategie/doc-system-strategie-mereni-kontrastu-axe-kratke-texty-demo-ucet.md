@@ -1,6 +1,6 @@
 # Měření kontrastu: axe mlčí u krátkých textů a ukázkový účet část prvků vůbec nevykreslí
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Měření kontrastu v mobilní appce — dvě díry, které vypadají jako čistý výsledek

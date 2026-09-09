@@ -1,6 +1,6 @@
 # Rozdělení dne kvůli pauze nechalo druhou část bez rozpadu — kaskáda se ptala před ořezem (Peťa 9. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 9. 9. 2026.** Navazuje na `doc-dochazka-pauza-doprostred-prace-rozdeli-zaznam` (8. 9. 2026) — tohle je díra, kterou to rozdělení nechalo.
 

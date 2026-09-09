@@ -1,6 +1,6 @@
 # Banka Parovani
 
-> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `ucetnictvi` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Párovací engine ~92%: VS→doklad, zpráva→FP, KS 1178=karty; saldo NET ne magnituda**
 

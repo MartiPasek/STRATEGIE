@@ -1,6 +1,6 @@
 # Mobil: spodní lišta zjednodušena — pruh „Zpět" i dva extra pruhy pryč, Nastavení mezi dlaždice (28. 8. 2026, dokončeno 31. 8. 2026; 7. 9. 2026 nové složení, jméno člověka místo popisku docházky a srovnané snímky návodu)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## ⚠️ AKTUALIZACE 8. 9. 2026 — z Firmy zmizel i pruh skupin (`#bnavx2`)

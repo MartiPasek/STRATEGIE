@@ -1,6 +1,6 @@
 # Zdroj ceny pro kalk_kmen OVĚŘEN (velké ceníky = správný zdroj, medián odchylky 2,4 %); EPLAN+kusovník nalezen v adresáři EN262940, ne v inboxu; TabDokladyZbozi/EC_KalkulaceHlav NEOBSAHUJE finální cenu
 
-> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `kalkulace-rozvadecu` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Kontext:** Marti 2.8.2026 (Kristý a Eliška nepracují): "Kalkulační věci ze starého Heliosu a napojení na velké ceníky přes MCP by už chtělo likvidovat... Ty tabulky dílů co dělala Kristý by měli mít spolupracující tabulku zdroj ceny, kde jedním ze zdrojů jsou ty velké ceníky... Ověř to." + úkol zorientovat se v příchozích e-mailech Elišky (z.cepicky@ s EPLANy a excel kusovníky) + prověřit TabDokladyZbozi/EC_KalkulaceHlav jako zrcadlo/zdroj pravdy. Navazuje na #316/#317 (dnešní dopolední analýza kalkulačního enginu a objevení proj.kalk_kmen).
 

@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek - do ktere firmy odmena patri (pravidlo overene 8.9.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Do ktere firmy odmena patri

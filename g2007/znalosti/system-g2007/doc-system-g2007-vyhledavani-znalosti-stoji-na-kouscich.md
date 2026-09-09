@@ -1,6 +1,6 @@
 # Vyhledavani znalosti stoji na kouscich - prima uprava je nepreindexuje, a kod musi sedet s oblasti
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Vyhledavani znalosti stoji na kouscich - a co to znamena v praxi
 

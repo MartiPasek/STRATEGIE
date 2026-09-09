@@ -1,6 +1,6 @@
 # Faze E davka 2: 15 GET HTTP endpointu vyroby a mezd migrovano na DB-driven delegaty
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Druha davka Faze E (31.7.2026 17:19-17:54 UTC, commit 0b1fbe284): 15 GET/read-only HTTP endpointu ze dvou novych domen (vyroba, mzdy) - prvni davka mimo dochazku od pilotu.
 

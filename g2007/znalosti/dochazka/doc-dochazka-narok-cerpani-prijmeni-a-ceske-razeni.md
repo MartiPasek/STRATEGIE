@@ -1,6 +1,6 @@
 # Nárok a čerpání: Příjmení Jméno + české řazení — a past se zpětnými lomítky
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Nárok a čerpání dovolené — Příjmení Jméno a české řazení
 

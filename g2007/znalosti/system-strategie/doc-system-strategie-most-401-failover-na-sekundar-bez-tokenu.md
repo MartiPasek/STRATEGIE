@@ -1,6 +1,6 @@
 # Most dostaval HTTP 401 "Nejsi prihlasen" - Caddy failover na sekundar 8003, ktery nema deploy token (diagnoza a oprava 17.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Priznak
 

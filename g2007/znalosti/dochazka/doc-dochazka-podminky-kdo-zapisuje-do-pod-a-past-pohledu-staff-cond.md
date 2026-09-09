@@ -1,6 +1,6 @@
 # Podmínky - úplný seznam zapisovatelů do engagement.pod_* a past pohledu staff_cond
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Claude-24 (Kristý), 20. 8. 2026. Vzniklo z obavy Šárky Novotné, že se jí ruční nastavení podmínek přepisuje zpět na výchozí hodnoty. Obava se NEPOTVRDILA, ale při dohledávání vypadly dvě věci, které stojí za zapsání.**
 

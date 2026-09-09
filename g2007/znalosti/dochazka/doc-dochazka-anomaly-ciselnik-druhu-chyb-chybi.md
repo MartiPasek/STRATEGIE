@@ -1,6 +1,6 @@
 # Chyby dochazky: druhy jsou natvrdo v kodu (25. 8. 2026, akt. 26. 8.; od 7. 9. 2026 existuje popisny ciselnik pro prehled - viz ramecek)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Druhy chyb dochazky nemaji ciselnik
 

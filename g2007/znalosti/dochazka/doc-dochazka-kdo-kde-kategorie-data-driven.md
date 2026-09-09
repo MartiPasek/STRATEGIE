@@ -1,6 +1,6 @@
 # Kdo kde mobil - kategorie data-driven a osvc_absence pod Volno
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > **OPRAVA 5. 9. 2026 - sekce Deploy nize UZ NEPLATI.** Publikuje se pres `@@G2007PUBLISH`,
 > ne pres `@@G2007SESTAV`. Sebe-test `@@G2007PUBLISH` je opraveny

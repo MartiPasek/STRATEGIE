@@ -1,6 +1,6 @@
 # Vkládání textu přes overlay: pozice ukazuje NA znak, ne ZA něj — rozdělilo mi to příkaz v půlce
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Vkládání textu přes `overlay`: pozice ukazuje NA znak, ne ZA něj
 

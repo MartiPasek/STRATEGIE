@@ -1,6 +1,6 @@
 # Mobilni login a stav uctu pending (zaver 'neprihlasi se' opraven 8.9.2026 - pending lide appku bezne pouzivaji)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobilni login: proc se pending user neprihlasi do appky
 

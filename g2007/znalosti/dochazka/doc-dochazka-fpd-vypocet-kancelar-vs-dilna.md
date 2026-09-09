@@ -1,6 +1,6 @@
 # FPD (fond pracovní doby) — jak se počítá a co se má proplatit: kancelář × dílna × hodinoví
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 4. 8. 2026, ověřeno na datech července 2026.**
 

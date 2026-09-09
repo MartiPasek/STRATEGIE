@@ -1,6 +1,6 @@
 # Nepřítomnost OSVČ: kde se zobrazuje a kde ne (Docházka new ne, Správa info, Opravy šedě)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Nepřítomnost OSVČ — kde se zobrazuje a kde ne
 

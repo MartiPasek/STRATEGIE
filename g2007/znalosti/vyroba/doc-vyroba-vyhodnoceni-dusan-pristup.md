@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek: Dusan vidi modul (menu 192) + POZOR viditelnost scoped usera = plny pristup vc. Uzaverky
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Vyhodnoceni zakazek - pristup Dusana + pojistka na Uzaverku (bod 5 doladeni)
 

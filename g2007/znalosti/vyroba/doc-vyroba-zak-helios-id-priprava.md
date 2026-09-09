@@ -1,6 +1,6 @@
 # Zakazky: priprava helios_id (Zakazka_ID) pro Helios prechod (bod 9 Marti Paska, 27.7.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod z emailu Marti Paska 26.7.: "do budoucna nahradime CisloZakazky fieldem Zakazka_ID (vazba pres id, ne cislo) - at uz ty fieldy existuji." Additivni PRIPRAVA. HOTOVO 27.7.2026 (i28).

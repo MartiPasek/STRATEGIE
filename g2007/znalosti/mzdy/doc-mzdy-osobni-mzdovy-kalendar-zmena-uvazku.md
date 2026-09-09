@@ -1,6 +1,6 @@
 # Osobní mzdový kalendář v Heliosu — proč se změna úvazku neprojeví ve výpočtu mzdy
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Osobní mzdový kalendář — proč se změna úvazku „nechytne"
 

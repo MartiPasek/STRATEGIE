@@ -1,6 +1,6 @@
 # Tenanti a firemní číselník (EC=1, ES=2) — model a pravidlo pro nové tabulky
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Tenanti a firemní číselník (EC=1, ES=2) — model a pravidlo pro nové tabulky
 

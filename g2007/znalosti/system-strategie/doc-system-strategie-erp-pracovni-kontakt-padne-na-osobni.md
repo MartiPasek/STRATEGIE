@@ -1,6 +1,6 @@
 # ERP: sloupce „Pracovní e-mail" a „Pracovní mobil" ukazují OSOBNÍ kontakt, když firemní chybí
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # ERP: „pracovní" kontakt v seznamu lidí padá na osobní
 

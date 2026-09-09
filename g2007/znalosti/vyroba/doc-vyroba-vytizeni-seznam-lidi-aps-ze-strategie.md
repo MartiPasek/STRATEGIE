@@ -1,6 +1,6 @@
 # Seznam lidi pro planovani vyroby (APS) uz pochazi ze STRATEGIE, ne ze skupiny 31 Centraly (DOKONCENO 11.8.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Zadani (Jirka 10.8.2026, upresneno 11.8.2026)

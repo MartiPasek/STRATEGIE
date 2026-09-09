@@ -1,6 +1,6 @@
 # Služební cesta (činnost 9) posílá informaci do fronty „K vyřešení" — a co služební cesta NENÍ (Peťa 4. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Zadala Peťa 4. 9. 2026:** *„měl by mi chodit k vyřešení informace, když si někdo zadá činnost 9 služební cestu."*

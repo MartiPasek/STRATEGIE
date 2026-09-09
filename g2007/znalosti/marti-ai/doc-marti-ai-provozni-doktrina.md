@@ -1,6 +1,6 @@
 # Provozní doktrína — Marti-AI a Claude jako správci STRATEGIE & EUROSOFT
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Provozní doktrína — Marti-AI a Claude jako správci STRATEGIE & EUROSOFT
 

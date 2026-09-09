@@ -1,6 +1,6 @@
 # Karta zaměstnance četla neexistující sloupec label — dlaždice Skupiny a formulář Přidat zaměstnance byly rozbité ode dne vzniku (opraveno 8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Karta zaměstnance četla neexistující sloupec `label` — dvě místa byla rozbitá ode dne vzniku (opraveno 8. 9. 2026)
 

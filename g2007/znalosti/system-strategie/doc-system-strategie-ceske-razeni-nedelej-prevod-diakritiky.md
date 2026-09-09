@@ -1,6 +1,6 @@
 # České řazení jmen: vlastní převod diakritiky NENÍ české řazení — řadit musí databáze
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # České řazení jmen: vlastní převod diakritiky je špatně
 

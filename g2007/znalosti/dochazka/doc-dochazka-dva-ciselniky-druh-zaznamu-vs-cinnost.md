@@ -1,6 +1,6 @@
 # Docházka má DVA číselníky — druh záznamu a činnost. Nepleť si je (Peťa 25. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Docházka má DVA číselníky. Nepleť si je.

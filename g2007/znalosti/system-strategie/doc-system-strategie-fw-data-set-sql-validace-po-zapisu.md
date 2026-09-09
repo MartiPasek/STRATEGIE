@@ -1,6 +1,6 @@
 # Fw data set sql validace po zapisu
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **fw.data_set: sql_text se nevaliduje při uložení — syntaktická chyba se projeví až za běhu. Povinné ověření po každé změně.**
 

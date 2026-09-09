@@ -1,6 +1,6 @@
 # SMER UI (Marti 3.8.2026): Ridici centrum = uchopeni pres Firmu/dochazku - skupiny -> lide -> jejich AI tymy
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Zavazny smer UI od Marti (3.8.2026, iterovano nad mockupy v1-v3)

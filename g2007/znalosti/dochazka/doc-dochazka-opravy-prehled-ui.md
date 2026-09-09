@@ -1,6 +1,6 @@
 # Opravy docházky — chování přehledu, detailu a historie (stav 22.7.2026, doplněno 3.9.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## ⚠️ POZOR — fronta a datum se 3. 9. 2026 chovají jinak (doplněno 3. 9. 2026)
 >

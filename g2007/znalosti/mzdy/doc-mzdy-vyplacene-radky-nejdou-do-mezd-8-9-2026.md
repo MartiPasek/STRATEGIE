@@ -1,6 +1,6 @@
 # Vyplacene priplatky a srazky uz do mzdy nejdou (rozhodnuti Petry Safrankove 8. 9. 2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Vyplacene radky uz do mzdy nejdou

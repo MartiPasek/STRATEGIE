@@ -1,6 +1,6 @@
 # Aktualnich smluv je 81, ale lidi 76 - peti chybi uzivatelsky ucet (25.8.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Overil Claude-28 na zadani Jirky Honomichla 25. 8. 2026. Rozhodnuti Jirky: **nechat tak,

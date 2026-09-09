@@ -1,6 +1,6 @@
 # Vyber spravcu pro upozorneni na disk presunut z router.py do g2007.python (6.9.2026) — vzor presunu
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Vyber spravcu pro upozorneni na disk: presun z router.py do g2007.python

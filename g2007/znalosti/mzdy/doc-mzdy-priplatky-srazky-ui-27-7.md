@@ -1,6 +1,6 @@
 # Priplatky a srazky - UI uprava 27.7.2026 (popisky dle Centraly, cislo+nazev, zamek na cteni) + 4 gotchy frameworku
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Priplatky a srazky (Mzdy) - UI uprava 27. 7. 2026

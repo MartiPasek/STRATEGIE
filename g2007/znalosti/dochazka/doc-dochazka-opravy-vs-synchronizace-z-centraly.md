@@ -1,6 +1,6 @@
 # Opravy docházky vs. synchronizace z Centraly - dve pasti a jak se chrani
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Opravy dochazky vs. synchronizace z Centraly

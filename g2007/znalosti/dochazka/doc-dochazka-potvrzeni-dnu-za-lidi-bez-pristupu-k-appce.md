@@ -1,6 +1,6 @@
 # Potvrzení docházky za lidi, kteří se k němu nedostanou (Peťa 4. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 **Rozhodla Peťa 4. 9. 2026** při ruční kontrole srpna: *„prosím o potvrzení docházky Marešové a Kilbergra a všech, co nemají potvrzeno, protože oni se k tomu nijak nedostanou."*

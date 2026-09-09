@@ -1,6 +1,6 @@
 # Opravy docházky pověřenými osobami — NÁVRH (v1)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## !! POZOR - 5. 9. 2026 se obrazovka dochazky v mobilu ZMENILA
 > Rozhodl Jiri Honomichl 5. 9. 2026. Co uz neplati:

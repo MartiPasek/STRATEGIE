@@ -1,6 +1,6 @@
 # Ridici centrum v mobilni appce - NASAZENO+OVERENO ZIVE 3.8.2026 vecer (dlazdice v sekci Ukoly)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co je nasazeno (artefakt mobile.html v15, md5 441a0e9a8f8fcaa1c8aaec91e6b8e940)

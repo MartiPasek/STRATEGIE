@@ -1,6 +1,6 @@
 # Rozpad: položky bez vazby na docházkový záznam = zdroj všech nesouladů. ČÁSTEČNĚ vyřešeno 12.–14. 8. 2026 — ERP „Docházka new" měla vlastní díru až do 31. 8. 2026
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## ⚠️ KOREKCE 31. 8. 2026 (Peťa + Claude‑26) — TÉMA NEBYLO UZAVŘENÉ
 >

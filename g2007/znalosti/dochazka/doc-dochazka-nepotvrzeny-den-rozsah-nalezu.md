@@ -1,6 +1,6 @@
 # Nepotvrzený den: nález jen u dnů z appky a jen dokud jde potvrdit (14 dní) — jinak visel navždy (1.–2. 9. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 1.–2. 9. 2026.** Dvě omezení, která nález „nepotvrzený den"
 dřív neznal — a proto nálezy visely lidem navždy.

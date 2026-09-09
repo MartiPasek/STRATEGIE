@@ -1,6 +1,6 @@
 # ROZHODNUTI (Jirka, 28. 8. 2026): Macuv repos iOS appky se prestava pouzivat, vse jde do repa STRATEGIE
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Rozhodnuti
 

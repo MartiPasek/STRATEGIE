@@ -1,6 +1,6 @@
 # Nastroje Marti-AI: DB_ST bezi na EC-SERVER2, ne v Praze - vzdy si nech potvrdit, ktery stroj odpovedel (6.9.2026)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Nastroje Marti-AI: over si, ktery stroj opravdu odpovedel
 

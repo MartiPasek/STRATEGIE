@@ -1,6 +1,6 @@
 # Podklad fakturace OSVC: prepnuti noveho vypoctu na ostro (19.8.2026) + jak vratit zpet
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Prepnuti podkladu OSVC na ostro — 19. 8. 2026
 

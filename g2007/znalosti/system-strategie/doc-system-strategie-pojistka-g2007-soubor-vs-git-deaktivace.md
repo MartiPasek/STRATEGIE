@@ -1,6 +1,6 @@
 # Pojistka g2007-soubor-vs-git deaktivovana 17.8.2026 (hlidala pravidlo zrusene 5.8.)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se stalo

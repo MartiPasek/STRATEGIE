@@ -1,6 +1,6 @@
 # Jak nasadit obsah PR pres most, kdyz na GitHubu neni pravo slouceni - a tri kontroly, bez kterych smazes cizi praci
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Nasazeni obsahu PR pres most (kdyz slouceni na GitHubu nejde)

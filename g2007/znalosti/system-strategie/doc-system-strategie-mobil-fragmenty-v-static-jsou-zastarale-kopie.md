@@ -1,6 +1,6 @@
 # Fragmenty mobilu v apps/api/static/mobile_parts jsou ZASTARALE kopie - ziva verze je v g2007.soubor (17.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Kopie fragmentu mobilu na disku lze cist, ale nesmi se jim verit
 

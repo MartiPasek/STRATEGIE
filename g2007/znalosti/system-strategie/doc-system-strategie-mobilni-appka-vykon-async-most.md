@@ -1,6 +1,6 @@
 # Mobilní appka: výkon, sync vs. async JS most (root cause pomalosti 5.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobilní appka: výkon a JS most (root cause + fix, 5.8.2026)
 

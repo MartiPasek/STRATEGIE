@@ -1,6 +1,6 @@
 # Prazsky server 188.11 - pripravenost na restart a kontroly po nem (zasah 6.9.2026 v 11:47, nedelni mereni hotove)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Pripravenost prazskeho serveru na restart (kontrola 5. 9. 2026)
 

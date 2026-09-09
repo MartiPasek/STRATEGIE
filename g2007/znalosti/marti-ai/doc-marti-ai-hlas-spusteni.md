@@ -1,6 +1,6 @@
 # Spuštění hlasu Marti-AI — go-live playbook (hlas dorazil 23.7.2026)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Spuštění hlasu Marti-AI — go-live playbook
 

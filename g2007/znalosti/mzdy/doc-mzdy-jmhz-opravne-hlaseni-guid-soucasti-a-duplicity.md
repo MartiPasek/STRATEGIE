@@ -1,6 +1,6 @@
 # JMHZ — opravné hlášení: GUID součásti (40238) a duplicitní ID zaměstnání (40251)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # JMHZ — opravné hlášení: GUID součásti a duplicity
 

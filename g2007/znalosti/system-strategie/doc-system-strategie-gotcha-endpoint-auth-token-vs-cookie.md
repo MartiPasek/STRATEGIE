@@ -1,6 +1,6 @@
 # GOTCHA: nove /app endpointy MUSI pouzit _uid_from_token_or_cookie, ne _get_uid (nativni appka = Bearer token, zadna cookie)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Problem (3.8.2026 vecer, Ridici centrum)

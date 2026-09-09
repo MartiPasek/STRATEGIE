@@ -1,6 +1,6 @@
 # Kufr — překlopení defaultu na lean core + načítání per činnost (cíl 28.7.)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Kufr — dynamické načítání nástrojů (cíl)
 

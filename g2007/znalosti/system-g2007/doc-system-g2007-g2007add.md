@@ -1,6 +1,6 @@
 # @@G2007ADD — inline autonomní zápis znalosti do G2007 (STANDARD; docs/Z_ ZAKÁZÁNO)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # @@G2007ADD — inline autonomní zápis znalosti do G2007
 

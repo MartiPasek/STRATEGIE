@@ -1,6 +1,6 @@
 # Mzdove hodiny dne - jedna definice pro mobil i ERP (day_end NENI pauza)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Mzdove hodiny dne - jedna definice pro mobil i ERP

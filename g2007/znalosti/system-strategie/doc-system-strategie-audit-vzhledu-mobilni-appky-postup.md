@@ -1,6 +1,6 @@
 # Audit vzhledu mobilni appky - cim se meri, jak se to pousti bezpecne a co to neumi
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Audit vzhledu a přístupnosti mobilní appky

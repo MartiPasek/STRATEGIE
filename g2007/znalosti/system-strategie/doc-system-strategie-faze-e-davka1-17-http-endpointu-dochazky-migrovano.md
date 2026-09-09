@@ -1,6 +1,6 @@
 # Faze E davka 1: 17 GET HTTP endpointu dochazky migrovano na DB-driven delegaty
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Po overenem pilotu (att_status) migrovano prvnich 17 GET/read-only HTTP endpointu dochazky na Cesta B vzor (commit 89b73c799, 31.7.2026 17:00-17:16 UTC).
 

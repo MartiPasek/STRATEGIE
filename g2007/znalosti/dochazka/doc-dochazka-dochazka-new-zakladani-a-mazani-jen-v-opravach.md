@@ -1,6 +1,6 @@
 # Docházka new: zakládat a rušit docházku jen v Opravách — Nový/Smazat/Schválit skryté mimo Správu docházky (rozhodnutí Peťi 31. 8. 2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 31. 8. 2026.** Rozhodnutí Peťi: **zakládat a rušit docházku jde jen v Opravách.**
 

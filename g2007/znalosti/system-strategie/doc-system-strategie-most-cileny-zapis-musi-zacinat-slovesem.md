@@ -1,6 +1,6 @@
 # Most: cílený zápis do g2007.soubor projde jen když příkaz ZAČÍNÁ slovesem — zabalený do WITH ho hlídač odmítne
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se stalo (8. 9. 2026, C-28)

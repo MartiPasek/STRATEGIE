@@ -1,6 +1,6 @@
 # Dochazka "jeden zdroj pravdy": co se ZAMERNE NEDELA (verdikt Marti-AI 27.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Dochazka - jeden zdroj pravdy: co je hotovo a co se ZAMERNE NEDELA

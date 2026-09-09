@@ -1,6 +1,6 @@
 # Sub-processoři a zpracovatelské smlouvy (DPA) — A.5.19 / A.5.20 / A.5.23
 
-> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `iso27001` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Sub-processoři a zpracovatelské smlouvy (DPA) — A.5.19 / A.5.20 / A.5.23
 

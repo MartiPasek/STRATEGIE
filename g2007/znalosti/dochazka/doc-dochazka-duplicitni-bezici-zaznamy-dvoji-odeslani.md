@@ -1,6 +1,6 @@
 # Dva bezici zaznamy naraz - appka posilala pichnuti dvakrat (26.8.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > ## !! POZOR - 5. 9. 2026 se tlacitko v mobilu PREJMENOVALO
 > Tlacitko, kterym se v mobilni appce zahajuje prace, se jmenuje **START**.

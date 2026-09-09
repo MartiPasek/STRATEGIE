@@ -1,6 +1,6 @@
 # G2007 — doktrína session (načti / kontroluj / zapiš) a ochrana proti přepsání
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # G2007 — doktrína session (načti / kontroluj / zapiš) a ochrana proti přepsání
 

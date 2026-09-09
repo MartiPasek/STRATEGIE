@@ -1,6 +1,6 @@
 # Docházka new — činnost i u právě běžícího úseku
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Docházka new — činnost je vidět i u právě běžícího úseku
 

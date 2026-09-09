@@ -1,6 +1,6 @@
 # Centrála — stavba jader (konstrukce formulářů) + Rosetta Stone Centrála↔STRATEGIE
 
-> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Centrála — stavba jader (konstrukce formulářů) + Rosetta Stone Centrála↔STRATEGIE
 

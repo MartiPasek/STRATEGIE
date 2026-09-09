@@ -1,6 +1,6 @@
 # Agent jako default pro konverzaci — návrh, increment 1 (OFF), test-plán (29.7.)
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Agent jako default pro konverzaci — návrh + increment 1
 

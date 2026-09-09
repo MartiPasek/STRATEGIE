@@ -1,6 +1,6 @@
 # SQL most: pasti pri zapisu kodu a DDL (zdvojeni casti, diakritika, 401)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # SQL most - pasti pri zapisu kodu a DDL (C28/Jirka, 7.8.2026)

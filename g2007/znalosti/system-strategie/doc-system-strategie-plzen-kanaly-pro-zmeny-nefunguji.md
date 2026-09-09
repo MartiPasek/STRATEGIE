@@ -1,6 +1,6 @@
 # Zmenu na plzenskem serveru neudela zadna AI - obe automaticke cesty jsou zavrene (8. 9. 2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Zmenu na plzenskem serveru NEUDELA zadna AI - obe automaticke cesty jsou zavrene (8. 9. 2026)
 

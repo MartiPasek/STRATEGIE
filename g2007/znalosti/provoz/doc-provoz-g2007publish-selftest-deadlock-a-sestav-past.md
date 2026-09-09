@@ -1,6 +1,6 @@
 # @@G2007PUBLISH pada na self-testu (deadlock) + PAST: @@G2007SESTAV publikuje i cizi nepublikovanou praci
 
-> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 > **OPRAVA 5. 9. 2026 - cast textu nize UZ NEPLATI.** Deadlock self-testu `@@G2007PUBLISH`
 > z 5. 8. 2026 je OPRAVENY (`doc-system-g2007-g2007publish-selftest-event-loop-starvation`).

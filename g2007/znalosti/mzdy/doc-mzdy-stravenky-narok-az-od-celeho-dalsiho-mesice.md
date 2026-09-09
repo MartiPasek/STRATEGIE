@@ -1,6 +1,6 @@
 # Stravenky: narok az od 1. dne CELEHO DALSIHO mesice po zkusebce (smernice 1301, oprava 3.9.2026)
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Stravenky: narok vznika az od celeho dalsiho mesice

@@ -1,6 +1,6 @@
 # Faze E pilot: prvni HTTP endpoint migrovan na g2007.python, novy vzor overeny
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 Migrovan GET /app/attendance/status (kod=att_status) - prvni HTTP endpoint (na rozdil od Faze A-D, ktere migrovaly pomocne funkce volane odjinud).
 NOVY VZOR: FastAPI stavi routing tabulku pri startu, takze URL + metoda + auth (_uid_from_token_or_cookie) MUSI zustat tenky async wrapper primo v router.py (jadro). Jen synchronni byznys logika (run(uid) -> plain dict) jde do g2007.python. Wrapper: auth check -> erp_registry.call(kod, uid) -> JSONResponse(vysledek). Vyjimky se propaguji stejne jako pred migraci.

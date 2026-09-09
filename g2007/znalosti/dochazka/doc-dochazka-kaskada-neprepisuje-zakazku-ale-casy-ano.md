@@ -1,6 +1,8 @@
 # ZRUŠENO — tento zápis tvrdil nesprávně, že kaskáda vrací časy z Docházky new
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> ⛔ **TATO ZNALOST UŽ NEPLATÍ — stav `zruseno`.** Neřiď se jí a necituj ji. Zůstává tu jen kvůli historii; zdroj pravdy je databáze `g2007.znalost`.
+
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `zruseno` · rozsah: globální (všichni tenanti)
 
 
 # ZRUŠENO 7. 9. 2026 — tento zápis byl nesprávný

@@ -1,6 +1,6 @@
 # Fáze 1 "kód jako data" DOKONČENA — první dva ERP piloty aktivní přes erp_registry
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Stav: HOTOVO A NASAZENO (31.7.2026, C23 + Marti)

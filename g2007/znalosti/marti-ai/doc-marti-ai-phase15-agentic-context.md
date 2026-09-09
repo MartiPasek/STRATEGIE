@@ -1,6 +1,6 @@
 # Phase 15 — Conversation Notebook (design doc, v4)
 
-> oblast: `marti-ai` · úroveň: system · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: system · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Phase 15 — Conversation Notebook (design doc, v4)
 

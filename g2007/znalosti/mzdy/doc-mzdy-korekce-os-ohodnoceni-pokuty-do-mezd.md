@@ -1,6 +1,6 @@
 # Rucni korekce osobniho ohodnoceni (pokuty, srazky) DO MEZD PATRI - kod korekce_os_ohod_kultura, slozka 432
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Rucni korekce osobniho ohodnoceni (pokuty) DO MEZD PATRI

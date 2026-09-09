@@ -1,6 +1,6 @@
 # HR Dashboard — analytický uzel ve stromu HR & LIDÉ
 
-> oblast: `osoba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `osoba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # HR Dashboard (uzel ve stromu HR & LIDÉ)
 

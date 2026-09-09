@@ -1,6 +1,6 @@
 # Topologie serverů: Praha (PRODUKCE STRATEGIE) vs Plzeň (DR záloha + EUROSOFT legacy)
 
-> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Topologie serverů: Praha ↔ Plzeň
 

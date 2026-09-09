@@ -1,6 +1,6 @@
 # Vyhodnoceni zakazek: detail zakazky - lista tlacitek pri rolovani mizela (opraveno 6.8.2026)
 
-> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `vyroba` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Detail zakazky: lista tlacitek zustava videt
 

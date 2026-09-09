@@ -1,6 +1,6 @@
 # @@G2007PUBLISH self-test: synchronni blokujici volani v async diag_sql zmrazi event loop (oprava asyncio.to_thread)
 
-> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-g2007` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Symptom
 `@@G2007PUBLISH <artefakt s zivou URL>` (napr. `apps/api/static/mobile.html`) opakovane spadne: self-test na zive URL bezi presne az do `timeout=10 s`, publikace se auto-vrati zpet (auto-rollback funguje spravne). Zvenci (curl ze stroje) se ta sama URL stahne za 1-3 s. Pozorovano 5.8.2026: pokusy 10289 / 10389 / 10440 ms, vzdy CHYBA + rollback.

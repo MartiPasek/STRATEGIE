@@ -1,6 +1,6 @@
 # Stare nerozhodnute zadosti o absenci na Martim - srovnani 16.8.2026 + kde se bere schvalovatel
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Co se stalo
 

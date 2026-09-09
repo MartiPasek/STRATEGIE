@@ -1,6 +1,6 @@
 # Migrace rodiny /app/work do g2007.python - att_employee pripraveno, ceka na aktivaci (Kristy)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Migrace rodiny /app/work do g2007.python - stav k 31. 8. 2026

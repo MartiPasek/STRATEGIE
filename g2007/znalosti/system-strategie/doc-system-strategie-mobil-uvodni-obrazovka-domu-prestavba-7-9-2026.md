@@ -1,6 +1,6 @@
 # Mobil, úvodní obrazovka „Domů" — přestavba 7. 9. 2026 (nadpis nahoru, jméno do lišty, kruhový portrét, rolující seznam oznámení, přepínač řádku o odezvě)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Mobil, úvodní obrazovka „Domů" — přestavba 7. 9. 2026
 

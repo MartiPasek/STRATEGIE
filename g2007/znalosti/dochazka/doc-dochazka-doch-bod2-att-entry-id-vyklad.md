@@ -1,6 +1,6 @@
 # Dochazka: vyklad Marti Paska "cist Dochazka new pres att_entry_id" = STORNO/OPRAVA, ne display dedup (27.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod 2 z emailu Marti Paska: "prehledy (Dochazka new) cist pres tuto vazbu (att_entry_id), ne pres shodu casu; oprava i storno se propisou napevno po id."

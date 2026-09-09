@@ -1,6 +1,6 @@
 # Podklad OSVC: ukol na Nakup musi CIST objednavku, ne pocitat podklad znovu
 
-> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `mzdy` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 ## Co se stalo (20. 8. 2026, ostry test Vasyl Namjak c. 464)

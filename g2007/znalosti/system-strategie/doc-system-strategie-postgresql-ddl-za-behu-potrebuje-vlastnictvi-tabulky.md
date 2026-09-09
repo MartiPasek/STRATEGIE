@@ -1,6 +1,6 @@
 # PŘESUNUTO → doc-system-strategie-ddl-za-behu-vyzaduje-vlastnictvi-tabulky
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # ➡️ Přesunuto — čti `doc-system-strategie-ddl-za-behu-vyzaduje-vlastnictvi-tabulky`

@@ -1,6 +1,6 @@
 # SMS brána: přeposílání příchozích SMS z mobilní appky na Marti-AI (architektura + oprava 21.7.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # SMS brána — přeposílání příchozích SMS na Marti-AI
 

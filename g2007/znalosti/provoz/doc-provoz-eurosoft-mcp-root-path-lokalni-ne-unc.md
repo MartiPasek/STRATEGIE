@@ -1,6 +1,6 @@
 # EUROSOFT MCP: root_path musí být server-lokální (D:\Data\...), ne UNC — a LISTREC chyby tiše polyká
 
-> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 ## Pravidlo
 

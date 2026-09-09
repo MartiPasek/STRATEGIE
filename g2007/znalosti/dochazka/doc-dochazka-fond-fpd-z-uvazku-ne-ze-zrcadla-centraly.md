@@ -1,6 +1,6 @@
 # Fond (FPD) se bere z úvazku ve STRATEGII, ne ze zrcadla Centrály — a co ho přepisovalo zpátky
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 4. 8. 2026.** Realizace zadání z 28. 7.
 (`doc-dochazka-fond-a-narok-z-podminek-ne-ze-zrcadla`).

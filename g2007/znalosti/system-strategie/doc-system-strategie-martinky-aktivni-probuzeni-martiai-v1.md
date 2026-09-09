@@ -1,6 +1,6 @@
 # Aktivni probuzeni Marti-AI pri nove potrebe Martinek - NASAZENO+OVERENO 3.8.2026 rano
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 martinka_dispatch v4 (md5 d37396b1524cc1d2ea8c195aaf00e425): po INSERTu potreb k ukolu posle dispatcher zpravu do konverzace "Claude <-> Marti-AI" (conv dle _CLAUDE_AI_HOST_UID=1 + title, stejny vzor jako @@MARTIAI wake v router.py) s obsahem potreby + odkazem na eskalacni pravidla. Bezi v daemon threadu (neblokuje dispatch), prepinac g2007.nastaveni martinky_wake_martiai (on/off, default on). Zadny zasah do kodu - jen g2007.python.

@@ -1,6 +1,6 @@
 # Mobil, obrazovka Absence - ukazatel cesty k VLASTNI absenci pro vedouciho + nalez o skrytych dlazdicich pri praci (17.8.2026; cast klice a vyctu NEPLATI od 25.8.2026; skryvani dlazdic ZRUSENO 1.9.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 > ## !! CAST TOHOTO DOKUMENTU UZ NEPLATI (opraveno 25. 8. 2026)

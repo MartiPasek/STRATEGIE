@@ -1,6 +1,6 @@
 # Domeny maji lidske vlastniky + budicek jde do chatu vlastnika (NASAZENO+OVERENO 3.8.2026)
 
-> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 Realizace prvni casti smeru organizace-v2 (kotva = lidska org. struktura, priority Marti+Kristy+Eliska: 1 uridit sami sebe, 2 uridit tasky):

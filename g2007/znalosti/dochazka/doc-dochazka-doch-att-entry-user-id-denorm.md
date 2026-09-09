@@ -1,6 +1,6 @@
 # Dochazka: att_entry.user_id denormalizace vedle employee_id (bod 4 Marti Paska, 27.7.2026)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
 # Bod z emailu Marti Paska 26.7.: "sjednotit user_id (att_entry ma employee_id, vyroba_work user_id)". HOTOVO 27.7.2026 (i28).

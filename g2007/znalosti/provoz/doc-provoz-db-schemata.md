@@ -1,6 +1,6 @@
 # Kde co leží — schémata DB
 
-> oblast: `provoz` · úroveň: system · typ: definice · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `provoz` · úroveň: system · typ: definice · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Kde co leží — schémata DB (STRATEGIE, Postgres)
 

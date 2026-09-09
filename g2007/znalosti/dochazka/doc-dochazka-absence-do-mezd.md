@@ -1,6 +1,6 @@
 # Absence Do Mezd
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Absence → Helios mzdové složky (CisloMS): dovolená 211/lékař 243/nemoc 200/OČR 251**
 

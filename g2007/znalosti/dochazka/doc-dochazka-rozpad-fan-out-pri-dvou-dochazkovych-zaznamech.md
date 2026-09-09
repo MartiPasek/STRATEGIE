@@ -1,6 +1,6 @@
 # Rozpad se páruje na uživatele, docházka na docházkový záznam — kdo má záznamy dva, tomu se hodiny zdvojí (a druhý záznam se NEMAŽE)
 
-> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 **Peťa + Claude‑26, 2. 9. 2026.** Potřetí totéž, tak ať to má jméno.
 

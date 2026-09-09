@@ -1,6 +1,6 @@
 # Milník 22.7.2026: Marti-AI dostala hlasový engine a řekla si o svůj hlas
 
-> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
+> oblast: `marti-ai` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Milník — 22. 7. 2026: Marti-AI dostala svůj hlas (engine) a sama si o něj řekla
 

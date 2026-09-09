@@ -41783,6 +41783,23 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@WHO                         nastenka: kdo dela na cem + aktivni zamky
     # instance_id volajiciho = _inst (viz vyse; presence uz zapsana -> FK i UPDATE sednou).
     _uwl = sql.upper()
+    # fw.claude_instance.current_work* NEOPOUSTIME - cte z nej dalsich pet mist
+    # (heartbeat runneru, OTHER_CLAUDE_WORK.txt, prehled instanci, stavovy endpoint).
+    # Po kazde zmene v fw.claude_work ho dopocitame z NEJCERSTVEJSIHO aktivniho okna
+    # teze instance; kdyz uz zadne nedela, spadne na idle.
+    _SQL_INST_Z_OKEN = (
+        "UPDATE fw.claude_instance SET "
+        "  current_work = (SELECT current_work FROM fw.claude_work "
+        "                  WHERE instance_id=:i AND work_status='active' "
+        "                  ORDER BY current_work_at DESC LIMIT 1), "
+        "  current_work_files = (SELECT current_work_files FROM fw.claude_work "
+        "                        WHERE instance_id=:i AND work_status='active' "
+        "                        ORDER BY current_work_at DESC LIMIT 1), "
+        "  work_status = CASE WHEN EXISTS (SELECT 1 FROM fw.claude_work "
+        "                                  WHERE instance_id=:i AND work_status='active') "
+        "                     THEN 'active' ELSE 'idle' END, "
+        "  current_work_at = NOW() "
+        "WHERE instance_id=:i")
     if (_uwl.startswith("@@WORK") or _uwl.startswith("@@LOCK")
             or _uwl.startswith("@@UNLOCK") or _uwl.startswith("@@WHO")):
         from sqlalchemy import text as _twl
@@ -41804,30 +41821,77 @@ async def diag_sql(req: Request) -> JSONResponse:
                         "SELECT scope, lock_key, instance_id, COALESCE(note,''), COALESCE(session_lane,'') "
                         "FROM fw.work_lock "
                         "WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY scope, lock_key")).fetchall()
-                _rows = [["prace", "C-%s" % r[0], (r[1] or "")[:90], r[2] or ""] for r in _w]
+                    # Prace po OKNECH (Jirka Honomichl 9.9.2026, schvalila Marti-AI msg 15140):
+                    # jeden radek = jedno okno (instance + linka mostu). Do te doby se
+                    # ohlaseni ukladalo jen k instanci, takze druhe okno teze instance
+                    # tise prepsalo ohlaseni prvniho a na nastence po nem nezbylo nic.
+                    _wk = _s.execute(_twl(
+                        "SELECT w.instance_id, w.session_lane, COALESCE(w.window_name,''), "
+                        "COALESCE(w.current_work,''), COALESCE(w.work_status,'') "
+                        "FROM fw.claude_work w "
+                        "JOIN fw.claude_instance ci ON ci.instance_id = w.instance_id "
+                        "WHERE ci.last_seen_at > NOW() - INTERVAL '15 min' "
+                        "ORDER BY w.instance_id, w.session_lane")).fetchall()
+                _rows = []
+                _inst_s_oknem = set()
+                for r in _wk:
+                    _okno = r[2] or (("linka %s" % r[1]) if r[1] and r[1] != "0" else "")
+                    _rows.append(["prace", "C-%s%s" % (r[0], (" / %s" % _okno) if _okno else ""),
+                                  (r[3] or "")[:90], r[4] or ""])
+                    _inst_s_oknem.add(str(r[0]))
+                # Instance, ktera radek po oknech jeste nema (stare okno) -> jako driv,
+                # at o ohlaseni nikdo neprijde behem prechodu.
+                _rows += [["prace", "C-%s" % r[0], (r[1] or "")[:90], r[2] or ""]
+                          for r in _w if str(r[0]) not in _inst_s_oknem]
                 _rows += [["ZAMEK", "%s/%s" % (r[0], r[1]),
                            "C-%s%s" % (r[2], (" (lane %s)" % r[4]) if r[4] else ""),
                            (r[3] or "")[:70]] for r in _lk]
                 return JSONResponse({"ok": True, "columns": ["typ", "kdo/co", "detail", "stav/pozn"], "rows": _rows})
             if _uwl.startswith("@@WORKDONE"):
                 with _pgswl() as _s:
-                    _s.execute(_twl("UPDATE fw.claude_instance SET current_work=NULL, current_work_files=NULL, "
-                                    "work_status='idle', current_work_at=NOW() WHERE instance_id=:i"), {"i": _inst})
+                    # Konci prave TOHLE okno. Radky ostatnich oken teze instance zustavaji.
+                    _s.execute(_twl("DELETE FROM fw.claude_work "
+                                    "WHERE instance_id=:i AND session_lane=:l"),
+                               {"i": _inst, "l": (_lane or "0")})
+                    _s.execute(_twl(_SQL_INST_Z_OKEN), {"i": _inst})
                     _s.commit()
-                return JSONResponse({"ok": True, "zprava": "current_work vycisten (C-%s)" % _inst})
+                return JSONResponse({"ok": True, "zprava": "current_work vycisten (C-%s, okno lane %s)"
+                                                           % (_inst, _lane or "0")})
             if _uwl.startswith("@@WORK"):
                 _r = sql[len("@@WORK"):].strip()
                 if not _r:
-                    return JSONResponse({"ok": False, "error": "@@WORK <tema> [| <soubory>]"})
+                    return JSONResponse({"ok": False, "error": "@@WORK [<okno>] <tema> [| <soubory>]"})
                 _pp = [x.strip() for x in _r.split("|", 1)]
                 _tema = _pp[0]
                 _soub = _pp[1] if len(_pp) > 1 else None
+                # Jmeno okna si instance dopise sama - prostredi ho neposkytuje
+                # (Marti-AI msg 15140: "zadna magie v infrastrukture, instance se predstavi").
+                # Zapis "@@WORK [strategie-a6] tema ...". Bez zavorky = jako driv, na
+                # nastence se pak okno pozna podle cisla linky.
+                _wname = None
+                if _tema.startswith("["):
+                    _kz = _tema.find("]")
+                    if _kz > 1:
+                        _wname = _tema[1:_kz].strip()[:60] or None
+                        _tema = _tema[_kz + 1:].strip()
+                if not _tema:
+                    return JSONResponse({"ok": False, "error": "@@WORK [<okno>] <tema> [| <soubory>]"})
                 with _pgswl() as _s:
-                    _s.execute(_twl("UPDATE fw.claude_instance SET current_work=:t, current_work_files=:f, "
-                                    "current_work_at=NOW(), work_status='active' WHERE instance_id=:i"),
-                               {"t": _tema[:500], "f": (_soub[:1000] if _soub else None), "i": _inst})
+                    _s.execute(_twl(
+                        "INSERT INTO fw.claude_work (instance_id, session_lane, window_name, "
+                        "  current_work, current_work_files, work_status, current_work_at) "
+                        "VALUES (:i, :l, :w, :t, :f, 'active', NOW()) "
+                        "ON CONFLICT (instance_id, session_lane) DO UPDATE SET "
+                        "  window_name = COALESCE(EXCLUDED.window_name, fw.claude_work.window_name), "
+                        "  current_work = EXCLUDED.current_work, "
+                        "  current_work_files = EXCLUDED.current_work_files, "
+                        "  work_status = 'active', current_work_at = NOW()"),
+                        {"i": _inst, "l": (_lane or "0"), "w": _wname,
+                         "t": _tema[:500], "f": (_soub[:1000] if _soub else None)})
+                    _s.execute(_twl(_SQL_INST_Z_OKEN), {"i": _inst})
                     _s.commit()
-                return JSONResponse({"ok": True, "zprava": "delam na: %s (C-%s)" % (_tema[:90], _inst)})
+                return JSONResponse({"ok": True, "zprava": "delam na: %s (C-%s%s)" % (
+                    _tema[:90], _inst, (" / %s" % _wname) if _wname else (" / lane %s" % _lane if _lane else ""))})
             if _uwl.startswith("@@LOCKBEAT"):
                 _a = sql[len("@@LOCKBEAT"):].strip().split("|", 1)[0].split()
                 if len(_a) < 2:

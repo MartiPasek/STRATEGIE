@@ -41775,8 +41775,10 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 
     # ── Bod 2 napojeni (C24 5.8.2026): koordinace instanci pres DB misto WORK_LOCK.txt ──
-    #   @@WORK <tema> [| <soubory>]   nastav "delam na cem" (fw.claude_instance.current_work*)
-    #   @@WORKDONE                    vycisti current_work
+    #   @@WORK [<okno>] <tema> [| <soubory>]  nastav "delam na cem". Od 9.9.2026 do
+    #                                 fw.claude_work podle (instance_id, session_lane) -
+    #                                 tj. PO OKNECH; fw.claude_instance se z toho dopocita.
+    #   @@WORKDONE                    vycisti ohlaseni JEN sveho okna
     #   @@LOCK <scope> <key> [| note] MEKKY exclusive zamek (Marti 5.8.: jen ohlasi obsazeni,
     #                                 NIKDY tvrde neblokuje -> zadne deadlocky). TTL 15 min.
     #   @@LOCKBEAT <scope> <key>      prodluz TTL · @@UNLOCK <scope> <key> uvolni

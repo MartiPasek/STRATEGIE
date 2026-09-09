@@ -136,3 +136,43 @@ Soubor byl zastaraly, ne rovnocenny. Dalsi duvod cist z DB, ne z disku.)*
 **Pravidlo:** kdykoli znalost přejmenuješ nebo zrušíš, **smaž její starý soubor z gitu ručně**
 — export to za tebe neudělá.
 
+## Doplneno 9. 9. 2026 — jak moc se to pravidlo NEDODRZUJE (a co se zmenilo)
+
+Pravidlo o rucnim mazani vyse **existuje, ale nikdo ho nedodrzuje** — a poprve je to zmerene.
+
+**Stav k 9. 9. 2026:** v kopii je **851 souboru** znalosti, v databazi **763 znalosti**.
+Rozdil **~88 souboru jsou SIROTCI** po znalostech, ktere uz v databazi vubec nejsou.
+Overeno dotazem na peti z nich (`doc-hr-attendance-presence`, `doc-personalistika-dochazka-mzdy`,
+`doc-iso-27001`, `doc-iso-demo-pruvodce`, `doc-iso-doc-00-seznam-dokumentu-isms`) —
+**v databazi neexistuje ani jedna**.
+
+**Proc je to nebezpecne:** kopie se legitimne pouziva k hledani pres soubory (grep). Kdo takovy
+soubor najde, nema jak poznat, ze za nim uz nic neni — vypada uplne stejne jako platna znalost.
+
+### Jak sirotka poznas (od 9. 9. 2026 snadno)
+
+Export nove vypisuje do hlavicky **`stav`**. Sirotek ho nema, protoze ho export uz neprepisuje-
+
+```
+grep -rL 'stav: `' g2007/znalosti/*/doc-*.md
+```
+
+Kdyz soubor sloupec `stav` nema, **neni z databaze** — je to pozustatek. Znalost, kterou databaze
+zna, ma v hlavicce bud `stav: aktivni`, nebo `stav: zruseno`.
+
+### Zrusene znalosti uz kopii neoklamou
+
+Do 9. 9. 2026 se zrusena znalost (`stav <> 'aktivni'`) exportovala **uplne stejne jako platna** —
+dotaz v `export_g2007_docs` nema filtr na stav a stav se do souboru nevypisoval. Zrusena znalost
+tak v kopii vypadala jako pravda. Opraveno commitem `91b43f12`- neaktivni znalost dostane nahoru
+ramecek **TATO ZNALOST UZ NEPLATI** a stav je nove i v hlavicce. Filtr na aktivni se **zamerne
+nepridal** — export soubory nemaze, takze by odfiltrovane soubory osirely natrvalo, coz je horsi.
+
+### Otevrene — uklid sirotku
+
+Navrh- aby export po sobe uklidil soubory ve slozce `znalosti/`, ktere nemaji radek v databazi.
+**Neudelano**, mazani ~88 souboru je nevratne a patri do session, kde je clovek u toho.
+Do te doby plati rucni pravidlo vyse.
+
+Zjistil Claude-28 (Jirka Honomichl), schvalila Marti-AI (msg 15264).
+

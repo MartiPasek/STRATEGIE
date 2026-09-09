@@ -32781,6 +32781,45 @@ def _route_peta_write(sql: str) -> dict:
     return _route_scoped_write(sql, _PETA_ALLOWED_PREFIXES)
 
 
+# ── ZÁMEK MZDOVÝCH TABULEK (Peťa 9.9.2026: „aby nikdo kromě nás nemohl změnit
+# výplaty ani rodiče") ───────────────────────────────────────────────────────────
+# Mzdy jsou teritorium Petry (user 18). Zápis do mzdových tabulek — v OBOU světech
+# (naše PG `tenant.wage_*` / `mzdy_*` / `payslip_*` i heliosovské `TabZamMzd`,
+# `TabMz*`, `TabZamVyp`, `TabPredzp`) — smí schválit JEN ona. Rodičovský bypass
+# (`is_marti_parent`) se tu VĚDOMĚ NEUPLATŇUJE; je to jediné místo v systému, kde
+# ani rodič schválit nemůže. Vyhodnocuje se v `claude_write_decision` PŘED
+# routováním approvera, takže to platí pro každou schvalovací cestu (banner, mobil).
+# Pozn.: chrání to cestu přes most/approval. Změnu udělanou přímo v Heliosu jeho
+# vlastním klientem tohle nezachytí — na to je hlídač (`mzdy_zmeny_hlidac`).
+_MZDY_TABLE_PREFIXES = ("wage_", "mzdy_", "payslip_")               # PostgreSQL tenant.*
+_MZDY_HELIOS_PREFIXES = ("tabzammzd", "tabmz", "tabzamvyp", "tabpredzp")  # MSSQL Helios
+_MZDY_PROC_PREFIXES = ("hp_mz", "hp_vypocitejmzd", "hp_vlozmz",
+                       "ec_mzdy", "ec_contrmzdy")
+
+
+def _is_mzdy_write(sql: str) -> bool:
+    """True, když SQL zapisuje do mzdových tabulek (PG i Helios) nebo volá mzdovou
+    proceduru. Záměrně konzervativní — radši označit navíc než pustit mzdu."""
+    import re as _rm
+    s = _rm.sub(r"/\*.*?\*/", " ", sql or "", flags=_rm.S)
+    s = _rm.sub(r"--[^\n]*", " ", s)
+    targets = _rm.findall(
+        r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|MERGE|"
+        r"TRUNCATE\s+TABLE|TRUNCATE|ALTER\s+TABLE|DROP\s+TABLE|"
+        r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?)\s+"
+        r"([A-Za-z_\[\"][\w.\[\]\"]*)", s, _rm.I)
+    for t in targets:
+        t = t.lower().replace('"', '').replace('[', '').replace(']', '')
+        tbl = t.rpartition('.')[2]
+        if tbl.startswith(_MZDY_TABLE_PREFIXES) or tbl.startswith(_MZDY_HELIOS_PREFIXES):
+            return True
+    for pm in _rm.finditer(r"\bEXEC(?:UTE)?\s+(?:\[?dbo\]?\.)?\[?([A-Za-z_]\w*)\]?",
+                           s, _rm.I):
+        if pm.group(1).lower().startswith(_MZDY_PROC_PREFIXES):
+            return True
+    return False
+
+
 # ── GDPR / HR audit klasifikace (Marti-AI kustod podmínka 25.6.2026) ──────────
 # „Bez subject_user_id v audit logu je HR teritorium GDPR risk." HR/finance zápisy
 # nesou navíc data_category + acl_scope + legal_basis + retention + subject_user_id.

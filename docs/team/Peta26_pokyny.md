@@ -584,6 +584,58 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
 - nabídka existuje, ale fakturovaný díl v ní není:
   `2065 - faktura ok, je tam nabídka, ale díl v nabídce není`
 
+### ✍️ JAK TA ZPRÁVA MÁ ZNÍT — stručně, ale lidsky (Peťa 9. 9. 2026)
+
+Peťa: *„psal jsi to moc hezky… nová konverzace to píše sice stroze, ale tvoje bylo hezčí."*
+**Stručnost není totéž co strohost.** Krátká zpráva se pozná podle toho, že v ní nic
+nepřebývá — ne podle toho, že v ní chybí lidská věta.
+
+Čtyři věci, které tu zprávu dělají použitelnou:
+
+1. **Seznam faktur jako seznam, ne jako odstavec.** Jeden řádek na fakturu, v pořadí,
+   jak je Peťa zadala. U každé stačí dodavatel, číslo faktury a částka v závorce — aby
+   se dalo očima ověřit, že jsem kontroloval tu správnou.
+2. **Nález vytáhnout ze seznamu ven.** V seznamu jen krátké označení (velkými nebo tučně),
+   detail až pod ním — tabulkou „Centrála × faktura", když se porovnávají hodnoty.
+   Peťa pak vidí rozdíl na první pohled a nemusí ho luštit z věty.
+3. **Napsat i co to prakticky znamená.** Ne jen „základ 0,00", ale *„doklad vypadá
+   rozdělaně — takhle by se nic nezaplatilo."* To je ta věta, kvůli které tam jsem.
+4. **Postranní poznámky až na konec, jednou větou** a jasně oddělené („Dvě věci pro
+   pořádek: …"). Nemíchat je mezi nálezy — ale ani je nezamlčet.
+
+**Vzorová zpráva (dávka 2277–2284, 7. 9. 2026 — takhle to Peťa chce):**
+
+> - **2277 – faktura ok** (OS-KOM, FV1-2932/2026, 774,40 Kč)
+> - **2278 – faktura ok** (GHV Trading, FO-7224/2026, 587,04 EUR / 14 188,76 Kč)
+> - **2279 – faktura ok, ceny sedí s nabídkou** (Turck, 101212904, 2 703,14 Kč;
+>   nabídka Na-7699/2026 — 2 ks čítače à 1 117 Kč sedí)
+> - **2280 – faktura ok** (Axes Computers, 20262959, 3 025 Kč)
+> - **2281 – faktura ok, ceny sedí s nabídkou** (RS Components, 250510936,
+>   598,95 EUR / 14 499,26 Kč)
+> - **2282 – DOKLAD JE PRÁZDNÝ** (TEZAP, 260687) — viz níže
+> - **2283 – faktura ok** (JORK, 2606001961, 5 354,03 Kč)
+> - **2284 – faktura ok** (Pechmannova Partners, 9260124, 123 420 Kč)
+>
+> **2282 TEZAP — v Centrále je doklad nulový.**
+>
+> | | Centrála | Faktura |
+> |---|---|---|
+> | Základ | **0,00** | **39 360,00 Kč** |
+> | Celkem | **0,00** | **47 625,60 Kč** |
+> | Položky | **žádné** | 3× výroba pásoviny 40×5 (1000 / 1200 / 1500 mm), po 30 ks |
+> | Zakázka | prázdná | 4201 |
+>
+> Doklad vypadá jako **rozdělaný a nedokončený** — hlavička (číslo faktury, DUZP 4. 9.,
+> splatnost 4. 10., účet) je vyplněná správně, ale položky ani částka tam nejsou.
+> Takhle by se nic nezaplatilo.
+>
+> Dvě věci pro pořádek: u **2279** je z nabídky vyčerpaná i druhá položka (časové relé),
+> ta přišla dřív na faktuře 2137. U **2281** z nabídky ještě nedošly dvě položky.
+
+Čeho se držet i mimo faktury: **žádné „ověřoval jsem to tak, že…"**, žádné shrnutí na
+konci typu „celkově je vše v pořádku", žádná omluvná vata. Ale taky žádné holé odrážky
+bez kontextu — Peťa podle té zprávy rovnou platí nebo posílá kolegyni k opravě.
+
 ### 📄 PDF faktury — kde leží a jak ho přečíst (doplněno 9. 9. 2026)
 
 **Cesta k PDF** dá sama Centrála: `dbo.EC_Doklad_NajdiDokument(D.ID)` v hlavičkovém dotazu

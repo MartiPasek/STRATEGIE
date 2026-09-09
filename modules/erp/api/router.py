@@ -10061,7 +10061,10 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "     JOIN tenant.att_employee ae3 ON ae3.id=en2.employee_id AND ae3.tenant_id=2 "
             "    WHERE ae3.user_id=u.id AND en2.tenant_id=2 AND en2.is_current "
             "      AND NULLIF(en2.pod_meta->>'koordinator','') IS NOT NULL LIMIT 1), "
-            "  (SELECT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), sae.full_name) "
+            # Šárka 9.9.2026: nadřazený post může mít víc držitelů (např. 2 jednatelé) →
+            # ukaž VŠECHNY, dedup podle osoby (string_agg DISTINCT sjednotí i tutéž osobu
+            # vedenou přes víc att_employee identit, doctrine „jeden člověk = víc záznamů“).
+            "  (SELECT string_agg(DISTINCT COALESCE(NULLIF(TRIM(COALESCE(su.first_name,'')||' '||COALESCE(su.last_name,'')),''), sae.full_name), ', ') "
             "    FROM tenant.att_employee ae "
             "    JOIN tenant.org_post_assign a ON a.employee_id=ae.id AND a.tenant_id=2 AND a.aktivni=true "
             "    JOIN tenant.org_post p ON p.id=a.post_id AND p.tenant_id=2 "
@@ -10070,7 +10073,7 @@ async def app_hr_people(req: Request) -> JSONResponse:
             "      AND COALESCE(a2.zastupce_role,0)=0 AND a2.employee_id<>ae.id "
             "    LEFT JOIN tenant.att_employee sae ON sae.id=a2.employee_id AND sae.tenant_id=2 "
             "    LEFT JOIN public.users su ON su.id=sae.user_id "
-            "   WHERE ae.user_id=u.id AND ae.tenant_id=2 LIMIT 1), "
+            "   WHERE ae.user_id=u.id AND ae.tenant_id=2), "
             # Šárka 8.9.2026: když org struktura nedá nadřízeného (praxe/DPP bez postu),
             # padni na přímého nadřízeného z poměru (engagement.nadrizeny_employee_id).
             "  (SELECT COALESCE(NULLIF(TRIM(COALESCE(nu.first_name,'')||' '||COALESCE(nu.last_name,'')),''), nae.full_name) "

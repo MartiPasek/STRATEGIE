@@ -29975,6 +29975,14 @@ def _mirror_run_job(job_key):
         # a v zaloznim seznamu typu ten typ chybel. Nenaslo to nic - nasla to Peta rucne.
         "att_cinnost_bez_cisla": lambda: __import__("modules.erp.api.erp_registry",
                                                     fromlist=["call"]).call("att_cinnost_bez_cisla"),
+        # Peta 9.9.2026: "aspon hlidace aby kdyby byli zmeneny tak aby si mi to rekl."
+        # Zamek mezd (_is_mzdy_write) hlida CESTU pres most - zapis do mzdovych tabulek
+        # smi schvalit uz jen Petra (18), ani rodic ne. Tenhle hlidac hlida VYSLEDEK:
+        # spouste trg_mzdy_zmena_* zapisuji kazdou zmenu ve wage_movement /
+        # wage_component / mzdy_rucni_slozka / mzdy_zamek do tenant.mzdy_zmena_log
+        # a tenhle job z nej denne posle Pete souhrn. JEN HLASI, v mzdach nic nemeni.
+        "mzdy_zmeny_hlidac": lambda: __import__("modules.erp.api.erp_registry",
+                                                fromlist=["call"]).call("mzdy_zmeny_hlidac"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.

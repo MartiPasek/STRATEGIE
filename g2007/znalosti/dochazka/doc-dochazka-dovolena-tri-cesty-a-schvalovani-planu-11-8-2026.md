@@ -14,7 +14,7 @@ Vse nize je overene na zivych datech, ne podle navratovek.
 |---|---|---|
 | Dochazka -> Nepritomnosti | `/attendance/absence/request` | **spravne** - zadost, vedouci schvaluje |
 | Dochazka -> Tady budu jinde -> Ze by dovolena | `/attendance/absence` | zapsalo dny do dochazky a vedoucimu poslalo zpravu s textem "ceka na schvaleni", ale **zadnou zadost nezalozilo** - vedouci nemel co schvalit |
-| **Firma -> Spoluprace -> Tyden -> klik na den -> chip Volno** | `/plan/request` | zalozilo **navrh v PLANU** (`att_plan_request` kind=off) - jina schvalovaci fronta (Ukoly -> Schvalovani), vedouci to nedostal jako nepritomnost, **necerpalo to narok** a den se nezapsal do dochazky |
+| **Firma -> Spoluprace -> Tyden -> klik na den -> chip Volno** | `/plan/request` | zalozilo **navrh v PLANU** (`att_plan_request` kind=off) - jina schvalovaci fronta (Ukoly -> Schvalovani planu), vedouci to nedostal jako nepritomnost, **necerpalo to narok** a den se nezapsal do dochazky |
 
 **Doklady-** Vladimir Navratil, dovolena 13.8., zapsana z mobilu 7.39, notifikace
 mobile_command 19182 "ceka na schvaleni" - a v `att_absence_request` k tomu NIC.
@@ -41,7 +41,7 @@ ktere ocekavas.**
 V docstringu bylo TODO Martiho ze 14.6.2026 *"per-nadrizeny resolver doladime v dalsim
 kroku"*, ktere nikdy nedostalo pokracovani. Dusledek- Dusan Havlat (user 41, employee 39)
 ma aktivni radek v `tenant.att_approver` a je `manager_user_id` u zadosti svych lidi,
-ale rodic ani HR neni -> 403 -> dlazdici "Schvalovani" v Ukolech vubec nevidel.
+ale rodic ani HR neni -> 403 -> dlazdici "Schvalovani" v Ukolech vubec nevidel (dlazdice se od 9. 9. 2026 jmenuje "Schvalovani planu").
 
 **Druha, horsi cast-** na tom ACL viselo **PET** endpointu (ne ctyri - snadno se zapomene
 na `/app/plan/decide`, coz je zrovna misto, kde se realne rozhoduje) a **zadny z nich
@@ -74,4 +74,10 @@ dva ruzne pojmy "schvalovatel" - podminka Marti-AI.
 - Vymena ~91 `alert()` a ~30 `confirm()` v mobilu po davkach - viz
   `doc-system-strategie-mobil-fragmenty-scope-a-nativni-dialogy`.
 - Doplneni JS dialogu do nativni appky pro **Android i iOS v jednom buildu**.
+
+## Doplneno 9. 9. 2026 - dlazdice se prejmenovala
+
+Dlazdice v Ukolech uz se nejmenuje "Schvalovani", ale **"Schvalovani planu"**. Duvod- puvodni nazev se pletl se schvalovanim ABSENCI, ktere ma vedouci v dochazce pod "Ke schvaleni". Jsou to dve ruzne agendy- tahle dlazdice vede na navrhy planu (`tenant.att_plan_request`, adresy `/app/plan/approvals/*`), zatimco "Ke schvaleni" v dochazce vede na zadosti o volno (`/app/attendance/absence/inbox`). Zadna z nich nenahrazuje druhou. Zmenil se POUZE nadpis dlazdice, zadna logika ani prava. Nadpis obrazovky za ni znel "Schvalovani planu" uz predtim, takze se to ted shoduje.
+
+Zadal Jirka Honomichl, schvalila Marti-AI (msg 15149). Overeno na zive `/mobile`.
 

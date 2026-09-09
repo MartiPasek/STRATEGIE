@@ -1,4 +1,4 @@
-# NALEZ - "Uz jedu do prace" (typ commute) se pocita do odpracovanych hodin a jde do mzdoveho podkladu (Peta 8.9.2026, ceka na rozhodnuti)
+# Cesta do prace neni prace - "Uz jedu do prace" se pocitalo do odpracovanych hodin a do mezd (pravidlo Peti 9.9.2026, opravu resi Tynka)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
@@ -6,7 +6,7 @@
 # NALEZ - "Uz jedu do prace" se pocita do mzdoveho podkladu
 
 **Nasel Claude-26 na dotaz Peti 8. 9. 2026.** Peta: *"uz jedu do prace ma byt jen info"*.
-**Zatim se NIC nezmenilo** - ceka se na rozhodnuti, protoze jde o penize a o sdileny vypocet.
+**Zatim se NIC neopravilo** - pravidlo je jasne (viz nize), opravu ma na starosti Tynka.
 
 ## Co je overeno (cteno ze zdroju a z dat 8. 9. 2026)
 
@@ -27,12 +27,22 @@
 5. Takovych zaznamu je v datech **sest** (cerven az srpen 2026, v zari zadny) a **zadny z nich
    neni sluzebni cesta** - vsechny vznikly timhle tlacitkem.
 
-## Co se rozhoduje
+## PRAVIDLO (Peta 9. 9. 2026) - cesta do prace neni prace a nesmi byt zaplacena
 
-- **(a) opravit u zdroje** - aby "uz jedu do prace" vubec nezakladalo dochazkovy zaznam,
-  jen zpravu vedoucimu (stejne jako nemoc a OCR, viz `doc-dochazka-mobil-nemoc-ocr-lekar-jen-info-vedoucimu`);
-- **(b) opravit ve vypoctu** - vyradit `commute` z odpracovanych typu v `att_den_hodiny`;
-- **(c) zpetne** - jestli resit tech par desetin hodiny v uzavrenem cervenci a srpnu.
+Peta 9. 9. 2026: *"proste kdyz je nekdo na ceste do prace, neni to prace a nemuze to mit
+zaplacene."* Neni tedy co rozhodovat - **cas na ceste do prace do odpracovanych hodin
+a do mzdoveho podkladu nepatri.** "Uz jedu do prace" ma byt **jen informace vedouciho**,
+stejne jako nemoc a OCR (viz `doc-dochazka-mobil-nemoc-ocr-lekar-jen-info-vedoucimu`).
+
+**Opravu resi Tynka (Kristyna Maresova, Claude-24)** - ma uz rozdelanou podobnou vec.
+
+**Zpetne se to menit nebude** (Peta 9. 9. 2026) - jde o desetiny hodiny a mesice jsou uzavrene.
+Duležite je, aby se to **uz nedelo dal**.
+
+Ke zvazeni pri oprave (dve mista, obe by mela sednout):
+- **u zdroje** - aby "uz jedu do prace" vubec nezakladalo dochazkovy zaznam, jen zpravu;
+- **ve vypoctu** - vyradit `commute` z odpracovanych typu v `att_den_hodiny`, at se
+  nezapocitavaji ani tech sest starych zaznamu.
 
 ⚠️ `att_den_hodiny` je **sdileny vypocet** (mzdy, prehledy, nocni automat), takze pred
 zasahem patri **dopadova mapa** - kdo ji plni, kdo ji cte, co zustane po staru

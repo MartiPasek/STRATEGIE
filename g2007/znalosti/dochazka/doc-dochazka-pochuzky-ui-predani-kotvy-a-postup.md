@@ -1,8 +1,12 @@
-# Pochůzky: hotové kotvy v 60_dochazka.js, registrace obrazovky a postup zápisu (předání 8. 9. 2026)
+# Pochůzky — UI: obrazovka cesta_vyber NASAZENA 9. 9. 2026 (kotvy, registrace, odchylky)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
-# Pochůzky — UI: kotvy, registrace a postup zápisu (předání, 8. 9. 2026)
+# Pochůzky — UI: obrazovka `cesta_vyber` NASAZENA (9. 9. 2026)
+
+> **✅ HOTOVO 9. 9. 2026 (C24 / Kristý).** Text níže byl předání pro druhou session;
+> zůstává jako záznam zadání a kotev. **Co se reálně nasadilo, je v oddílu
+> „Jak to dopadlo" na konci** — včetně dvou odchylek od tohoto předpisu.
 
 Navazuje na `doc-dochazka-pochuzky-zakazka-cinnost-a-tri-vstupy` (proč a co).
 Tady je **jak** — připraveno C24, odsouhlasila Kristý 8. 9. 2026.
@@ -64,4 +68,45 @@ docházky commitovali C26, C28 i C25) — ohlas se přes `@@WORK`.
 ## Ověření naostro
 Jedno reálné píchnutí pochůzky → v `tenant.vyroba_work` musí vzniknout položka
 **se zakázkou i činností** a `att_entry` mít zakázku v hlavičce.
+
+---
+
+## Jak to dopadlo (nasazeno 9. 9. 2026, C24 / Kristý)
+
+**Publikováno:** `mobile.html` v180 → **v181**. Dílky: `60_dochazka.js` 81→**82**,
+`10_core.js` 17→**18**, `71_plan_prace_cinnosti.js` 21→**22**,
+`72_migrace_sw_isds.js` 10→**11**, `73_pref_poptavka.js` 13→**14**.
+Před zápisem ověřeno **md5 každého dílku proti DB**, po zápisu md5 znovu (souhlasí),
+před publikací zkontrolováno, že novější než poslední publikace je **jen mých 5 dílků**
+(past `doc-provoz-g2007publish-selftest-deadlock-a-sestav-past`).
+
+### ⚠️ Odchylka 1: `presence()` a `act()` se z nové obrazovky NESMÍ volat
+Obě na konci volají `dochLoad()` a kreslí do DOM obrazovky docházky. Z `cesta_vyber`
+by to skončilo v prázdnu. **Obrazovka si dělá vlastní `checkin` + `announce` a pak `back()`** —
+`back()` vrátí na docházku, ta se překreslí sama.
+
+### ⚠️ Odchylka 2: čipy „za chodu" — scope, ne copy-paste
+`chipsIn`, `timeChips` i `presence` žijí **uvnitř `dochLoad()`**, kdežto obrazovka musí být
+na vnější úrovni dílku (patka ji registruje přes `__setImpl`). Řešení:
+- řada „cca" (6 čipů) je v obrazovce **vlastní** (`_cestaChipy`, 8 řádků, závisí jen na `el`),
+- kolečko „…nebo do kolika" se **zpřístupní jedním řádkem** uvnitř `dochLoad()`:
+  `window.__M2W._cestaTimeChips=timeChips;` — je to čistý renderer, z DOM docházky nic nepotřebuje,
+- pojistka: když hook chybí (na obrazovku by se někdo dostal, aniž proběhl dílek docházky),
+  vykreslí se `<input type="time">`.
+
+Zachováno i tlačítko **„Zatím nevím — bez času"**, které v předpisu nebylo (do původní
+volby přibylo později) — bez něj by lidem zmizelo.
+
+### ✅ Ověřeno v kódu: `@@G2007SOUBOR` koncový newline NEOŘEZÁVÁ, ale DOPLŇUJE
+`10_core.js` má v DB o 1 znak víc, než se poslalo. Důvod je v `modules/erp/api/router.py`
+(větev `@@G2007SOUBOR`, bod 2 z 17. 8. 2026): `if _obsah3 and not _obsah3.endswith(chr(10)): _obsah3 += chr(10)`.
+Most (`claude_sql_runner.py`) koncový řádek `.strip()`em opravdu ořeže, ale **server ho vždy vrátí zpět**
+— proto je uložený dílek idempotentně zakončený newline a **dorovnávat ho ručně už netřeba**.
+(Starší návod „doplnit `chr(10)`" platí jen pro cílený zápis mimo `@@G2007SOUBOR`.)
+
+### Co ještě čeká
+- **Ostrý test:** jedno reálné píchnutí pochůzky → v `tenant.vyroba_work` musí vzniknout položka
+  **se zakázkou i činností** a `att_entry` mít správnou zakázku v hlavičce.
+- Body 4 a 5 (návrat z pauzy přes notifikaci bez zakázky; strop pro `kind='commute'`)
+  a body 1, 2, 6 z Péťina seznamu zůstávají mimo tenhle úkol.
 

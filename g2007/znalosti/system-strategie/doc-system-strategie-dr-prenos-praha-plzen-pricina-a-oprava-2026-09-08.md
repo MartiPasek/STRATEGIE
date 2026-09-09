@@ -3,6 +3,16 @@
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · rozsah: globální (všichni tenanti)
 
 # Nocni prenos zalohy Praha -> Plzen padal: pricina, oprava a pasti (8. 9. 2026)
+> ⚠️ **DOPLNENO 9. 9. 2026 — pricinu upresnuje `doc-system-strategie-dr-stahovani-se-zasekava-ne-zpomaluje`, cti ji nejdriv.**
+> Oprava popsana nize plati a pomohla. Ale **spojeni se nezpomaluje — ono se po nekolika
+> stech megabajtech ZASEKNE a uz se nerozjede.** Prumer "200 kB/s" je artefakt deleni
+> hodinou cekani na casovy limit, ne namerena propustnost. Zmereno 9. 9. 2026: trasa
+> 13 skoku a 4-5 ms; z notebooku na teze siti 9-12 MB/s pres 44 MB bez degradace;
+> ze serveru samotneho 42 MB/s a pak stani (842 MB v 8.40 a porad 842 MB v 8.54).
+> **Domnenka o priskrcene lince se tim NEPOTVRDILA a neni to ani nocni jev.**
+> Zatim to obchazime kratsim cekanim a vic pokusy (3 na 30, hodina na 2 minuty);
+> naostro 9. 9. dobehlo stazeni na 12. pokus a Plzen dostala dnesni data.
+> *(Zjistil Claude-28, zadal Jiri Honomichl.)*
 
 Zadal Jiri Honomichl, dohledal a nasadil Claude-28, schvalila Marti-AI (msg 14923, 14944, 14950, 14968).
 

@@ -38,8 +38,8 @@
 <div class="wrap">
   <a class="back" href="/marti">← Řídicí pult</a>
   <h1>🎁 Moje benefity <span id="obd" class="muted"></span></h1>
-  <p class="sub">Daňově zvýhodněné složky mzdy — nastav si je sám. Snižují zdaněnou pohyblivou část (nižší daň), ale i základ pro sociální pojištění.</p>
-  <div class="note">💡 <b>Můžeš si je vypnout</b>, pokud chceš raději vyšší zdaněnou mzdu (vyšší vyměřovací základ na důchod / nemocenskou).</div>
+  <p class="sub" id="vysvetleni1" style="display:none">Daňově zvýhodněné složky mzdy — nastav si je sám. Snižují zdaněnou pohyblivou část (nižší daň), ale i základ pro sociální pojištění.</p>
+  <div class="note" id="vysvetleni2" style="display:none">💡 <b>Můžeš si je vypnout</b>, pokud chceš raději vyšší zdaněnou mzdu (vyšší vyměřovací základ na důchod / nemocenskou).</div>
   <div id="hrbar" style="display:none;margin-bottom:14px"></div>
   <div id="body"><div class="loading">Načítám…</div></div>
 </div>
@@ -72,7 +72,14 @@ function comp(p){
 }
 function render(){
   document.getElementById('obd').textContent='· '+MN[MES]+' '+ROK;
-  if(!DATA.length){document.getElementById('body').innerHTML='<div class="loading">'+(OV?'Tato osoba nemá nastavené benefity.':'Pro tebe nejsou nastavené žádné benefity. Ozvi se personalistce.')+'</div>';return;}
+  // Jirka 9.9.2026, podoba podle Marti-AI (msg 15276): nejdriv zjisti, jestli clovek
+  // benefity MA, a teprve pak ukaz navod. Kdo strop od HR nema (k 9.9. 42 z 83 lidi),
+  // si drive precetl dva odstavce navodu k necemu, co pro nej neplati.
+  const _ma=!!DATA.length;
+  const _v1=document.getElementById('vysvetleni1'), _v2=document.getElementById('vysvetleni2');
+  if(_v1)_v1.style.display=_ma?'':'none';
+  if(_v2)_v2.style.display=_ma?'':'none';
+  if(!_ma){document.getElementById('body').innerHTML='<div class="loading">'+(OV?'Tato osoba nemá nastavené benefity.':'Pro tebe zatím nejsou nastavené žádné benefity. Ozvi se personalistce.')+'</div>';return;}
   let h='';
   DATA.forEach((p,i)=>{
     const c=comp(p); const total=c.ho+c.obl; const uspora=Math.round(total*0.15);

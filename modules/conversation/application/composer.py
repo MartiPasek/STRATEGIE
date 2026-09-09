@@ -4928,6 +4928,31 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
             ZP.append(f"| `{o['kod']}` | {o['uroven'] or ''} | {cnt} | {(o['popis'] or '').replace('|','/')} |")
         w("znalosti/_prehled.md", "\n".join(ZP) + "\n")
 
+        # Uklid sirotku (Jirka 9.9.2026, schválila Marti-AI msg 15276): export do dneška
+        # soubory jen přepisoval a přidával, nikdy nemazal — po přejmenované nebo zrušené
+        # znalosti tu zůstal soubor navždy a v kopii vypadal jako platná znalost.
+        # K 9.9.2026 takových sirotků bylo 103. Mažeme JEN ve složce znalosti/ a JEN .md,
+        # které nemají řádek v DB; soubory začínající "_" (přehledy) se nechávají.
+        # Záchranná síť je historie gitu, zdroj pravdy je databáze.
+        smazano = []
+        try:
+            ocekavane = {os.path.join(root, "znalosti", z["oblast_kod"], z["kod"] + ".md")
+                         for z in zrows}
+            zdir = os.path.join(root, "znalosti")
+            for obl in os.listdir(zdir) if os.path.isdir(zdir) else []:
+                sub = os.path.join(zdir, obl)
+                if not os.path.isdir(sub):
+                    continue
+                for fn in os.listdir(sub):
+                    if not fn.endswith(".md") or fn.startswith("_"):
+                        continue
+                    full = os.path.join(sub, fn)
+                    if full not in ocekavane:
+                        os.remove(full)
+                        smazano.append("g2007/znalosti/" + obl + "/" + fn)
+        except Exception as _e_uklid:
+            smazano = ["CHYBA uklidu sirotku: " + str(_e_uklid)]
+
         # README (index)
         R = ["# G2007 — generováno z databáze", "",
              "> **Tento strom je PROJEKCE databáze `g2007`.** Needituj ručně — změň DB a přegeneruj přes `/g2007/export`.",
@@ -4961,7 +4986,7 @@ def export_g2007_docs(repo_root: str, do_git: bool = True) -> dict:
     finally:
         s.close()
 
-    result = {"root": root, "souboru": len(written), "seznam": sorted(written)}
+    result = {"root": root, "souboru": len(written), "smazano_sirotku": len(smazano), "smazano": sorted(smazano), "seznam": sorted(written)}
 
     if do_git:
         import subprocess

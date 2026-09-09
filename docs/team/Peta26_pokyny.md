@@ -602,12 +602,36 @@ Tři věci, které mě už stály čas:
 - **`.xls` přílohy nepřečtu vůbec** (2268 Mózer, 2269 Pašek nájemné, 26. 8. 2026).
   Nepředstírat, že ano — říct to rovnou; Peťa si je zkontroluje ručně.
 
-⚠️ **Když Read na `Z:` selže** (jiná session to 9. 9. 2026 hlásila u nové verze Coworku —
-adresář přečte, soubor ne): existuje **obchvat přes SQL server** — PDF načte server ze
-sdílené složky a pošle ho přes most. Je to o dvě otočky navíc, ale funguje.
-**Není to ale výchozí postup** — v téže dny mi přímé čtení `Z:\FakturyP\...` fungovalo
-normálně (2277–2284), takže **nejdřív zkus Read napřímo** a k obchvatu sáhni, až když
-opravdu selže. Neopisovat cizí zkušenost jako svoje pravidlo.
+⚠️ **JESTLI `Z:` PŘEČTU, ZÁLEŽÍ NA TOM, KDE KONVERZACE BĚŽÍ** (dořešeno 9. 9. 2026).
+Není to o připojení složky ani o verzi Coworku — rozhoduje **stroj, na kterém session jede**:
+
+| Kde session běží | Co umí s `Z:` |
+|---|---|
+| **na Petině notebooku** | Read / Glob / Grep ho čtou napřímo — platí postup výše. Takhle Peťa 6.–9. 9. 2026 projela dávku 2277–2284 i TEZAP. |
+| **v cloudu** (Cowork remote) | složku **VYPÍŠE** (vidím i velikost souboru), ale **soubor NENAČTE** — síťový disk se do cloudového kontejneru nepřipojí |
+
+**Test na jeden krok, dřív než sáhnu po PDF:** `Glob` na `C:\Projekty\Strategie`.
+Projde → jsem u Peti na stroji a čtu `Z:` napřímo. Odpoví *„directory does not exist"*
+a zmíní `/home/claude` → jsem v cloudu a jdu rovnou na obchvat.
+**Znovu připojovat složku nemá smysl** — 9. 9. 2026 jsme to zkusily čtyřikrát
+(`Z:\FakturyP`, `Z:\Poptavky_V`, `C:\Projekty\Strategie`) a stažení souboru selhalo
+pokaždé se stejnou hláškou o síťovém umístění. (Cloudová strana ověřena 9. 9. 2026;
+že u Peti na notebooku čtení `Z:` běžně chodí, mám od ní.)
+
+**Obchvat přes SQL server — jen pro cloudovou session.** PDF přečte SQL server ze sdílené
+složky a pošle ho přes most po částech jako base64 (text, ze kterého se soubor zpátky složí):
+
+1. `SELECT DATALENGTH(x.BulkColumn) FROM OPENROWSET(BULK N'\\192.168.30.11\data\FakturyP\FP<ID>\<soubor>.pdf', SINGLE_BLOB) AS x`
+   — kolik má soubor bajtů. **Tohle číslo si nech na kontrolu.**
+2. Rozřež ho `SUBSTRING` po **60 000 bajtech** (musí být dělitelné třemi, jinak se části
+   neslepí) a každou část pošli přes `FOR XML PATH(''), BINARY BASE64`.
+3. Výstup ber z `CLAUDE<N>_OUT_FULL__<nonce>.txt` — ten se **neořezává**. Leží
+   v `scripts/claude_sql/`, odkud se dá stáhnout, slepit a dekódovat.
+4. **Ověř délku** proti číslu z bodu 1. Sedí bajt na bajt → PDF je celé a kontrola platí.
+   Nesedí → nic nehlas a slep to znovu.
+
+Funguje i na nabídky (`Z:\Poptavky_V\EVP<číslo>`). Je to o dvě otočky navíc, ale spolehlivé —
+9. 9. 2026 takhle prošly faktury 2287, 2292 i nabídka 260263.
 
 ### Nabídka k faktuře — jak se k ní dostat (ověřeno 21. 8. 2026)
 

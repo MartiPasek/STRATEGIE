@@ -29923,6 +29923,13 @@ def _mirror_run_job(job_key):
         "sync_ec_org": lambda: (_sync_ec_org_from_centrala(), _sync_ec_kontakty_from_centrala())[1],
         "sync_fin": lambda: _sync_fin_from_ec(),
         "sync_priplatky": lambda: _sync_priplatky_from_ec(),
+        # Průběžná synchronizace vyhodnocení zakázek z Centrály (C24/Kristý 10.9.2026).
+        # Hlavičky vyhodnocení v Centrále dál vznikají; náš import byl jednorázový 4.8.
+        # Volá ověřený importér `vyhodnoceni_import_historie` s aktuálním rokem — řízený
+        # upsert, ne truncate, a řádky `zdroj='strategie'` nechává být. Výplaty NETAHÁ.
+        # ⚠️ Stojí na tom, že `ec.vypocet_konstant` značí hlavičku jako naši — bez toho
+        # by tenhle job přepisoval Dušanovo vyhodnocení. Viz docstring funkce.
+        "vyhodnoceni_sync": lambda: _vyhodnoceni_sync_rok(),
         # POZOR — dvě různá zrcadla TÉHOŽ zdroje (EC_FinPriplatkySrazkyDefinice):
         #   sync_priplatky        → tenant.wage_movement (univerzální CÍLOVÝ model, Marti 10.6.)
         #   sync_pripl_srazky_ec  → ec.pripl_srazky (1:1 zrcadlo pro modul 💰 Mzdy, Claude-27 21.7.)
@@ -46726,6 +46733,46 @@ def _sync_mzdovy_list_from_helios() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return {"ok": True, "sheets": total}
+
+
+def _vyhodnoceni_sync_rok() -> dict:
+    """Průběžná synchronizace vyhodnocení zakázek z Centrály (C24 / Kristý, 10. 9. 2026).
+
+    PROČ: hlavičky vyhodnocení v Centrále dál vznikají — 34 za posledních 30 dní, zakládá
+    je dvanáct lidí (Dušan, Jirkovský, Voříšek, Kristýna…). Náš import byl jednorázový
+    4. 8. 2026, takže Dušan v ERP viděl stav ze srpna a vyhodnocení otevřená od té doby
+    k nám vůbec nedošla (39 hlaviček).
+
+    JAK: žádný nový kód — volá se ověřený importér `vyhodnoceni_import_historie`
+    s aktuálním rokem. Ten dělá ŘÍZENÝ UPSERT na klíč, NE truncate, a řádky označené
+    `zdroj='strategie'` záměrně nechává být.
+
+    ⚠️ PROČ TO NEPŘEPÍŠE DUŠANOVU PRÁCI: od 10. 9. 2026 si `ec.vypocet_konstant` značí
+    hlavičku jako `zdroj='strategie'`. Bez té značky by tenhle job hodinu po vyhodnocení
+    vrátil spočtené hodnoty zpátky na stav z Centrály — tiše, bez chyby. Kdyby někdo tu
+    značku z `vypocet_konstant` odstranil, MUSÍ zároveň vypnout tenhle job.
+
+    VÝPLATY (`ec.zakazky_finance_zam`) se ZÁMĚRNĚ NETAHAJÍ (rozhodnutí Kristý 10. 9. 2026):
+    odměny už vznikají u nás a tahat je i z Centrály by zvyšovalo riziko, že se tatáž
+    odměna započte dvakrát.
+
+    Rozsah za rok 2026: 227 hlaviček + 1 208 osob. Žádný řádek nemá prázdné `DatPorizeni`,
+    takže filtr podle roku chytí všechno.
+    """
+    # datetime NENI v router.py globalne — vzdy lokalne a s aliasem (gotcha #7, shadowing).
+    import datetime as _dt_vyhsync
+    _call_vyhsync = __import__("modules.erp.api.erp_registry", fromlist=["call"]).call
+    rok = _dt_vyhsync.date.today().year
+    casti = []
+    for tabulka in ("hlavicka", "osoby"):
+        try:
+            vysl = _call_vyhsync("vyhodnoceni_import_historie", tabulka, rok) or {}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "done": True,
+                    "_msg": "%s selhalo: %s" % (tabulka, str(exc)[:200])}
+        casti.append("%s %s" % (tabulka, vysl))
+    return {"ok": True, "done": True,
+            "_msg": ("rok %s — " % rok) + "; ".join(casti)[:500]}
 
 
 def _sync_priplatky_from_ec() -> dict:

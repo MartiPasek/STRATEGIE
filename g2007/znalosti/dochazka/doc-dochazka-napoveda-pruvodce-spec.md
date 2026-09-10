@@ -1,4 +1,4 @@
-# Docházka — nápověda + hlasový průvodce (SPEC / paměťový soubor)
+# Dochazka - napoveda + hlasovy pruvodce (SPEC / pametovy soubor)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -101,14 +101,21 @@ Obrazovka **🕒 Moje docházka** (od 7. 9. 2026 **druhá ikona spodní lišty**
 2. **💬 Potřebuji ti něco říct…** (`showOpts`) — menu se liší dle stavu:
    - **MIMO směnu (příchod):** 🚗 Jedu do práce… (5/15/30/45 min/1/1,5/2 h) · 🏢 Jsem v práci… · 🏠 Nejsem v práci… (home office) · 🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve… · 💬 Píši přímo tobě, Marti… · 🙋 Mám dotaz na nadřízeného…
    - **VE směně:** 🙈 Teď to bude jinak… → (☕ Krátká pauza · 🍃 Jdu se provětrat/najíst · 🕔 skončit dříve · 🌅 přijít později · 📅 Mám jednání · 🚗 Mám služební pochůzku · 🫡 Dnes už se mnou nepočítej) · 🛠 Zpráva vedoucímu výroby · 🏁 Budu brzy hotov · 💬 Píši Marti · 🙋 Mám dotaz na nadřízeného · (🏭 Plánovač výroby jen vedoucí). **Jednání/pochůzka = hodiny BĚŽÍ dál.**
-3. **MOJE DOCHÁZKA** (dlaždice, stav 8. 9. 2026): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 🗓️ **Moje absence** · **✋ Požádat o opravu** (od 21. 7. 2026) · **🧭 Tady budu jinde** · 🤒 Nemocenská 🔒 · 🩺 Lísteček od lékaře 🔒.
+3. **MOJE DOCHÁZKA** (dlaždice, stav 9. 9. 2026): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 🗓️ **Moje absence** · **✋ Požádat o opravu** (od 21. 7. 2026) · 🤒 Nemocenská 🔒 · 🩺 Lísteček od lékaře 🔒.
+
+   > ⚠️ **9. 9. 2026: „🧭 Tady budu jinde" UŽ NENÍ DLAŽDICE.** Zadal Jiří Honomichl, schválila
+   > Marti-AI (msg 15196 a 15222). Je z ní **tlačítko hned pod zeleným 💬 Potřebuji ti něco říct**
+   > ve stejném rámečku a menu se otevře **na jeho místě** — chová se přesně jako to zelené
+   > (volby nahradí obsah karty, dole šipka nahoru). Texty nápovědy i mluveného průvodce jsou
+   > upravené, obrázek `pruvodce_jinde.png` přefocen.
+   > Detail: [[doc-dochazka-tady-budu-jinde-z-dlazdice-na-tlacitko]].
 
    > ⚠️ **8. 9. 2026: dlaždice i obrazovka „📋 Moje žádosti" ZRUŠENY.** Rozhodl Jiří Honomichl.
    > Na jejich místo se posunula **Moje absence**, která seznam žádostí i jejich rušení umí sama;
    > „ohlášené nepřítomnosti" ukazuje **Můj plán**. Texty nápovědy i mluveného průvodce jsou
    > upravené. Detail: [[doc-system-strategie-mobil-zruseni-obrazovky-moje-zadosti-8-9-2026]].
    *(Do 5. 9. 2026 se poslední jmenovala „Nepřítomnosti"; Nemocenská a Lísteček od lékaře přibyly 6. 9. 2026 a jsou zatím zamčené — dlaždici vidí všichni, otevře ji jen Jiří Honomichl.)*
-   - **🧭 Tady budu jinde** (`jindeBuild`) → **🏠 Osobní důvody** (🏡 makat z domova/HO · 🕐 Něco si zařizuji · 👨‍👧 Zase řeším rodinu/OČR · 🤒 Je mi fakt blbě/sick day · 🤧 Mám neschopenku do · 🩺 Jedu k lékaři · 🌴 Že by dovolená) + **💼 Služební důvody** (🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka pak dorazím · 📝 Ostatní). **Absence jdou TUDY, NE přes 💬.**
+   - **🧭 Tady budu jinde…** (tlačítko v rámečku 💬, `jindeBuild`) → **🏠 Osobní důvody** (🏡 makat z domova/HO · 🕐 Něco si zařizuji · 👨‍👧 Zase řeším rodinu/OČR · 🤒 Je mi fakt blbě/sick day · 🤧 Mám neschopenku do · 🩺 Jedu k lékaři · 🌴 Že by dovolená) + **💼 Služební důvody** (🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka pak dorazím · 📝 Ostatní). **Absence jdou TUDY, NE přes 💬.**
 4. **PODMÍNKY & FINANCE** (dlaždice, stav 7. 9. 2026): 🌴 **Můj přehled** · 📋 Moje podmínky · 💰 Moje finance.
    *(5. 9. 2026 se „Můj plán" a „Nepřítomnosti" přesunuly odsud do sekce Moje docházka; „Můj přehled" sem přibyl 19. 8. 2026.)*
    > ⚠️ **7. 9. 2026 ZRUŠENA dlaždice „📐 Můj úvazek" — do té doby byla v tomhle výčtu.**

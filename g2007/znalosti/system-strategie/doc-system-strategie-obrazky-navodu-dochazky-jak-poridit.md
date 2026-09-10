@@ -1,4 +1,4 @@
-# Obrázky hlasového průvodce docházkou: jak je pořídit znovu (a jak si přitom nezaložit ostré záznamy) — přefoceno 7. 9. 2026
+# Obrazky hlasoveho pruvodce dochazkou: jak je poridit znovu (a jak si pritom nezalozit ostre zaznamy) - prefoceno 7. 9. 2026
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -12,6 +12,11 @@
 `apps/api/static/navod_dochazka/pruvodce_*.png` — **soubory v gitu**, ne v databázi
 (je to `static/`, ne `static_db/`). Mění se běžným nasazením. Rozměr **780 × 1688 px**.
 Používá je `dochPruvodce` v dílku `60_dochazka.js` přes `IMG="/static/navod_dochazka/"`.
+
+> **Rozměr není dogma — poměr stran se řídí tím, co je na snímku.** `pruvodce_jinde.png`
+> má od 9. 9. 2026 **779 × 1149 px**, protože zabírá jen kartu s rozbaleným menu, ne celou
+> obrazovku. Průvodce obrázky škáluje na šířku, takže nižší snímek nevadí. Celoobrazovkové
+> snímky drž na 780 × 1688 jako dosud.
 
 ## Jak je pořídit
 
@@ -38,8 +43,18 @@ Místo toho **přepiš ODPOVĚĎ serveru v prohlížeči** — server o tom nev�
   ⚠️ **Názvy polí musí sedět přesně** (`day/od/do/hodin/zaznamu`) — jinak se karta
   vykreslí s „undefined" a takový obrázek se nesmí nasadit.
 
-Sekci „Tady budu jinde" otevřeš tak, že `document.getElementById("dochJindeBox")`
-zviditelníš a zavoláš `window._dochJinde(box)` — **opakovaný klik na dlaždici ji zavírá.**
+> ⚠️ **NEPLATÍ od 9. 9. 2026** (věta níž je ponechaná schválně, ať je vidět, co se změnilo):
+> ~~Sekci „Tady budu jinde" otevřeš tak, že `document.getElementById("dochJindeBox")`
+> zviditelníš a zavoláš `window._dochJinde(box)` — opakovaný klik na dlaždici ji zavírá.~~
+> **Prvek `dochJindeBox` ani dlaždice „Tady budu jinde" už NEEXISTUJÍ.** Je z ní tlačítko
+> hned pod zeleným „Potřebuji ti něco říct" a menu nahradí obsah té karty
+> (zadal Jirka Honomichl, schválila Marti-AI msg 15196 a 15222).
+
+Sekci „Tady budu jinde" otevřeš **klepnutím na to tlačítko** — najdeš ho mezi tlačítky karty
+podle textu a zavoláš `.click()`; obsah menu staví pořád `window._dochJinde`. Zpět se vrátíš
+šipkou nahoru na konci menu. Detail: [[doc-dochazka-tady-budu-jinde-z-dlazdice-na-tlacitko]].
+⚠️ Menu se po minutě nečinnosti samo sbalí (karta se překreslí) — před focením si nastav
+`window._dochMenuTs=Date.now()`.
 
 ## ⛔ VAROVÁNÍ: klikání v živé appce ZAKLÁDÁ ostré záznamy
 

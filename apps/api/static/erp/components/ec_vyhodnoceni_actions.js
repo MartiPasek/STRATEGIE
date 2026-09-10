@@ -66,11 +66,14 @@
     back.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99999;" +
       "display:flex;align-items:center;justify-content:center;";
     var box = document.createElement("div");
-    box.style.cssText = "background:#fff;border-radius:10px;min-width:380px;max-width:560px;" +
+    box.style.cssText = "background:#fff;color:#0f172a;border-radius:10px;min-width:380px;max-width:560px;" +
       "max-height:80vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px 18px;";
     var h = document.createElement("div");
     h.textContent = nadpis;
-    h.style.cssText = "font-weight:600;font-size:15px;margin:0 0 10px 0;";
+    /* BARVA NATVRDO (C24 / Kristy, 10.9.2026): ERP jede v tmavem motivu, okno je
+     * bile — nadpis bez vlastni barvy zdedil svetle pismo a byl na bilem pozadi
+     * necitelny. Tyka se vsech dialogu, ktere tohle okno pouzivaji. */
+    h.style.cssText = "font-weight:600;font-size:15px;margin:0 0 10px 0;color:#0f172a;";
     box.appendChild(h);
     box.appendChild(obsahEl);
     var lista = document.createElement("div");

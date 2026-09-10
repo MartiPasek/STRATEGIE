@@ -18,6 +18,23 @@ Nalez z 8. 9. 2026 (Jiri Honomichl / Claude-28) pri uklidu po oprave nocniho pre
 
 **Ta slozka lezi na aplikacnim serveru 188.11**, ne na databazovem 188.12 - overeno tim, ze `pg_stat_file` na databazovem serveru hlasi, ze neexistuje. Cely DR retez (nocni dump na 188.12, push do Prahy, stazeni a obnova v Plzni) zalohuje **jen databazi**. Zadny skript v repozitari tu slozku nezminuje.
 
+### Kde presne zdroj lezi - OVERENO 10. 9. 2026 primym dotazem
+
+- V databazi ukazuje **102 054 zaznamu** na `C:\Data\STRATEGIE\Dokumenty`, soubor k nim ma **51 462**.
+  (Jediny zaznam miri na D:.)
+- Na **databazovem serveru 188.12 ta cesta NEEXISTUJE** - overeno pres `pg_stat_file` primo na tom stroji.
+
+> ⚠️ **PAST: konfigurace rika D:, skutecnost je C:.**
+> V kodu je jako vychozi napsany disk **D:** (`core/config.py` -> `documents_storage_dir`,
+> a `_DOC_STORE_ROOT` ve dvou modulech). Na databazovem serveru slozka
+> `D:\Data\STRATEGIE\Dokumenty` **opravdu existuje - ale je PRAZDNA** (nula polozek,
+> overeno pres `pg_ls_dir`). Je to pozustatek vychozi hodnoty.
+> **Kdo se bude ridit konfiguraci misto dat, zazalohuje prazdnou slozku a nepozna to.**
+
+**Co overene NENI:** ze slozka fyzicky sedi na 188.11. Jiste je jen, ze **neni** na databazovem
+serveru; na aplikacni server nevidime jinak nez pres aplikaci. Potvrdi to prvni beh ulohy
+`dokumenty_dedup_zaloha` - kdyz slozku nenajde, ohlasi to a neudela nic.
+
 **50 593 zaznamu zalozenych PRED 21. 8. 2026** ma dnes velikost 0 a priznak `file_missing`. Vsechny mladsi zaznamy (od 21. 8.) soubory maji.
 
 ### Proc ty soubory chybi - ZODPOVEZENO (opraveno 9. 9. 2026)

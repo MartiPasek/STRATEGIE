@@ -2033,6 +2033,17 @@
         // applyColumnState order. Fix: maintainColumnOrder:true zachova user-applied
         // order napric updates (AG Grid v26 upgrade guide).
         maintainColumnOrder: true,
+        // TECKA V NAZVU SLOUPCE (C24 / Kristy, 10.9.2026). AG Grid bere tecku ve
+        // `field` jako cestu do vnoreneho objektu — alias "Efekt. %" pro nej znamena
+        // radek["Efekt"][" %"], coz je undefined, a bunka zustane PRAZDNA. Hlavicka
+        // se pritom vykresli spravne, takze to vypada jako chyba dat nebo nefunkcni
+        // synchronizace. Nahlaseno na gridu "Hodnoceni vse" v modulu Vyhodnoceni
+        // zakazek: prazdne byly "Os. c." a "Efekt. %", zatimco "Pracovnik", "Hodin"
+        // a "Premie" (bez tecky) jely — v databazi byly pritom vsechny hodnoty.
+        // Nase datasety vraci ploche radky ze SQL, zadne vnorene objekty, takze
+        // dot notation nema co delat a vypina se plosne pro vsechny gridy.
+        // Detail: G2007 doc-system-strategie-grid-tecka-v-aliasu-sloupce-prazdna-bunka
+        suppressFieldDotNotation: true,
         // Globalni hledani (Kristy 16.7.2026): quick-filter napric vsemi
         // sloupci vc. skrytych; cache pro rychlost.
         includeHiddenColumnsInQuickFilter: true,

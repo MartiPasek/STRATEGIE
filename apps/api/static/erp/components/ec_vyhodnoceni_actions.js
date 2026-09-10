@@ -55,6 +55,7 @@
    * na prehledu s multi-selectem, je to samostatna prace na jinem miste.
    */
   var VLASTNI = [
+    { code: "ukol",      label: "📨 Odeslat úkol…" },
     { code: "sefmonter", label: "👷 Šéfmontér…" },
     { code: "slouci",    label: "🔗 Hodnotit společně…" },
     { code: "rozdelit",  label: "✂️ Zrušit sloučení" }
@@ -124,6 +125,69 @@
     }).catch(function (e) {
       global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
       return false;
+    });
+  }
+
+  /* 📨 ODESLAT UKOL (Kristy 10.9.2026) — nahrada procedury Centraly
+   * EC_Zakazky_VyhodnoceniOdesliUkol. Kazdy clovek z uzaverky, ktery ma
+   * v Centrale priznak "Ukolnik", dostane do UKOLNIKU CENTRALY ukol s tim,
+   * kolik za zakazku dostane (jmeno, hodiny, efektivita, odmena/srazka).
+   * Poznamka ani premie se zamerne neposilaji — vedome rozhodnuti Dusana
+   * z roku 2023, drzime ho.
+   *
+   * Backend je g2007.python `vyhodnoceni_ukol_send`, vola se pres uz existujici
+   * POST /api/v1/erp/app/erp_registry/run (stejnou cestou jako podklad OSVC).
+   * Odpoved chodi zabalena: {ok, verze, vysledek:{...}}.
+   *
+   * DVE KOLA: prvni volani (force=false) jen ZJISTI, jestli uz nekdo ukol
+   * dostal, a vrati `potvrdit: true`. Teprve po dotazu uzivatele se vola znovu
+   * s force=true. Centrala tuhle pojistku nema — dve kliknuti tam znamenaji
+   * dva ukoly kazdemu. */
+  function _ukol(inst, force) {
+    var zak = _zakazka(inst);
+    if (!zak) { global.alert("Není načtená zakázka."); return; }
+
+    fetch("/api/v1/erp/app/erp_registry/run", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kod: "vyhodnoceni_ukol_send", args: [zak, "__uid__", !!force] })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { stav: r.status, j: j }; });
+    }).then(function (o) {
+      var v = (o.j && o.j.vysledek) ? o.j.vysledek : o.j;
+      if (!v || v.ok !== true) {
+        global.alert("Úkoly se neodeslaly:\n\n" +
+                     ((v && (v.chyba || v.error)) || ("HTTP " + o.stav)));
+        return;
+      }
+
+      /* Nekdo uz ukol ma → zeptat se, ne poslat potichu podruhe. */
+      if (v.potvrdit) {
+        var kdo = (v.uz_meli || []).join(", ");
+        var txt = "Těmto lidem už úkol s tímhle předmětem jednou odešel:\n\n" + kdo +
+                  "\n\nPoslat jim ho znovu?\n\n" +
+                  "OK = poslat všem znovu\n" +
+                  "Storno = neposílat nikomu";
+        if (v.zbyva > 0) {
+          txt += "\n\n(Zbylým " + v.zbyva + " lidem, kteří ho ještě nedostali, " +
+                 "se odešle tak jako tak — dej OK.)";
+        }
+        if (global.confirm(txt)) { _ukol(inst, true); }
+        return;
+      }
+
+      var hl = "Odesláno úkolů: " + v.odeslano;
+      if (v.komu && v.komu.length) { hl += "\n\n" + v.komu.join("\n"); }
+      if (v.bez_priznaku && v.bez_priznaku.length) {
+        hl += "\n\nBez příznaku „Úkolník“ (úkol nedostali):\n" + v.bez_priznaku.join("\n");
+      }
+      if (v.chyby && v.chyby.length) {
+        hl += "\n\n⚠️ Nepovedlo se:\n" + v.chyby.join("\n");
+      }
+      global.alert(hl);
+    }).catch(function (e) {
+      global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
     });
   }
 
@@ -402,6 +466,7 @@
     btn.disabled = true;
     try {
       if (act.code === "koeficienty") { _koeficienty(inst); }
+      else if (act.code === "ukol") { _ukol(inst, false); }
       else if (act.code === "sefmonter") { _sefmonter(inst); }
       else if (act.code === "slouci") { _slouci(inst); }
       else if (act.code === "rozdelit") { _rozdelit(inst); }

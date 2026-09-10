@@ -23,7 +23,16 @@
    */
   var ACTIONS = [
     { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: null },
-    { code: "vypocet_konstant", label: "2️⃣ ⚙️ Nastav koeficienty", confirm: null },
+    /* OD 10. 9. 2026 (C24 / Kristy) OTEVIRA JADRO, NE ROVNOU PREPOCET.
+     * Do ted tlacitko volalo ec.vypocet_konstant primo — jenze koeficienty
+     * (sazby, rezerva, premie sefmontera) nemel uzivatel kde zadat, takze
+     * prepocet vzdycky pocital ze STARE rezervy. Ted se nejdriv otevre jadro
+     * nad hlavickou zakazky, Dusan hodnoty upravi, a teprve OK je ulozi
+     * A HNED spusti prepocet — jednim kliknutim, o krok navic nevi.
+     * Poradi odpovida tomu, jak to uvnitr funguje: vypocet_konstant cte
+     * konst_cas_rezerva jako VSTUP (limit_pro_srazku = kalk_hod_celkem_s_ef
+     * x rezerva) a zadny z tech sesti sloupcu neprepisuje. */
+    { code: "koeficienty",      label: "2️⃣ ⚙️ Nastav koeficienty", confirm: null, vlastni: true },
     { code: "prepocet",         label: "3️⃣ 🔄 Přepočet hodnocení", confirm: null },
     { code: "uzavrit",          label: "4️⃣ 🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
     { code: "do_mezd",          label: "5️⃣ 💰 Do mezd", confirm: "⚠️ PŘEVÉST ODMĚNY DO MEZD?\n\nOdměny z této zakázky se zapíšou zaměstnancům do mzdy (složka 651) za měsíc, kdy byla zakázka uzavřena.\n\nSpustit to jde i opakovaně — co už je ve mzdě, se nezdvojí.\n\nPokračovat?" },
@@ -107,6 +116,97 @@
     }).catch(function (e) {
       global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
       return false;
+    });
+  }
+
+  /* ⚙️ Koeficienty zakazky — jadro nad hlavickou ec.vyhodnoceni_zakazka.
+   * Sest poli je nas ekvivalent EC_VyhodnoceniZak_KonstantyKZak (prehled 74100
+   * v Centrale). Hodnoty se v Centrale realne lisi zakazku od zakazky
+   * (SazbaPremie 0-130, KonstCasRezerva 1,15-115, PremieSefmonter 0-500),
+   * takze to nejsou globalni konstanty a patri sem.
+   *
+   * Predvyplnuju z `inst._spec.data`, protoze edit dataset jadra je
+   * `SELECT * FROM ec.vyhodnoceni_zakazka` — vsech sest sloupcu uz v zaznamu
+   * je a nemusi se nic dotahovat.
+   *
+   * Prazdne pole = "nemenit" (backend si drzi puvodni hodnotu), NE "vynulovat".
+   * Vyjimka je rezerva, ta je povinna — pocita se z ni limit pro srazku. */
+  var KOEF_POLE = [
+    { klic: "sazba_premie",          popis: "Sazba prémie (Kč/h)" },
+    { klic: "sazba_srazka",          popis: "Sazba srážky (Kč/h)" },
+    { klic: "konst_cas_rezerva",     popis: "Konstanta času — rezerva", povinne: true },
+    { klic: "premie_sefmonter",      popis: "Prémie šéfmontér (Kč)" },
+    { klic: "premie_sefmonter_hod",  popis: "Prémie šéfmontér — hodin" },
+    { klic: "premie_sefmonter_koef", popis: "Prémie šéfmontér — koeficient" }
+  ];
+
+  /* Cesky zapis cisla (carka) i strojovy (tecka). Prazdne = null = nemenit. */
+  function _cislo(txt) {
+    var t = String(txt == null ? "" : txt).trim().replace(/\s/g, "").replace(",", ".");
+    if (t === "") return null;
+    var n = Number(t);
+    return isFinite(n) ? n : NaN;
+  }
+
+  /* Cislo do inputu — bez zbytecnych nul na konci (130.000000 → 130). */
+  function _zobraz(v) {
+    if (v == null || v === "") return "";
+    var n = Number(v);
+    if (!isFinite(n)) return String(v);
+    return String(Math.round(n * 1e6) / 1e6).replace(".", ",");
+  }
+
+  function _koeficienty(inst) {
+    var rec = _rec(inst);
+    var zak = _zakazka(inst);
+    if (!zak) { global.alert("Není načtená zakázka."); return; }
+    if (rec.uzamceno) {
+      global.alert("Zakázka " + zak + " je uzamčená (historie z Centrály).\n\n" +
+                   "Koeficienty u ní měnit nejde.");
+      return;
+    }
+
+    var box = document.createElement("div");
+    var info = document.createElement("div");
+    info.innerHTML = "Uprav koeficienty této zakázky. Po <b>Uložit a přepočítat</b> se " +
+      "rovnou spustí přepočet hlavičky, takže se z nich hned spočítá limit pro srážku " +
+      "i ušetřený čas.<br><br><span style=\"color:#64748b\">Prázdné pole = ponechat " +
+      "beze změny.</span>";
+    info.style.cssText = "font-size:13px;color:#334155;margin-bottom:12px;line-height:1.5;";
+    box.appendChild(info);
+
+    var vstupy = {};
+    KOEF_POLE.forEach(function (p) {
+      var radek = document.createElement("label");
+      radek.style.cssText = "display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;";
+      var lbl = document.createElement("span");
+      lbl.textContent = p.popis + (p.povinne ? " *" : "");
+      lbl.style.cssText = "flex:1 1 auto;color:#334155;";
+      var inp = document.createElement("input");
+      inp.type = "text";
+      inp.inputMode = "decimal";
+      inp.value = _zobraz(rec[p.klic]);
+      inp.style.cssText = "flex:0 0 120px;padding:5px 8px;border:1px solid #cbd5e1;" +
+        "border-radius:6px;font-size:13px;text-align:right;font-family:inherit;";
+      vstupy[p.klic] = inp;
+      radek.appendChild(lbl);
+      radek.appendChild(inp);
+      box.appendChild(radek);
+    });
+
+    _okno("Koeficienty zakázky " + zak, box, "Uložit a přepočítat", function () {
+      var telo = { action_code: "koeficienty_uloz", cislo: zak };
+      var chyba = null;
+      KOEF_POLE.forEach(function (p) {
+        if (chyba) return;
+        var n = _cislo(vstupy[p.klic].value);
+        if (isNaN(n)) { chyba = "„" + p.popis + "“ není číslo."; return; }
+        if (p.povinne && n === null) { chyba = "„" + p.popis + "“ je povinná."; return; }
+        if (n !== null && n < 0) { chyba = "„" + p.popis + "“ nemůže být záporná."; return; }
+        telo[p.klic] = n;
+      });
+      if (chyba) { global.alert(chyba); return; }
+      _volej(inst, telo, "Koeficienty uloženy a hlavička přepočítána.");
     });
   }
 
@@ -204,7 +304,8 @@
     var old = btn.textContent;
     btn.disabled = true;
     try {
-      if (act.code === "sefmonter") { _sefmonter(inst); }
+      if (act.code === "koeficienty") { _koeficienty(inst); }
+      else if (act.code === "sefmonter") { _sefmonter(inst); }
       else if (act.code === "slouci") { _slouci(inst); }
       else if (act.code === "rozdelit") { _rozdelit(inst); }
     } catch (e) {
@@ -263,7 +364,7 @@
       b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
-      b.onclick = function () { _run(inst, act, b); };
+      b.onclick = function () { if (act.vlastni) { _vlastni(inst, act, b); } else { _run(inst, act, b); } };
       bar.appendChild(b);
     });
     // Oddelovac + akce s vlastni obsluhou (sefmonter, slouceni) — C28 6.8.2026.

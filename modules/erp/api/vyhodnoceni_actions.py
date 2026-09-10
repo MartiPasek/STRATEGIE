@@ -36,6 +36,14 @@ _EC_ACTIONS = {
     # z Centrály (EC_PRIPL), a zdrojem jsou výhradně řádky zdroj='strategie'.
     # Zrušení uzávěrky tyhle mzdové řádky zase smaže — viz ec.vyhodnoceni_zrusit.
     "do_mezd":           ("SELECT ec.vyhodnoceni_do_mezd(:zak)",                  "zak"),
+    # Koeficienty zakazky (C24 / Kristy, 10.9.2026). Tlacitko "Nastav koeficienty"
+    # do ted volalo rovnou ec.vypocet_konstant — koeficienty ale nemel uzivatel kde
+    # zadat, takze prepocet pocital limit ze STARE rezervy. Ted jadro nejdriv zobrazi
+    # sest poli hlavicky (nas ekvivalent EC_VyhodnoceniZak_KonstantyKZak / 74100),
+    # ulozi je a TEPRVE POTOM zavola prepocet — v poradi, ve kterem to uvnitr funguje.
+    # Funkce si uzamcenou zakazku i zapornou/nulovou rezervu odmitne sama.
+    "koeficienty_uloz":  ("SELECT ec.koeficienty_uloz(:zak, :sazba_premie, :sazba_srazka, "
+                          ":rezerva, :sefm, :sefm_hod, :sefm_koef)",                "koef"),
     "slouci":            ("SELECT ec.slouci_zakazky(CAST(:zaks AS text[]))",      "zaks"),
     "slouci_zrus":       ("SELECT ec.slouci_zakazky_zrus(CAST(:zaks AS text[]))", "zaks"),
     "nastav_sefmontera": ("SELECT ec.nastav_sefmontera(:oid)",                    "oid"),
@@ -53,7 +61,11 @@ _EC_ACTIONS = {
 # „Uzavřít" vytvoří výplaty (SuperHrubá) v ec.zakazky_finance_zam, „Zrušit" je smaže.
 # Ostatní akce (příprava, přepočet, koeficienty, sloučení, šéfmontér) jen počítají
 # nebo mění hodnocení — ty zůstávají na běžném přístupu do ERP.
-_EC_AKCE_S_OPRAVNENIM = frozenset({"uzavrit", "zrusit", "do_mezd"})
+# Koeficienty jsou v seznamu od 10.9.2026 (C24): sazba_premie a sazba_srazka jdou
+# primo do vypoctu premii a srazek, takze je to zmena s penezni dohrou — i kdyz
+# vyplaty vytvari az "Uzavrit". Seznam je konfigurace v ec.akce_opravneni:
+# pridat cloveka = jeden radek v DB, zadny deploy.
+_EC_AKCE_S_OPRAVNENIM = frozenset({"uzavrit", "zrusit", "do_mezd", "koeficienty_uloz"})
 
 
 @api_router.post("/action/run")
@@ -98,6 +110,35 @@ async def ec_action_run(req: Request) -> JSONResponse:
             if not zak:
                 return JSONResponse({"ok": False, "error": "chybí zakázka (cislo/id)"}, status_code=400)
             params = {"zak": zak}
+        elif kind == "koef":
+            # Sest volitelnych cisel + zakazka. None = "nemenit" (prazdne pole v jadre),
+            # NE "vynulovat" — funkce v DB si na to drzi COALESCE.
+            zak = str(d.get("cislo") or "").strip()
+            if not zak and d.get("id") is not None:
+                zak = session.execute(
+                    _t("SELECT cislo_zakazky FROM ec.vyhodnoceni_zakazka WHERE id = :id"),
+                    {"id": int(d["id"])},
+                ).scalar()
+            if not zak:
+                return JSONResponse({"ok": False, "error": "chybí zakázka (cislo/id)"}, status_code=400)
+
+            def _cislo(v):
+                if v is None or v == "":
+                    return None
+                try:
+                    return float(str(v).replace(",", "."))
+                except (TypeError, ValueError):
+                    return None
+
+            params = {
+                "zak": zak,
+                "sazba_premie": _cislo(d.get("sazba_premie")),
+                "sazba_srazka": _cislo(d.get("sazba_srazka")),
+                "rezerva": _cislo(d.get("konst_cas_rezerva")),
+                "sefm": _cislo(d.get("premie_sefmonter")),
+                "sefm_hod": _cislo(d.get("premie_sefmonter_hod")),
+                "sefm_koef": _cislo(d.get("premie_sefmonter_koef")),
+            }
         elif kind == "zaks":
             zaks = d.get("zaks") or []
             if not isinstance(zaks, list) or not zaks:

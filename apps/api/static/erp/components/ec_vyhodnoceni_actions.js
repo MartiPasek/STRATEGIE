@@ -26,7 +26,8 @@
     { code: "vypocet_konstant", label: "2️⃣ ⚙️ Nastav koeficienty", confirm: null },
     { code: "prepocet",         label: "3️⃣ 🔄 Přepočet hodnocení", confirm: null },
     { code: "uzavrit",          label: "4️⃣ 🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
-    { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokračovat?" }
+    { code: "do_mezd",          label: "5️⃣ 💰 Do mezd", confirm: "⚠️ PŘEVÉST ODMĚNY DO MEZD?\n\nOdměny z této zakázky se zapíšou zaměstnancům do mzdy (složka 651) za měsíc, kdy byla zakázka uzavřena.\n\nSpustit to jde i opakovaně — co už je ve mzdě, se nezdvojí.\n\nPokračovat?" },
+    { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokud už odměny šly do mezd, SMAŽOU SE i odtud — pokud ale některá z nich už byla předána do mzdy (stav exported), zrušení se odmítne a musí to vyřešit mzdová účetní.\n\nPokračovat?" }
   ];
 
   /* Akce, ktere potrebuji vlastni obsluhu (vyber cloveka / seznam zakazek),

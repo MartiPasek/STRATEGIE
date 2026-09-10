@@ -28,6 +28,14 @@ _EC_ACTIONS = {
     "vypocet_konstant":  ("SELECT ec.vypocet_konstant(:zak)",                     "zak"),
     "uzavrit":           ("SELECT ec.vyhodnoceni_uzavrit(:zak)",                  "zak"),
     "zrusit":            ("SELECT ec.vyhodnoceni_zrusit(:zak)",                   "zak"),
+    # Převod odměn z uzávěrky do mezd (C24 / Kristý, 9.9.2026). Uzávěrka vytvoří
+    # výplaty v ec.zakazky_finance_zam, ale do mzdy se dosud musely dostat oklikou
+    # přes Centrálu. Tahle akce je pošle rovnou do tenant.wage_movement jako složku
+    # 67 (Helios 651). Trojitá pojistka proti dvojímu započtení je uvnitř funkce:
+    # unikátní index na (import_src, import_src_id), kontrola, že řádek už nepřišel
+    # z Centrály (EC_PRIPL), a zdrojem jsou výhradně řádky zdroj='strategie'.
+    # Zrušení uzávěrky tyhle mzdové řádky zase smaže — viz ec.vyhodnoceni_zrusit.
+    "do_mezd":           ("SELECT ec.vyhodnoceni_do_mezd(:zak)",                  "zak"),
     "slouci":            ("SELECT ec.slouci_zakazky(CAST(:zaks AS text[]))",      "zaks"),
     "slouci_zrus":       ("SELECT ec.slouci_zakazky_zrus(CAST(:zaks AS text[]))", "zaks"),
     "nastav_sefmontera": ("SELECT ec.nastav_sefmontera(:oid)",                    "oid"),
@@ -45,7 +53,7 @@ _EC_ACTIONS = {
 # „Uzavřít" vytvoří výplaty (SuperHrubá) v ec.zakazky_finance_zam, „Zrušit" je smaže.
 # Ostatní akce (příprava, přepočet, koeficienty, sloučení, šéfmontér) jen počítají
 # nebo mění hodnocení — ty zůstávají na běžném přístupu do ERP.
-_EC_AKCE_S_OPRAVNENIM = frozenset({"uzavrit", "zrusit"})
+_EC_AKCE_S_OPRAVNENIM = frozenset({"uzavrit", "zrusit", "do_mezd"})
 
 
 @api_router.post("/action/run")

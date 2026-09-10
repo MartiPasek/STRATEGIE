@@ -55,6 +55,22 @@ dvanact proslo o vlasek.
 Merene podklady vyse jsou pripravene pro spravce site: nehleda se propustnost, hleda se,
 co zabije spojeni po nekolika stech megabajtech.
 
+## Potvrzeno z ostreho provozu - noc na 10. 9. 2026
+
+Prvni noc po zvyseni poctu pokusu na 30 probehla **sama a bez zasahu**:
+
+| cas | co |
+|---|---|
+| 3.30.01 | start, zaloha na serveru stara 0,2 h |
+| 3.48.47 | **stazeno cele (3 935,2 MB) na 8. pokus z 30** |
+| 3.58.02 | obnova hotova, aplikace nahore |
+
+Cely beh **28 minut** (predtim tri hodiny bez vysledku). Samokontrola v 5.30 hlasi OK
+a **data stara 2,5 h misto obvyklych 25** - poprve totiz meri TUTEZ noc, ne vcerejsek.
+Osm pokusu z tricetu je slusna rezerva.
+
+⚠️ **Zaseky ale TRVAJI** - osm behem jedne noci. Porad jde o obchazku, ne o opravu.
+
 ## Jak poznat, ze uz je to opravene doopravdy
 
 V logu `D:\STRATEGIE_IN\_pullrestore.log` se prestanou objevovat radky

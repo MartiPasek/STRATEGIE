@@ -122,6 +122,69 @@
     });
   }
 
+  /* Σ SOUCET PREMII ZA ZAKAZKU (Dusan pres Kristy, 10.9.2026).
+   * Dusan chtel videt, kolik za zakazku odchazi na premiich celkem, aniz by
+   * musel scitat radky v gridu.
+   *
+   * PROC SE NECTE Z HLAVICKY: `ec.vyhodnoceni_zakazka.premie_celkem` ten soucet
+   * sice drzi, ale plni ho AZ prepocet (`vypocet_konstant`) a scita ho pres CELOU
+   * skupinu slouceni. Kdyz nekdo upravi premii jednomu cloveku a prepocet nespusti,
+   * hlavicka je zastarala — a cislo, ktere sedi jen nekdy, je horsi nez zadne.
+   * Proto ctu STEJNY dataset, ze ktereho se kresli grid "Hodnoceni vse", a scitam
+   * jeho radky. Cislo tedy vzdy odpovida tomu, co ma uzivatel pred ocima.
+   *
+   * Aliasy "Prémie" / "Srážka" jsou z datasetu ec.vyhodnoceni_jadro_osoba
+   * (o.premie_osoba_final a o.srazka_osoba). Kdyby se prejmenovaly, _klicSoucet
+   * si sloupec najde podle zacatku nazvu, aby soucet nezmizel potichu. */
+  function _klicSoucet(radek, zacatek) {
+    if (!radek) return null;
+    var klice = Object.keys(radek);
+    for (var i = 0; i < klice.length; i++) {
+      if (klice[i] === zacatek) return klice[i];
+    }
+    for (var j = 0; j < klice.length; j++) {
+      if (klice[j].indexOf(zacatek) === 0) return klice[j];
+    }
+    return null;
+  }
+
+  function _kc(n) {
+    try {
+      var des = (Math.abs(n - Math.round(n)) > 0.004) ? 2 : 0;
+      return n.toLocaleString("cs-CZ", { minimumFractionDigits: des, maximumFractionDigits: des }) + " Kč";
+    } catch (e) {
+      return String(Math.round(n)) + " Kč";
+    }
+  }
+
+  function _soucet(inst, chip) {
+    var rec = _rec(inst);
+    var id = (rec.id != null) ? rec.id : (inst.opts && inst.opts.rowId);
+    if (id == null) { chip.style.display = "none"; return; }
+    var url = "/api/v1/erp/data/ec.vyhodnoceni_jadro_osoba?master_id=" +
+              encodeURIComponent(id) + "&kind=select-detail";
+    fetch(url, { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var rows = (j && j.ok && Array.isArray(j.rows)) ? j.rows : [];
+        if (!rows.length) { chip.style.display = "none"; return; }
+        var kP = _klicSoucet(rows[0], "Prémie");
+        var kS = _klicSoucet(rows[0], "Srážka");
+        var sumP = 0, sumS = 0;
+        rows.forEach(function (r) {
+          if (kP) { var p = Number(r[kP]); if (isFinite(p)) sumP += p; }
+          if (kS) { var v = Number(r[kS]); if (isFinite(v)) sumS += v; }
+        });
+        var txt = "Σ Prémie: " + _kc(sumP);
+        if (sumS > 0) txt += "  ·  Σ Srážka: " + _kc(sumS);
+        txt += "  ·  " + rows.length + (rows.length === 1 ? " člověk" : (rows.length < 5 ? " lidi" : " lidí"));
+        chip.textContent = txt;
+        chip.title = "Součet za tuto zakázku, počítaný ze stejných řádků, jaké jsou v gridu „Hodnocení vše\".";
+        chip.style.display = "";
+      })
+      .catch(function () { chip.style.display = "none"; });
+  }
+
   /* ⚙️ Koeficienty zakazky — jadro nad hlavickou ec.vyhodnoceni_zakazka.
    * Sest poli je nas ekvivalent EC_VyhodnoceniZak_KonstantyKZak (prehled 74100
    * v Centrale). Hodnoty se v Centrale realne lisi zakazku od zakazky
@@ -384,6 +447,16 @@
       b.onclick = function () { _vlastni(inst, act, b); };
       bar.appendChild(b);
     });
+    /* Soucet vpravo v liste — oddeleny mezerou, aby splyval s tlacitky co nejmin
+     * a zaroven byl videt hned, bez rolovani (lista je position:sticky). */
+    var chip = document.createElement("span");
+    chip.className = "ec-vyh-soucet";
+    chip.style.cssText = "margin-left:auto;align-self:center;padding:4px 10px;" +
+      "border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;" +
+      "font-size:12px;line-height:1.2;white-space:nowrap;font-weight:600;display:none;";
+    bar.appendChild(chip);
+    try { _soucet(inst, chip); } catch (e) {}
+
     host.insertBefore(bar, host.firstChild);
   }
 

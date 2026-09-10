@@ -22,7 +22,12 @@
    * v tomhle pořadí vyšlo ušetřeno 4,059 h a prémie 535 Kč, ověřeno proti ruční kontrole.
    */
   var ACTIONS = [
-    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: null },
+    /* POTVRZENI PRIDANO 10. 9. 2026 (Kristy). priprava_vyhodnoceni nejdriv SMAZE
+     * radky hodnoceni te zakazky a zalozi je znovu z odpracovanych hodin — vsem
+     * s efektivitou 100 %. Druhe spusteni tedy zahodi rucne zadane efektivity,
+     * poznamky sefmontera, specialni premie i oznaceni sefmontera. Do ted na to
+     * UI nijak neupozornovalo a tlacitko je hned prvni v lise. */
+    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: "⚠️ PŘIPRAVIT HODNOCENÍ?\n\nZaloží seznam lidí na zakázce ZNOVU podle odpracovaných hodin.\n\nSMAŽE tím dosavadní hodnocení této zakázky — ručně zadané efektivity, poznámky šéfmontéra, speciální prémie i označení šéfmontéra. Všem se nastaví efektivita 100 %.\n\nChceš-li jen přepočítat čísla, použij „3️⃣ Přepočet hodnocení\".\n\nPokračovat?" },
     /* OD 10. 9. 2026 (C24 / Kristy) OTEVIRA JADRO, NE ROVNOU PREPOCET.
      * Do ted tlacitko volalo ec.vypocet_konstant primo — jenze koeficienty
      * (sazby, rezerva, premie sefmontera) nemel uzivatel kde zadat, takze
@@ -157,6 +162,32 @@
     }
   }
 
+  /* KDY SE SOUCET OBNOVUJE (Kristy 10.9.2026 — "aktualizuje se po zmene hodnot?").
+   * Sam od sebe se prekresluje s celym jadrem, tedy po kazde akci z listy
+   * (_volej i _run volaji _reloadSpec). Rucni uprava jednoho cloveka v gridu
+   * "Hodnoceni vse" ale jadro prekreslit nemusi — a zastarale cislo u penez je
+   * horsi nez zadne. Proto jeste:
+   *   1) klik na samotny soucet ho prepocita hned (kurzor je "pointer"),
+   *   2) jakykoli klik na strance ho po 1,5 s tise prepocita — tim se srovna
+   *      i po zavreni dialogu "zadani efektivity", ktery je mimo nase jadro.
+   * Listener je jeden na cely dokument, navesi se jednou a kdyz uz soucet
+   * v DOM neni (jadro zavrene), nedela nic. */
+  var _soucetChip = null, _soucetInst = null, _soucetTimer = null, _soucetHook = false;
+
+  function _soucetHookNavesit() {
+    if (_soucetHook) return;
+    _soucetHook = true;
+    document.addEventListener("click", function () {
+      if (_soucetTimer) { clearTimeout(_soucetTimer); }
+      _soucetTimer = setTimeout(function () {
+        _soucetTimer = null;
+        if (!_soucetChip || !_soucetInst) return;
+        if (!document.body.contains(_soucetChip)) return;
+        try { _soucet(_soucetInst, _soucetChip); } catch (e) {}
+      }, 1500);
+    }, true);
+  }
+
   function _soucet(inst, chip) {
     var rec = _rec(inst);
     var id = (rec.id != null) ? rec.id : (inst.opts && inst.opts.rowId);
@@ -179,7 +210,7 @@
         if (sumS > 0) txt += "  ·  Σ Srážka: " + _kc(sumS);
         txt += "  ·  " + rows.length + (rows.length === 1 ? " člověk" : (rows.length < 5 ? " lidi" : " lidí"));
         chip.textContent = txt;
-        chip.title = "Součet za tuto zakázku, počítaný ze stejných řádků, jaké jsou v gridu „Hodnocení vše\".";
+        chip.title = "Součet za tuto zakázku, počítaný ze stejných řádků, jaké jsou v gridu „Hodnocení vše\". Obnovuje se sám po změnách; kliknutím ho přepočítáš hned.";
         chip.style.display = "";
       })
       .catch(function () { chip.style.display = "none"; });
@@ -454,7 +485,11 @@
     chip.style.cssText = "margin-left:auto;align-self:center;padding:4px 10px;" +
       "border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e3a8a;" +
       "font-size:12px;line-height:1.2;white-space:nowrap;font-weight:600;display:none;";
+    chip.style.cursor = "pointer";
+    chip.onclick = function () { try { _soucet(inst, chip); } catch (e) {} };
     bar.appendChild(chip);
+    _soucetChip = chip; _soucetInst = inst;
+    _soucetHookNavesit();
     try { _soucet(inst, chip); } catch (e) {}
 
     host.insertBefore(bar, host.firstChild);

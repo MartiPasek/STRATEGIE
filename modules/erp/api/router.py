@@ -46758,6 +46758,13 @@ def _vyhodnoceni_sync_rok() -> dict:
 
     Rozsah za rok 2026: 227 hlaviček + 1 208 osob. Žádný řádek nemá prázdné `DatPorizeni`,
     takže filtr podle roku chytí všechno.
+
+    UZAVŘENÍ SKUPINY (C24 / Kristý, 11. 9. 2026) — po importu se ještě volá
+    `ec.srovnej_uzavreni_skupin()`. Důvod: Centrála při uzávěrce nastaví `_Uzavreno = 1`
+    CELÉ sloučené skupině, ale `UzavrenoKDatu` (což je to, co importér čte) zapíše jen
+    té zakázce, na které se uzavíralo. Ostatní členové skupiny nám proto zůstávali
+    otevření a Dušan je viděl v přehledu „k vyhodnocení" — 41 ze 112 zakázek, všechny
+    bez jediné osoby. Ověřeno čtením `EC_Zakazky_VyhodnoceniUzavrit` (sys.sql_modules).
     """
     # datetime NENI v router.py globalne — vzdy lokalne a s aliasem (gotcha #7, shadowing).
     import datetime as _dt_vyhsync
@@ -46771,6 +46778,24 @@ def _vyhodnoceni_sync_rok() -> dict:
             return {"ok": False, "done": True,
                     "_msg": "%s selhalo: %s" % (tabulka, str(exc)[:200])}
         casti.append("%s %s" % (tabulka, vysl))
+
+    # Srovnani uzavreni pres skupinu. Zamerne AZ PO importu (potrebuje cerstve
+    # `uzavreno_k_datu` u te zakazky, od ktere se datum prebira) a v samostatnem
+    # try/except — kdyz spadne tohle, import uz probehl a nema se zahodit.
+    try:
+        from core.database_data import get_data_session as _gds_vyhsync
+        from sqlalchemy import text as _t_vyhsync
+        _s_vyhsync = _gds_vyhsync()
+        try:
+            _r_vyhsync = _s_vyhsync.execute(
+                _t_vyhsync("SELECT ec.srovnej_uzavreni_skupin()")).scalar()
+            _s_vyhsync.commit()
+            casti.append("skupiny: %s" % _r_vyhsync)
+        finally:
+            _s_vyhsync.close()
+    except Exception as exc:  # noqa: BLE001
+        casti.append("srovnani skupin SELHALO: %s" % str(exc)[:150])
+
     return {"ok": True, "done": True,
             "_msg": ("rok %s — " % rok) + "; ".join(casti)[:500]}
 

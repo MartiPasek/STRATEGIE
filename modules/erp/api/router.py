@@ -52546,12 +52546,37 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
 
             # Audit fields — po Marti's migrace 13.5. ~18:10 ma public.users
             # taky audit columns (created_by_id/text + updated_by_id/text).
-            set_clauses.extend([
-                'updated_by_id = :updated_by_id',
-                'updated_by_text = :updated_by_text',
-            ])
-            params["updated_by_id"] = uid
-            params["updated_by_text"] = caller_display
+            #
+            # ⚠️ OPRAVA 11. 9. 2026 (C24 / Kristý): do teď se oba sloupce pridavaly
+            # NATVRDO, bez overeni, ze je tabulka vubec ma. Psalo se to pro public.users
+            # a fw.* tabulky, ktere je maji — jenze generickym PATCHem chodi ulozeni
+            # KAZDEHO jadra. Na tabulce bez tech sloupcu cely save spadl na
+            #   column "updated_by_id" of relation "..." does not exist
+            # a uzivatel prisel o rozepsanou zmenu. Nahlasila Kristý pri zadavani
+            # efektivity a poznamky sefmontera do ec.vyhodnoceni_osoba.
+            #
+            # Ted se sloupce doplni jen kdyz v tabulce existuji. Kdyz je tabulka ma,
+            # chovani je uplne stejne jako driv — zadna regrese.
+            _audit_pritomne: set = set()
+            try:
+                _audit_pritomne = {
+                    str(r[0]) for r in ds.execute(_sql_text_patch(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = :sch AND table_name = :tbl "
+                        "AND column_name IN ('updated_by_id', 'updated_by_text')"),
+                        {"sch": schema_name, "tbl": table_name}).fetchall()
+                }
+            except Exception:  # noqa: BLE001
+                # Kdyz se introspekce nepovede, radeji audit nepridavat nez
+                # shodit ulozeni — data uzivatele jsou dulezitejsi nez stopa o autorovi.
+                _audit_pritomne = set()
+
+            if "updated_by_id" in _audit_pritomne:
+                set_clauses.append('updated_by_id = :updated_by_id')
+                params["updated_by_id"] = uid
+            if "updated_by_text" in _audit_pritomne:
+                set_clauses.append('updated_by_text = :updated_by_text')
+                params["updated_by_text"] = caller_display
 
             # Phase 38.4 Krok 5.R-C+5.2 hotfix (18.5.2026 vecer): drop
             # explicit "updated_at = NOW()" — FW save preprocessor

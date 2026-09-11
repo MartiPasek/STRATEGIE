@@ -738,11 +738,17 @@
         global.alert("Akce selhala: " + ((o.j && o.j.error) || "HTTP " + (o.ok ? "200" : "err")));
       } else {
         try { if (typeof inst._reloadSpec === "function") { inst._reloadSpec(); } } catch (e) {}
-        /* Grid "Hodnoceni vse" (a ostatni v jadre) se prekreslenim formu
-         * neobnovi — drzi si vlastni data. Kristy 11.9.2026. Zpozdeni kvuli
-         * tomu, ze `_reloadSpec` muze gridy prestavet; obnovujeme az potom,
-         * jinak bychom obnovili instanci, kterou vzapeti nahradi jina. */
-        setTimeout(function () { try { _obnovGridyVJadre(inst); } catch (e) {} }, 400);
+        /* ⚠️ VRACENO 11.9.2026 (Kristy: "ajaj, vidim prazdno").
+         * Tady bylo `setTimeout(_obnovGridyVJadre, 400)`. Zpusobovalo to, ze grid
+         * "Hodnoceni vse" zustal PRAZDNY, prestoze v paticce hlasil spravny pocet
+         * radku ("Celkem: 5") — data do nej dosla, ale nevykreslila se. Zaroven
+         * hlavicka formu ukazovala jeste hodnoty pred prepoctem. Vypada to na
+         * souboj s `_reloadSpec`, ktery si gridy prestavuje sam: obnova trefila
+         * okamzik, kdy grid v DOM uz byl, ale jeste nebyl zobrazeny, takze si
+         * AG Grid spocital nulovy viewport a po zobrazeni ho neprepocital.
+         * Neuhodnuto, jen popis chovani — pred dalsim pokusem to chce overit
+         * (obnovovat jen kdyz offsetHeight > 0, pak vynutit redrawRows).
+         * Prazdny grid u penez je horsi nez neobnoveny, proto zatim rucne. */
       }
     }).catch(function (e) {
       global.alert("Chyba spojení: " + (e && e.message ? e.message : e));

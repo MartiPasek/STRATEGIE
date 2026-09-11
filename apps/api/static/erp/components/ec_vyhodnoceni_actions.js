@@ -746,6 +746,234 @@
     });
   }
 
+  /* ---------------------------------------------------------------------
+   * NAPOVEDA K TLACITKUM (C24 / Kristy, 11. 9. 2026)
+   *
+   * Zadani: "Bylo by dobre udelat k tlacitkum napovedu treba pres otaznik
+   * do toho jadra." (Kristy 10. 9. 2026)
+   *
+   * Reseni je dvoji, protoze lista je zamerne kompaktni a musi se vejit
+   * na JEDEN radek (viz komentar u bar.style nize) — otaznik u kazdeho
+   * z jedenacti tlacitek by ji rozbil do dvou radku:
+   *   1) kratka veta v nativnim tooltipu (title) primo na tlacitku,
+   *   2) jedno tlacitko "?" vpravo, ktere otevre cely prehled.
+   *
+   * VSECHNO NIZE JE OVERENE VE ZDROJACICH, ne opsane z komentaru.
+   * Zvlast ec.prepocet_vyhodnoceni — precteny cely 11. 9. 2026, protoze
+   * do ted jsem o nem vedela jen z komentare v tomhle souboru a psat
+   * Dusanovi neoverena cisla je horsi nez nepsat nic. Co z toho vzeslo
+   * a v puvodnim popisu chybelo:
+   *   • premie se pocita VYHRADNE pri efektivite presne 100 (CASE WHEN
+   *     V.efektivita_osoba=100 ... ELSE 0) — nekrati se pomerne, jak by
+   *     clovek cekal. Pri 99 % je premie nula.
+   *   • premie_osoba_final = ceil(premie_osoba/5)*5 — zaokrouhleni NAHORU
+   *     na cele petikoruny, az po vypoctu.
+   *   • srazka zadnou takovou podminku nema — pocita se i pri nizsi
+   *     efektivite.
+   *   • poznamka_vv je GENEROVANA (sklada se ze tri casti primo v teto
+   *     funkci) — cokoli do ni kdo napise, pristi prepocet prepise.
+   *     Proto ma Dusan od 11. 9. v gridu vedle ni "Poznamka sefmonter".
+   *   • lidi s nula hodinami funkce po nacteni hodin SMAZE.
+   * --------------------------------------------------------------------- */
+  var NAPOVEDA = [
+    {
+      kod: null,
+      nadpis: "Jak to jde za sebou",
+      body: [
+        "Tlačítka <b>1 → 2 → 3</b> jsou očíslovaná schválně — v tomhle pořadí na sebe navazují:",
+        "<b>1</b> načte z docházky, <i>kdo</i> na zakázce dělal · <b>2</b> uloží sazby a spočítá <i>hlavičku</i> zakázky · <b>3</b> z té hlavičky rozpočítá <i>prémie na lidi</i>.",
+        "Když se pustí 3 před 2, přepočet počítá ze staré hlavičky a prémie vyjdou z neaktuálních hodin. Přeskočit krok jde, <b>prohodit ne</b>.",
+        "Běžná úprava jednoho člověka (efektivita, poznámka) žádné z těchto tlačítek nepotřebuje — edituje se rovnou v gridu a ukládá se sama. Tlačítko <b>3</b> je až potom, aby se prémie přepočítala."
+      ]
+    },
+    {
+      kod: "priprava",
+      nadpis: "1️⃣ ▶️ Připravit hodnocení",
+      kratce: "Načte podle docházky, kdo na zakázce dělal. Druhé spuštění smaže ruční zadání.",
+      body: [
+        "Je to krok <b>„načti mi, kdo na tom dělal“</b>, ne „obnov mi čísla“. Na obnovu čísel je tlačítko 3.",
+        "Postupně: odmítne zakázku uzamčenou z Centrály → <b>smaže dosavadní řádky hodnocení téhle zakázky</b> → založí je znovu, jeden za každého, kdo má odpracované hodiny na některé zakázce ze skupiny (všem efektivita 100 %, nikdo šéfmontér, hodiny 0) → spustí přepočet, který teprve doplní hodiny a prémie.",
+        "⚠️ <b>Druhé spuštění zahodí ruční práci:</b> efektivity, hodnocení flexibility, chybovosti a estetiky včetně poznámek, speciální prémie a poznámky.",
+        "✅ <b>Označení šéfmontéra se zachová</b> — je uložené u zakázky, ne u člověka, a přepočet ho dosadí zpátky."
+      ]
+    },
+    {
+      kod: "koeficienty",
+      nadpis: "2️⃣ ⚙️ Nastav koeficienty",
+      kratce: "Sazby a rezerva zakázky. Po OK rovnou spočítá hlavičku. Musí běžet před tlačítkem 3.",
+      body: [
+        "Otevře šest polí hlavičky zakázky: sazba prémie, sazba srážky, konstanta času – rezerva, prémie šéfmontér, prémie šéfmontér / hodin, koeficient prémie šéfmontéra.",
+        "<b>Prázdné pole = ponechat beze změny.</b> Rezerva musí být větší než nula.",
+        "Po <b>Uložit a přepočítat</b> se hodnoty uloží a hned se spočítá hlavička: kalkulované hodiny, odpracováno, <b>limit pro srážku (= kalkulované hodiny s efektivitou × rezerva)</b>, ušetřený a přetažený čas a seznam sloučených zakázek.",
+        "Kalkulované hodiny se berou ze zrcadla Centrály. Pokud některá zakázka ze skupiny v zrcadle zrovna chybí, výpočet se <b>raději neprovede</b> a ohlásí to — jinak by počítal z neúplných hodin.",
+        "Uzamčenou zakázku odmítne. Vyžaduje oprávnění."
+      ]
+    },
+    {
+      kod: "prepocet",
+      nadpis: "3️⃣ 🔄 Přepočet hodnocení",
+      kratce: "Rozpočítá hodiny a prémie na jednotlivé lidi. Prémie jen při efektivitě 100 %.",
+      body: [
+        "<b>Hodiny:</b> sečte odpracované hodiny z docházky za <b>celou skupinu</b> sloučených zakázek; činnosti označené „nepočítat do hodnocení“ vynechá.",
+        "<b>Kdo má po tomhle nula hodin, ze seznamu zmizí</b> (řádek se smaže).",
+        "<b>Prémie na osobu</b> = (hodiny osoby ÷ odpracováno) × (kalkulováno s efektivitou − odpracováno s efektivitou) × sazba prémie.",
+        "⚠️ <b>Prémie se počítá jen tomu, kdo má efektivitu přesně 100.</b> Při jakékoli nižší je prémie <b>nula</b> — nekrátí se poměrně, jak by člověk čekal. Při 99 % tedy člověk nedostane 99 % prémie, ale nic.",
+        "<b>Vyplácená částka</b> (Prémie osoba final) se zaokrouhlí <b>nahoru na celých 5 Kč</b>.",
+        "<b>Srážka</b> = (hodiny osoby ÷ odpracováno) × (odpracováno s efektivitou − limit pro srážku) × sazba srážky, a to jen když zakázka limit překročila. <b>Na srážku efektivita vliv nemá</b> — počítá se i lidem pod 100 %.",
+        "<b>Prémie šéfmontéra</b> se přizná jen když platí všechno zároveň: je označený šéfmontér · kalkulované hodiny ≥ „prémie šéfmontér / hodin“ · zakázka <b>ne</b>přetáhla limit · největší zakázka ve skupině má aspoň tolik kalkulovaných hodin. Pak = základ × počet zakázek nad tím limitem hodin + koeficient × jeho prémie.",
+        "⚠️ <b>Sloupec „Poznámka VV“ přepočet přepíše</b> — skládá si ho sám z nepodepsaného zakázkového listu, rozpisu prémie šéfmontéra a upozornění na efektivitu pod 100 %. Co do něj kdo napíše, příští přepočet zahodí. <b>Ruční text patří do „Poznámka šéfmontér“.</b>",
+        "Uzamčenou zakázku (i kteroukoli ze skupiny) odmítne."
+      ]
+    },
+    {
+      kod: "uzavrit",
+      nadpis: "4️⃣ 🔒 Uzavřít",
+      kratce: "Vytvoří z hodnocení výplaty (SuperHrubá mzda). Vyžaduje oprávnění.",
+      body: [
+        "Zapíše spočtené odměny do financí zakázek jako výplaty (SuperHrubá mzda).",
+        "Po uzavření už <b>nejde zapsat hodiny vícepráce</b> tlačítkem ⏱️ — to je naše pojistka navíc, Centrála je v tomhle volnější.",
+        "Vzít zpátky to jde tlačítkem ↩️ Zrušit."
+      ]
+    },
+    {
+      kod: "do_mezd",
+      nadpis: "5️⃣ 💰 Do mezd",
+      kratce: "Zapíše odměny do mzdy (složka 651) za měsíc uzavření. Opakování nevadí.",
+      body: [
+        "Odměny z uzavřené zakázky se zapíšou zaměstnancům do mzdy jako složka 67 (v Heliosu 651), a to za <b>měsíc, kdy byla zakázka uzavřena</b> — ne za měsíc, kdy se na ní dělalo.",
+        "Spustit to jde <b>opakovaně</b> — co už ve mzdě je, se nezdvojí.",
+        "Vyžaduje oprávnění."
+      ]
+    },
+    {
+      kod: "zrusit",
+      nadpis: "↩️ Zrušit",
+      kratce: "Smaže výplaty, zakázku zarchivuje a znovu otevře k přepočtu.",
+      body: [
+        "Smaže vypočtené výplaty, zakázku zarchivuje a znovu ji otevře, takže se dá přepočítat.",
+        "Smaže i mzdové řádky — ale <b>pokud už některý byl předán do mzdy</b> (stav <i>exported</i>), zrušení se odmítne a musí to vyřešit mzdová účetní.",
+        "Vyžaduje oprávnění."
+      ]
+    },
+    {
+      kod: "hodnavic",
+      nadpis: "⏱️ Úprava hodin vícepráce…",
+      kratce: "Přidá hodiny navíc do kalkulace. Zapisuje se do Centrály, u nás se projeví až po obnově zrcadla.",
+      body: [
+        "Okno ukazuje totéž co jádro 347 v Centrále: vlevo <b>úpravy kalk. hodin VP</b>, vpravo <b>úpravy vedoucího výroby</b>, dole <b>žádosti z dílny</b> (u těch je vidět žádané i schválené hodiny).",
+        "Nahoře se zadává nový zápis: hodiny a minuty, důvod (nabízí se nejčastěji používané) a poznámka.",
+        "Zapisuje se <b>do Centrály</b> jako <b>rovnou platná úprava</b>, ne jako žádost ke schválení, a k nám se uloží kopie.",
+        "Po uzavření vyhodnocení se zápis nepustí.",
+        "⚠️ <b>Centrála si kalkulaci přepočítá hned, u nás ne.</b> V prémiích se to projeví až po obnově zrcadla zakázek (~30 min) a novém spuštění <b>2️⃣ Nastav koeficienty</b> a <b>3️⃣ Přepočet hodnocení</b>. Píše se to i v hlášce po uložení."
+      ]
+    },
+    {
+      kod: "ukol",
+      nadpis: "📨 Odeslat úkol…",
+      kratce: "Každému pošle do Úkolníku Centrály jeho hodiny, efektivitu a odměnu.",
+      body: [
+        "Každému člověku z uzávěrky, který má v Centrále příznak <b>Úkolník</b>, založí a odešle úkol v <b>Úkolníku Centrály</b>: jméno, počet hodin, efektivita a odměna nebo srážka v Kč.",
+        "Kdo příznak nemá, úkol nedostane — funkce ho vypíše, ať je vidět, na koho se nedostalo.",
+        "Když už někdo úkol s tímhle předmětem dostal, <b>zeptá se</b>, jestli poslat znovu.",
+        "Poznámka ani prémie šéfmontéra se stejně jako v Centrále <b>neposílají</b> — je to vědomé rozhodnutí z roku 2023.",
+        "Vyžaduje oprávnění."
+      ]
+    },
+    {
+      kod: "sefmonter",
+      nadpis: "👷 Šéfmontér…",
+      kratce: "Označí šéfmontéra zakázky. Dalším kliknutím na téhož ho odznačí.",
+      body: [
+        "Vybere se z lidí, kteří jsou na zakázce. Dalším kliknutím na téhož člověka se označení zruší.",
+        "Ukládá se <b>u zakázky</b>, ne u člověka — proto ho „Připravit hodnocení“ nesmaže a přepočet ho vždycky dosadí zpátky.",
+        "Prémie šéfmontéra se ale přizná až podle podmínek v tlačítku 3 — samotné označení na ni nestačí."
+      ]
+    },
+    {
+      kod: "slouci",
+      nadpis: "🔗 Hodnotit společně…",
+      kratce: "Sloučí zakázku s dalšími — hodiny i kalkulace se sečtou přes celou skupinu.",
+      body: [
+        "Zakázky se pak hodnotí <b>dohromady</b>: hodiny i kalkulace se sečtou a prémie se rozdělí přes celou skupinu.",
+        "Většina výpočtů (hodiny z docházky, kontrola uzamčení, kalkulované hodiny) od té chvíle pracuje se skupinou, ne s jednou zakázkou."
+      ]
+    },
+    {
+      kod: "rozdelit",
+      nadpis: "✂️ Zrušit sloučení",
+      kratce: "Vyjme tuhle zakázku ze skupiny. Ostatní zůstanou spolu.",
+      body: [
+        "Tahle zakázka se bude hodnotit sama. Ostatní zakázky ve skupině zůstanou sloučené mezi sebou."
+      ]
+    },
+    {
+      kod: "soucet",
+      nadpis: "Σ Prémie (vpravo v liště)",
+      kratce: "Součet prémií a srážek za zakázku plus počet lidí. Kliknutím se přepočítá.",
+      body: [
+        "Počítá se ze <b>stejných řádků, jaké jsou v gridu „Hodnocení vše“</b>, takže vždycky odpovídá tomu, co je vidět. Obnovuje se sám po každé změně, kliknutím se dá přepočítat hned.",
+        "Schválně <b>nečte</b> pole „prémie celkem“ z hlavičky zakázky — to plní jen přepočet, a když od té doby někdo něco změnil, bývá zastaralé (na VR10641 svítila v hlavičce nula proti 6 355 Kč v řádcích)."
+      ]
+    }
+  ];
+
+  /* Kratky popis pro nativni tooltip (title) na tlacitku. */
+  function _napovedaKratce(kod) {
+    for (var i = 0; i < NAPOVEDA.length; i++) {
+      if (NAPOVEDA[i].kod === kod && NAPOVEDA[i].kratce) return NAPOVEDA[i].kratce;
+    }
+    return null;
+  }
+
+  function _napoveda() {
+    var box = document.createElement("div");
+    box.style.cssText = "font-size:13px;line-height:1.55;color:#0f172a;";
+
+    var uvod = document.createElement("div");
+    uvod.style.cssText = "padding:8px 10px;margin:0 0 12px 0;background:#eff6ff;" +
+      "border:1px solid #bfdbfe;border-radius:6px;color:#1e3a8a;";
+    uvod.innerHTML = "Krátkou verzi ukáže i <b>najetí myší na tlačítko</b>. " +
+      "Tohle okno je podrobné — co která akce opravdu dělá a co po ní zmizí.";
+    box.appendChild(uvod);
+
+    NAPOVEDA.forEach(function (s) {
+      var sek = document.createElement("div");
+      sek.style.cssText = "margin:0 0 14px 0;";
+
+      var h = document.createElement("div");
+      h.innerHTML = s.nadpis;
+      h.style.cssText = "font-weight:600;font-size:14px;margin:0 0 4px 0;color:#0f172a;" +
+        "border-bottom:1px solid #e2e8f0;padding-bottom:3px;";
+      sek.appendChild(h);
+
+      if (s.kratce) {
+        var k = document.createElement("div");
+        k.textContent = s.kratce;
+        k.style.cssText = "color:#475569;font-style:italic;margin:0 0 5px 0;";
+        sek.appendChild(k);
+      }
+
+      var ul = document.createElement("ul");
+      ul.style.cssText = "margin:0;padding-left:18px;";
+      s.body.forEach(function (radek) {
+        var li = document.createElement("li");
+        li.innerHTML = radek;
+        li.style.cssText = "margin:0 0 3px 0;";
+        ul.appendChild(li);
+      });
+      sek.appendChild(ul);
+      box.appendChild(sek);
+    });
+
+    var pata = document.createElement("div");
+    pata.style.cssText = "margin-top:6px;padding-top:8px;border-top:1px solid #e2e8f0;" +
+      "color:#64748b;font-size:11px;";
+    pata.textContent = "Vyhodnocení zakázek · nápověda ověřená proti zdrojovým funkcím, 11. 9. 2026";
+    box.appendChild(pata);
+
+    _okno("Nápověda k tlačítkům", box, null, null, "780px");
+  }
+
   function _inject(inst) {
     if (_coreCode(inst) !== CORE_CODE) return;
     var host = inst._shell && inst._shell.body;
@@ -770,6 +998,7 @@
       b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
+      var t1 = _napovedaKratce(act.code); if (t1) { b.title = t1; }
       b.onclick = function () { if (act.vlastni) { _vlastni(inst, act, b); } else { _run(inst, act, b); } };
       bar.appendChild(b);
     });
@@ -785,9 +1014,25 @@
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
       if (act.code === "hodnavic" || act.code === "ukol") { b.setAttribute("data-ec-cekam", act.code); }
+      var t2 = _napovedaKratce(act.code); if (t2) { b.title = t2; }
       b.onclick = function () { _vlastni(inst, act, b); };
       bar.appendChild(b);
     });
+    /* NAPOVEDA (C24 / Kristy, 11. 9. 2026). Jedno tlacitko misto otazniku
+     * u kazde akce — lista se musi vejit na jeden radek. Kratkou verzi ke
+     * kazdemu tlacitku dava title (tooltip pri najeti mysi), nastaveny vyse. */
+    var bNap = document.createElement("button");
+    bNap.type = "button";
+    bNap.textContent = "❔";
+    bNap.title = "Nápověda — co které tlačítko dělá";
+    bNap.setAttribute("aria-label", "Nápověda k tlačítkům");
+    bNap.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #bfdbfe;border-radius:6px;" +
+      "background:#eff6ff;color:#1e3a8a;font-size:12px;line-height:1.2;white-space:nowrap;font-weight:600;";
+    bNap.onmouseenter = function () { bNap.style.background = "#dbeafe"; };
+    bNap.onmouseleave = function () { bNap.style.background = "#eff6ff"; };
+    bNap.onclick = function () { try { _napoveda(); } catch (e) { global.alert("Nápovědu se nepodařilo otevřít."); } };
+    bar.appendChild(bNap);
+
     /* Soucet vpravo v liste — oddeleny mezerou, aby splyval s tlacitky co nejmin
      * a zaroven byl videt hned, bez rolovani (lista je position:sticky). */
     var chip = document.createElement("span");

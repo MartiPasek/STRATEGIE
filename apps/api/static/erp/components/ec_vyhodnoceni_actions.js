@@ -912,7 +912,7 @@
       kratce: "Součet prémií a srážek za zakázku plus počet lidí. Kliknutím se přepočítá.",
       body: [
         "Počítá se ze <b>stejných řádků, jaké jsou v gridu „Hodnocení vše“</b>, takže vždycky odpovídá tomu, co je vidět. Obnovuje se sám po každé změně, kliknutím se dá přepočítat hned.",
-        "Schválně <b>nečte</b> pole „prémie celkem“ z hlavičky zakázky — to plní jen přepočet, a když od té doby někdo něco změnil, bývá zastaralé (na VR10641 svítila v hlavičce nula proti 6 355 Kč v řádcích)."
+        "Od 11. 9. 2026 ukazuje <b>totéž co „Prémie celkem“ v hlavičce</b> — obojí sčítá stejné řádky. Do té doby se to mohlo rozcházet, protože hlavička držela číslo z posledního přepočtu; teď se dopočítává až při otevření zakázky."
       ]
     }
   ];

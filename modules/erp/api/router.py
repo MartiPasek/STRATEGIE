@@ -29930,6 +29930,12 @@ def _mirror_run_job(job_key):
         # ⚠️ Stojí na tom, že `ec.vypocet_konstant` značí hlavičku jako naši — bez toho
         # by tenhle job přepisoval Dušanovo vyhodnocení. Viz docstring funkce.
         "vyhodnoceni_sync": lambda: _vyhodnoceni_sync_rok(),
+        # Zrcadlo hodin navic z Centraly (C24/Kristy 11.9.2026). Kristy schvalila jako
+        # rodic. NEJDE pres oz_mirror: ten dela vzdycky TRUNCATE + INSERT (ignoruje sloupec
+        # `mode`) a umi jen schema `tenant`, takze by nasi tabulku ani netrefil a pri kazdem
+        # behu by smazal radky, ktere si zalozime sami. Nase verze dela DELETE zdroj='centrala'
+        # + INSERT v jedne transakci a `zdroj='strategie'` nechava byt.
+        "sync_hod_navic": lambda: _sync_ec_hod_navic(),
         # POZOR — dvě různá zrcadla TÉHOŽ zdroje (EC_FinPriplatkySrazkyDefinice):
         #   sync_priplatky        → tenant.wage_movement (univerzální CÍLOVÝ model, Marti 10.6.)
         #   sync_pripl_srazky_ec  → ec.pripl_srazky (1:1 zrcadlo pro modul 💰 Mzdy, Claude-27 21.7.)
@@ -46773,6 +46779,27 @@ def _vyhodnoceni_sync_rok() -> dict:
         casti.append("%s %s" % (tabulka, vysl))
     return {"ok": True, "done": True,
             "_msg": ("rok %s — " % rok) + "; ".join(casti)[:500]}
+
+
+def _sync_ec_hod_navic() -> dict:
+    """DB-driven delegate (g2007.python kod=sync_ec_hod_navic). C24 / Kristy, 11. 9. 2026.
+
+    Zrcadli `DB_EC.dbo.EC_ZakazkyHodNavic` do `ec.zakazky_hod_navic` (3 859 radku).
+    Data se do nasi tabulky dostala jednorazove 8. 9. a od te doby se neobnovovala,
+    takze Dusan nevidel vicehodiny, ktere VP zadal v Centrale pozdeji.
+
+    PROC NE `oz_mirror` (overeno ve zdrojaku 11. 9. 2026): `fill()` dela VZDY
+    `TRUNCATE + INSERT` bez ohledu na sloupec `mode` v `tenant.oz_mirror_def` — delta
+    rezimy RO/RW jsou zatim jen zamer, ne kod — a nazev cilove tabulky si sklada jako
+    `tenant.%s`, takze do schematu `ec` neumi zapsat vubec. TRUNCATE navic drzi
+    ACCESS EXCLUSIVE zamek; prave kvuli nemu u `tenant.oz_zakazky` cekalo 11. 9. cteni
+    18 vterin a tlacitko "Uprava hodin viceprace" vypadalo jako mrtve.
+
+    Nase verze proto dela `DELETE WHERE zdroj='centrala'` + INSERT v JEDNE transakci
+    a radky `zdroj='strategie'` nechava byt. Kdyz cteni z Centraly spadne nebo vrati
+    vyrazne min radku, nez uz mame, zrcadlo se NEPREPISE a job to ohlasi."""
+    from modules.erp.api import erp_registry as _ereg
+    return _ereg.call("sync_ec_hod_navic")
 
 
 def _sync_priplatky_from_ec() -> dict:

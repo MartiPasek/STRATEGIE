@@ -25,9 +25,21 @@
     /* POTVRZENI PRIDANO 10. 9. 2026 (Kristy). priprava_vyhodnoceni nejdriv SMAZE
      * radky hodnoceni te zakazky a zalozi je znovu z odpracovanych hodin — vsem
      * s efektivitou 100 %. Druhe spusteni tedy zahodi rucne zadane efektivity,
-     * poznamky sefmontera, specialni premie i oznaceni sefmontera. Do ted na to
-     * UI nijak neupozornovalo a tlacitko je hned prvni v lise. */
-    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: "⚠️ PŘIPRAVIT HODNOCENÍ?\n\nZaloží seznam lidí na zakázce ZNOVU podle odpracovaných hodin.\n\nSMAŽE tím dosavadní hodnocení této zakázky — ručně zadané efektivity, poznámky šéfmontéra, speciální prémie i označení šéfmontéra. Všem se nastaví efektivita 100 %.\n\nChceš-li jen přepočítat čísla, použij „3️⃣ Přepočet hodnocení\".\n\nPokračovat?" },
+     * hodnoceni kvality prace i poznamky. Do ted na to UI nijak neupozornovalo
+     * a tlacitko je hned prvni v lise.
+     *
+     * ZPRESNENO 11. 9. 2026 (C24 / Kristy) — puvodni text tvrdil, ze se ztrati
+     * i OZNACENI SEFMONTERA. To neni pravda a zbytecne to od tlacitka odrazovalo:
+     * ec.nastav_sefmontera uklada osobni cislo do tenant.zakazka_meta (tedy
+     * u ZAKAZKY, ne u cloveka) a ec.prepocet_vyhodnoceni ho odtamtud zase dosadi
+     * (radek `sefmonter = CASE WHEN c_sefmonter = V.cislo_zam THEN true ...`).
+     * Naopak ve vyctu chybela hodnoceni kvality prace (flexibilita, chybovost,
+     * estetika) — ta se opravdu ztrati, protoze INSERT v priprava_vyhodnoceni
+     * plni jen cislo_zam, cislo_zakazky, efektivitu 100, sefmonter=false
+     * a pocet_hodin 0; vsechny ostatni sloupce zustanou prazdne a prepocet
+     * je nema odkud vratit. Vycet nize je overeny proti sloupcum
+     * ec.vyhodnoceni_osoba, ne odhadnuty. */
+    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: "⚠️ PŘIPRAVIT HODNOCENÍ?\n\nZaloží seznam lidí na zakázce ZNOVU podle odpracovaných hodin — doplní tím i ty, kdo na zakázce mezitím přibyli.\n\nSMAŽE ale všechno, co je u lidí zadané ručně:\n  • efektivitu (všem se nastaví 100 %)\n  • hodnocení flexibility, chybovosti a estetiky včetně poznámek\n  • speciální prémie\n  • poznámky (šéfmontér, VV, VP, zkušebna)\n\nOznačení šéfmontéra se ZACHOVÁ — to je uložené u zakázky, ne u člověka, a přepočet ho dosadí zpátky.\n\nChceš-li jen přepočítat čísla, použij „3️⃣ Přepočet hodnocení\".\n\nPokračovat?" },
     /* OD 10. 9. 2026 (C24 / Kristy) OTEVIRA JADRO, NE ROVNOU PREPOCET.
      * Do ted tlacitko volalo ec.vypocet_konstant primo — jenze koeficienty
      * (sazby, rezerva, premie sefmontera) nemel uzivatel kde zadat, takze

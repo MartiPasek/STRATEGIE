@@ -738,6 +738,11 @@
         global.alert("Akce selhala: " + ((o.j && o.j.error) || "HTTP " + (o.ok ? "200" : "err")));
       } else {
         try { if (typeof inst._reloadSpec === "function") { inst._reloadSpec(); } } catch (e) {}
+        /* Grid "Hodnoceni vse" (a ostatni v jadre) se prekreslenim formu
+         * neobnovi — drzi si vlastni data. Kristy 11.9.2026. Zpozdeni kvuli
+         * tomu, ze `_reloadSpec` muze gridy prestavet; obnovujeme az potom,
+         * jinak bychom obnovili instanci, kterou vzapeti nahradi jina. */
+        setTimeout(function () { try { _obnovGridyVJadre(inst); } catch (e) {} }, 400);
       }
     }).catch(function (e) {
       global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
@@ -1048,6 +1053,121 @@
     try { _soucet(inst, chip); } catch (e) {}
 
     host.insertBefore(bar, host.firstChild);
+
+    /* Po zavreni jadra (OK i akce z listy) srovnat prehled pod nim — Kristy
+     * 11.9.2026: cislo v prehledu zustavalo z doby pred vyhodnocenim. */
+    _navesObnovuPrehledu(inst);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════
+   * OBNOVA GRIDU (Kristy 11.9.2026)
+   * ═══════════════════════════════════════════════════════════════════
+   * Dva pozadavky:
+   *   1) po "3 Prepocet hodnoceni" obnovit grid "Hodnoceni vse" v jadre,
+   *   2) po OK na jadre obnovit prehled zakazek pod nim.
+   *
+   * PROC TO NESTACILO: `_reloadSpec()` prekresli FORMULAR (pole hlavicky),
+   * ale embedded gridy uvnitr si data drzi ve vlastni ErpDataGrid instanci
+   * a prekresleni formu je nepreptaa. Cisla v hlavicce tedy sedela, ale
+   * radky v gridu byly z doby pred prepoctem.
+   *
+   * JAK SE K INSTANCI GRIDU DOSTAT: ErpDataGrid si na DOM element zpetny
+   * odkaz neuklada (`this.container = container`, ale ne naopak). Wrapneme
+   * proto `_init` a znacku si doplnime sami — stejny vzor, jakym uz tenhle
+   * soubor wrapuje `DesignFwForm.prototype._render`. Zadny zasah do
+   * frameworku (datagrid.js ani design_forms.js).
+   *
+   * OBNOVA SAMOTNA: `options.onRefresh()` je tataz cesta, kterou pouziva
+   * tlacitko Obnovit v liste gridu — znovu natahne data a nastavi je do AG
+   * Gridu, takze zustane sirka sloupcu i ulozena sestava. */
+  var GRID_MARKER = "__ecVyhGrid";
+
+  function _installGridMarker() {
+    var G = global.ErpDataGrid;
+    if (!G || !G.prototype || G.prototype.__ecVyhGridWrapped) {
+      return !!(G && G.prototype && G.prototype.__ecVyhGridWrapped);
+    }
+    var origInit = G.prototype._init;
+    if (typeof origInit !== "function") return false;
+    G.prototype._init = function () {
+      var r = origInit.apply(this, arguments);
+      try { if (this.container) { this.container[GRID_MARKER] = this; } } catch (e) {}
+      return r;
+    };
+    G.prototype.__ecVyhGridWrapped = true;
+    return true;
+  }
+
+  /* Obnovi vsechny embedded gridy uvnitr jadra (Hodnoceni vse, Hodiny zakazek,
+   * Hodiny navic, Vysvetleni zisku, Slouceny zakazky, Finalni vyhodnoceni).
+   * Zamerne vsechny — prepocet muze zmenit kterykoli z nich a obnova navic
+   * nic nestoji. Vraci pocet obnovenych. */
+  function _obnovGridyVJadre(inst) {
+    var n = 0;
+    try {
+      var host = inst && inst._shell && inst._shell.body;
+      if (!host) return 0;
+      var uzly = host.querySelectorAll(".erp-ag-grid");
+      for (var i = 0; i < uzly.length; i++) {
+        var g = uzly[i][GRID_MARKER];
+        if (!g || g._destroyed) continue;
+        var fn = g.options && g.options.onRefresh;
+        if (typeof fn !== "function") continue;
+        try { fn(); n++; } catch (e) {}
+      }
+    } catch (e) {}
+    return n;
+  }
+
+  /* Obnovi PREHLED zakazek k vyhodnoceni (fw.core 199), tedy grid POD jadrem.
+   * Hleda se podle coreInfo.coreId, ne podle poradi v DOM — jadro je modal
+   * nad strankou a gridu muze byt na strance vic.
+   * Fallback: klik na tlacitko Obnovit v CRUD liste (tutez cestu pouziva
+   * `ec_vyhodnoceni_prehled_refresh.js`). */
+  var PREHLED_CORE_ID = 199;
+
+  function _obnovPrehled() {
+    try {
+      var uzly = document.querySelectorAll(".erp-ag-grid");
+      for (var i = 0; i < uzly.length; i++) {
+        var g = uzly[i][GRID_MARKER];
+        if (!g || g._destroyed) continue;
+        var cid = null;
+        try { cid = g.options.coreInfo.coreId; } catch (e) {}
+        if (cid !== PREHLED_CORE_ID) continue;
+        if (typeof g._makeRefreshFn === "function" && g.gridApi) {
+          var fn = g._makeRefreshFn(g.gridApi);
+          if (typeof fn === "function") { fn(); return true; }
+        }
+        var of = g.options && g.options.onRefresh;
+        if (typeof of === "function") { of(); return true; }
+      }
+    } catch (e) {}
+    try {
+      var b = document.querySelector('.erp-grid-action-btn[data-action="refresh"]');
+      if (b) { b.click(); return true; }
+    } catch (e) {}
+    return false;
+  }
+
+  /* Navesi obnovu prehledu na zavreni jadra. Zamerne na `close`, ne na
+   * `onSaveSuccess`: jadro se zavira i po akcich z listy (Uzavrit, Do mezd,
+   * Zrusit), ktere hlavicku meni taky, a po nich se prehled musi srovnat
+   * stejne jako po OK. Obalime jednou (priznak na instanci shellu). */
+  function _navesObnovuPrehledu(inst) {
+    try {
+      var sh = inst && inst._shell;
+      if (!sh || typeof sh.close !== "function" || sh.__ecVyhCloseWrapped) return;
+      var origClose = sh.close;
+      sh.close = function () {
+        var r = origClose.apply(this, arguments);
+        /* Az po zavreni — grid pod jadrem musi byt zase v DOM a viditelny.
+         * 150 ms staci na dobehnuti zaviraci animace shellu. */
+        setTimeout(function () { try { _obnovPrehled(); } catch (e) {} }, 150);
+        return r;
+      };
+      sh.__ecVyhCloseWrapped = true;
+    } catch (e) {}
   }
 
   function _install() {
@@ -1069,6 +1189,16 @@
     var iv = setInterval(function () {
       tries++;
       if (_install() || tries > 100) clearInterval(iv);
+    }, 100);
+  }
+
+  /* Marker na gridech se vesi nezavisle na jadre — datagrid.js se muze nacist
+   * pozdeji nez tenhle soubor. */
+  if (!_installGridMarker()) {
+    var triesG = 0;
+    var ivG = setInterval(function () {
+      triesG++;
+      if (_installGridMarker() || triesG > 100) clearInterval(ivG);
     }, 100);
   }
 })(window);

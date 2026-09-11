@@ -55,6 +55,7 @@
    * na prehledu s multi-selectem, je to samostatna prace na jinem miste.
    */
   var VLASTNI = [
+    { code: "hodnavic",  label: "⏱️ Úprava hodin vícepráce…" },
     { code: "ukol",      label: "📨 Odeslat úkol…" },
     { code: "sefmonter", label: "👷 Šéfmontér…" },
     { code: "slouci",    label: "🔗 Hodnotit společně…" },
@@ -67,13 +68,14 @@
 
   /* Male modalni okno. Zamerne bez zavislosti na frameworku — kdyby se jeho
    * dialogy zmenily, tohle porad funguje. */
-  function _okno(nadpis, obsahEl, potvrdText, onPotvrd) {
+  function _okno(nadpis, obsahEl, potvrdText, onPotvrd, sirka) {
     var back = document.createElement("div");
     back.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99999;" +
       "display:flex;align-items:center;justify-content:center;";
     var box = document.createElement("div");
-    box.style.cssText = "background:#fff;color:#0f172a;border-radius:10px;min-width:380px;max-width:560px;" +
-      "max-height:80vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px 18px;";
+    /* sirka je volitelna — dialog hodin viceprace potrebuje dva sloupce vedle sebe */
+    box.style.cssText = "background:#fff;color:#0f172a;border-radius:10px;min-width:380px;max-width:" +
+      (sirka || "560px") + ";max-height:85vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px 18px;";
     var h = document.createElement("div");
     h.textContent = nadpis;
     /* BARVA NATVRDO (C24 / Kristy, 10.9.2026): ERP jede v tmavem motivu, okno je
@@ -125,6 +127,208 @@
     }).catch(function (e) {
       global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
       return false;
+    });
+  }
+
+  /* ⏱️ UPRAVA HODIN VICEPRACE (Kristy 10.9.2026) — nahrada jadra 347 z Centraly.
+   * Layout podle zadani Kristy: vlevo 7402 "Uprava kalk. hodin VP", vpravo 7403
+   * "Uprava kalk. hodin vedouci vyroby", dole 7407 "dilna".
+   *
+   * POZOR, NENI TO CHYBA: 7402 i 7403 ctou v Centrale TATAZ data (oba filtruji
+   * Typ = 1). Kristy 10.9.2026 potvrdila, ze tak to v Centrale opravdu je —
+   * proto to necham a jen na to v dialogu upozornim, aby to nevypadalo jako bug.
+   *
+   * Zapis jde do CENTRALY (rozhodnuti Kristy) — viz g2007.python
+   * `vyhodnoceni_hodnavic`. Tady je jen ovladani. */
+  function _hnCislo(v, des) {
+    var n = Number(v || 0);
+    if (!isFinite(n)) return "0";
+    return n.toFixed(des == null ? 2 : des).replace(".", ",");
+  }
+
+  function _hnSeznam(nadpis, radky, jeDilna) {
+    var box = document.createElement("div");
+    box.style.cssText = "flex:1 1 300px;min-width:280px;";
+    var h = document.createElement("div");
+    h.textContent = nadpis;
+    h.style.cssText = "font-weight:600;font-size:12px;color:#334155;margin:0 0 6px 0;";
+    box.appendChild(h);
+    var telo = document.createElement("div");
+    telo.style.cssText = "border:1px solid #e2e8f0;border-radius:6px;max-height:190px;overflow:auto;";
+    if (!radky.length) {
+      var pr = document.createElement("div");
+      pr.textContent = "Žádné záznamy.";
+      pr.style.cssText = "padding:10px;font-size:12px;color:#94a3b8;";
+      telo.appendChild(pr);
+    } else {
+      radky.forEach(function (r) {
+        var d = document.createElement("div");
+        d.style.cssText = "padding:6px 9px;border-bottom:1px solid #f1f5f9;font-size:12px;line-height:1.45;";
+        var hl = document.createElement("div");
+        if (jeDilna) {
+          var stav = r.schvalil ? ("schválil " + r.schvalil) : "čeká na schválení";
+          hl.innerHTML = "<b>" + _hnCislo(r.zadost) + " h</b> žádost · schváleno <b>" +
+                         _hnCislo(r.hodin) + " h</b> <span style=\"color:#64748b\">(" + stav + ")</span>";
+        } else {
+          hl.innerHTML = "<b>" + _hnCislo(r.hodin) + " h</b>";
+        }
+        d.appendChild(hl);
+        var pod = [];
+        if (r.duvod) pod.push(r.duvod);
+        if (r.poznamka) pod.push(r.poznamka);
+        if (r.porizeno) pod.push(r.porizeno);
+        if (r.zakazka) pod.push(r.zakazka);
+        if (pod.length) {
+          var p = document.createElement("div");
+          p.textContent = pod.join(" · ");
+          p.style.cssText = "color:#64748b;";
+          d.appendChild(p);
+        }
+        telo.appendChild(d);
+      });
+    }
+    box.appendChild(telo);
+    return box;
+  }
+
+  function _hodnavic(inst) {
+    var zak = _zakazka(inst);
+    if (!zak) { global.alert("Není načtená zakázka."); return; }
+
+    fetch("/api/v1/erp/app/erp_registry/run", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kod: "vyhodnoceni_hodnavic", args: [zak, "__uid__", "nacti"] })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      var v = (j && j.vysledek) ? j.vysledek : j;
+      if (!v || v.ok !== true) {
+        global.alert("Nepovedlo se načíst hodiny navíc:\n\n" + ((v && v.chyba) || "neznámá chyba"));
+        return;
+      }
+
+      var box = document.createElement("div");
+
+      var shrn = document.createElement("div");
+      shrn.innerHTML = "Platné hodiny navíc na této zakázce (a sloučených): <b>" +
+                       _hnCislo(v.soucet_platnych) + " h</b>";
+      shrn.style.cssText = "font-size:13px;color:#334155;margin-bottom:10px;";
+      box.appendChild(shrn);
+
+      /* ── formulář nového požadavku ────────────────────────────────── */
+      var blok = document.createElement("div");
+      blok.style.cssText = "border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;" +
+        "padding:10px 12px;margin-bottom:14px;";
+      var bh = document.createElement("div");
+      bh.textContent = "Nový požadavek na navýšení";
+      bh.style.cssText = "font-weight:600;font-size:13px;margin-bottom:8px;";
+      blok.appendChild(bh);
+
+      function _pole(popis, sirka, ph) {
+        var w = document.createElement("label");
+        w.style.cssText = "display:inline-flex;flex-direction:column;gap:3px;margin:0 10px 8px 0;font-size:12px;color:#334155;";
+        var l = document.createElement("span"); l.textContent = popis;
+        var i = document.createElement("input");
+        i.type = "text"; i.placeholder = ph || "";
+        i.style.cssText = "width:" + sirka + ";padding:5px 8px;border:1px solid #cbd5e1;" +
+          "border-radius:6px;font-size:13px;font-family:inherit;";
+        w.appendChild(l); w.appendChild(i); blok.appendChild(w);
+        return i;
+      }
+      var iHod = _pole("Počet hodin", "90px", "0");
+      var iMin = _pole("Počet minut", "90px", "0");
+      var iDuv = _pole("Důvod navýšení *", "230px", "");
+      var iPoz = _pole("Poznámka", "100%", "");
+
+      /* nabídka už použitých důvodů — ať se nevymýšlejí pokaždé nové */
+      if (v.duvody && v.duvody.length) {
+        var dl = document.createElement("datalist");
+        dl.id = "ec-hn-duvody-" + Date.now();
+        v.duvody.forEach(function (d) {
+          var o = document.createElement("option"); o.value = d; dl.appendChild(o);
+        });
+        blok.appendChild(dl);
+        iDuv.setAttribute("list", dl.id);
+      }
+
+      var akce = document.createElement("div");
+      akce.style.cssText = "margin-top:4px;";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Uložit do Centrály";
+      btn.style.cssText = "padding:6px 14px;border:1px solid #2563eb;background:#2563eb;color:#fff;" +
+        "border-radius:6px;cursor:pointer;font-size:13px;";
+      akce.appendChild(btn);
+      var hlaska = document.createElement("span");
+      hlaska.style.cssText = "margin-left:10px;font-size:12px;color:#b91c1c;";
+      akce.appendChild(hlaska);
+      blok.appendChild(akce);
+
+      if (v.uzamceno || v.uzavreno) {
+        btn.disabled = true;
+        btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed";
+        hlaska.style.color = "#92400e";
+        hlaska.textContent = v.uzamceno
+          ? "Zakázka je uzamčená (historie z Centrály)."
+          : "Vyhodnocení je uzavřené — nejdřív ho zruš.";
+      }
+
+      btn.onclick = function () {
+        hlaska.style.color = "#b91c1c"; hlaska.textContent = "";
+        if (!String(iDuv.value || "").trim()) { hlaska.textContent = "Vyplň důvod navýšení."; return; }
+        var hh = Number(String(iHod.value || "0").replace(",", ".")) || 0;
+        var mm = Number(String(iMin.value || "0").replace(",", ".")) || 0;
+        if (hh <= 0 && mm <= 0) { hlaska.textContent = "Zadej hodiny nebo minuty."; return; }
+        btn.disabled = true; btn.textContent = "Ukládám…";
+        fetch("/api/v1/erp/app/erp_registry/run", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kod: "vyhodnoceni_hodnavic",
+            args: [zak, "__uid__", "uloz", iHod.value || 0, iMin.value || 0,
+                   iDuv.value || "", iPoz.value || ""] })
+        }).then(function (r) { return r.json(); }).then(function (jj) {
+          var w = (jj && jj.vysledek) ? jj.vysledek : jj;
+          btn.disabled = false; btn.textContent = "Uložit do Centrály";
+          if (!w || w.ok !== true) {
+            hlaska.textContent = (w && w.chyba) || "Uložení se nepovedlo.";
+            return;
+          }
+          /* Cisla u NAS se zmeni az potom, co se obnovi zrcadlo zakazek
+           * (tenant.oz_zakazky, ~30 min) a pusti se prepocet. Rikam to nahlas,
+           * at Dusan necaka, ze mu premie naskoci hned. */
+          global.alert("Zapsáno do Centrály (ID " + w.ec_id + ") — " +
+                       _hnCislo(w.hodin) + " h.\n\n" +
+                       "Centrála si kalkulaci přepočítala.\n\n" +
+                       "U nás se to v prémiích projeví, až se obnoví zrcadlo zakázek " +
+                       "(do ~30 minut) a pustíš znovu „2️⃣ Nastav koeficienty“ " +
+                       "a „3️⃣ Přepočet hodnocení“." +
+                       (w.lokalne ? "" : "\n\n(Kopii k nám se uložit nepodařilo — v Centrále " +
+                                          "to ale je a přijde synchronizací.)"));
+          if (typeof inst._reloadSpec === "function") { try { inst._reloadSpec(); } catch (e) {} }
+        }).catch(function (e) {
+          btn.disabled = false; btn.textContent = "Uložit do Centrály";
+          hlaska.textContent = "Chyba spojení: " + (e && e.message ? e.message : e);
+        });
+      };
+      box.appendChild(blok);
+
+      /* ── dva přehledy vedle sebe ──────────────────────────────────── */
+      var rada = document.createElement("div");
+      rada.style.cssText = "display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px;";
+      rada.appendChild(_hnSeznam("Úprava kalk. hodin VP", v.vp || [], false));
+      rada.appendChild(_hnSeznam("Úprava kalk. hodin vedoucí výroby", v.vp || [], false));
+      box.appendChild(rada);
+
+      var pozn = document.createElement("div");
+      pozn.textContent = "Oba přehledy nahoře čtou stejné záznamy (typ 1) — tak je to " +
+                         "i v Centrále, není to chyba zobrazení.";
+      pozn.style.cssText = "font-size:11px;color:#94a3b8;margin:0 0 12px 0;";
+      box.appendChild(pozn);
+
+      box.appendChild(_hnSeznam("Úprava kalk. hodin — dílna (žádosti)", v.dilna || [], true));
+
+      _okno("Úprava hodin vícepráce — " + zak, box, null, null, "820px");
+    }).catch(function (e) {
+      global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
     });
   }
 
@@ -466,6 +670,7 @@
     btn.disabled = true;
     try {
       if (act.code === "koeficienty") { _koeficienty(inst); }
+      else if (act.code === "hodnavic") { _hodnavic(inst); }
       else if (act.code === "ukol") { _ukol(inst, false); }
       else if (act.code === "sefmonter") { _sefmonter(inst); }
       else if (act.code === "slouci") { _slouci(inst); }

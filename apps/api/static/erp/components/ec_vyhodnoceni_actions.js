@@ -191,15 +191,35 @@
     return box;
   }
 
+  /* Tlacitko na dobu cekani prepnu do stavu "Nactim…" a zase zpatky.
+   * DUVOD (Kristy 11.9.2026): _vlastni odemkne tlacitko hned, jeste nez se vrati
+   * odpoved, takze uzivatel nema ZADNOU zpetnou vazbu. Kdyz zrovna bezi obnova
+   * zrcadla tenant.oz_zakazky (TRUNCATE + INSERT po 30 minutach), cteni ceka na
+   * zamek — zmereno 18 s — a tlacitko vypada jako mrtve. */
+  function _cekam(zap, kod) {
+    var b = document.querySelector(".ec-vyh-actionbar [data-ec-cekam=\"" + kod + "\"]");
+    if (!b) return;
+    if (zap) {
+      b.dataset.puvodni = b.textContent;
+      b.textContent = "⏳ Načítám…";
+      b.disabled = true;
+    } else {
+      if (b.dataset.puvodni) b.textContent = b.dataset.puvodni;
+      b.disabled = false;
+    }
+  }
+
   function _hodnavic(inst) {
     var zak = _zakazka(inst);
     if (!zak) { global.alert("Není načtená zakázka."); return; }
 
+    _cekam(true, "hodnavic");
     fetch("/api/v1/erp/app/erp_registry/run", {
       method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kod: "vyhodnoceni_hodnavic", args: [zak, "__uid__", "nacti"] })
     }).then(function (r) { return r.json(); }).then(function (j) {
+      _cekam(false, "hodnavic");
       var v = (j && j.vysledek) ? j.vysledek : j;
       if (!v || v.ok !== true) {
         global.alert("Nepovedlo se načíst hodiny navíc:\n\n" + ((v && v.chyba) || "neznámá chyba"));
@@ -328,7 +348,11 @@
 
       _okno("Úprava hodin vícepráce — " + zak, box, null, null, "820px");
     }).catch(function (e) {
-      global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
+      _cekam(false, "hodnavic");
+      global.alert("Nepovedlo se otevřít hodiny vícepráce:\n\n" +
+                   (e && e.message ? e.message : e) +
+                   "\n\nPokud to trvalo dlouho, nejspíš zrovna běžela obnova zrcadla " +
+                   "zakázek — zkus to prosím za chvíli znovu.");
     });
   }
 
@@ -351,6 +375,7 @@
     var zak = _zakazka(inst);
     if (!zak) { global.alert("Není načtená zakázka."); return; }
 
+    _cekam(true, "ukol");
     fetch("/api/v1/erp/app/erp_registry/run", {
       method: "POST",
       credentials: "same-origin",
@@ -359,6 +384,7 @@
     }).then(function (r) {
       return r.json().then(function (j) { return { stav: r.status, j: j }; });
     }).then(function (o) {
+      _cekam(false, "ukol");
       var v = (o.j && o.j.vysledek) ? o.j.vysledek : o.j;
       if (!v || v.ok !== true) {
         global.alert("Úkoly se neodeslaly:\n\n" +
@@ -391,6 +417,7 @@
       }
       global.alert(hl);
     }).catch(function (e) {
+      _cekam(false, "ukol");
       global.alert("Chyba spojení: " + (e && e.message ? e.message : e));
     });
   }
@@ -745,6 +772,7 @@
       b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
+      if (act.code === "hodnavic" || act.code === "ukol") { b.setAttribute("data-ec-cekam", act.code); }
       b.onclick = function () { _vlastni(inst, act, b); };
       bar.appendChild(b);
     });

@@ -2,6 +2,13 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ⚠️ **ZMĚNA 13. 9. 2026 večer.** Dlaždice, která tuhle stránku otevírala, **byla zrušena** —
+> stránka existuje dál (v gitu), ale **z mobilu na ni nevede cesta**. Její roli převzala obrazovka
+> **„Moje docházka" přímo v appce** (`doc-dochazka-mobil-moje-dochazka-novy-prehled-13-9-2026`),
+> která čte ze stejného zdroje jako ERP Opravy docházky a **výběr člověka nemá** — Martiho
+> rozhodnutí z 8. 7. 2026 o té stránce tím zůstalo nedotčené.
+> Popis níž platí dál o samotné stránce.
+
 > **Stav k 13. 9. 2026: ZÁMĚRNĚ NEOPRAVENO.** Jiří Honomichl rozhodl, že se místo úpravy
 > stávající stránky postaví nová obrazovka „Moje docházka B" přímo v appce. Tento soubor proto
 > zůstává v gitu i na disku. **Kdo to najde: není to nedodělek, je to vědomé rozhodnutí.**

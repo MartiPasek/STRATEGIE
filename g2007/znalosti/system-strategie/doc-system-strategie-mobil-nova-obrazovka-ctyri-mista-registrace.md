@@ -1,4 +1,4 @@
-# Nová obrazovka v mobilu se registruje na ČTYŘECH místech, ne na třech
+# Nová obrazovka v mobilu se registruje na ČTYŘECH místech, ne na třech (13. 9. 2026 páté místo: mapa spodní lišty)
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -38,6 +38,13 @@ Pro obrazovku s identifikátorem `<id>`:
    `__setImpl`. **Tohle je to místo, které se zapomíná a které v původním návodu chybělo.**
 4. **`72_migrace_sw_isds.js`** — převzetí obalu do místního jména: `<id>=window.__M2W.<id>,`
 5. **`73_pref_poptavka.js`** — zařazení do mapy obrazovek: `<id>:<id>,` uvnitř `var SCREENS={...}`.
+
+6. **`73_pref_poptavka.js` podruhé — mapa `SCREEN_TAB`** (`<id>:"dochazka",`): určuje, která
+   ikona spodní lišty se u té obrazovky rozsvítí. Není to registrace v užším smyslu (bez ní
+   obrazovka funguje), ale **při RUŠENÍ obrazovky se na to zapomíná** a v mapě zůstane mrtvý
+   záznam. *(Doplnil Claude-28 13. 9. 2026 při rušení obrazovek `doch_dnesek` a `doch_historie`
+   — zbyly právě tady, když byla ostatní čtyři místa uklizená. Zadal Jiří Honomichl, schválila
+   Marti-AI. Souvisí: `doc-system-strategie-mobil-spodni-lista-sviti-podle-obrazovky-8-9-2026`.)*
 
 Mapu čte vykreslovací smyčka v `74_claude27_render_init.js` jako
 `window.__M2W.SCREENS[stack[posledni]]()`. Když v mapě identifikátor není, spadne to na `home` —

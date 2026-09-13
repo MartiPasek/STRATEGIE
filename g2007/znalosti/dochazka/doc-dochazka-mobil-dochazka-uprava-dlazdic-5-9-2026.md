@@ -2,6 +2,13 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ⚠️ **ČÁST UŽ NEPLATÍ (13. 9. 2026).** Dlaždice **Dnešek, Týden, Můj plán, Historie** a stará
+> **Moje docházka** (webová stránka) byly zrušeny — v sekci DOCHÁZKA zůstaly jen **Moje docházka,
+> Moje absence a Požádat o opravu**. Rozdělení a pořadí dlaždic popsané níž platí jen do 13. 9. 2026;
+> zbytek dokumentu (skryté rozbalovací sekce, důvody) platí dál.
+> Aktuální stav: `doc-dochazka-mobil-moje-dochazka-novy-prehled-13-9-2026`.
+> *(Zadal Jiří Honomichl, schválila Marti-AI, zapsal Claude-28.)*
+
 
 > ## ⚠️ 8. 9. 2026: „Můj přehled" už neexistuje a sekce se přejmenovala
 >

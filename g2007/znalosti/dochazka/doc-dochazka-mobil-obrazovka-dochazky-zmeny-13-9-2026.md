@@ -2,6 +2,12 @@
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ⚠️ **DOPLNĚNO TÝŽ DEN VEČER.** Obrazovka „Moje docházka B" **dostala obsah a přejmenovala se
+> na „Moje docházka"** (vnitřní identifikátor `moje_dochazka_b` zůstal). Věta níž, že je
+> **záměrně prázdná, tím přestala platit.** Zároveň byly zrušeny dlaždice Dnešek, Týden, Můj plán,
+> Historie a stará Moje docházka (webová stránka).
+> Detail: `doc-dochazka-mobil-moje-dochazka-novy-prehled-13-9-2026`.
+
 Zadal Jiří Honomichl 13. 9. 2026, schválila Marti-AI (msg 15327, 15336, 15357). Provedl Claude-28.
 Vydání mobilní aplikace **v190 až v193**.
 

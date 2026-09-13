@@ -61,16 +61,18 @@ function Log($t) {
 if (-not (Test-Path $Incoming)) { New-Item -ItemType Directory -Path $Incoming | Out-Null }
 Log '--- docs_pull start ---'
 
-if (-not $Token) { Log '1) CHYBI token (DR_TRANSFER_TOKEN) - koncim'; exit 2 }
+function Prevzeti {
+
+if (-not $Token) { Log '1) CHYBI token (DR_TRANSFER_TOKEN) - koncim'; return 2 }
 $hdr = @{ 'X-DR-Token' = $Token }
 
 # --- 1) co je v Praze pripraveno ---------------------------------------------
 try {
   $m = Invoke-RestMethod "$Base/api/v1/ops/docs/meta" -Headers $hdr -TimeoutSec 60
 } catch {
-  Log ('1) META fail: ' + $_.Exception.Message); exit 1
+  Log ('1) META fail: ' + $_.Exception.Message); return 1
 }
-if (-not $m.stored) { Log '1) V Praze zadny balik neni (jeste nevznikl) - koncim bez chyby'; exit 0 }
+if (-not $m.stored) { Log '1) V Praze zadny balik neni (jeste nevznikl) - koncim bez chyby'; return 0 }
 
 $velikost = [int64]$m.size
 $otisk    = ('' + $m.sha256).ToLower()
@@ -79,8 +81,8 @@ Log ('1) Praha hlasi: {0} MB, otisk {1}..., stari {2} h, souboru v puvodni slozc
       [math]::Round($velikost / 1MB, 1), $otisk.Substring(0, [math]::Min(12, $otisk.Length)), $stariH, `
       $m.souboru_prectenych, $m.ruznych_obsahu)
 
-if ($JenOvereni) { Log '2) Rezim JenOvereni - nic nestahuji, koncim'; exit 0 }
-if (-not $otisk) { Log '2) Praha neposlala otisk - bez nej nestahuji (nemel bych co overit)'; exit 1 }
+if ($JenOvereni) { Log '2) Rezim JenOvereni - nic nestahuji, koncim'; return 0 }
+if (-not $otisk) { Log '2) Praha neposlala otisk - bez nej nestahuji (nemel bych co overit)'; return 1 }
 
 # --- 2) uz to mame? ----------------------------------------------------------
 $stavFile = Join-Path $Cil '_stav.json'
@@ -89,7 +91,7 @@ if (Test-Path $stavFile) {
     $s = Get-Content $stavFile -Raw | ConvertFrom-Json
     if (('' + $s.sha256).ToLower() -eq $otisk) {
       Log ('2) Tentyz otisk uz tady mame (prevzato ' + $s.prevzato + ') - NESTAHUJI nic, koncim')
-      exit 0
+      return 0
     }
   } catch {}
 }
@@ -142,12 +144,12 @@ for ($i = 1; $i -le $Pokusu; $i++) {
   Start-Sleep -Seconds $PauzaS
 }
 
-if (-not $hotovo) { Log '3) NEDOSTAHOVANO ani po vsech pokusech - stara zaloha zustava nedotcena'; exit 1 }
+if (-not $hotovo) { Log '3) NEDOSTAHOVANO ani po vsech pokusech - stara zaloha zustava nedotcena'; return 1 }
 
 $mam = (Get-Item $part).Length
 if ($mam -ne $velikost) {
   Log ('4) Velikost nesedi ({0} != {1}) - mazu a koncim' -f $mam, $velikost)
-  Remove-Item $part -Force; exit 1
+  Remove-Item $part -Force; return 1
 }
 
 # --- 4) kontrola otisku ------------------------------------------------------
@@ -155,7 +157,7 @@ $spocteny = (Get-FileHash $part -Algorithm SHA256).Hash.ToLower()
 if ($spocteny -ne $otisk) {
   Log ('4) OTISK NESEDI - stazene zahazuji, NIC neroztaluji. spocteno {0}..., ceka se {1}...' -f `
         $spocteny.Substring(0, 12), $otisk.Substring(0, 12))
-  Remove-Item $part -Force; exit 1
+  Remove-Item $part -Force; return 1
 }
 Move-Item $part $zip -Force
 Log '4) Otisk sedi - balik je cely a neporuseny'
@@ -175,7 +177,7 @@ try {
   Log ('5) Rozbaleni selhalo: ' + $_.Exception.Message)
   Remove-Item $nove -Recurse -Force -ErrorAction SilentlyContinue
   Log '5) Stara zaloha zustava nedotcena'
-  exit 1
+  return 1
 }
 $pocet = (Get-ChildItem $nove -File -Recurse | Measure-Object).Count
 Log ('5) Rozbaleno {0} souboru' -f $pocet)
@@ -198,4 +200,25 @@ Remove-Item $zip -Force -ErrorAction SilentlyContinue
 $volno = [math]::Round((Get-PSDrive ($Cil.Substring(0, 1))).Free / 1GB, 1)
 Log ('7) OK - hotovo. Balik zip smazan, volno na disku {0} GB' -f $volno)
 Log '--- docs_pull konec ---'
-exit 0
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+#  Proc se neukoncuje prikazem exit: v PowerShell ISE exit zavre CELE OKNO
+#  a clovek pak neuvidi vysledek (narazil na to Jirka Honomichl 14. 9. 2026
+#  pri prvnim ostrem spusteni v Plzni). Naplanovana uloha ale navratovy kod
+#  potrebuje, takze se exit pousti jen mimo ISE.
+# ---------------------------------------------------------------------------
+# @(...)[-1] je pojistka: kdyby nekdy neco uvnitr proteklo do vystupu,
+# navratovym kodem je vzdy posledni hodnota, tedy to nase return.
+$vysledek = @(Prevzeti)
+$kod = [int]$vysledek[-1]
+
+if ($Host.Name -like '*ISE*') {
+  Write-Host ''
+  Write-Host ('=== HOTOVO. Navratovy kod: {0} (0 = vse v poradku) ===' -f $kod)
+  Write-Host ('=== Cely zapis prubehu: {0} ===' -f $Log)
+  Write-Host '=== Okno nechavam otevrene, aby slo vysledek precist. ==='
+} else {
+  exit $kod
+}

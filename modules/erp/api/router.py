@@ -30765,10 +30765,10 @@ def app_avatar(req: Request):
     if not path:
         raise HTTPException(status_code=404, detail="Avatar neexistuje")
     # no-cache = NEzakazuje ulozeni, jen si klient musi pred pouzitim overit
-    # u serveru, jestli se fotka nezmenila (ETag -> 304, data se neprenasi).
-    # Bez toho si telefon drzel starou fotku i po vymene (13.9.2026, Jirka).
-    return FileResponse(path, media_type="image/jpeg",
-                        headers={"Cache-Control": "no-cache"})
+    # u serveru, jestli se fotka nezmenila. Kdyz se nezmenila, vrati se kratke
+    # 304 bez dat. Bez toho si telefon drzel starou fotku i po vymene
+    # (13.9.2026, Jirka).
+    return _avs.odpoved_s_fotkou(path, req)
 
 
 # ── Vzdálená doporučení parentů → na mobilu dialog Povolit/Zamítnout (Marti 5.6).

@@ -98,6 +98,33 @@ def _db_obnov(persona_id: int, cil: Path) -> bool:
         cs.close()
 
 
+def foto_etag(cesta: str) -> str:
+    """Otisk fotky pro podminene dotazy. RFC 7232 vyzaduje UVOZOVKY -- bez nich
+    nekteri klienti (typicky iOS Safari) shodu neuznaji a 304 nikdy nenastane
+    (upozornila Marti-AI, msg 15394)."""
+    import hashlib
+    st = os.stat(cesta)
+    return '"' + hashlib.md5(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest() + '"'
+
+
+def odpoved_s_fotkou(cesta: str, req):
+    """Vyda fotku s hlavickou no-cache a otiskem, nebo kratke 304.
+
+    Proc rucne: pouzita odpoved na soubor sice otisk i datum POSILA, ale
+    prichozi `If-None-Match` / `If-Modified-Since` SAMA NEVYHODNOTI -- overeno
+    naostro 13.9.2026, server vracel vzdy 200 s celym souborem. Bez tohohle by
+    se fotka stahovala pri kazdem otevreni obrazovky.
+    """
+    from fastapi import Response
+    etag = foto_etag(cesta)
+    prichozi = req.headers.get("if-none-match") or ""
+    if etag in [c.strip() for c in prichozi.split(",") if c.strip()]:
+        return Response(status_code=304,
+                        headers={"ETag": etag, "Cache-Control": "no-cache"})
+    return Response(content=Path(cesta).read_bytes(), media_type="image/jpeg",
+                    headers={"ETag": etag, "Cache-Control": "no-cache"})
+
+
 def _db_smaz(persona_id: int) -> None:
     """Smaze zalohu fotky v databazi (volane pri smazani avataru)."""
     from sqlalchemy import text as _sql

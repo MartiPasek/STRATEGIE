@@ -150,7 +150,10 @@ def get_avatar(persona_id: int, req: Request):
     path = avatar_service.get_avatar_path(persona_id)
     if not path:
         raise HTTPException(status_code=404, detail="Avatar neexistuje.")
-    return FileResponse(path, media_type="image/jpeg")
+    # no-cache: klient si smi fotku ulozit, ale pred pouzitim se musi zeptat
+    # serveru (ETag -> 304). Viz komentar u erp app/avatar (13.9.2026).
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @router.delete("/{persona_id}/avatar")

@@ -34297,6 +34297,21 @@ def dochazka_moje_ep(req: Request):
         s.close()
 
 
+@api_router.get("/app/dochazka/moje-dny")
+async def dochazka_moje_dny_ep(req: Request) -> JSONResponse:
+    """DB-driven delegat (g2007.python kod=att_moje_dny) — vlastní dny docházky
+    pro mobilní obrazovku „Moje docházka B" (Jirka 13.9.2026, schválila Marti-AI
+    msg 15418). Stejný zdroj jako ERP přehled Opravy docházky / Najít člověka,
+    ale VÝHRADNĚ vlastní záznamy přihlášeného. Jen ke čtení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from modules.erp.api import erp_registry as _ereg
+    result = _ereg.call("att_moje_dny", uid, req.query_params.get("dni"))
+    status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
+    return JSONResponse(result, status_code=status)
+
+
 def _kalk_gate(req: Request):
     """ACL pro kalkulační modul = okruh cockpitu (rodiče + scoped approveři + fin/HR skupiny).
     Vrací (uid) nebo None při zákazu."""

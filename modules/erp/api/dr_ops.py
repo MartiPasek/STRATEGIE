@@ -31,6 +31,16 @@ _TMP = os.environ.get("DR_TMP_DIR", "") or os.path.join(tempfile.gettempdir(), "
 _DUMP = os.path.join(_TMP, "dr_data_db.dump")
 _META = os.path.join(_TMP, "dr_data_db.meta.json")
 
+# 14. 9. 2026 (zadal Jiri Honomichl, schvalila Marti-AI msg 15492): balik
+# deduplikovanych dokumentu pro Plzen. Slozka Dokumenty (19,3 GB, z toho jen
+# 994 MB ruzneho obsahu) do zadne zalohy nepatrila - nocni DR retez veze jen
+# databazi. Balik stavi g2007.python kod=dokumenty_zaloha_balik PRIMO na tomhle
+# stroji (188.11), takze push jako u dumpu neni potreba a kanal /dr/ se nedotkne
+# (ten ma jediny pevny slot pro dump - balik by ho prepsal).
+_DOCS = (os.environ.get("DOCS_BACKUP_FILE", "") or
+         r"C:\Data\STRATEGIE\_zaloha_dokumentu\dokumenty_dedup.zip")
+_DOCS_META = _DOCS + ".meta.json"
+
 
 def _token() -> str:
     t = (os.environ.get("DR_TRANSFER_TOKEN", "") or "").strip()
@@ -175,6 +185,109 @@ async def dr_download(req: Request):
             })
 
     return FileResponse(_DUMP, media_type="application/octet-stream",
+                        filename=_name, headers={"Accept-Ranges": "bytes"})
+
+
+@drops_router.get("/docs/meta")
+async def docs_meta(req: Request):
+    """Co je pripraveno k prevzeti: velikost, otisk SHA-256, stari, pocty.
+
+    Plzen si tim pred stazenim overi, jestli ma smysl tahnout (a po stazeni
+    porovna otisk). 14. 9. 2026, Jirka Honomichl / Claude-28.
+    """
+    g = _guard(req)
+    if g is not None:
+        return g
+    if not os.path.isfile(_DOCS):
+        return JSONResponse({"ok": True, "stored": False,
+                             "hint": "balik jeste nevznikl - postavi ho "
+                                     "g2007.python kod=dokumenty_zaloha_balik"})
+    st = os.stat(_DOCS)
+    m = {}
+    try:
+        with open(_DOCS_META, "r", encoding="utf-8") as f:
+            m = json.load(f)
+    except Exception:
+        m = {}
+    return JSONResponse({"ok": True, "stored": True,
+                         "name": m.get("name") or os.path.basename(_DOCS),
+                         "size": st.st_size,
+                         "sha256": m.get("sha256"),
+                         "souboru_prectenych": m.get("souboru_prectenych"),
+                         "ruznych_obsahu": m.get("ruznych_obsahu"),
+                         "mtime": int(st.st_mtime),
+                         "age_s": int(time.time() - st.st_mtime),
+                         "meta": m})
+
+
+@drops_router.get("/docs/download")
+async def docs_download(req: Request):
+    """Stazeni baliku dokumentu s navazovanim (hlavicka Range).
+
+    Logika je ZAMERNE OPSANA z /dr/download, ne vytazena do spolecne funkce:
+    nocni obnova databaze na te vete visi kazdou noc a prestavba by ji ohrozila
+    (rozhodl Jirka Honomichl, schvalila Marti-AI msg 15492). FileResponse ve
+    starlette 0.37.2 hlavicku Range ignoruje - overeno 8. 9. 2026 - proto se
+    obsluhuje tady. BEZ hlavicky Range se chova jako obycejne stazeni.
+    """
+    g = _guard(req)
+    if g is not None:
+        return g
+    if not os.path.isfile(_DOCS):
+        return JSONResponse({"ok": False, "error": "not_stored",
+                             "hint": "nejdriv postav balik (dokumenty_zaloha_balik)"},
+                            status_code=404)
+    m = {}
+    try:
+        with open(_DOCS_META, "r", encoding="utf-8") as f:
+            m = json.load(f)
+    except Exception:
+        m = {}
+    _name = m.get("name") or os.path.basename(_DOCS)
+    _velikost = os.path.getsize(_DOCS)
+
+    _rozsah = (req.headers.get("range") or "").strip()
+    _od = None
+    _do = None
+    if _rozsah.lower().startswith("bytes="):
+        _spec = _rozsah[6:].split(",")[0].strip()
+        _shoda = re.match(r"^(\d+)-(\d*)$", _spec)
+        if _shoda:
+            _od = int(_shoda.group(1))
+            _do = int(_shoda.group(2)) if _shoda.group(2) else _velikost - 1
+
+    if _od is not None:
+        if _od >= _velikost or _do < _od:
+            return Response(status_code=416, headers={
+                "Content-Range": "bytes */%d" % _velikost,
+                "Accept-Ranges": "bytes"})
+        if _do > _velikost - 1:
+            _do = _velikost - 1
+        _delka = _do - _od + 1
+
+        def _cti_kus(_zacatek=_od, _kolik=_delka):
+            # synchronni generator → StreamingResponse ho pousti ve vlakne,
+            # takze cteni velkeho souboru nezablokuje API (past z 6. 9. 2026)
+            with open(_DOCS, "rb") as _f:
+                _f.seek(_zacatek)
+                _zbyva = _kolik
+                while _zbyva > 0:
+                    _blok = _f.read(min(1024 * 1024, _zbyva))
+                    if not _blok:
+                        break
+                    _zbyva -= len(_blok)
+                    yield _blok
+
+        return StreamingResponse(
+            _cti_kus(), status_code=206, media_type="application/zip",
+            headers={
+                "Content-Range": "bytes %d-%d/%d" % (_od, _do, _velikost),
+                "Content-Length": str(_delka),
+                "Accept-Ranges": "bytes",
+                "Content-Disposition": 'attachment; filename="%s"' % _name,
+            })
+
+    return FileResponse(_DOCS, media_type="application/zip",
                         filename=_name, headers={"Accept-Ranges": "bytes"})
 
 

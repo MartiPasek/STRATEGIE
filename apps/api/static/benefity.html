@@ -36,7 +36,9 @@
 </head>
 <body>
 <div class="wrap">
-  <a class="back" href="/marti">← Řídicí pult</a>
+  <!-- id="navBackBtn": uvnitř mobilní appky (obrazovka extview) se odkaz skryje, appka má vlastní
+       tlačítko zpět; na webu zůstane funkční. Claude-28 13.9.2026, schválila Marti-AI msg 15420. -->
+  <a class="back" id="navBackBtn" href="/marti">← Řídicí pult</a>
   <h1>🎁 Moje benefity <span id="obd" class="muted"></span></h1>
   <p class="sub" id="vysvetleni1" style="display:none">Daňově zvýhodněné složky mzdy — nastav si je sám. Snižují zdaněnou pohyblivou část (nižší daň), ale i základ pro sociální pojištění.</p>
   <div class="note" id="vysvetleni2" style="display:none">💡 <b>Můžeš si je vypnout</b>, pokud chceš raději vyšší zdaněnou mzdu (vyšší vyměřovací základ na důchod / nemocenskou).</div>

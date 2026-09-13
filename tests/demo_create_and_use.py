@@ -36,7 +36,7 @@ def main():
     assert res.ok
 
     validate_transition("otestovany", "ceka_na_schvaleni")
-    def is_parent(uid): return uid in {1, 6, 11}
+    def is_parent(uid): return uid in {1, 11}
     assert not can_approve(2, 2, is_parent)[0]        # Marti-AI si neschválí
     assert can_approve(1, 2, is_parent)[0]            # Marti schválí
     validate_transition("ceka_na_schvaleni", "active")

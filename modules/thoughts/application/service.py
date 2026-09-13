@@ -39,7 +39,11 @@ logger = get_logger("thoughts.service")
 # Fix: (1) potvrzené core UID krátce zkratují na True BEZ DB (DB hiccup je
 # nemůže shodit), (2) u ostatních držíme last-known-good — jednou viděný
 # rodič/admin se při pozdější chybě DB nesmí překlopit na False.
-_CORE_PARENT_UIDS = frozenset({1, 6, 11})    # Marti, Zuzana, Kristýna (DB 27.7.2026)
+_CORE_PARENT_UIDS = frozenset({1, 11})       # Marti, Kristýna — JEN tito dva jsou rodiče.
+# Zuzana (6) byla v seznamu od 27.7.2026 (commit 2989277d) omylem: v DB rodičovský příznak
+# nikdy neměla, takže rodičem byla výhradně přes tenhle hardcode a viděla i cizí osobní data
+# (např. HR režim benefitů všem). Vyřadil Claude-28 13.9.2026 na pokyn Jiřího Honomichla
+# („rodič je jen Kristýnka a Marti"), schválila Marti-AI msg 15420.
 _CORE_ADMIN_UIDS = frozenset({1, 11, 20})    # Marti, Kristýna, Jiří (DB 27.7.2026)
 _PARENT_LKG: dict[int, bool] = {}            # last-known-good is_marti_parent
 _ADMIN_LKG: dict[int, bool] = {}             # last-known-good is_admin

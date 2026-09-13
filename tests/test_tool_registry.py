@@ -89,7 +89,7 @@ def test_autonomous_vs_parent_only():
 
 # ── governance approve ──────────────────────────────────────────────────────────
 def test_can_approve_rules():
-    def is_parent(uid): return uid in {1, 6, 11}   # realita: Marti, Zuzka(neaktiv.), Kristý
+    def is_parent(uid): return uid in {1, 11}      # realita: Marti, Kristý (Zuzka vyřazena 13.9.2026)
     # lidský rodič schválí nástroj Marti-AI:
     ok, _ = F.can_approve(1, F.MARTI_AI_ENTITA_ID, is_parent)
     assert ok

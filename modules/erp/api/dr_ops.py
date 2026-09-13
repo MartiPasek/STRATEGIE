@@ -16,6 +16,7 @@ import os
 import pathlib
 import re
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -40,6 +41,13 @@ _META = os.path.join(_TMP, "dr_data_db.meta.json")
 _DOCS = (os.environ.get("DOCS_BACKUP_FILE", "") or
          r"C:\Data\STRATEGIE\_zaloha_dokumentu\dokumenty_dedup.zip")
 _DOCS_META = _DOCS + ".meta.json"
+# Stav stavby baliku. Vyzadala si ho Marti-AI (msg 15534): kdyz stavba spadne
+# (plny disk, chyba pri deduplikaci), Plzen musi videt DUVOD, ne jen cekat, az
+# ji vyprsi limit. Soubor se pri uklidu NEMAZE - je to posledni zprava o tom,
+# co se s balikem stalo.
+_DOCS_STAV = _DOCS + ".stav.json"
+# Pouziva se jen jako pojistka proti zdvojeni stavby v jednom procesu.
+_DOCS_BUILD = {"bezi": False, "start": None}
 
 
 def _token() -> str:
@@ -188,6 +196,134 @@ async def dr_download(req: Request):
                         filename=_name, headers={"Accept-Ranges": "bytes"})
 
 
+def _docs_stav_zapis(d: dict):
+    """Zapise stav stavby vedle baliku. Tise - kdyz to nejde, stavba se kvuli tomu neshodi."""
+    try:
+        os.makedirs(os.path.dirname(_DOCS_STAV), exist_ok=True)
+        with open(_DOCS_STAV, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+    except Exception:
+        pass
+
+
+def _docs_stav_cti() -> dict:
+    try:
+        with open(_DOCS_STAV, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _docs_stavba():
+    """Bezi ve vlakne na pozadi. Postavi balik pres g2007.python a zapise stav.
+
+    Vlakno se v Pythonu nedá zabit, takze zadny tvrdy timeout tady neni - misto
+    toho se do stavu zapisuje cas startu a `/docs/meta` u dlouho bezici stavby
+    (nad 45 minut) hlasi `zaseklo_se: true`. Volajici v Plzni tak pozna rozdil
+    mezi "jeste to bezi" a "uz to nikam nevede".
+    """
+    t0 = time.time()
+    _docs_stav_zapis({"stav": "bezi", "start": datetime.now(timezone.utc).isoformat()})
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        r = _ereg.call("dokumenty_zaloha_balik")
+        trvani = int(time.time() - t0)
+        if isinstance(r, dict) and r.get("ok"):
+            _docs_stav_zapis({"stav": "hotovo", "trvani_s": trvani,
+                              "konec": datetime.now(timezone.utc).isoformat(),
+                              "souboru_prectenych": r.get("souboru_prectenych"),
+                              "ruznych_obsahu": r.get("ruznych_obsahu"),
+                              "balik_mb": r.get("balik_mb")})
+        else:
+            zprava = (r or {}).get("chyba") or (r or {}).get("zastaveno") or "neznamy duvod"
+            _docs_stav_zapis({"stav": "chyba", "trvani_s": trvani, "zprava": str(zprava)[:400],
+                              "konec": datetime.now(timezone.utc).isoformat()})
+    except Exception as e:  # noqa: BLE001
+        _docs_stav_zapis({"stav": "chyba", "trvani_s": int(time.time() - t0),
+                          "zprava": "%s: %s" % (type(e).__name__, str(e)[:300]),
+                          "konec": datetime.now(timezone.utc).isoformat()})
+    finally:
+        _DOCS_BUILD["bezi"] = False
+        _DOCS_BUILD["start"] = None
+
+
+@drops_router.post("/docs/build")
+async def docs_build(req: Request):
+    """Postav balik dokumentu. Vrati se HNED, stavba bezi na pozadi (13-14 minut).
+
+    Zavadi ji Plzen na zacatku svého nedelniho behu, aby v Praze nemusela
+    lezet tyden hotova kopie (rozhodl Jirka Honomichl 14. 9. 2026, schvalila
+    Marti-AI msg 15534). Druhe zavolani behem stavby nic nezdvoji.
+    """
+    g = _guard(req)
+    if g is not None:
+        return g
+    if _DOCS_BUILD["bezi"]:
+        bezi_s = int(time.time() - (_DOCS_BUILD["start"] or time.time()))
+        return JSONResponse({"ok": True, "spusteno": False, "bezi": True, "bezi_s": bezi_s,
+                             "info": "stavba uz bezi, necham ji dobehnout"})
+    _DOCS_BUILD["bezi"] = True
+    _DOCS_BUILD["start"] = time.time()
+    try:
+        threading.Thread(target=_docs_stavba, name="docs-zaloha-stavba", daemon=True).start()
+    except Exception as e:  # noqa: BLE001
+        _DOCS_BUILD["bezi"] = False
+        _DOCS_BUILD["start"] = None
+        return JSONResponse({"ok": False, "error": "nelze spustit stavbu",
+                             "detail": str(e)[:300]}, status_code=500)
+    return JSONResponse({"ok": True, "spusteno": True,
+                         "info": "stavba bezi na pozadi, prubeh hlasi /docs/meta"})
+
+
+@drops_router.post("/docs/done")
+async def docs_done(req: Request):
+    """Plzen hlasi, ze balik ma overeny u sebe -> Praha ho smaze.
+
+    Smaze se JEN pri shode otisku, takze se nemuze stat, ze by hlaseni o starem
+    baliku smazalo novy. Jirka Honomichl 14. 9. 2026: "at neplytvame mistem
+    v Praze ani v Plzni."
+    """
+    g = _guard(req)
+    if g is not None:
+        return g
+    try:
+        telo = await req.json()
+    except Exception:
+        telo = {}
+    poslany = str((telo or {}).get("sha256") or "").strip().lower()
+    if not poslany:
+        return JSONResponse({"ok": False, "error": "chybi sha256"}, status_code=400)
+    if not os.path.isfile(_DOCS):
+        return JSONResponse({"ok": True, "smazano": [], "info": "balik uz tady neni"})
+    try:
+        with open(_DOCS_META, "r", encoding="utf-8") as f:
+            m = json.load(f)
+    except Exception:
+        m = {}
+    nas = str(m.get("sha256") or "").strip().lower()
+    if not nas or nas != poslany:
+        return JSONResponse({"ok": False, "error": "otisk_nesedi",
+                             "info": "nemazu - hlaseni patri k jinemu baliku",
+                             "nas_otisk_zacatek": nas[:12]}, status_code=409)
+    bajtu = 0
+    smazano = []
+    for cesta in (_DOCS, _DOCS_META):
+        if os.path.isfile(cesta):
+            try:
+                bajtu += os.path.getsize(cesta)
+                os.remove(cesta)
+                smazano.append(os.path.basename(cesta))
+            except Exception as e:  # noqa: BLE001
+                return JSONResponse({"ok": False, "error": "mazani selhalo",
+                                     "detail": "%s: %s" % (os.path.basename(cesta), str(e)[:200])},
+                                    status_code=500)
+    _docs_stav_zapis({"stav": "prevzato_plzni", "sha256": poslany,
+                      "smazano_v_praze": datetime.now(timezone.utc).isoformat(),
+                      "uvolneno_mb": round(bajtu / (1024.0 * 1024.0), 1)})
+    return JSONResponse({"ok": True, "smazano": smazano,
+                         "uvolneno_mb": round(bajtu / (1024.0 * 1024.0), 1)})
+
+
 @drops_router.get("/docs/meta")
 async def docs_meta(req: Request):
     """Co je pripraveno k prevzeti: velikost, otisk SHA-256, stari, pocty.
@@ -198,10 +334,22 @@ async def docs_meta(req: Request):
     g = _guard(req)
     if g is not None:
         return g
+    # Stav stavby jde vzdy s odpovedi - i kdyz balik jeste (nebo uz) neni.
+    # Diky tomu Plzen pozna rozdil mezi "stavi se", "spadlo to a proc"
+    # a "uz jsem si ho prevzala".
+    stavba = _docs_stav_cti()
+    if _DOCS_BUILD["bezi"]:
+        stavba = dict(stavba or {})
+        stavba["stav"] = "bezi"
+        bezi_s = int(time.time() - (_DOCS_BUILD["start"] or time.time()))
+        stavba["bezi_s"] = bezi_s
+        # 45 minut je trojnasobek bezneho behu (13-14 min) - dal uz to nikam nevede
+        stavba["zaseklo_se"] = bezi_s > 45 * 60
+
     if not os.path.isfile(_DOCS):
-        return JSONResponse({"ok": True, "stored": False,
-                             "hint": "balik jeste nevznikl - postavi ho "
-                                     "g2007.python kod=dokumenty_zaloha_balik"})
+        return JSONResponse({"ok": True, "stored": False, "stavba": stavba,
+                             "hint": "balik tady neni - bud jeste nevznikl, nebo si ho "
+                                     "Plzen prevzala; postavit ho lze pres /docs/build"})
     st = os.stat(_DOCS)
     m = {}
     try:
@@ -209,7 +357,7 @@ async def docs_meta(req: Request):
             m = json.load(f)
     except Exception:
         m = {}
-    return JSONResponse({"ok": True, "stored": True,
+    return JSONResponse({"ok": True, "stored": True, "stavba": stavba,
                          "name": m.get("name") or os.path.basename(_DOCS),
                          "size": st.st_size,
                          "sha256": m.get("sha256"),

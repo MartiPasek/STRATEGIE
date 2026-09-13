@@ -2,6 +2,27 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ## ⚠️ AKTUALIZACE 14. 9. 2026 (noc) — obrazovka Aplikace má TŘI ZÁLOŽKY
+>
+> **Zadal Jiří Honomichl, schválila Marti-AI (msg 15486 a 15495). Provedl Claude-28.**
+> Obrazovka Aplikace se dělí na „Moje aplikace“ (vlastní výběr každého člověka, zatím
+> prázdná — chystá se), „Všechny aplikace“ (co je hotové a vidí to každý) a „Vývoj
+> aplikací“ (co ještě není vyzkoušené a doladěné). **Záložku Vývoj aplikací appka staví
+> JEN rodiči nebo správci** — ostatním se dlaždice vůbec nepostaví, nejsou jen skryté
+> (ověřeno na živé stránce: běžný člověk má ve stránce dvě dlaždice, žádné hledání
+> a žádnou sekci). Vzhled záložek je převzatý z obrazovky Firma.
+>
+> **Na záložce „Všechny aplikace“ jsou zatím jen 🎁 Benefity a 💡 Světla** — všechno
+> ostatní je ve „Vývoji“. Věty níž, které říkají, že Benefity jsou v sekci 👥 TÝM &
+> PŘEHLEDY a Světla v sekci 🔗 NÁSTROJE, platí jako datované pozorování do večera
+> 13. 9. 2026; ty sekce dnes žijí uvnitř záložky Vývoj aplikací.
+>
+> **Dopad jmenovitě:** rodič nebo správce jsou dnes tři lidé — Marti Pašek (1),
+> Kristýna Marešová (11) a Jiří Honomichl (20). Zbylých 34 přihlašitelných lidí vidí
+> v Aplikacích už jen ty dvě dlaždice. Jirka byl na to výslovně upozorněn a rozhodl takto;
+> „Moje aplikace“ se mají naplnit hned dalším krokem — vlastním výběrem oblíbených,
+> ukládaným u nás v systému, přidávání podržením prstu na dlaždici.
+
 
 > ## ⚠️ AKTUALIZACE 13. 9. 2026 — 💡 Světla ze spodní lišty zmizela, ikon je PĚT
 >

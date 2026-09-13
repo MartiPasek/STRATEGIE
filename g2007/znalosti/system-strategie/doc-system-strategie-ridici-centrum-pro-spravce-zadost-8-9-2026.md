@@ -73,3 +73,19 @@ to nepoznáš — první zápis proto tiše prošel s nulovým účinkem (`repla
 řádek se přesto ohlásil jako změněný, protože se měnil popisek). Přesné bajty se musí
 vytáhnout přes base64 a rozkódovat u sebe.
 
+> ## ✅ DOPLNĚNO 14. 9. 2026 — správci cestu dostali zpátky
+>
+> Jiří Honomichl též noci rozhodl **otevřít celou sekci 🤖 AI & KOMUNIKACE i správcům**
+> (podmínka `if(par||adm)` místo `if(par)`, stejně jako má sekce 🏛️ ŘÍZENÍ & SYSTÉM);
+> schválila Marti-AI msg 15499. **Odstavec výše o ztracené cestě tím platí jen pro
+> večer 13. 9. 2026.**
+>
+> Správci jsou tři — Marti Pašek (1), Kristýna Marešová (11) a Jiří Honomichl (20);
+> první dva už sekci viděli jako rodiče, takže se fakticky otevřela **jedinému člověku,
+> Jiřímu Honomichlovi**. Spolu s Řídícím centrem mu přibyly i ostatní dlaždice sekce
+> (Claude-27, Síť Claudů, Sdílený telefon, Buzení Marti-AI, Co AI ušetřila) — věděl o tom
+> předem. **Žádný serverový zámek se neměnil**, jen viditelnost dlaždic.
+> Ověřeno na jeho účtu na živé appce: sekce se vykreslí se šesti dlaždicemi, první je
+> Řídící centrum a otevře se (zásobník `apps>martinky`).
+> Sekce od tež noci žije na záložce **Vývoj aplikací** (přestavba okna strategie-39).
+

@@ -2,6 +2,27 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ## ⚠️ AKTUALIZACE 14. 9. 2026 (noc) — obrazovka Aplikace má TŘI ZÁLOŽKY
+>
+> **Zadal Jiří Honomichl, schválila Marti-AI (msg 15486 a 15495). Provedl Claude-28.**
+> Obrazovka Aplikace se dělí na „Moje aplikace“ (vlastní výběr každého člověka, zatím
+> prázdná — chystá se), „Všechny aplikace“ (co je hotové a vidí to každý) a „Vývoj
+> aplikací“ (co ještě není vyzkoušené a doladěné). **Záložku Vývoj aplikací appka staví
+> JEN rodiči nebo správci** — ostatním se dlaždice vůbec nepostaví, nejsou jen skryté
+> (ověřeno na živé stránce: běžný člověk má ve stránce dvě dlaždice, žádné hledání
+> a žádnou sekci). Vzhled záložek je převzatý z obrazovky Firma.
+>
+> **Na záložce „Všechny aplikace“ jsou zatím jen 🎁 Benefity a 💡 Světla** — všechno
+> ostatní je ve „Vývoji“. Věty níž, které říkají, že Benefity jsou v sekci 👥 TÝM &
+> PŘEHLEDY a Světla v sekci 🔗 NÁSTROJE, platí jako datované pozorování do večera
+> 13. 9. 2026; ty sekce dnes žijí uvnitř záložky Vývoj aplikací.
+>
+> **Dopad jmenovitě:** rodič nebo správce jsou dnes tři lidé — Marti Pašek (1),
+> Kristýna Marešová (11) a Jiří Honomichl (20). Zbylých 34 přihlašitelných lidí vidí
+> v Aplikacích už jen ty dvě dlaždice. Jirka byl na to výslovně upozorněn a rozhodl takto;
+> „Moje aplikace“ se mají naplnit hned dalším krokem — vlastním výběrem oblíbených,
+> ukládaným u nás v systému, přidávání podržením prstu na dlaždici.
+
 > ## ⚠️ AKTUALIZACE 13. 9. 2026 — dlaždice 🎁 Benefity se z téhle obrazovky přesunula pryč
 >
 > **Zadal Jiří Honomichl, schválila Marti-AI (msg 15450). Provedl Claude-28.**
@@ -110,4 +131,20 @@ a rozkódovat u sebe — teprve pak je vidět, kde je konec řádku a kde odsaze
 
 Otevření **Řídícího centra i správcům** (`users.is_admin`) je samostatná věc — čeká
 na rozhodnutí rodiče, viz `doc-system-strategie-ridici-centrum-pro-spravce-zadost-8-9-2026`.
+
+> ## ✅ DOPLNĚNO 14. 9. 2026 — správci cestu dostali zpátky
+>
+> Jiří Honomichl též noci rozhodl **otevřít celou sekci 🤖 AI & KOMUNIKACE i správcům**
+> (podmínka `if(par||adm)` místo `if(par)`, stejně jako má sekce 🏛️ ŘÍZENÍ & SYSTÉM);
+> schválila Marti-AI msg 15499. **Odstavec výše o ztracené cestě tím platí jen pro
+> večer 13. 9. 2026.**
+>
+> Správci jsou tři — Marti Pašek (1), Kristýna Marešová (11) a Jiří Honomichl (20);
+> první dva už sekci viděli jako rodiče, takže se fakticky otevřela **jedinému člověku,
+> Jiřímu Honomichlovi**. Spolu s Řídícím centrem mu přibyly i ostatní dlaždice sekce
+> (Claude-27, Síť Claudů, Sdílený telefon, Buzení Marti-AI, Co AI ušetřila) — věděl o tom
+> předem. **Žádný serverový zámek se neměnil**, jen viditelnost dlaždic.
+> Ověřeno na jeho účtu na živé appce: sekce se vykreslí se šesti dlaždicemi, první je
+> Řídící centrum a otevře se (zásobník `apps>martinky`).
+> Sekce od tež noci žije na záložce **Vývoj aplikací** (přestavba okna strategie-39).
 

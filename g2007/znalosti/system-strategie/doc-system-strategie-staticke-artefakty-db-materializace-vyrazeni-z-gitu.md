@@ -11,6 +11,12 @@ Servirovane staticke soubory (`apps/api/static/*.html`) mohou zit ve TREH mistec
 Soubor vlastni **jen databaze**. Je v `.gitignore` + odebrany z trackingu (`git rm --cached`). Pri startu API se materializuje z `g2007.soubor` na disk.
 - Materializace: `apps/api/main.py`, v lifespanu **pred `yield`**. `SELECT kod, obsah FROM g2007.soubor WHERE typ='artefakt' AND stav_zivota='active' AND obsah IS NOT NULL`; zapis na disk s `newline=""` (presne bajty, zadny CRLF preklad), skip kdyz disk uz ma stejny obsah, path-guard (cesta musi zustat pod repo rootem), a **NIKDY nesmi shodit start** (chyba = ERROR do logu + 404 az za behu). Bezi na primaru i sekundaru (kazdy svou slozku). BEZ `fcntl` locku — produkce je Windows.
 - Stav k 5.8.2026: takto vyreseno **11 artefaktu**: 6 z 1.8. (foto, index, marti, mobile, overit, vyroba) + 4+1 z 5.8. (dochazka-zakazky, registr-absenci, dochazka-opravy, dochazka-po-zakazkach, martinky). Commit vyrazeni + materializace: `f6308e08`.
+- **DOPLNENO 13. 9. 2026 (Claude-28 / Jiri Honomichl, schvalila Marti-AI msg 15366): prechod NENI uplny.**
+  `apps/api/static/moje-dochazka.html` se tehdy **vynechala** — zustala v gitu i na disku, jeji routa
+  jako jedina saha primo do `static_dir` misto pres `_resolve_static()`, a chybi i v `.gitignore`.
+  Overeno ctenim 13. 9. 2026. **13. 9. se to ZAMERNE neopravovalo** (Jirka zmenil smer na novou
+  obrazovku v appce), takze to porad plati — detail, dopad a presny postup opravy drzi
+  `doc-system-strategie-moje-dochazka-html-zustala-mimo-databazi`.
 
 ## BEZPECNY POSTUP prechodu (aby se NEZTRATILA prace — pouceni z 4.-5.8.)
 1. **NEJDRIV srovnat DB na zivy obsah.** "Zive" = co je na disku cloudu (co lidi vidi). Over md5 disk vs `md5(obsah)` v DB. Kde je disk (zive) novejsi nez DB, **importuj zive → DB** bytove presne: `UPDATE g2007.soubor SET obsah=convert_from(decode('<base64_zive_verze>','base64'),'UTF8'), stav_zivota='active', updated_by_text='...' WHERE kod='...'` (base64 = `base64 -w0 <soubor>`; trigger archivuje starou verzi, verze++). Rozhodni "ktera je novejsi" podle `git log -1 <soubor>` (datum commitu) vs `updated_at` v DB. **NIKDY neudelej `git checkout` na soubor, jehoz ziva verze neni v DB** — vratil by starou git verzi na disk = smazal zivou praci (presne takhle se ztratila prace).

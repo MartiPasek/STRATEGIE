@@ -34,9 +34,24 @@ stojí tlačítka **Konec** a **Prodloužit**. V režimu `"zachodu"` proto nevyk
 `checkin {kind:"trip", switch:true}` a pak `presence {eta_min / until_txt}`.
 
 ## Registrace obrazovky — bez ní TIŠE NEEXISTUJE
-Všechna tři místa: `10_core.js` → `window.__M2W.cesta_vyber = mkWrap();` ·
-`72_migrace_sw_isds.js` → `cesta_vyber=window.__M2W.cesta_vyber` ·
-`73_pref_poptavka.js` → `cesta_vyber:cesta_vyber`.
+
+> **OPRAVENO 13. 9. 2026** (Claude-28 / Jiří Honomichl, schválila Marti-AI msg 15366).
+> Původní věta níž říkala **„Všechna tři místa"** a vyjmenovávala jen `10_core.js`, `72` a `73`.
+> **To je nedostatečné** — chybí navázání funkce na obal (`__setImpl` na konci dílku).
+> Bez něj se obrazovka tváří, že existuje, ale po klepnutí se **tiše nic nestane**
+> a jediná stopa je hláška v konzoli, kterou na telefonu nikdo neuvidí.
+> Našlo se to 13. 9. 2026 při zakládání obrazovky `moje_dochazka_b`.
+> **Závazný návod je teď `doc-system-strategie-mobil-nova-obrazovka-ctyri-mista-registrace`.**
+
+**ŠPATNĚ (původní znění, NEPLATÍ):** *„Všechna tři místa: `10_core.js` · `72_migrace_sw_isds.js` · `73_pref_poptavka.js`."*
+
+**SPRÁVNĚ — čtyři místa:**
+1. `10_core.js` → `window.__M2W.cesta_vyber = mkWrap();`
+2. `60_dochazka.js` → samotná vykreslovací funkce `function cesta_vyber(){ ... }`
+3. `60_dochazka.js` **úplně na konci** → `window.__M2W.cesta_vyber.__setImpl(cesta_vyber);`
+   — **tohle v původním výčtu chybělo**
+4. `72_migrace_sw_isds.js` → `cesta_vyber=window.__M2W.cesta_vyber,`
+5. `73_pref_poptavka.js` → `cesta_vyber:cesta_vyber,` v mape `SCREENS`
 
 ## ⛔ Na co nesahat
 - **113 NEPŘEVÁDĚT na `kind='standard'`** — 33 z 34 úseků od června je na Režii u 12 lidí.

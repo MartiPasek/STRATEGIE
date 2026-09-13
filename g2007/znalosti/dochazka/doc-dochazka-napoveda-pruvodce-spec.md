@@ -101,7 +101,8 @@ Obrazovka **🕒 Moje docházka** (od 7. 9. 2026 **druhá ikona spodní lišty**
 2. **💬 Potřebuji ti něco říct…** (`showOpts`) — menu se liší dle stavu:
    - **MIMO směnu (příchod):** 🚗 Jedu do práce… (5/15/30/45 min/1/1,5/2 h) · 🏢 Jsem v práci… · 🏠 Nejsem v práci… (home office) · 🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve… · 💬 Píši přímo tobě, Marti… · 🙋 Mám dotaz na nadřízeného…
    - **VE směně:** 🙈 Teď to bude jinak… → (☕ Krátká pauza · 🍃 Jdu se provětrat/najíst · 🕔 skončit dříve · 🌅 přijít později · 📅 Mám jednání · 🚗 Mám služební pochůzku · 🫡 Dnes už se mnou nepočítej) · 🛠 Zpráva vedoucímu výroby · 🏁 Budu brzy hotov · 💬 Píši Marti · 🙋 Mám dotaz na nadřízeného · (🏭 Plánovač výroby jen vedoucí). **Jednání/pochůzka = hodiny BĚŽÍ dál.**
-3. **MOJE DOCHÁZKA** (dlaždice, stav 9. 9. 2026): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Po zakázkách · 🗓️ **Moje absence** · **✋ Požádat o opravu** (od 21. 7. 2026) · 🤒 Nemocenská 🔒 · 🩺 Lísteček od lékaře 🔒.
+3. **DOCHÁZKA** (dlaždice, stav 13. 9. 2026): 📅 Dnešek · 📅 Týden · 👤 Můj plán · 🕓 Historie · 📦 Moje docházka · 📋 Moje docházka B · 🗓️ **Moje absence** · **✋ Požádat o opravu** (od 21. 7. 2026) · 🤒 Nemocenská 🔒 · 🩺 Lísteček od lékaře 🔒.
+   > 13. 9. 2026 přejmenováno: dlaždice „Po zakázkách" → „Moje docházka", sekce „MOJE DOCHÁZKA" → „DOCHÁZKA"; přibyla dlaždice „Moje docházka B" (zatím prázdná obrazovka).
 
    > ⚠️ **9. 9. 2026: „🧭 Tady budu jinde" UŽ NENÍ DLAŽDICE.** Zadal Jiří Honomichl, schválila
    > Marti-AI (msg 15196 a 15222). Je z ní **tlačítko hned pod zeleným 💬 Potřebuji ti něco říct**

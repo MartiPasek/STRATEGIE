@@ -30,6 +30,11 @@ i když je to delší — jinak ti ji příští úklid smaže.
 
 ## Smazání obrazovky = ČTYŘI místa, ne jedno
 
+> **Seznam těch míst žije od 13. 9. 2026 v `doc-system-strategie-mobil-nova-obrazovka-ctyri-mista-registrace`**
+> — platí shodně pro rušení i pro zakládání obrazovky. Důvod sjednocení: 9. 9. 2026 vznikl
+> zápis, který tvrdil tři místa místo čtyř, a ten rozpor nikdo nenahlásil, dokud se na to
+> 13. 9. nepřišlo znovu naostro. Tabulka níž zůstává jako záznam stavu k 6. 9. 2026.
+
 Fragmenty appky nejsou jedna společná closure; každý je vlastní IIFE a funkce se sdílejí
 přes `window.__M2W`. Jedna obrazovka je proto zapsaná na čtyřech až pěti místech
 a **když smažeš jen tělo, appka spadne tiše až v prohlížeči** (`node --check` při publikaci projde):

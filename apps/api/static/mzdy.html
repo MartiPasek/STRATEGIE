@@ -19,6 +19,10 @@
   .stat .n{font-size:18px;font-weight:800} .stat .l{color:var(--mut);font-size:12px;margin-top:2px}
   .stat .z{font-size:12.5px;margin-top:4px} .z.ok{color:var(--ok)} .z.warn{color:var(--warn)}
   table{width:100%;border-collapse:collapse;margin-top:4px}
+  /* Na telefonu je tabulka měsíců širší než displej (částky se nesmí zužovat ani lámat),
+     proto roluje do strany UVNITŘ svého rámečku a netlačí celou stránku.
+     Jirka Honomichl 13.9.2026, schválila Marti-AI msg 15444. */
+  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
   th,td{border:1px solid var(--bord);padding:5px 8px;font-size:12.5px;text-align:right}
   th{background:#0f1830;color:#9fb2d4} td.l,th.l{text-align:left}
   td.zust{font-weight:700} .nz{color:var(--warn)}
@@ -55,7 +59,7 @@ function load(){
          '<div class="z '+(zok?"ok":"warn")+'">zaplaceno '+kc(c.zaplaceno)+' · visí '+kc(c.zustatek)+'</div></div>';
     });
     h+='</div>';
-    h+='<table><tr><th class="l">Měsíc</th>';
+    h+='<div class="tscroll"><table><tr><th class="l">Měsíc</th>';
     KATS.forEach(function(k){h+='<th colspan="3">'+esc(k.split(" ")[0])+'</th>';});
     h+='</tr><tr><th class="l"></th>';
     KATS.forEach(function(){h+='<th>naúčt.</th><th>zapl.</th><th>visí</th>';});
@@ -67,7 +71,7 @@ function load(){
       });
       h+='</tr>';
     });
-    h+='</table>';
+    h+='</table></div>';
     if(!(j.mesice||[]).length)h+='<div class="hint">Žádná data.</div>';
     V.innerHTML=h;
   });

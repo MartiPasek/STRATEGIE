@@ -12,6 +12,10 @@
   .wrap{max-width:880px;margin:0 auto;padding:16px;padding-bottom:120px}
   .topbar{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--bord);display:flex;gap:8px;flex-wrap:wrap;align-items:center;z-index:5}
   select,.btn{background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:8px;padding:8px 12px;font-size:14px}
+  /* Seznam dokumentů se roztahoval podle nejdelšího názvu (497 px) a na telefonu tlačil
+     celou stránku do strany. Teď se vejde do šířky; celý název je vidět po rozbalení.
+     Jirka Honomichl 13.9.2026, schválila Marti-AI msg 15444. */
+  select{max-width:100%;min-width:0}
   .btn{cursor:pointer;font-weight:700}
   .btn.pri{background:var(--accent);color:#06101f;border:0}
   .btn.fb{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid rgba(251,191,36,.4)}

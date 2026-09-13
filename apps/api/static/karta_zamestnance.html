@@ -2882,6 +2882,13 @@ async function majDel(id){
 }
 
 // Šárka 21.7.2026: „Skupiny a kvalifikace" (jen čtení).
+// C28 13.9.2026 (zadal Jirka Honomichl, schválila Marti-AI msg 15384): zařazení do agend
+// se nově spravuje TADY — karta zaměstnance je jediné místo, kde se mění. V mobilní aplikaci
+// už to editovat nejde, ta agendy jen zobrazuje. Důvod: seznamy lidí v agendách se do dneška
+// vedly v mobilu a nikdo je neudržoval, takže se rozešly se skutečností (u schvalování
+// docházky 3 lidé místo 16). Zaškrtávátka vidí jen ten, kdo na to má právo — rodič nebo
+// users.can_manage_staff_groups (první ho dostala Šárka Novotná); ostatní vidí jen výpis.
+// Kam přesně v kartě to patří, si určí Šárka — přesun je jen otázka místa v tomhle souboru.
 async function skupUdaje(){
   const uid=CUR_UID; if(!uid) return;
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
@@ -2889,10 +2896,54 @@ async function skupUdaje(){
   const p=LIDE.find(x=>x.user_id===uid)||{};
   const back='<a href="#" onclick="openP('+uid+');return false;" style="color:#aac8ec;text-decoration:none">‹ Zpět na kartu</a>';
   let h=pheadHTML(p)+'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid #1e2730"><span style="font-weight:800;color:#e8eef5">👥 Skupiny a kvalifikace</span>'+back+'</div>';
-  if(!d.ok){ h+='<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; }
-  else if(!(d.skupiny||[]).length){ h+='<div class="empty">Zaměstnanec není zařazen v žádné skupině.</div>'; }
-  else { h+='<div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:8px">'+d.skupiny.map(g=>'<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:#16301f;color:#7fe0a0">'+esc(g)+'</span>').join('')+'</div>'; }
+  if(!d.ok){ det.innerHTML=h+'<div class="empty">🔒 '+esc(d.error||'nedostupné')+'</div>'; return; }
+  const ag=d.agendy||[], edit=!!d.muze_editovat;
+  h+='<div style="padding:8px 16px 2px;font-weight:800;color:#e8eef5">Agendy</div>';
+  h+='<div style="padding:0 16px 2px;font-size:12px;color:#7f8ea0">'
+    +(edit?'Zaškrtni, do kterých agend člověk patří. Ukládá se hned. Člověk může patřit do více agend.'
+          :'Zařazení do agend mění HR.')+'</div>';
+  h+='<div id="skmsg" style="padding:2px 16px;font-size:12px;color:#7f8ea0;min-height:17px"></div>';
+  if(!ag.length){ h+='<div class="empty">Žádné agendy nejsou zavedené.</div>'; }
+  else if(edit){
+    h+='<div style="padding:2px 16px 14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px">'
+      +ag.map(g=>'<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #1e2730;border-radius:10px;cursor:pointer;background:'+(g.je_clen?'#16301f':'transparent')+'">'
+        +'<input type="checkbox" '+(g.je_clen?'checked':'')+' onchange="skupToggle('+g.id+',this)">'
+        +'<span style="color:#e8eef5">'+esc(g.ikona||'👥')+' '+esc(g.nazev)+'</span></label>').join('')
+      +'</div>';
+  } else {
+    const moje=ag.filter(g=>g.je_clen);
+    h+=moje.length
+      ? '<div style="padding:6px 16px 14px;display:flex;flex-wrap:wrap;gap:8px">'+moje.map(g=>'<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:#16301f;color:#7fe0a0">'+esc(g.ikona||'')+' '+esc(g.nazev)+'</span>').join('')+'</div>'
+      : '<div class="empty">Zaměstnanec není zařazen v žádné agendě.</div>';
+  }
+  const tech=(d.technicke||[]).filter(g=>g.je_clen);
+  if(tech.length){
+    h+='<div style="padding:8px 16px 2px;font-weight:800;color:#e8eef5">Technické skupiny</div>'
+      +'<div style="padding:0 16px 2px;font-size:12px;color:#7f8ea0">Nenastavuje HR — kdo do nich patří, se počítá samo podle toho, co kdo smí.</div>'
+      +'<div style="padding:6px 16px 14px;display:flex;flex-wrap:wrap;gap:8px">'+tech.map(g=>'<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:#1b2735;color:#aac8ec">'+esc(g.nazev)+'</span>').join('')+'</div>';
+  }
   det.innerHTML=h;
+}
+// Uloží se hned při kliknutí. Když zápis neprojde, zaškrtnutí se vrátí zpátky, ať karta
+// neukazuje něco jiného, než co je v databázi.
+async function skupToggle(gid, box){
+  const uid=CUR_UID, msg=document.getElementById('skmsg'), chtel=box.checked;
+  box.disabled=true; if(msg){ msg.style.color='#7f8ea0'; msg.textContent='Ukládám…'; }
+  let d;
+  try{
+    const r=await fetch(API+'/app/skupiny/'+gid+'/clen',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:uid,action:chtel?'add':'remove'})});
+    d=await r.json();
+  }catch(e){ d={ok:false,error:'spojení'}; }
+  box.disabled=false;
+  if(!d||!d.ok){
+    box.checked=!chtel;
+    if(msg){ msg.style.color='#ff8a7a'; msg.textContent='Neuloženo: '+((d&&d.error)||'chyba'); }
+    return;
+  }
+  box.parentElement.style.background=chtel?'#16301f':'transparent';
+  if(msg){ msg.style.color='#7fe0a0'; msg.textContent=chtel?'Zařazeno.':'Vyřazeno.'; }
 }
 
 // Šárka 21.7.2026: „Přítomnost/absence" (jen čtení, posledních 50 žádostí).

@@ -133,7 +133,7 @@ async def upload_avatar(persona_id: int, req: Request, file: UploadFile = File(.
         raise HTTPException(status_code=400, detail="Chybí filename.")
     content = await file.read()
     try:
-        path = avatar_service.save_avatar(persona_id, content)
+        path = avatar_service.save_avatar(persona_id, content, user_id=user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -326,35 +326,38 @@ async def dr_selfcheck(req: Request):
     chain_count = _int(body.get("chain_count"))
     chain_oldest = (str(body.get("chain_oldest") or ""))[:20] or None
     chain_newest = (str(body.get("chain_newest") or ""))[:20] or None
+    # Jirka Honomichl 14. 9. 2026 (schvalila Marti-AI msg 15516): tyhle vety cte clovek
+    # na mobilu, proto jsou cesky s diakritikou. Hodnota `verdict` ("OK"/"NENI_OK") je
+    # naopak STROJOVA - uklada se do fw.dr_selfcheck.verdict a porovnava se nize, nemenit.
     reasons = []
     if not db_online:
-        reasons.append("DB neodpovida")
+        reasons.append("databáze neodpovídá")
     if data_age_h is None or data_age_h > 30:
-        reasons.append("data stara %s h (>30) - restore mozna neprobehl" % (("%.1f" % data_age_h) if data_age_h is not None else "?"))
+        reasons.append("data stará %s h (> 30) — obnova možná neproběhla" % (("%.1f" % data_age_h) if data_age_h is not None else "?"))
     if not cnt_tab or cnt_tab < 400:
-        reasons.append("malo tabulek (%s <400)" % cnt_tab)
+        reasons.append("málo tabulek (%s < 400)" % cnt_tab)
     if not cnt_conv or cnt_conv < 1:
-        reasons.append("0 konverzaci")
+        reasons.append("0 konverzací")
     if not cnt_vec or cnt_vec < 1:
-        reasons.append("0 vektoru")
+        reasons.append("0 vektorů")
     if not pgvector:
-        reasons.append("chybi pgvector")
+        reasons.append("chybí pgvector")
     if body.get("error"):
         reasons.append("agent: %s" % str(body.get("error"))[:120])
     # C23 29.7.: retez zaloh musi rust (archivace bezi). Nejnovejsi archiv starsi nez 2 dny = regrese.
     try:
         if not chain_newest:
-            reasons.append("retez zaloh prazdny - zadny archiv na standby")
+            reasons.append("řetěz záloh prázdný — žádný archiv na standby")
         else:
             from datetime import datetime as _dt
             _cn = _dt.strptime(chain_newest[:10], "%Y-%m-%d")
             _agd = (_dt.utcnow() - _cn).days
             if _agd > 2:
-                reasons.append("retez zaloh zamrzly - nejnovejsi archiv %s (%d dni), archivace asi nebezi" % (chain_newest, _agd))
+                reasons.append("řetěz záloh zamrzlý — nejnovější archiv %s (%d dní), archivace asi neběží" % (chain_newest, _agd))
     except Exception:
         pass
     verdict = "OK" if not reasons else "NENI_OK"
-    reason = "; ".join(reasons)[:500] if reasons else "obnova OK, data cerstva, pocty sedi"
+    reason = "; ".join(reasons)[:500] if reasons else "obnova OK, data čerstvá, počty sedí"
     try:
         from core.database_data import get_data_session as _gds
         from sqlalchemy import text as _t
@@ -378,8 +381,8 @@ async def dr_selfcheck(req: Request):
                 # Pojistka: kdyz vyber nevrati nikoho (nebo selze), posli to jako
                 # driv uzivateli 1 — hlaseni o selhani zalohy se nesmi ztratit.
                 _dr_zprava = {
-                    "title": "DR obnova: NENI OK",
-                    "msg": ("Denni samokontrola zalohy (" + source
+                    "title": "DR obnova: NENÍ OK",
+                    "msg": ("Denní samokontrola zálohy (" + source
                             + ") selhala: " + reason)[:600],
                 }
                 _dr_poslano = 0

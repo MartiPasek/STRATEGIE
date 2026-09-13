@@ -4,6 +4,11 @@
 
 # Mobil, úvodní obrazovka „Domů" — přestavba 7. 9. 2026
 
+> ⚠️ **NEPLATÍ bod 4 níže (stav k 13. 9. 2026):** fotka **není kruhová**. 9. 9. 2026 se změnila
+> na **čtverec se zaoblenými rohy** (zaoblení 14 bodů); velikost 220 bodů zůstala. Ověřeno na živé
+> aplikaci 13. 9. 2026. Detail: `doc-system-strategie-mobil-domovska-obrazovka-host-a-ctverec`.
+> Zbytek zápisu je záznam stavu k 7. 9. 2026 a nechává se beze změny.
+
 **Zadal Jirka Honomichl, schválila Marti-AI, provedl Claude-28.** Podobu fotky vybral Jirka
 ze čtyř variant připravených naživo v prohlížeči.
 
@@ -16,7 +21,7 @@ ze čtyř variant připravených naživo v prohlížeči.
    [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]]).
 3. **Řádek o prostředí a odezvě je spojený do jedné řádky** a je pod nadpisem. Vidí ho **jen
    správci a rodiče**; ostatním se ukáže, až se zapne přepínač v Nastavení. Výchozí stav vypnuto.
-4. **Fotka je kruhový portrét 220 bodů uprostřed**, ne pozadí přes celou plochu.
+4. **Fotka je kruhový portrét 220 bodů uprostřed**, ne pozadí přes celou plochu. **(NEPLATÍ od 9. 9. 2026 — viz rámeček nahoře.)**
 5. **Seznam oznámení má vlastní okno s rolováním**, aby neroztlačil zbytek obrazovky.
 
 ## Čísla, o která se rozhodnutí opírají (měřeno 7. 9. 2026 na živé appce)

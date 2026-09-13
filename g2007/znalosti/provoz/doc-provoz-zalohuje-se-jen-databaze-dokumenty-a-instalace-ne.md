@@ -1,10 +1,21 @@
-# Zaloha pokryva POUZE databazi - 19 GB dokumentu a instalace peti sluzeb v ni nejsou (nalez 8. 9. 2026)
+# Zaloha pokryva POUZE databazi - 19 GB dokumentu a instalace peti sluzeb v ni nejsou (nalez 8. 9. 2026; prazska cast vyresena 14. 9. 2026)
 
 > oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 # Zaloha pokryva POUZE databazi - dokumenty a instalacni postupy v ni nejsou
 
 Nalez z 8. 9. 2026 (Jiri Honomichl / Claude-28) pri uklidu po oprave nocniho prenosu zaloh Praha - Plzen.
+
+> ## STAV K 14. 9. 2026 - PRAZSKA POLOVINA JE VYRESENA
+> **Dokumenty uz zalohu MAJI pripravenou, jen jeste nejsou v Plzni.**
+> V noci na 14. 9. 2026 vznikl deduplikovany balik `dokumenty_dedup.zip`
+> (999 MB misto 19 759 MB) a nasadily se adresy, kterymi si ho Plzen stahne;
+> cela cesta Plzen -> Praha je **overena naostro**. Zbyva **jeden lidsky krok
+> na plzenskem serveru** (ulozit skript a zalozit naplanovanou ulohu - AI tam
+> menit nesmi). Postup, cisla i dukazy:
+> `doc-provoz-zaloha-dokumentu-do-plzne-balik-a-prevzeti`.
+> Veta v ramecku nize *"Dokud neni zaloha dokumentu vyresena, plan obnovy
+> pokryva POUZE databazi"* proto plati **jen do dokonceni toho kroku**.
 
 > ## OTEVRENY BOD, NE ZDOKUMENTOVANY ZAMER
 > **Dokud neni zaloha dokumentu vyresena, plan obnovy pokryva POUZE databazi.**
@@ -34,6 +45,10 @@ Nalez z 8. 9. 2026 (Jiri Honomichl / Claude-28) pri uklidu po oprave nocniho pre
 **Co overene NENI:** ze slozka fyzicky sedi na 188.11. Jiste je jen, ze **neni** na databazovem
 serveru; na aplikacni server nevidime jinak nez pres aplikaci. Potvrdi to prvni beh ulohy
 `dokumenty_dedup_zaloha` - kdyz slozku nenajde, ohlasi to a neudela nic.
+
+> ⛔ **ZODPOVEZENO 14. 9. 2026:** beh naostro slozku **nasel a precetl** -
+> 51 569 souboru, tedy presne tolik, kolik databaze eviduje se souborem.
+> Odstavec vyse tim plati jen historicky.
 
 **50 593 zaznamu zalozenych PRED 21. 8. 2026** ma dnes velikost 0 a priznak `file_missing`. Vsechny mladsi zaznamy (od 21. 8.) soubory maji.
 

@@ -162,7 +162,7 @@ Rozhodnutí, co s nálezy udělat, si Jiří Honomichl nechal na samostatnou ses
 Oddíly výše se nepřepisují (jsou to datované záznamy auditu), tady je, co dnes platí jinak:
 
 **1) Spodní lišta má jiné složení i jiné klíče.** Od 7. 9. 2026 je to
-**Domů · Moje docházka · Firma · Úkoly · Světla · Aplikace** (šest ikon). Kontakty se
+**Domů · Moje docházka · Firma · Úkoly · Světla · Aplikace** (šest ikon; stav k 7. 9. 2026). **⚠️ NEPLATÍ od 13. 9. 2026** — Světla se přesunula mezi dlaždice Aplikací (sekce 🔗 NÁSTROJE), lišta má pět ikon. Zadal Jiří Honomichl, detail [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]]. Kontakty se
 přesunuly mezi dlaždice Aplikací, docházka je nově přímo v liště a zároveň zmizela z lišty
 skupin na Firmě. Živé klíče `selectTab("…")` jsou dnes **`home`, `dochazka`, `notifs`,
 `firma`, `settings`** — ověřeno nad sestavenou stránkou. Metoda hledání obrazovek bez cesty

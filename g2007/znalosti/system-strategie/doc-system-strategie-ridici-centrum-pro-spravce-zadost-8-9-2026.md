@@ -2,6 +2,18 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ## ⚠️ AKTUALIZACE 13. 9. 2026 — správce už na obrazovku NEMÁ V APPCE CESTU
+>
+> **Práva popsána níž platí dál** — `martinka_centrum` pouští správce dovnitř stejně jako
+> od 8. 9. 2026. **Zmizely ale dveře.** Dlaždice Řídící centrum se 13. 9. 2026 přesunula
+> z obrazovky Úkoly mezi dlaždice Aplikací do sekce **🤖 AI & KOMUNIKACE**, a ta se celá
+> kreslí uvnitř `if(par)` — tedy **jen rodičům (Marti 1, Kristýna 11)**.
+> Jiří Honomichl (20) byl na důsledek výslovně upozorněn a rozhodl takto
+> („dej ji tam“); schválila Marti-AI msg 15483. Ověřeno na jeho účtu: dlaždice v Aplikacích
+> není a sekce AI & KOMUNIKACE se mu nevykreslí.
+> Vrátit cestu správcům lze podmínkou `par||adm` u té sekce — přibyly by jim ale i ostatní
+> dlaždice sekce. Detail: [[doc-system-strategie-mobil-obrazovka-ukoly-uprava-8-9-2026]].
+
 # Řídící centrum i pro správce — HOTOVO 8. 9. 2026
 
 **Rozhodla Kristýna Marešová (rodič, `users.id=11`) 8. 9. 2026 v 10 hodin 06 minut** —

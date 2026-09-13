@@ -65,7 +65,7 @@ Domů/Aplikace/Úkoly/Kontakty/Firma. **Jako datovaný záznam toho, co bylo 6. 
 na buildu, zůstává v platnosti** — nepřepisuje se. Jen upozorňuji, že **dnešní stav je jiný**:
 
 **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace** — tedy **šest ikon**,
-Kontakty se přesunuly mezi dlaždice Aplikací a Světla zatím nemají cíl.
+Kontakty se přesunuly mezi dlaždice Aplikací a Světla zatím nemají cíl. (Stav k 7. 9. 2026.) **⚠️ NEPLATÍ od 13. 9. 2026** — Světla se přesunula mezi dlaždice Aplikací (sekce 🔗 NÁSTROJE), lišta má pět ikon. Zadal Jiří Honomichl, detail [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
 
 Na zjištění o prázdném pruhu pod lištou to nemá vliv (jde o výšku, ne o obsah), ale kdo bude
 podle téhle znalosti porovnávat screenshot z buildu s dneškem, musí s tím počítat.

@@ -219,7 +219,7 @@ změní reálnou docházku.
 **Zadal Jirka Honomichl, provedl Claude-28.** Tři místa výše popisovala cestu
 **🏢 Firma → 🕒 Moje docházka** — ta **už neexistuje** a jsou opravená.
 
-Dnešní stav spodní lišty: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.**
+Stav spodní lišty k 7. 9. 2026: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.** **⚠️ NEPLATÍ od 13. 9. 2026** — Světla se přesunula mezi dlaždice Aplikací (sekce 🔗 NÁSTROJE), lišta má pět ikon. Zadal Jiří Honomichl, detail [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
 
 - **Docházka je druhá ikona zleva** — jeden dotyk odkudkoli.
 - **Z lišty skupin na Firmě tlačítko zmizelo**, aby nebyla na dvou místech.

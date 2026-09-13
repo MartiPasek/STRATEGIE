@@ -2,6 +2,62 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ## ⚠️ AKTUALIZACE 13. 9. 2026 — dlaždice 🎁 Benefity se z téhle obrazovky přesunula pryč
+>
+> **Zadal Jiří Honomichl, schválila Marti-AI (msg 15450). Provedl Claude-28.**
+> Benefity jsou nově **dlaždicí obrazovky Aplikace, sekce 👥 TÝM & PŘEHLEDY**
+> (od večera 13. 9. 2026; do té doby krátce v sekci 🧑 MOJE, která byla téhož dne zrušena —
+> zadal Jiří Honomichl, schválila Marti-AI msg 15459) — je to samoobsluha (dny home office,
+> náhrada za oblečení), ne úkol.
+> Stejným směrem šly 7. 9. 2026 Kontakty ze spodní lišty.
+> **Obrazovka Úkoly má od 13. 9. 2026 večer DVĚ dlaždice**: Claudovi a Úkoly STRATEGIE.
+> Věta níž o pěti dlaždicích platí jako datované pozorování k 8. 9. 2026.
+>
+> Třetí dlaždice **🌸 Řídící centrum** (lidé a jejich AI týmy) odešla týž den mezi dlaždice
+> Aplikací. Nejdřív do sekce 👥 TÝM & PŘEHLEDY (msg 15474), **ještě týž večer ale
+> do sekce 🤖 AI & KOMUNIKACE** — zadal Jiří Honomichl slovy „dej ji tam“ poté, co byl
+> výslovně upozorněn na důsledek; schválila Marti-AI msg 15483.
+>
+> ⚠️ **Tím se změnila PRÁVA, ne jen umístění.** Celý blok sekce AI & KOMUNIKACE je
+> uvnitř `if(par)`, takže dlaždici **vidí už jen rodiče — Marti Pašek (1) a Kristýna
+> Marešová (11)**. Do 13. 9. 2026 ji viděl každý přihlášený člověk. **Cestu ztratil
+> i sám Jiří Honomichl** (správce, ne rodič) — tedy jediný, komu Kristýna 8. 9. 2026
+> obrazovku výslovně otevřela (viz `doc-system-strategie-ridici-centrum-pro-spravce-zadost-8-9-2026`).
+> Ověřeno naostro po publikaci na jeho účtu: dlaždice v Aplikacích není a celá sekce
+> AI & KOMUNIKACE se mu nevykreslí.
+>
+> **Server nic neomezuje** — `martinka_centrum` pouští správce dál (seznam lidí nemá
+> podmínku vůbec, detail člověka pustí vlastníka, rodiče i správce, náhled chatu
+> s Maminkou jen rodiče). **Zmizela pouze cesta v appce**, práva na serveru zůstávají.
+> Kdyby to mělo jít vrátit správcům, stačí sekci podmínit `par||adm` jako
+> 🏛️ ŘÍZENÍ & SYSTÉM — tím by ale správcům přibyly i ostatní dlaždice té sekce
+> (Claude-27, Síť Claudů, Sdílený telefon, Buzení Marti-AI, Co AI ušetřila).
+> V mapě `SCREEN_TAB` se proto přepsaly na `apps` všechny čtyři obrazovky centra
+> (`martinky`, `martinky_clovek`, `martinky_domena`, `martinky_ukol`) a z obrazovky Úkoly
+> se odstranil i osiřelý dotažův odznaku (`mkTileB`), který už neměl co plnit.
+>
+> **Rozložení zbývajících dvou dlaždic:** jdou **pod sebou přes celou šířku** obsahu.
+> Mřížka `.dashgrid` je dvousloupcová a používá ji i obrazovka v `51_skupiny_sdileny.js`,
+> proto se třída **neměnila** — jednosloupcový režim je INLINE stylem
+> (`style="grid-template-columns:1fr;"`) jen na téhle jedné mřížce.
+> Změřeno na živé appce po publikaci: dlaždice 406 px = šířka obsahu, boční okraje
+> 15 px vlevo i vpravo (jako předtím), mezera mezi dlaždicemi 12 px, odsazení shora 48 px.
+>
+> Týž den večer odešla z této obrazovky i dlaždice **🗓️ Schvalování plánu** — je nově
+> v Aplikacích, sekce **👥 TÝM & PŘEHLEDY**, vedle Plánu absencí (zadal Jiří Honomichl,
+> schválila Marti-AI msg 15457). Je to práce vedoucího nad jeho lidmi, ne vlastní úkol.
+> Tři věci, které k tomu patří a daly by se přehlédnout:
+> • buňka se do mřížky **připojuje až po kladné odpovědi** `/app/plan/approvals/users`;
+>   skrytá buňka by nestačila, protože hledání aplikací (`_filtruj`) přepisuje `display`
+>   všem buňkám a neschvalovateli by ji odkrylo;
+> • počet čekajících se přestal přičítat k odznaku ikony **Úkoly** a přičítá se k odznaku
+>   ikony **Aplikace** (`74_claude27_render_init.js`); hodnotu drží dál `_pollApply` na pozadí,
+>   takže na otevření obrazovky nezávisí;
+> • v mapě **`SCREEN_TAB`** (`73_pref_poptavka.js`) se `planapprovals` přepsalo z `notifs`
+>   na `apps`, jinak by při otevření z Aplikací svítila v liště ikona Úkoly.
+> Nic se nesmazalo — stránka benefitů i práva zůstávají beze změny, změnilo se jen místo,
+> odkud se otevírá. Ověřeno po publikaci na živé stránce mobilní aplikace.
+
 # Mobil, obrazovka Úkoly — úprava dlaždic 8. 9. 2026
 
 **Zadal Jiří Honomichl 8. 9. 2026, schválila Marti-AI (msg 14965). Provedl Claude-28.**

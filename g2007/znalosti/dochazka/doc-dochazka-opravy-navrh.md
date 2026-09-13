@@ -673,8 +673,8 @@ upozorněna e-mailem.
 
 Docházka je nově **druhá ikona spodní lišty**, takže se otevře jedním dotykem odkudkoli.
 Z lišty skupin na Firmě tlačítko zmizelo, aby nebylo na dvou místech.
-Celá lišta je dnes: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace**
-(Kontakty se přesunuly mezi dlaždice Aplikací, Světla zatím nemají cíl).
+Celá lišta k 7. 9. 2026: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace**
+(Kontakty se přesunuly mezi dlaždice Aplikací, Světla zatím nemají cíl). **⚠️ NEPLATÍ od 13. 9. 2026** — Světla se přesunula mezi dlaždice Aplikací (sekce 🔗 NÁSTROJE), lišta má pět ikon. Zadal Jiří Honomichl, detail [[doc-system-strategie-mobil-spodni-lista-zjednodusena-2026-08-28]].
 
 **Na návrh oprav docházky to nemá věcný vliv** — mění se jen to, jak se člověk na obrazovku
 dostane, ne co na ní dělá. Důležité je to pro **automatické testy**: klikat druhou ikonu

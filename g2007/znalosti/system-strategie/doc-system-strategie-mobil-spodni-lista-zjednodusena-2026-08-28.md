@@ -3,6 +3,19 @@
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
 
+> ## ⚠️ AKTUALIZACE 13. 9. 2026 — 💡 Světla ze spodní lišty zmizela, ikon je PĚT
+>
+> **Zadal Jiří Honomichl, schválila Marti-AI (msg 15450). Provedl Claude-28.**
+> Světla se přesunula mezi **dlaždice obrazovky Aplikace, sekce 🔗 NÁSTROJE**
+> (vedle „Napojit e-mail“ a „Teamio“) — jsou pomůcka k ovládání, ne agenda.
+> **Cíl pořád nemají** — po klepnutí se záměrně nic nestane; přesunulo se i to prázdné chování.
+> Složení lišty je nově: **🏠 Domů · (jméno člověka) · 🏢 Firma · 🔔 Úkoly · Aplikace.**
+> Věty níž o šesti ikonách a o Světlech v liště platí jen jako datované pozorování do 12. 9. 2026.
+> Ověřeno po publikaci na živé stránce mobilní aplikace: lišta má pět ikon,
+> dlaždice Světla je v sekci NÁSTROJE a dlaždice Benefity v sekci TÝM & PŘEHLEDY
+> (do večera 13. 9. 2026 v sekci MOJE, ta byla téhož dne zrušena — zadal Jiří Honomichl,
+> schválila Marti-AI msg 15459).
+
 > ## ⚠️ AKTUALIZACE 8. 9. 2026 — z Firmy zmizel i pruh skupin (`#bnavx2`)
 >
 > Níže se na víc místech píše, že **lišta skupin na Firmě zůstává beze změny** — **to už neplatí.**
@@ -93,15 +106,17 @@ tuhle obrazovku otevře: obsah dostal o 52 px víc místa. Nic se tím neztratil
 **Zadal Jirka Honomichl, provedl Claude-28.** Výčty ikon výše (a měření „všude 5 ikon")
 popisují stav do 6. 9. 2026 — **jako datované pozorování zůstávají, ale už neplatí.**
 
-Nové složení zleva: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.**
+Nové složení zleva: **🏠 Domů · 🕒 Moje docházka · 🏢 Firma · 🔔 Úkoly · 💡 Světla · Aplikace.** **⚠️ Světla z lišty odešla 13. 9. 2026 — viz rámeček nahoře.**
 *(Druhá položka se týž den odpoledne změnila na jméno člověka se siluetou — viz poslední oddíl.)*
 
-- **👤 Kontakty ze spodní lišty zmizely** — jsou nově dlaždice na obrazovce Aplikace, sekce 🧑 MOJE.
+- **👤 Kontakty ze spodní lišty zmizely** — jsou nově dlaždice na obrazovce Aplikace,
+  sekce 👥 TÝM & PŘEHLEDY (od večera 13. 9. 2026; do té doby v sekci 🧑 MOJE, ta byla
+  téhož dne zrušena).
 - **🕒 Moje docházka je nově přímo v liště** (druhá zleva) a zároveň **zmizela z lišty skupin
   na Firmě**, kde do té doby byla posledním tlačítkem vpravo. Lišta skupin proto najíždí
   na začátek (`scrollLeft=0`), ne na konec.
-- **💡 Světla jsou zatím bez cíle** — po klepnutí se záměrně nic nestane.
-- Ikon je **šest**. ~~Popisek „Moje docházka" se jako jediný láme na dva řádky.~~ **NEPLATÍ od 7. 9. 2026 odpoledne** — popisek je nově jméno člověka, viz poslední oddíl.
+- ~~**💡 Světla jsou zatím bez cíle** — po klepnutí se záměrně nic nestane.~~ **NEPLATÍ od 13. 9. 2026** — Světla už v liště nejsou, jsou dlaždicí v Aplikacích (sekce 🔗 NÁSTROJE) a cíl stále nemají.
+- ~~Ikon je **šest**.~~ **Od 13. 9. 2026 je jich pět.** ~~Popisek „Moje docházka" se jako jediný láme na dva řádky.~~ **NEPLATÍ od 7. 9. 2026 odpoledne** — popisek je nově jméno člověka, viz poslední oddíl.
 
 Ověřeno naživo na `/mobile` po publikaci: pořadí sedí, docházka se z lišty otevírá,
 lišta skupin na Firmě končí u „IT", konzole bez chyb, sestavená stránka má dál 31 skriptových

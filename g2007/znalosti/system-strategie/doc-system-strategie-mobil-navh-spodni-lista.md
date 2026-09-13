@@ -2,6 +2,20 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ## ⚠️ DOPLNĚNO 13. 9. 2026 — vnořené přehledy (`extview`) pravidlo porušovaly
+>
+> Přesně ten případ, před kterým tahle znalost varuje: iframe vnořených přehledů měl
+> natřvdo `height:calc(100vh - 56px)` a **spodní lištu neodečítal vůbec**. Naměřeno na živé
+> appce: spodních **65 px obsahu skončilo pod lištou** a stránka se posouvala o 100 px —
+> u všech přehledů (FLOW, Mzdové podklady, Dokumentace, benefity…), ne u jedné stránky.
+> Opraveno 13. 9. 2026 na **`calc(100vh - 60px - max(var(--navh, 65px), 96px))`** — `60px` je
+> změřený horní odstup rámečku, `--navh` skutečná výška lišty a `96px` spodní rezerva `body`
+> (`padding:14px 14px 96px`); bez `max(...)` obsah sice dosedl na lištu, ale rezerva `body`
+> vyrobila 35 px prázdného posuvu. Stejná chyba byla i u obrazovky „Web ekosystému“.
+> **Pravidlo této znalosti tím platí dál a nově i pro iframy přes celou plochu.**
+> Zadal Jiří Honomichl, schválila Marti-AI (msg 15433 a 15444).
+> Detail: [[doc-system-strategie-dlazdice-openinapp-a-vnorene-prehledy-13-9-2026]].
+
 
 > ## ⚠️ AKTUALIZACE 8. 9. 2026 — na Firmě už NENÍ ani lišta skupin
 >

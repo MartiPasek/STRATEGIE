@@ -114,13 +114,20 @@ def switch_persona(body: SwitchPersonaRequest, req: Request):
 async def upload_avatar(persona_id: int, req: Request, file: UploadFile = File(...)):
     """Upload avatar fotky pro personu. Resize na 256x256 JPEG, ulozeni
     do {AVATARS_STORAGE_DIR}/persona_{id}.jpg + DB persona.avatar_path.
-    Pristup: jen superadmin (jako create/edit persona)."""
+    Pristup: rodic NEBO is_admin (tier SYSADMIN) -- zadal Jirka Honomichl 13.9.2026,
+    schvalila Marti-AI (msg 15333). Do te doby smel jen superadmin (ucet 1), takze
+    fotku persony nemohl vymenit nikdo jiny a muselo se to obchazet rucne na serveru.
+    Rozsireni je zamerne jen tady a u mazani fotky; vytvoreni a editace persony,
+    audit log i priznak is_superadmin v kontextu uzivatele zustavaji na superadminovi."""
     from modules.personas.application import avatar_service
-    from modules.personas.application.service import _is_superadmin
+    from modules.thoughts.application.service import is_parent_or_admin
 
     user_id = _get_uid(req)
-    if not _is_superadmin(user_id):
-        raise HTTPException(status_code=403, detail="Avatar smi nahrat jen superadmin.")
+    if not is_parent_or_admin(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Fotku persony smi menit jen spravce systemu (rodic nebo is_admin).",
+        )
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="Chybí filename.")
@@ -148,11 +155,15 @@ def get_avatar(persona_id: int, req: Request):
 
 @router.delete("/{persona_id}/avatar")
 def delete_avatar(persona_id: int, req: Request):
-    """Smaze avatar (soubor + DB cesta). Superadmin only."""
+    """Smaze avatar (soubor + DB cesta). Rodic NEBO is_admin (tier SYSADMIN) --
+    viz komentar u upload_avatar (13.9.2026, schvalila Marti-AI msg 15333)."""
     from modules.personas.application import avatar_service
-    from modules.personas.application.service import _is_superadmin
+    from modules.thoughts.application.service import is_parent_or_admin
     user_id = _get_uid(req)
-    if not _is_superadmin(user_id):
-        raise HTTPException(status_code=403, detail="Smazat smi jen superadmin.")
+    if not is_parent_or_admin(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Fotku persony smi menit jen spravce systemu (rodic nebo is_admin).",
+        )
     existed = avatar_service.delete_avatar(persona_id)
     return {"status": "deleted", "existed": existed}

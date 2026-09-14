@@ -1,0 +1,199 @@
+/* ============================================================
+   STRATEGIE Mobil - NAVRH VZHLEDU, VARIANTA B "MODRE SVETLO"
+   Claude-28, 14. 9. 2026. Jen nahled, nic nasazeneho.
+
+   Stejny zaklad jako varianta A (jedno pismo, skala velikosti, role barev,
+   vlastni ikony), ale jiny charakter: shora dopada modrofialove svetlo,
+   karty maji horni hranu a stin, hlavni tlacitka jsou v prechodu modra->fialova
+   - tedy presne ta dvojice barev, kterou ma logo STRATEGIE.
+   ============================================================ */
+
+:root[data-rs="b"] {
+  --bg: #0d1017;
+  --surf: #161b24;
+  --surf2: #1c222d;
+  --surf3: #252c39;
+  --chip: #a3adbd;
+  --bord: #2b3342;
+  --bord2: #232a37;
+  --wash: rgba(255, 255, 255, .045);
+
+  --tx: #eef2f8;
+  --tx2: #c3ccd9;
+  --mut: #8d98a8;
+  --on-acc: #08101f;
+
+  --acc: #5b95f8;
+  --acc-tx: #9dc0ff;
+  --acc-wash: rgba(91, 149, 248, .15);
+  --acc2: #8b7cff;
+  --acc2-tx: #b5a8ff;
+  --ok: #1fc08a;
+  --ok-tx: #68dcb0;
+  --ok-wash: rgba(31, 192, 138, .15);
+  --warn: #e0a94e;
+  --warn-tx: #eac384;
+  --warn-wash: rgba(224, 169, 78, .15);
+  --dang: #e56b68;
+  --dang-tx: #f09b99;
+  --dang-wash: rgba(229, 107, 104, .15);
+
+  --blue: var(--acc);
+  --blue-nav: #b3cfff;
+  --green: var(--ok);
+  --amber: var(--warn);
+  --red: var(--dang);
+  --on-green: #04150e;
+  --btn: #3f7ae8;
+  --badge: #cf4a47;
+
+  --r-s: 10px;
+  --r-m: 14px;
+  --r-l: 18px;
+}
+
+/* ---------- PISMO (shodne s variantou A) ---------- */
+:root[data-rs="b"] body,
+:root[data-rs="b"] body * {
+  font-family: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+:root[data-rs="b"] body {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+}
+:root[data-rs="b"] button,
+:root[data-rs="b"] input,
+:root[data-rs="b"] select,
+:root[data-rs="b"] textarea {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- PODKLAD: svetlo shora + zretelnejsi mramorovani ---------- */
+:root[data-rs="b"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(115% 58% at 50% -6%, rgba(91, 149, 248, .42), transparent 56%),
+    radial-gradient(90% 42% at 108% 0%, rgba(139, 124, 255, .30), transparent 62%),
+    radial-gradient(130% 75% at 50% 112%, rgba(6, 8, 13, .9), transparent 72%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='760' height='760'><filter id='m' x='0' y='0'><feTurbulence type='fractalNoise' baseFrequency='0.0035 0.009' numOctaves='6' seed='23'/><feColorMatrix values='0 0 0 0 0.55  0 0 0 0 0.6  0 0 0 0 0.98  0 0 0 0.45 0'/><feGaussianBlur stdDeviation='0.7'/></filter><rect width='760' height='760' filter='url(%23m)'/></svg>");
+  background-size: cover, cover, cover, 760px 760px;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-rs="b"] body::before { background-image: none; }
+}
+@media (min-width: 700px) and (pointer: fine) {
+  :root[data-rs="b"] body::before { left: 50%; right: auto; transform: translateX(-50%); width: var(--phone-w); }
+}
+
+/* ---------- NADPISY A POPISKY ---------- */
+:root[data-rs="b"] .title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.016em;
+  background: linear-gradient(135deg, #dbe7ff, #ffffff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+/* Emoji v nadpisu nesmi spolknout prechod: nadpis ma barvu z prechodu (text-fill
+   transparent) a emoji uvnitr by pak vyslo jako seda placka. Vlastni vypln mu vracime.
+   Nalezeno pri kontrole naostro 14. 9. 2026 na obrazovce Nemocenska. */
+:root[data-rs="b"] .title .titleIk,
+:root[data-rs="b"] .title img { -webkit-text-fill-color: initial; background: none; }
+
+:root[data-rs="b"] .group,
+:root[data-rs="b"] .rs-lbl {
+  color: #9dc0ff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: .12em !important;
+}
+:root[data-rs="b"] .homebg .h1 { font-size: 31px; font-weight: 700; letter-spacing: -.02em; }
+:root[data-rs="b"] .homebg .h2 { color: var(--tx2); font-size: 14px; }
+:root[data-rs="b"] .homebg .h3 { color: var(--tx); font-size: 15.5px; font-weight: 600; }
+
+/* ---------- PLOCHY A KARTY: hloubka pres horni hranu a stin ---------- */
+:root[data-rs="b"] .list {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, .012) 42%), #1a2029;
+  border: 1px solid #313a4b;
+  border-radius: var(--r-m);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+}
+:root[data-rs="b"] .tile {
+  background: linear-gradient(180deg, rgba(91, 149, 248, .10), rgba(255, 255, 255, .01) 55%), #1a2029;
+  border: 1px solid #313a4b;
+  border-radius: var(--r-m);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+}
+:root[data-rs="b"] .row { border-bottom: 1px solid var(--bord2); padding: 14px; }
+:root[data-rs="b"] .row .tt { font-size: 16px; font-weight: 500; color: var(--tx); }
+:root[data-rs="b"] .row .sub { font-size: 13px; color: var(--mut); margin-top: 3px; }
+:root[data-rs="b"] .row .chev { color: #7b8697; }
+:root[data-rs="b"] .row .ic { color: var(--acc-tx); }
+:root[data-rs="b"] .tile-tt { font-size: 15.5px; font-weight: 600; }
+:root[data-rs="b"] .tile-sub { font-size: 13px; color: var(--mut); }
+:root[data-rs="b"] .tile-ic { color: #a8c8ff; }
+
+/* ---------- TLACITKA: hlavni akce nese prechod z loga ---------- */
+:root[data-rs="b"] button { border-radius: var(--r-s); font-weight: 600; }
+:root[data-rs="b"] button.full,
+:root[data-rs="b"] button:not(.ghost):not(.green):not(.warn):not(.sm):not(.tabbtn):not(.navbackbtn) {
+  background: linear-gradient(135deg, #4f8ef7, #7c5cff);
+  color: #fff;
+  border: none;
+}
+:root[data-rs="b"] button.green { background: linear-gradient(135deg, #1fc08a, #12a97a); color: #03150e; }
+:root[data-rs="b"] button.ghost { background: rgba(255, 255, 255, .04); border: 1px solid var(--bord); color: var(--tx2); }
+:root[data-rs="b"] button.warn { background: var(--dang-wash); border: 1px solid #7a4340; color: var(--dang-tx); }
+:root[data-rs="b"] input,
+:root[data-rs="b"] select,
+:root[data-rs="b"] textarea {
+  background: #11161f;
+  border: 1px solid var(--bord);
+  border-radius: var(--r-s);
+  color: var(--tx);
+}
+:root[data-rs="b"] input:focus,
+:root[data-rs="b"] select:focus,
+:root[data-rs="b"] textarea:focus {
+  outline: none;
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-wash);
+}
+
+/* ---------- SPODNI LISTA ---------- */
+:root[data-rs="b"] .bottomnav { background: rgba(13, 16, 23, .9); backdrop-filter: blur(18px); border-top: 1px solid var(--bord); }
+:root[data-rs="b"] .tabbtn { color: #8d98a8; font-size: 10.5px; font-weight: 500; }
+:root[data-rs="b"] .tabbtn.active { color: #cfe0ff; background: linear-gradient(135deg, rgba(79, 142, 247, .28), rgba(124, 92, 255, .22)); }
+:root[data-rs="b"] .navbackbtn { color: var(--tx2); font-weight: 600; }
+
+/* ---------- DLAZDICE APLIKACI ---------- */
+:root[data-rs="b"] .appicon {
+  background: linear-gradient(160deg, rgba(91, 149, 248, .26), rgba(139, 124, 255, .12)), #1b222c;
+  border: 1px solid #38445a;
+  border-radius: 17px;
+  color: #c9dcff;
+}
+:root[data-rs="b"] .applabel { font-size: 11px; color: var(--tx2); font-weight: 500; }
+
+/* ---------- ODZNAKY A STAVY ---------- */
+:root[data-rs="b"] .rbadge,
+:root[data-rs="b"] .nbadge,
+:root[data-rs="b"] .appbadge,
+:root[data-rs="b"] .vybadge { background: var(--badge); font-weight: 700; }
+:root[data-rs="b"] .mode { font-size: 10.5px; font-weight: 600; }
+:root[data-rs="b"] .hint { color: var(--mut); font-size: 13px; line-height: 1.6; }
+:root[data-rs="b"] label { color: var(--acc-tx); opacity: .8; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+
+/* ---------- IKONY ---------- */
+:root[data-rs="b"] .rs-icw { display: inline-flex; align-items: center; justify-content: center; }
+:root[data-rs="b"] .rs-ic { width: 1em; height: 1em; vertical-align: -.13em; display: block; }
+:root[data-rs="b"] .row .ic .rs-ic { width: .95em; height: .95em; }

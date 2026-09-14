@@ -89,8 +89,36 @@ výslovně upozorněn a rozhodl takto; „Moje aplikace" si lidé plní sami.
 
 ## Co zůstalo otevřené
 
-- Odeslání zprávy při vrácení dlaždice **nebylo vyzkoušené naostro** (znamenalo by to někomu
-  doopravdy sebrat dlaždici); ověří se při prvním skutečném vrácení.
-- Cesta zpět má jen tlačítko „Upravit"; **editace názvu a ikony dlaždice v appce zatím není**.
 - Sekce dlaždic ve „Vývoji" se pořád kreslí z kódu; do tabulky se přenesly jen jejich názvy.
+
+## Rozhodnutí: editace názvu a ikony dlaždice v appce NEBUDE
+
+**Rozhodl Jiří Honomichl 14. 9. 2026** slovy *„to nechceme aby si lidi sami měnili"*
+(schválila Marti-AI msg 15552). Lidé si smějí měnit **jen svůj vlastní výběr a jeho pořadí**;
+názvy, ikony a cíle dlaždic zůstávají v rukách těch, kdo je spravují. Není to zapomenutý
+úkol — je to záměr, takže to nikdo „neopravuje".
+
+## Zpráva při vrácení dlaždice — vyzkoušeno naostro 14. 9. 2026
+
+Test na dočasné dlaždici a účtu **Demo Uživatel (users.id=104, není to živý člověk)**:
+po vrácení dlaždice tlačítkem „Upravit" vznikl v `fw.mobile_command` řádek pro účet 104
+(`claude_msg`, titulek „Změna v Mých aplikacích", `created_by` = ten, kdo vracel) a appka
+zobrazila hlášku *„Z oblíbených zmizela 1×"*. Po zkoušce se všechno uklidilo — dočasná
+dlaždice, řádek v oblíbených i ta zpráva (ověřeno čtením, zůstalo 0 záznamů).
+
+## Ikony ve čtverečku: raději menší s popiskem
+
+**Rozhodl Jiří Honomichl 14. 9. 2026** (schválila Marti-AI msg 15552) po zkoušce obou podob:
+ve čtverečku na Domů jsou ikony **44 bodů a pod nimi popisek 9 bodů** — ne ikona 58 bodů
+bez popisku, jak to bylo hodinu předtím. Buňka měří 68 bodů, nic nepřetéká (změřeno na živé
+stránce). Vzhled ikony zůstává shodný s Aplikacemi (třída `appicon`).
+
+## Past: paměť čtverečku se musí zahodit při KAŽDÉ změně výběru
+
+Čtvereček na Domů si drží minutovou paměť, aby úvodní obrazovka nebyla pomalejší.
+14. 9. 2026 se zahazovala jen při přidání a odebrání dlaždice — **ne při změně pořadí**,
+takže po přerovnání ukazoval čtvereček až minutu starou řadu (našel Jiří Honomichl,
+předem na to upozornila Marti-AI). Oprava: zahození paměti patří do funkce, kterou
+prochází **každá** změna výběru (`_ulozOblibene`), ne k jednotlivým tlačítkům.
+Ověřeno naživo: po přerovnání ukázal čtvereček novou řadu okamžitě.
 

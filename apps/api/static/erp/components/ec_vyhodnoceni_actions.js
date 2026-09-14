@@ -547,6 +547,9 @@
    *     zakazku nevyvolalo reload,
    *   • prvni vypocet po otevreni se jen zapamatuje, nereloaduje. */
   var _soucetChip = null, _soucetInst = null, _soucetTimer = null, _soucetHook = false;
+  /* Varovny stitek "snizena efektivita jeste neni v kalkulaci" — vyhodnocuje se
+   * v `_soucet`, ktery uz radky gridu cte. Detail v komentari u jeho vytvoreni. */
+  var _varovaniEf = null;
   /* Posledni videny soucet — {id, p, s, n}. Zamerne MIMO _inject, ktery se pri
    * kazdem _render volá znovu; jinak by se pamet po reloadu vynulovala a jadro
    * by se obnovovalo dokola. */
@@ -601,6 +604,26 @@
         chip.textContent = txt;
         chip.title = "Součet za tuto zakázku, počítaný ze stejných řádků, jaké jsou v gridu „Hodnocení vše\". Obnovuje se sám po změnách; kliknutím ho přepočítáš hned.";
         chip.style.display = "";
+
+        /* Ma nekdo efektivitu pod 100, ale hlavicka to jeste nezapocitala?
+         * `efektivita_pridat_hodiny` plni az `ec.vypocet_konstant` (tlacitko 2),
+         * takze po samotne trojce zustane nula a premie ostatnich se nezvednou.
+         * Detail v komentari u vytvoreni stitku v `_inject`. */
+        try {
+          if (_varovaniEf) {
+            var kE = _klicSoucet(rows[0], "Efekt");
+            var maSnizenou = false;
+            if (kE) {
+              rows.forEach(function (r) {
+                var e = Number(r[kE]);
+                if (isFinite(e) && e > 0 && e < 100) maSnizenou = true;
+              });
+            }
+            var efPridat = Number((rec && rec.efektivita_pridat_hodiny) || 0);
+            _varovaniEf.style.display =
+              (maSnizenou && !(efPridat > 0.005)) ? "" : "none";
+          }
+        } catch (e) {}
 
         /* Zmenil se soucet proti tomu, co jsme naposled videli u TEHOZ radku?
          * Pak nekdo v gridu neco ulozil a hlavicka je zastarala — prenacti ji.
@@ -1141,6 +1164,40 @@
     bNap.onmouseleave = function () { bNap.style.background = "#eff6ff"; };
     bNap.onclick = function () { try { _napoveda(); } catch (e) { global.alert("Nápovědu se nepodařilo otevřít."); } };
     bar.appendChild(bNap);
+
+    /* ═══════════════════════════════════════════════════════════════════
+     * VAROVANI "snizena efektivita jeste neni zapocitana" (Kristy 14.9.2026)
+     * ═══════════════════════════════════════════════════════════════════
+     * PROC: kdyz nekdo dostane efektivitu pod 100 %, jeho neodpracovane hodiny
+     * se maji pripocist ke KALKULACI zakazky (`efektivita_pridat_hodiny`), cimz
+     * se zvetsi usetreny cas a premie ostatnich. Jenze ten prepocet dela az
+     * `ec.vypocet_konstant`, tedy tlacitko "2 Nastav koeficienty" — NE samotny
+     * "3 Prepocet hodnoceni", ktery uz jen cte hotovou hlavicku.
+     *
+     * Kdo tedy snizi efektivitu a da rovnou trojku, vidi, ze dotycnemu premie
+     * zmizela, ale ostatnim se nic nepridalo — a vypada to jako chyba vypoctu.
+     * Stalo se to Kristy 11.9.2026 na VR10582 (Hajek) a hledalo se to dva dny.
+     *
+     * JAK: varovani se neveze na ulozeni efektivity (ta se da menit z vic mist),
+     * ale na STAV DAT — svesti se vzdy, kdyz je v gridu nekdo pod 100 % a
+     * hlavicka ma `efektivita_pridat_hodiny` nulu. Zmizi samo, jakmile se
+     * koeficienty prepocitaji. */
+    var varov = document.createElement("span");
+    varov.className = "ec-vyh-varovani-ef";
+    varov.style.cssText = "margin-left:auto;align-self:center;padding:4px 10px;" +
+      "border:1px solid #fcd34d;border-radius:6px;background:#fffbeb;color:#92400e;" +
+      "font-size:12px;line-height:1.2;white-space:nowrap;font-weight:600;display:none;" +
+      "cursor:help;";
+    varov.textContent = "⚠️ Snížená efektivita — spusť 2️⃣ a pak 3️⃣";
+    varov.title = "Někdo na téhle zakázce má efektivitu pod 100 %, ale kalkulace s tím "
+                + "ještě nepočítá.\n\n"
+                + "Jeho neodpracované hodiny se mají přičíst ke kalkulovaným hodinám — tím "
+                + "se zvětší ušetřený čas a prémie ostatních. Dělá to ale až „2️⃣ Nastav "
+                + "koeficienty“, ne samotný „3️⃣ Přepočet hodnocení“.\n\n"
+                + "Spusť tedy 2️⃣ (v dialogu nic neměň, jen OK) a pak 3️⃣. Až se to "
+                + "propíše, tahle hláška zmizí sama.";
+    bar.appendChild(varov);
+    _varovaniEf = varov;
 
     /* Soucet vpravo v liste — oddeleny mezerou, aby splyval s tlacitky co nejmin
      * a zaroven byl videt hned, bez rolovani (lista je position:sticky). */

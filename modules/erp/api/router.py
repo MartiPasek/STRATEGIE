@@ -3393,8 +3393,32 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         schema_name = entity_config["schema"]
         table_name = entity_config["table"]
         id_column = entity_config["id_column"]
-        cols_list = entity_config["select_columns"]
-        cols_sql = ", ".join(f'"{c}"' for c in cols_list)
+        # OPRAVA (C24 / Kristy, 14.9.2026) — HTTP 500 pri KAZDEM prekresleni jadra.
+        #
+        # CO BYLO SPATNE: `entity_config["select_columns"]` je u DB-driven
+        # resolveru (_resolve_entity_config_from_db) zamerne None — "NULL =
+        # trust frontend", Krok 5.N-2, 22.5.2026. Tady se ale na None rovnou
+        # iterovalo -> TypeError: 'NoneType' object is not iterable -> 500.
+        # Endpoint /fw-form/by-id/{core_id}/{row_id} nize (r. ~3903) ma tentyz
+        # pripad osetreny uz od Kroku 5.N-2; tahle starsi vetev na nej zapomnela.
+        #
+        # PROC SI TOHO NIKDO NEVSIML DRIV: jadro se OTEVIRA pres by-id (osetreno),
+        # takze se normalne nacte. Ale `_reloadSpec()` v design_forms.js vola
+        # tuhle starou cestu — takze kazde PREKRESLENI po akci skoncilo 500.
+        # Navenek to vypadalo jako "po prepoctu se neobnovi grid"; ve skutecnosti
+        # se neobnovilo cele jadro vcetne hlavicky. Soucet v liste se obnovoval,
+        # protoze ma vlastni fetch mimo tuhle cestu — a prave ten rozdil nas
+        # 11.9.2026 svedl hledat chybu v gridu misto v prekresleni.
+        # Nahlasila Kristy 14.9.2026, jadro "Vyhodnoceni zakazky" (row 1807),
+        # potvrzeno v konzoli: GET /api/v1/erp/fw-form/ec.vyhodnoceni_jadro/1807 500.
+        #
+        # Zamerne 1:1 stejny tvar jako osetreni o ~500 radku niz, ne vlastni
+        # varianta — at se obe vetve chovaji stejne.
+        cols_list = entity_config.get("select_columns")
+        if cols_list:
+            cols_sql = ", ".join(f'"{c}"' for c in cols_list)
+        else:
+            cols_sql = "*"
 
         data_query = (
             f'SELECT {cols_sql} '

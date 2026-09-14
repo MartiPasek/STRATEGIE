@@ -228,12 +228,36 @@ def _check_pojistky(sg):
                 % (type(e).__name__, str(e)[:300]), 0, "")
 
 
+def _check_dokumenty_zaloha(sg):
+    """Tenká spojka na `g2007.python` kód `dokumenty_zaloha_svezest` — logika žije v databázi.
+
+    Hlídá, jestli nezestarala záloha DOKUMENTŮ v Plzni (`check_backup_freshness` vedle
+    hlídá dumpy databáze, dokumentů se netýká). Prahy a stavy se dají měnit v databázi
+    bez nasazování. Zadal Jirka Honomichl 14. 9. 2026, schválila Marti-AI (msg 15555).
+    NIKDY nesmí vyhodit výjimku — plánovač čeká přesný tvar a nezachycená výjimka by
+    shodila celý jeho cyklus pro danou minutu (podmínka Marti-AI, stejně jako u pojistek)."""
+    try:
+        from modules.erp.api import erp_registry as _ereg
+        r = _ereg.call("dokumenty_zaloha_svezest") or {}
+        if not isinstance(r, dict):
+            return ("chyba", "dokumenty_zaloha_svezest vrátil neočekávaný tvar: %s"
+                    % type(r).__name__, 0, "")
+        return (r.get("vysledek") or "chyba",
+                r.get("zprava") or "dokumenty_zaloha_svezest neposlal zprávu.",
+                int(r.get("rows") or 0),
+                r.get("context") or "")
+    except Exception as e:  # noqa: BLE001
+        return ("chyba", "Hlídač čerstvosti zálohy dokumentů selhal: %s: %s"
+                % (type(e).__name__, str(e)[:300]), 0, "")
+
+
 WATCHERS = {
     "check_service_down": _check_service_down,
     "check_backup_freshness": _check_backup_freshness,
     "check_disk": _check_disk,
     "smoke_eskalace": _check_smoke_eskalace,
     "check_pojistky": _check_pojistky,
+    "check_dokumenty_zaloha": _check_dokumenty_zaloha,
 }
 
 

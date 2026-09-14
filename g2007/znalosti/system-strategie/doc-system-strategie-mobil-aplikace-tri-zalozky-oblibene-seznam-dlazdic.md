@@ -141,3 +141,29 @@ na 5 bodů**. Ověřeno na živé stránce: pruh má 60 bodů (předtím 61), tl
 v `02_styles.html`. Kdo zvedne jen jednu, rozhodí zarovnání, které se schválně srovnávalo
 2. 9. a 13. 9. 2026.
 
+## Konečné ovládání úprav (14. 9. 2026 v noci) — gesta zrušena, rozhoduje tlačítko
+
+**Zadal Jiří Honomichl** (schválila Marti-AI msg 15570, 15579, 15582). Postupně se to během
+noci měnilo; platí tohle:
+
+- Na **obou** záložkách je hned pod záložkami **tlačítko Upravit / Hotovo přes celou šířku**,
+  které režim úprav zapíná i vypíná.
+- **Podržení prstu se ruší** na „Všech aplikacích" i v „Mojich aplikacích". Zůstává **jen
+  ve „Vývoji aplikací"**, kde pustí dlaždici mezi Všechny.
+- Tlačítko Upravit na „Všech aplikacích" vidí **všichni**. Uvnitř má každý řádek **hvězdičku**
+  (přidat/odebrat z Mojich aplikací) — pro všechny — a **šipku zpět do Vývoje jen pro toho,
+  komu to server povolí** (`smi_poustet` = rodič nebo správce). Právo si server ověřuje sám,
+  skrytí tlačítka je jen pohodlí, ne bezpečnostní hranice.
+- **Přepnutí na jinou záložku režim úprav zavře.** Nic se tím neztratí — každá akce se ukládá
+  hned při klepnutí, nic nezůstává rozpracované.
+- Po klepnutí na ikonu **Aplikace** ve spodní liště je aktivní záložka **Moje aplikace**.
+
+## Ikony ve spodní liště a poskakování stránky
+
+- Ikony v liště mají od 14. 9. 2026 **28 bodů** (jako v Aplikacích) a zároveň se ubralo svislé
+  odsazení z 9 na 5, takže **lišta nenarostla** (60 bodů). Mění se všechny tři podoby najednou
+  — emoji, SVG i profilová fotka — jinak se rozejde zarovnání.
+- ⚠️ **`scrollbar-gutter: stable` na `html`**: bez toho se při přepnutí na záložku s dlouhým
+  obsahem objevil posuvník, stránka se zúžila o 15 bodů a **celá appka poskočila o 8 bodů
+  doleva** (změřeno naostro). Na telefonu se nic nemění, tam je posuvník překryvný.
+

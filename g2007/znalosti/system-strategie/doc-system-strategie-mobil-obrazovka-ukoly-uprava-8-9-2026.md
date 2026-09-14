@@ -12,8 +12,10 @@
 > (ověřeno na živé stránce: běžný člověk má ve stránce dvě dlaždice, žádné hledání
 > a žádnou sekci). Vzhled záložek je převzatý z obrazovky Firma.
 >
-> **Na záložce „Všechny aplikace“ jsou zatím jen 🎁 Benefity a 💡 Světla** — všechno
-> ostatní je ve „Vývoji“. Věty níž, které říkají, že Benefity jsou v sekci 👥 TÝM &
+> **Co je na záložce „Všechny aplikace“, se mění za provozu** — rodič nebo správce tam
+> dlaždici pustí podržením prstu ve Vývoji a tlačítkem „Upravit“ ji zase vrátí zpět.
+> **Aktuální seznam proto čti z tabulky `public.mobile_app_dlazdice`, ne odsud** — jakýkoli
+> výčet tady je za pár dní nepravdivý. V noci na 14. 9. 2026 to byly Benefity a Světla. Věty níž, které říkají, že Benefity jsou v sekci 👥 TÝM &
 > PŘEHLEDY a Světla v sekci 🔗 NÁSTROJE, platí jako datované pozorování do večera
 > 13. 9. 2026; ty sekce dnes žijí uvnitř záložky Vývoj aplikací.
 >

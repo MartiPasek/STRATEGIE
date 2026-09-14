@@ -2,6 +2,17 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ## ⚠️ AKTUALIZACE 14. 9. 2026 — dlaždice už nejsou v kódu, ale v datech
+>
+> **Pravidlo níž platí dál** (naše stránky se otvírají uvnitř appky, ne ven), **změnilo se
+> ale místo, kde se to nastavuje.** Seznam dlaždic obrazovky Aplikace žije od 14. 9. 2026
+> v tabulce `public.mobile_app_dlazdice`; způsob otevření je ve sloupci `akce_typ`
+> (`openInApp` / `openApp` / `go` / `openVyroba` / `zadna`) a cíl v `akce_cil`.
+> Dlaždice Benefity tam má `openInApp` → `/benefity`, takže oprava popsána níž přežila
+> i stěhování do dat (ověřeno čtením z databáze 14. 9. 2026).
+> **Kdo hledá dlaždici jako text v kódu, nenajde ji — a není to chyba.**
+> Detail a postup ověřování: [[doc-system-strategie-mobil-dlazdice-aplikaci-zijou-v-datech-14-9-2026]].
+
 # Dlaždice otevírající stránku: `openInApp` vs `openApp` + dvě pasti vnořených přehledů (13. 9. 2026)
 
 **Zadal Jiří Honomichl 13. 9. 2026** („klikne se na dlaždici a otevře se to vždy v mobilní

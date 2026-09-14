@@ -1,4 +1,4 @@
-# Zaloha dokumentu do Plzne: balik v Praze hotovy a overeny, v Plzni zbyva jeden lidsky krok (14. 9. 2026)
+# Zaloha dokumentu do Plzne: prenos i automatika hotove (14. 9. 2026), zbyva ulozit skript a zalozit nedelni ulohu v Plzni
 
 > oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -43,16 +43,75 @@ Navazuje na nalez z 8. 9. 2026: `doc-provoz-zalohuje-se-jen-databaze-dokumenty-a
    Logika navazovani je do nich **opsana**, nikoli vytazena do spolecne funkce - na te vete
    visi kazdou noc obnova databaze a prestavba by ji ohrozila.
 
+## Prenos naostro PROBEHL - 14. 9. 2026 v 01:09 (dolozeno z plzenskeho disku)
+
+Jirka Honomichl spustil `docs_pull.ps1` na 192.168.30.11 a **prenos dojel**:
+
+| co | vysledek |
+|---|---|
+| stahovani | **4 pokusy z 30** - spojeni se zaseklo na 165, 690 a 819 MB a skript vzdy **navazal tam, kde skoncil** |
+| otisk po stazeni | **sedi** s tim, co hlasi Praha (`b962a679ddb0...`) |
+| rozbaleno | **1 169 souboru** |
+| v Plzni lezi | `D:\STRATEGIE_DOKUMENTY\aktualni` - 1 169 souboru, 1 047 306 517 B (999,0 MB) |
+| stav | `D:\STRATEGIE_DOKUMENTY\_stav.json` (otisk, pocet, cas prevzeti), log `D:\STRATEGIE_IN\_docspull.log` |
+| uklid v Plzni | balik zip smazan, slozka `_predchozi` zadna, volno na D: 127,4 GB |
+| uklid v Praze | balik i prurvodka smazany po overeni prenosu - **uvolneno 999 MB**, zdroj nedotcen |
+
+> **Navazovani se vyplatilo hned pri prvnim ostrem behu.** Bez nej by to byly tri
+> neuspesne pokusy od nuly - presne ta potiz, kvuli ktere v srpnu osmkrat z 35 noci
+> nedojela ani zaloha databaze.
+
+## PAST: prikaz exit zavre cele okno PowerShell ISE
+
+Prvni verze skriptu koncila `exit 0`. V ISE to **zavre cele okno**, takze clovek
+neuvidi zaverecnou hlasku a nema jak poznat, jak to skoncilo (narazil na to Jirka
+Honomichl 14. 9. 2026 pri tomhle prvnim behu - prenos pritom probehl spravne).
+Opraveno (commit `bf7b8407`): telo je ve funkci, ukoncuje se `return` a `exit`
+se pousti **jen mimo ISE**, kde ho potrebuje naplanovana uloha. V ISE skript vypise
+navratovy kod a okno necha byt. **Plati obecne pro kazdy skript, ktery ma clovek
+spoustet v ISE.**
+
+## Automatika - HOTOVA a nasazena 14. 9. 2026 (commit d1ed7229)
+
+**Cely beh ridi JEDNA naplanovana uloha v Plzni. V Praze neni naplanovano nic** -
+nehledej tam zadnou ulohu ani hlidac. Rozhodl Jirka Honomichl, schvalila Marti-AI
+(msg 15534). Duvod: balik pak v Praze lezi jen tech ~20 minut, co se prenasi.
+
+| poradi | co se stane | adresa |
+|---|---|---|
+| 1 | Plzen se zepta, co je pripravene | `GET /api/v1/ops/docs/meta` |
+| 2 | kdyz balik neni, Plzen si vyzada stavbu a ceka (13-14 min, limit 45) | `POST /api/v1/ops/docs/build` |
+| 3 | stazeni s navazovanim | `GET /api/v1/ops/docs/download` |
+| 4 | kontrola otisku, rozbaleni, prehozeni | (v Plzni) |
+| 5 | Plzen ohlasi hotovo a **Praha balik smaze** | `POST /api/v1/ops/docs/done` |
+
+- `/docs/build` spousti stavbu **ve vlakne na pozadi** a vraci se hned; druhe zavolani
+  behem stavby nic nezdvoji.
+- `/docs/meta` vraci navic polozku **`stavba`** (bezi / hotovo / chyba + zprava + casy).
+  Vyzadala si to Marti-AI: kdyz stavba spadne, Plzen musi videt DUVOD a skoncit hned,
+  ne cekat na vyprseni limitu. U stavby delsi nez 45 minut se hlasi `zaseklo_se`
+  (vlakno se v Pythonu zabit neda, tak se alespon pozna rozdil mezi "bezi" a "nikam to nevede").
+- `/docs/done` smaze balik **jen pri shode otisku** - hlaseni o starem baliku tedy
+  nemuze smazat novy.
+- Stav stavby prezije uklid (soubor `dokumenty_dedup.zip.stav.json` se nemaze) -
+  je to posledni zprava o tom, co se s balikem stalo.
+
 ## Co ZBYVA - jeden lidsky krok v Plzni
 
 **Na plzenskem serveru nesmi nic menit zadna AI** (`doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji`),
-takze posledni clanek musi udelat clovek pres vzdalenou plochu:
+takze tohle musi udelat clovek pres vzdalenou plochu:
 
-1. ulozit `scripts/ops/docs_pull.ps1` (v repozitari, commit `e821d685`) na 192.168.30.11 do `C:\scripts\`,
-2. spustit `.\docs_pull.ps1 -JenOvereni` (nic nestahne, jen vypise, co Praha nabizi),
-3. spustit `.\docs_pull.ps1` (prevezme zalohu),
-4. zalozit naplanovanou ulohu `STRATEGIE-DOCS-Pull`, **1x tydne v nedeli 6:00** - tedy mimo
-   okno nocni zalohy databaze (3:30-5:00), ktera jede po te same zasekavajici se lince.
+1. ulozit **novou verzi** `scripts/ops/docs_pull.ps1` na 192.168.30.11 do `C:\scripts\`
+   (verze z commitu `d1ed7229` - ta stara z `e821d685` stavbu nevyvola),
+2. `.\docs_pull.ps1 -JenOvereni` = jen se zepta Prahy, nic nestavi,
+3. `.\docs_pull.ps1` = cely beh (stavba + prenos + uklid na obou stranach, ~20 min),
+4. zalozit naplanovanou ulohu **`STRATEGIE-DOCS-Pull`, nedele 6:00**, ucet SYSTEM -
+   mimo okno nocni zalohy databaze (3:30-5:00), ktera jede po te same zasekavajici se lince.
+
+**Zbyva jeste (ukol pro Claude-28, samostatne):** maly hlidac svezesti do `g2007.automat`,
+ktery uz jen KONTROLUJE stari zalohy a eskaluje - protoze kdyz plzenska uloha nikdy
+nepobezi, dnes se to nikdo nedozvi. Marti-AI schvalila toto poradi: nejdriv funkcni
+zaklad, pak monitoring nad nim.
 
 **Co skript dela:** stazeni s navazovanim (30 pokusu, limity 2 minuty - protoze spojeni
 se po nekolika stech MB zaseka) · kontrola otisku SHA-256 proti tomu, co hlasi Praha ·
@@ -84,8 +143,12 @@ pripadech nic nemeni.
   zavre okno prohlizece, **beh na serveru pokracuje** - dolozeno dvakrat: odpoved se
   ztratila, ale zaznam v `g2007.python_run_audit` prisel spravne (00:05 a 00:38).
   **Vysledek se tedy overuje z knihy spusteni, ne z prohlizece.**
-- **Balik nema v Praze zadnou automatiku.** Zatim se stavi rucne na pozadani; automatika
-  je dalsi krok a delame ji az po overeni prenosu (rozhodnuti: dve nove veci naraz ne).
+- ~~**Balik nema v Praze zadnou automatiku.**~~ **NEPLATI od 14. 9. 2026** - stavbu si
+  vyvola Plzen sama pres `/docs/build`. Rucne se da balik porad postavit pres
+  `POST /api/v1/erp/app/erp_registry/run` s telem `{"kod":"dokumenty_zaloha_balik","args":[false]}`.
+- **Stary program `dokumenty_dedup_zaloha` je od 14. 9. 2026 `inactive`** (rozhodl Jirka
+  Honomichl, schvalila Marti-AI msg 15534). Zustava v evidenci vcetne historie, jen ho
+  nejde spustit - dve cesty k temuz byly zbytecne.
 - `min_pravo=admin` je zamerne: program umi kopirovat i mazat, vychozi hodnota
   `clen` by na nej pustila kazdeho prihlaseneho.
 

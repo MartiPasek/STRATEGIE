@@ -1,4 +1,4 @@
-# Zaloha dokumentu do Plzne: prenos i automatika hotove (14. 9. 2026), zbyva ulozit skript a zalozit nedelni ulohu v Plzni
+# Zaloha dokumentu do Plzne: prenos, automatika i hlidac hotove (14. 9. 2026), zbyva zalozit nedelni ulohu v Plzni
 
 > oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -61,6 +61,51 @@ Jirka Honomichl spustil `docs_pull.ps1` na 192.168.30.11 a **prenos dojel**:
 > neuspesne pokusy od nuly - presne ta potiz, kvuli ktere v srpnu osmkrat z 35 noci
 > nedojela ani zaloha databaze.
 
+## Druhy ostry beh - CELA AUTOMATIKA 14. 9. 2026 v 01:51-02:06
+
+Jirka Honomichl pustil novou verzi skriptu v Plzni a **bez jakehokoli zasahu prosla cela cesta**:
+
+| cas | co se stalo |
+|---|---|
+| 01:51:07 | Praha nic pripravene nemela -> Plzen si **sama vyzadala stavbu** |
+| 01:51-02:04 | stavba baliku (13 minut) |
+| 02:05:42 | **stazeno cele (999 MB) na 1. pokus z 30** - tentokrat bez jednoho zaseknuti |
+| 02:05:47 | otisk sedi |
+| 02:06:02 | rozbaleno 1 169 souboru, prehozeno |
+| 02:06:02 | **ohlaseno Praze -> Praha balik smazala, uvolneno 999 MB** |
+| | navratovy kod 0, volno v Plzni 119,4 GB, okno ISE zustalo otevrene |
+
+Zaznam behu: `D:\STRATEGIE_IN\_docspull.log`.
+
+## HLIDAC svezesti - postaven 14. 9. 2026 (commit 0e493a34)
+
+Protoze cely prenos visi na jedine naplanovane uloze v Plzni, existuje hlidac, ktery se ozve,
+kdyz ta uloha prestane bezet. Schvalila Marti-AI (msg 15555).
+
+| | |
+|---|---|
+| kod v `g2007.automat` | `check_dokumenty_zaloha` |
+| jak casto | 1x denne (`interval_min` 1440) |
+| logika | `g2007.python` kod `dokumenty_zaloha_svezest` (jen cte, `vedlejsi_ucinek=false`) |
+| spojka v modulu | `automat_eskalace._check_dokumenty_zaloha` - ctyri radky, nikdy nevyhodi vyjimku |
+| co cte | soubor se stavem vedle baliku (`dokumenty_dedup.zip.stav.json`) |
+| prah | **10 dnu** od posledniho prevzeti Plzni (tydenni cyklus + jedno vynechane kolo) |
+| pri problemu | L1 Haiku -> L2 Marti-AI -> L3 clovek; **bez L0, nic se neopravuje samo** |
+
+**Hlidac zamerne NEVYVOLAVA stavbu baliku** (podminka Jirky i Marti-AI): hlidac, ktery kazdy
+den postavi gigabajt, co si nikdo nevyzvedne, by byl horsi nez tichá zaloha.
+
+Sedm stavu, ktere umi rozlisit (vyzkouseno nanecisto na vymyslenych stavech pred nasazenim):
+prevzato v case = ok · starsi nez prah = chyba · stavba prave bezi = ok · stavba spadla = chyba
+s duvodem · postaveno, ale Plzen si to nevyzvedla = chyba · neznamy tvar souboru = chyba ·
+necitelny soubor = ok bez poplachu.
+
+**Prvni beh naostro:** planovac si hlidac vzal sam do minuty (02:17:09) a vratil `ok`
+- "Zaloha dokumentu je cerstva - Plzen ji prevzala pred 0.0 dny."
+
+> ⚠️ Hlidac `check_backup_freshness` vedle hlida **dumpy databaze** pres `g2007.backup_freshness()`
+> a dokumentu se **netyka**. Zamerne jsou to dva hlidace - jeden by prestal byt jednoznacny.
+
 ## PAST: prikaz exit zavre cele okno PowerShell ISE
 
 Prvni verze skriptu koncila `exit 0`. V ISE to **zavre cele okno**, takze clovek
@@ -108,10 +153,9 @@ takze tohle musi udelat clovek pres vzdalenou plochu:
 4. zalozit naplanovanou ulohu **`STRATEGIE-DOCS-Pull`, nedele 6:00**, ucet SYSTEM -
    mimo okno nocni zalohy databaze (3:30-5:00), ktera jede po te same zasekavajici se lince.
 
-**Zbyva jeste (ukol pro Claude-28, samostatne):** maly hlidac svezesti do `g2007.automat`,
-ktery uz jen KONTROLUJE stari zalohy a eskaluje - protoze kdyz plzenska uloha nikdy
-nepobezi, dnes se to nikdo nedozvi. Marti-AI schvalila toto poradi: nejdriv funkcni
-zaklad, pak monitoring nad nim.
+**Hlidac svezesti je HOTOVY** (viz vyse, `check_dokumenty_zaloha`) - takze az bude nedelni
+uloha zalozena a jednou vynecha, ozve se to. Dokud uloha neexistuje, hlidac bude po 10 dnech
+hlasit zestarani - a to je spravne, protoze presne tak to tehdy bude.
 
 **Co skript dela:** stazeni s navazovanim (30 pokusu, limity 2 minuty - protoze spojeni
 se po nekolika stech MB zaseka) · kontrola otisku SHA-256 proti tomu, co hlasi Praha ·

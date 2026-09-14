@@ -177,7 +177,7 @@ a proto sčítal dovolenou s dovolenou navíc do složky 211 — **opraveno 25. 
 obou číselníků a na to, co obrazovka reálně vrací** — a **nejdřív si přečtu G2007 k tématu**.
 Celé je to v G2007: `doc-dochazka-dva-ciselniky-druh-zaznamu-vs-cinnost`.
 
-## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU = JEN INFO VEDOUCÍMU, DO DOCHÁZKY NIC (Peťa 26. 8. 2026, ZÁVAZNÉ)
+## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU = JEN INFO VEDOUCÍMU, DO DOCHÁZKY NIC (Peťa 26. 8. 2026, lékař dořešen 14. 9. 2026, ZÁVAZNÉ)
 
 Peťa to řekla **počtvrté** — 19. 8., 24. 8., 25. 8. a znovu 26. 8. 2026. Pokaždé proto, že to
 nikde nebylo zapsané. Teď je to tady i v G2007 `doc-dochazka-mobil-nemoc-ocr-lekar-jen-info-vedoucimu`
@@ -189,8 +189,11 @@ a hlídá to pojistka `nemoc-ocr-lekar-z-mobilu-jen-info`.
 
 - **Nemoc a OČR** zapisuje Peťa **ručně ve Správě docházky** až podle dokladu. Z mobilu nesmí
   vzniknout ani řádek v docházce, ani žádost.
-- **Lékař** je zatím taky jen info. Peťa 26. 8.: *„lékaře musíme řešit individuálně, bude
-  fungovat jinak po domluvě s Martim."* Do té doby **pozastaveno** — nečerpá sick day, nezapisuje.
+- **Lékař má PŘESNĚ STEJNÝ režim jako nemoc a OČR** (Peťa 14. 9. 2026, dořešeno). Z mobilu
+  jde **jen informace vedoucímu** — žádný zápis do docházky, žádná žádost, žádné čerpání sick
+  days a žádný výpočet krytí. Do Správy docházky to zadává Peťa **ručně až podle dodaného
+  lístečku od lékaře**. Tím padá dřívější formulace z 26. 8. („řešíme individuálně po domluvě
+  s Martim, do té doby pozastaveno") — režim je rozhodnutý a je společný pro všechny tři.
 - Člověk v mobilu dostane „Nahlášeno vedoucímu", vedoucí prostou zprávu na vědomí (bez schvalování).
 
 ### ⚠️ TŘI mobilní vstupy, ne jeden — kdo opraví jeden, nechá díru ve dvou
@@ -531,6 +534,13 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
 
    **Není to nález, nehlásit.**
 
+   ⚠️ **Poznáš je špatně od oka.** Faktura našeho OSVČ může vypadat úplně jako běžná
+   dodavatelská — na objednávku, s položkami, bez hodin. **Martin Nosek** (doklad 26204,
+   objednávka 861248, potvrdila Peťa 14. 9. 2026) je náš OSVČ, přestože jeho faktura tak
+   nevypadá. Když je splatnost v Centrále **kratší** než na faktuře, je to skoro vždycky
+   tohle pravidlo — **kratší splatnost nikdy nehlásit jako chybu**, platíme dřív a nikomu
+   to neuškodí. Hlásit se má jen splatnost **delší** než na dokladu.
+
 7. **💧 VODY OD PAPERY — perlivá se zadává VČETNĚ DPH, neperlivá bez DPH** (Peťa 1. 9. 2026).
    - **neperlivá** → cena **bez DPH + DPH** zvlášť (v Centrále řádek „Režijní materiál", 501002),
    - **perlivá** → **celková částka včetně DPH** (řádek „Reprezentace", 513100).
@@ -554,9 +564,29 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
    | **Tuzemský** (= **české DIČ**, s českým DUZP) | **kurz podle faktury** — buď ten, který je na ní uvedený, nebo se musí **dopočítat** |
    | **Zahraniční** (cizí DIČ) | kurz k **prvnímu pracovnímu dni v měsíci** (v Centrále je zadaný) |
 
-   ⚠️ **Kurz musí sedět na haléř přesně.** Tolerance 5 Kč platí až na **výsledek přepočtu
-   z EUR na koruny** (korunový základ a DPH) — ne na kurz samotný. Špatný kurz je nález
-   i tehdy, když je dopad na DPH jen pár haléřů.
+   ⚠️ **Tolerance 5 Kč se kurzu NETÝKÁ.** Platí až na **výsledek přepočtu z EUR na koruny**
+   (korunový základ a DPH), ne na kurz samotný. Špatný kurz je nález i tehdy, když je dopad
+   jen pár haléřů.
+
+   **📐 POČET MÍST JE VOLNÝ, ZAOKROUHLENÍ MUSÍ BÝT MATEMATICKÉ** (Peťa 14. 9. 2026:
+   *„kurz může být 2 i 3 místný… správně by to mělo být matematicky zaokrouhlit"*).
+   Kurz se vezme z faktury; **když na ní vytištěný není, dopočítá se** z korunového rozpisu
+   (korunový základ ÷ částka v EUR; z DPH musí vyjít totéž — když ne, přepočítej to znovu).
+
+   - **Není nález:** jiný počet míst při správném zaokrouhlení. 24,19 a 24,190 je totéž
+     a obojí sedí.
+   - **JE nález: uříznuté poslední místo dolů místo zaokrouhlení nahoru.** Tohle mě
+     14. 9. 2026 dostalo dvakrát — **2306** (RS Components, dopočteno **24,1899**, správně
+     tedy **24,190**, v Centrále bylo 24,189) a **2334** (Pepperl+Fuchs, dopočteno
+     **24,1249**, správně **24,125**, v Centrále 24,124). Dopad byl 66 haléřů a 1,24 Kč,
+     v eurech seděly obě faktury na cent — **a přesto je to nález.**
+   - **JE nález: úplně jiný kurz**, typicky měsíční místo toho z faktury. Příklad
+     **2322** (Helukabel, 14. 9. 2026): na dokladu vytištěno *„Směnný kurz 24,25 CZK /
+     1,0 EUR"*, v Centrále zářijových **24,16**.
+
+   ⚠️ **Nezaměňovat s tolerancí 5 Kč** (bod 1). Ta se týká **částek**, ne kurzu. Když se
+   rozejde korunový základ a kurz přitom sedí, neřeší se to; když se rozejde kurz, hlásí se
+   to i při dopadu jednoho haléře.
 
    **🔎 Měsíční kurz si umím ověřit sám — číselník je `TabKurzList`** (ověřeno 3. 9. 2026):
    ```sql
@@ -583,6 +613,16 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
    Příklad 7. 9. 2026: **2272 a 2276** (Ing. Marek Siřiště) — faktury 2026-00009 a 2026-00008,
    ale obě mají na dokladu **VS 20260005**; v Centrále je 202600009 / 202600008.
    Nahlásil jsem to nejdřív jen jako poznámku na okraj — **byl to nález.**
+
+10. **📋 ROZPIS POLOŽEK V CENTRÁLE SE NEMUSÍ KRÝT S FAKTUROU — NENÍ TO NÁLEZ**
+    (Peťa 14. 9. 2026). V Centrále může být **mnohem víc řádků než na faktuře**, protože
+    **položky se překlápějí z objednávky**. Peťa: *„je zbytečné, aby to dodavatel musel
+    rozepisovat ve faktuře."* Příklad: **2312 Martin Nosek** — na faktuře jediná věta
+    „fakturuji dle objednávky 861248" za 79 622 Kč, v Centrále **41 položek**, jejichž
+    součet dává 79 622 Kč přesně.
+    **Kontroluje se tedy SOUČET položek proti celkové ceně na faktuře**, ne řádek po řádku.
+    Totéž platí obráceně — kolegyně slučuje, co dodavatel rozepsal (měděný příplatek
+    přičtený k dílu u Murrelektroniku, recyklační poplatek k termostatu u EMS ELEKTRO).
 
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 

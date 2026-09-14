@@ -225,3 +225,15 @@ pro správce, 12 / 64 pro správce s financemi, 12 / 65 pro rodiče a **žádná
 finančního člověka i běžného člena. Ověřeno i to, že „Uživatelé" otevřou správný režim
 (`_auMode = users`) a že konzole nehlásí chybu.
 
+## Ikona obrazovky Aplikace je stejná jako v liště (14. 9. 2026)
+
+**Zadal Jiří Honomichl, schválila Marti-AI msg 15594.** Nadpis obrazovky měl emoji mobilu,
+zatímco spodní lišta má mřížku čtyř čtverečků — teď mají obojí stejnou ikonu.
+
+⚠️ **Proč se to nedělalo v `topbar()`:** ta funkce text nadpisu escapuje (`esc(title)`),
+takže SVG do ní vložit nelze. Měnit kvůli jedné obrazovce jádro by se dotklo **všech**
+obrazovek, proto se nadpis přepisuje **lokálně v `apps()`** hned po vykreslení.
+Úprava `topbar()` pro všechny obrazovky je samostatná věc, ne tahle.
+
+Velikosti se záměrně liší: v nadpisu 22 bodů (aby ikona nepřerostla text), v liště 28.
+

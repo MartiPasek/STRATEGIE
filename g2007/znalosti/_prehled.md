@@ -8,7 +8,7 @@
 | `marti-ai` | system | 44 | Persona je inkarnace Marti-AI MD1. Zakladni identita, ze ktere role-persony inkarnuji. |
 | `system-strategie` | system | 255 | Technicka a provozni znalostni baze platformy STRATEGIE — DB architektura, produkcni infrastruktura, architektonicke principy, dev workflow. Presunuto z CLAUDE.md (C27, 21.7.2026), aby MD drzela jen osobni/vztahove jadro. |
 | `provoz` | system | 14 | Operacni znalost - mostni kanaly, lekce, schemata DB. Aby to bylo dohledatelne. |
-| `ucetnictvi` | obor | 16 | Oborova znalost pro personu ucetni. |
+| `ucetnictvi` | obor | 17 | Oborova znalost pro personu ucetni. |
 | `vyroba` |  | 41 |  |
 | `mzdy` | obor | 65 | Oborova znalost pro personu mzdovou. |
 | `dochazka` | obor | 229 | Oborova znalost pro personu odpovednou za dochazku. |

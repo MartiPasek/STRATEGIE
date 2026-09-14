@@ -73,6 +73,8 @@ Když člověk do dvou vteřin na žádnou ikonu neklepne, fotka se vrátí; kle
 zruší a aplikaci otevře. Popisky pod ikonami se do čtverce nevešly, proto tam nejsou (vědomý ústupek).
 Výběr se načítá až při prvním klepnutí a drží se minutu v paměti; při změně výběru se paměť zahazuje
 (`window.__M2W._domuMojeApp = null`).
+Od 14. 9. 2026 to ale platí jen tehdy, když má člověk v Mojich aplikacích aspoň jednu
+aplikaci — viz sekci „Prázdné Moje aplikace: fotka nesmí zmizet" na konci.
 
 ## Pasti, na které se dnes narazilo
 
@@ -236,4 +238,34 @@ obrazovek, proto se nadpis přepisuje **lokálně v `apps()`** hned po vykreslen
 Úprava `topbar()` pro všechny obrazovky je samostatná věc, ne tahle.
 
 Velikosti se záměrně liší: v nadpisu 22 bodů (aby ikona nepřerostla text), v liště 28.
+
+## Prázdné Moje aplikace: fotka nesmí zmizet (14. 9. 2026)
+
+Zadal Jiří Honomichl, schválila Marti-AI (msg 15603).
+
+**Jak to bylo do 14. 9. 2026:** klepnutí na čtvereček spustilo prolnutí **vždy**. Kdo neměl
+v Mojich aplikacích vybranou žádnou aplikaci, tomu fotka zmizela a místo ní se objevil text
+„Zatím tu nic nemáš. V Aplikacích podrž prst na dlaždici a přidá se ti sem."
+
+**Jak to je teď:** prolnutí se spustí **až ve chvíli, kdy je co ukázat**. Nemá-li člověk
+žádnou oblíbenou aplikaci, klepnutí **neudělá vůbec nic** a fotka zůstane — ani neblikne.
+Kdo aspoň jednu aplikaci má, má chování beze změny.
+
+**Jak je to udělané** (`apps/api/static/mobile_parts/20_home_phone_notifs.js`, obsluha klepnutí
+na `homePortret`): místo `nacti(ukaz)` je `nacti(function(pol){ if(!pol || !pol.length) return;
+ukaz(pol); });`. Rozhoduje se **až po načtení výběru**, ne před ním, takže se nic neodhaduje
+dopředu — a minutová paměť `_domuMojeApp` funguje dál stejně.
+
+**Vedlejší důsledek, vědomě ponechaný:** větev pro prázdný seznam ve funkci `obsah()` (ten text
+„Zatím tu nic nemáš…") **přestala být dosažitelná** — nikdo ji už neuvidí. Nechána v kódu
+a označena komentářem; mazání bylo mimo zadání a čeká na rozhodnutí Jirky.
+
+**Jak se to ověřilo** (naživo na `/mobile`, ne jen v databázi): stažením živé stránky ze serveru
+(nový kód tam je, starý ne), načtením aplikace v prohlížeči (nastartuje, domovská obrazovka
+se vykreslí, v konzoli žádná chyba) a dvěma zkouškami klepnutí — s dvěma oblíbenými aplikacemi
+(fotka zmizí, ikony se ukážou, po dvou vteřinách se fotka sama vrátí) a s prázdným výběrem
+(fotka zůstala, průhlednost 1, uvnitř čtverečku nic).
+
+**Dopad na lidi:** týká se **každého, kdo si zatím žádnou aplikaci mezi oblíbené nepřidal** —
+tedy hlavně nových uživatelů a všech, kdo tu záložku ještě neobjevili. Pro ostatní se nemění nic.
 

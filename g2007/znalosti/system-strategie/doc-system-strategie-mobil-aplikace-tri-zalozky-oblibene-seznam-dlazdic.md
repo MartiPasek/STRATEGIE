@@ -122,3 +122,22 @@ předem na to upozornila Marti-AI). Oprava: zahození paměti patří do funkce,
 prochází **každá** změna výběru (`_ulozOblibene`), ne k jednotlivým tlačítkům.
 Ověřeno naživo: po přerovnání ukázal čtvereček novou řadu okamžitě.
 
+## Konečná podoba čtverečku: matice 2×2 a ikony 58 bodů
+
+**Rozhodl Jiří Honomichl 14. 9. 2026** (schválila Marti-AI msg 15561) po vyzkoušení tří podob
+za sebou: 58 bodů bez popisku → 44 bodů s popiskem → **58 bodů s popiskem a matice 2×2**.
+Do čtverečku se tím vejdou **čtyři** oblíbené aplikace místo devíti; je to vědomý ústupek
+za jejich čitelnost. Buňka měří 97 bodů, ikona 58 (tatáž třída `appicon` jako v Aplikacích),
+popisek 10 bodů — změřeno na živé stránce.
+
+## Ikony ve spodní liště: 28 bodů, ale lišta nenarostla
+
+**Zadal Jiří Honomichl 14. 9. 2026** (schválila Marti-AI msg 15564): ikony ve spodní liště mají
+stejně velké písmo jako ikony v Aplikacích, tedy **28 bodů místo 21**. Aby lišta nevyrostla
+a neubrala místo obsahu na každé obrazovce, **zároveň se ubralo svislé odsazení tlačítka z 9
+na 5 bodů**. Ověřeno na živé stránce: pruh má 60 bodů (předtím 61), tlačítko 53, ikony 28.
+
+⚠️ Mění se **všechny tři podoby najednou** — emoji, SVG ikona i profilová fotka (`img.navava`)
+v `02_styles.html`. Kdo zvedne jen jednu, rozhodí zarovnání, které se schválně srovnávalo
+2. 9. a 13. 9. 2026.
+

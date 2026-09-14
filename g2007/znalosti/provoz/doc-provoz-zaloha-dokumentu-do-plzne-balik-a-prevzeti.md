@@ -1,4 +1,4 @@
-# Zaloha dokumentu do Plzne: prenos, automatika i hlidac hotove (14. 9. 2026), zbyva zalozit nedelni ulohu v Plzni
+# Zaloha dokumentu Praha -> Plzen: HOTOVO CELE vcetne nedelni ulohy a hlidace (14. 9. 2026)
 
 > oblast: `provoz` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -141,21 +141,35 @@ nehledej tam zadnou ulohu ani hlidac. Rozhodl Jirka Honomichl, schvalila Marti-A
 - Stav stavby prezije uklid (soubor `dokumenty_dedup.zip.stav.json` se nemaze) -
   je to posledni zprava o tom, co se s balikem stalo.
 
-## Co ZBYVA - jeden lidsky krok v Plzni
+## HOTOVO CELE - 14. 9. 2026 v 02:38 (uz nic nezbyva)
 
 **Na plzenskem serveru nesmi nic menit zadna AI** (`doc-system-strategie-plzen-kanaly-pro-zmeny-nefunguji`),
-takze tohle musi udelat clovek pres vzdalenou plochu:
+takze posledni kroky udelal clovek (Jirka Honomichl) pres vzdalenou plochu - a jsou hotove:
 
-1. ulozit **novou verzi** `scripts/ops/docs_pull.ps1` na 192.168.30.11 do `C:\scripts\`
-   (verze z commitu `d1ed7229` - ta stara z `e821d685` stavbu nevyvola),
-2. `.\docs_pull.ps1 -JenOvereni` = jen se zepta Prahy, nic nestavi,
-3. `.\docs_pull.ps1` = cely beh (stavba + prenos + uklid na obou stranach, ~20 min),
-4. zalozit naplanovanou ulohu **`STRATEGIE-DOCS-Pull`, nedele 6:00**, ucet SYSTEM -
-   mimo okno nocni zalohy databaze (3:30-5:00), ktera jede po te same zasekavajici se lince.
+1. ✅ nova verze `docs_pull.ps1` ulozena na 192.168.30.11 do `C:\scripts\`,
+2. ✅ ostry beh cele cesty (01:51-02:06, viz vyse),
+3. ✅ naplanovana uloha **`STRATEGIE-DOCS-Pull`** zalozena skriptem `scripts/ops/docs_pull_uloha.ps1`
+   (commit `801e372f`) - ten si sam zaloguje stavajici stav do XML, po sobe se precte
+   a pri chybe se vrati.
 
-**Hlidac svezesti je HOTOVY** (viz vyse, `check_dokumenty_zaloha`) - takze az bude nedelni
-uloha zalozena a jednou vynecha, ozve se to. Dokud uloha neexistuje, hlidac bude po 10 dnech
-hlasit zestarani - a to je spravne, protoze presne tak to tehdy bude.
+**Jak je uloha nastavena - OVERENO NEZAVISLE** (cteno z plzenskeho serveru, ne z vypisu skriptu):
+
+| | |
+|---|---|
+| stav | Ready |
+| kdy | nedele 06:00 (`DaysOfWeek 1`), prvni beh **20. 9. 2026** |
+| ucet | SYSTEM, uroven Highest |
+| prikaz | `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\scripts\docs_pull.ps1"` |
+| dosud bezela | nikdy (vychozi datum + kod 267011 = "jeste nebezelo") |
+| `STRATEGIE-DR-PullRestore` | **Ready, nedotcena** - nocni zalohy databaze se to netklo |
+
+> **Pri automatickem behu se neobjevi zadne okno** (SYSTEM + `-WindowStyle Hidden`) a nic
+> nezustane viset - vyslovny pozadavek Jirky Honomichla. Uloha ma navic strop 3 hodiny
+> (`ExecutionTimeLimit`), takze i zaseknuty beh systém ukonci. `StartWhenAvailable` znamena,
+> ze kdyz je server v nedeli rano vypnuty, uloha se dozene pozdeji.
+
+**Hlidac svezesti** (viz vyse, `check_dokumenty_zaloha`) tedy ted hlida uz rozjety cyklus:
+kdyz nedelni uloha jednou vynecha a prevzeti bude starsi nez 10 dnu, ozve se.
 
 **Co skript dela:** stazeni s navazovanim (30 pokusu, limity 2 minuty - protoze spojeni
 se po nekolika stech MB zaseka) · kontrola otisku SHA-256 proti tomu, co hlasi Praha ·

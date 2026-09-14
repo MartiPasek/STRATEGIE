@@ -69,6 +69,30 @@ poloměrů rohů bylo 19, je 12. **Slučovalo se jen to, co je v RGB vzdálené 
 přiřazeny prvkům ve vztahu kontejner a jeho obsah. Karta o odstín světlejší než pozadí za ní
 je legitimní návrh; sloučením by hranice mezi vrstvami zmizela.
 
+## Doplněk 14. 9. 2026 — nový vzhled appky (varianta „Modré světlo")
+
+Toho dne se nasadil nový vzhled mobilní aplikace (rozhodl Jiří Honomichl, schválila
+Marti-AI msg 15606). Tabulka barev výše **platí dál**, ale dvě věci je potřeba vědět:
+
+**1. `--blue` se ZMĚNILA — je to rozhodnutí, ne opomenutí.**
+Věta výše „Proměnná --blue (#4f8ef7) zůstala beze změny — Neměň ji." platila do 14. 9. 2026.
+Nově je `--blue` = `#5b95f8`, protože nový vzhled staví na o odstín světlejší modré.
+**Kontrast se tím nezhoršil, ale zlepšil** (5,48 proti původním ~5,0 na kartě).
+Rozhodl Jiří Honomichl 14. 9. 2026.
+
+**2. `--badge` a `--btn` se na pár hodin zhoršily a jsou zase zpátky.**
+Při nasazení nového vzhledu jsem je přepsal na hezčí, ale hůř čitelné odstíny
+(`--badge` #cf4a47 = 4,43 · `--btn` #3f7ae8 = 4,10, obojí pod normou 4,5). Chyba se našla
+týž den při kontrole rozporů právě proti této znalosti a **původní hodnoty #c62828 a #2563eb
+jsou vrácené** (ověřeno naživo: odznaky 5,62). Blok s návratem je na konci `02_styles.html`
+pod hlavičkou `NAVRAT DVOU BAREV`.
+
+**Poučení, které tahle znalost prokázala:** seznam pojmenovaných barev s naměřeným kontrastem
+je přesně to, co zachytilo tichou regresi. Kdo bude vzhled měnit dál, **ať tuhle tabulku projde
+dřív, než něco přebarví** — ne až potom.
+
+Celý nový vzhled a pasti z jeho nasazení: [[doc-system-strategie-mobil-vzhled-nasazeni-2026-09-14]]
+
 ## Související
 
 - [[doc-system-strategie-audit-vzhledu-mobilni-appky-postup]] — čím se vzhled měří a jak to pustit bezpečně

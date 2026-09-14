@@ -39,7 +39,7 @@
      * a pocet_hodin 0; vsechny ostatni sloupce zustanou prazdne a prepocet
      * je nema odkud vratit. Vycet nize je overeny proti sloupcum
      * ec.vyhodnoceni_osoba, ne odhadnuty. */
-    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: "⚠️ PŘIPRAVIT HODNOCENÍ?\n\nZaloží seznam lidí na zakázce ZNOVU podle odpracovaných hodin — doplní tím i ty, kdo na zakázce mezitím přibyli.\n\nSMAŽE ale všechno, co je u lidí zadané ručně:\n  • efektivitu (všem se nastaví 100 %)\n  • hodnocení flexibility, chybovosti a estetiky včetně poznámek\n  • speciální prémie\n  • poznámky (šéfmontér, VV, VP, zkušebna)\n\nOznačení šéfmontéra se ZACHOVÁ — to je uložené u zakázky, ne u člověka, a přepočet ho dosadí zpátky.\n\nChceš-li jen přepočítat čísla, použij „3️⃣ Přepočet hodnocení\".\n\nPokračovat?" },
+    { code: "priprava",         label: "1️⃣ ▶️ Připravit hodnocení", confirm: "⚠️ PŘIPRAVIT HODNOCENÍ?\n\nZaloží seznam lidí na zakázce ZNOVU podle odpracovaných hodin — doplní tím i ty, kdo na zakázce mezitím přibyli.\n\nSMAŽE ale všechno, co je u lidí zadané ručně:\n  • efektivitu (všem se nastaví 100 %)\n  • hodnocení flexibility, chybovosti a estetiky včetně poznámek\n  • speciální prémie\n  • poznámky (šéfmontér, VV, VP, zkušebna)\n\nOznačení šéfmontéra se ZACHOVÁ — to je uložené u zakázky, ne u člověka, a přepočet ho dosadí zpátky.\n\nChceš-li jen přepočítat čísla, použij „4️⃣ Přepočet hodnocení\".\n\nPokračovat?" },
     /* OD 10. 9. 2026 (C24 / Kristy) OTEVIRA JADRO, NE ROVNOU PREPOCET.
      * Do ted tlacitko volalo ec.vypocet_konstant primo — jenze koeficienty
      * (sazby, rezerva, premie sefmontera) nemel uzivatel kde zadat, takze
@@ -49,10 +49,20 @@
      * Poradi odpovida tomu, jak to uvnitr funguje: vypocet_konstant cte
      * konst_cas_rezerva jako VSTUP (limit_pro_srazku = kalk_hod_celkem_s_ef
      * x rezerva) a zadny z tech sesti sloupcu neprepisuje. */
-    { code: "koeficienty",      label: "2️⃣ ⚙️ Nastav koeficienty", confirm: null, vlastni: true },
-    { code: "prepocet",         label: "3️⃣ 🔄 Přepočet hodnocení", confirm: null },
-    { code: "uzavrit",          label: "4️⃣ 🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
-    { code: "do_mezd",          label: "5️⃣ 💰 Do mezd", confirm: "⚠️ PŘEVÉST ODMĚNY DO MEZD?\n\nOdměny z této zakázky se zapíšou zaměstnancům do mzdy (složka 651) za měsíc, kdy byla zakázka uzavřena.\n\nSpustit to jde i opakovaně — co už je ve mzdě, se nezdvojí.\n\nPokračovat?" },
+    /* OD 14. 9. 2026 (C24 / Kristy) JE VICEPRACE DRUHY KROK WORKFLOW, ne akce stranou.
+     * Do ted bylo tlacitko az za oddelovacem mezi "ostatnimi" akcemi, takze Dusan
+     * mel hodiny viceprace zadavat az po koeficientech a prepoctu — a musel pak
+     * oba kroky pustit znovu. Poradi 1 -> 2 -> 3 -> 4 ted odpovida tomu, v jakem
+     * poradi se cisla rodi: kdo delal -> kolik hodin se pripocte -> sazby a hlavicka
+     * -> premie na lidi.
+     * ⚠️ Zapis viceprace jde do Centraly a k nam se cislo dostane az obnovou zrcadla
+     * (~30 min). Krok 2 tedy NENI hotovy hned — hlaska po ulozeni i napoveda to rikaji
+     * a odkazuji na kroky 3 a 4, ktere se maji pustit potom. */
+    { code: "hodnavic",         label: "2️⃣ ⏱️ Úprava hodin vícepráce…", confirm: null, vlastni: true },
+    { code: "koeficienty",      label: "3️⃣ ⚙️ Nastav koeficienty", confirm: null, vlastni: true },
+    { code: "prepocet",         label: "4️⃣ 🔄 Přepočet hodnocení", confirm: null },
+    { code: "uzavrit",          label: "5️⃣ 🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
+    { code: "do_mezd",          label: "6️⃣ 💰 Do mezd", confirm: "⚠️ PŘEVÉST ODMĚNY DO MEZD?\n\nOdměny z této zakázky se zapíšou zaměstnancům do mzdy (složka 651) za měsíc, kdy byla zakázka uzavřena.\n\nSpustit to jde i opakovaně — co už je ve mzdě, se nezdvojí.\n\nPokračovat?" },
     { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokud už odměny šly do mezd, SMAŽOU SE i odtud — pokud ale některá z nich už byla předána do mzdy (stav exported), zrušení se odmítne a musí to vyřešit mzdová účetní.\n\nPokračovat?" }
   ];
 
@@ -67,7 +77,7 @@
    * na prehledu s multi-selectem, je to samostatna prace na jinem miste.
    */
   var VLASTNI = [
-    { code: "hodnavic",  label: "⏱️ Úprava hodin vícepráce…" },
+    /* "hodnavic" odsud odesel 14. 9. 2026 do ACTIONS jako krok 2 — viz komentar tam. */
     { code: "ukol",      label: "📨 Odeslat úkol…" },
     { code: "sefmonter", label: "👷 Šéfmontér…" },
     { code: "slouci",    label: "🔗 Hodnotit společně…" },
@@ -331,8 +341,8 @@
                        _hnCislo(w.hodin) + " h.\n\n" +
                        "Centrála si kalkulaci přepočítala.\n\n" +
                        "U nás se to v prémiích projeví, až se obnoví zrcadlo zakázek " +
-                       "(do ~30 minut) a pustíš znovu „2️⃣ Nastav koeficienty“ " +
-                       "a „3️⃣ Přepočet hodnocení“." +
+                       "(do ~30 minut) a pustíš znovu „3️⃣ Nastav koeficienty“ " +
+                       "a „4️⃣ Přepočet hodnocení“." +
                        (w.lokalne ? "" : "\n\n(Kopii k nám se uložit nepodařilo — v Centrále " +
                                           "to ale je a přijde synchronizací.)"));
           if (typeof inst._reloadSpec === "function") { try { inst._reloadSpec(); } catch (e) {} }
@@ -478,8 +488,65 @@
    *   2) jakykoli klik na strance ho po 1,5 s tise prepocita — tim se srovna
    *      i po zavreni dialogu "zadani efektivity", ktery je mimo nase jadro.
    * Listener je jeden na cely dokument, navesi se jednou a kdyz uz soucet
-   * v DOM neni (jadro zavrene), nedela nic. */
+   * v DOM neni (jadro zavrene), nedela nic.
+   *
+   * ═══════════════════════════════════════════════════════════════════
+   * OBNOVA HLAVICKY PO RUCNI ZMENE V GRIDU (C24 / Kristy, 14. 9. 2026)
+   * ═══════════════════════════════════════════════════════════════════
+   * Zadani: "obnoveni gridu a jadra po zmene/prepoctu atd."
+   *
+   * NEJDRIV CO UZ FUNGUJE — overeno ve zdrojaku `design_forms.js`, ne odhadnuto,
+   * protoze poznamka v `C24_vyhodnoceni_otevrene_body.md` tvrdila opak:
+   *   `_reloadSpec()` -> `_render()` -> `_renderEmbeddedGridSection()`, a ten si
+   *   pokazde znovu zavola `_fetchData()` a postavi NOVOU `ErpDataGrid` s cerstvymi
+   *   radky (design_forms.js ~6660-6690). Vnorene gridy se tedy po kazde akci z listy
+   *   obnovuji SAMY — vcetne "Hodnoceni vse". Rikaji to i komentare frameworku
+   *   ("obnova embedded gridu ... resi master form _reloadSpec — re-render
+   *   re-fetchne i tento grid").
+   *   => Prazdny grid 11. 9. tedy NEZPUSOBILO to, ze by `_reloadSpec` na grid
+   *      nedosahl. Zpusobil ho DRUHY, soubezny refresh (`setTimeout(..., 400)`),
+   *      ktery sahl na grid ve chvili, kdy ho `_render` prave stavel znovu.
+   *      Jeho odstraneni bylo spravne reseni a zadnou nahradu nepotrebuje.
+   *      ⚠️ Nepridavej sem zadnou druhou cestu obnovy gridu. Jedna cesta,
+   *      jinak se to vrati.
+   *
+   * CO NEFUNGOVALO: rucni uprava jednoho cloveka v gridu (dvojklik -> editacni
+   * formular -> Ulozit). Framework po ulozeni obnovi JEN ten grid
+   * (`onSaveSuccess` -> `_fetchData` -> `setGridOption("rowData")`), ale master
+   * formular necha byt. Cisla v HLAVICCE (Premie celkem, Celkem s premiemi) proto
+   * zustala z doby pred upravou. Od 11. 9. se `premie_celkem` dopocitava az pri
+   * cteni (pohled `ec.vyhodnoceni_zakazka_jadro`), takze staci radek znovu nacist
+   * a cislo uz je spravne — driv by to nepomohlo.
+   *
+   * RESENI: soucet v liste uz po kazde zmene tise prepocitavame (viz vyse).
+   * Kdyz se pri tom prepoctu ukaze, ze se cislo ZMENILO, znamena to, ze nekdo
+   * v gridu neco ulozil — a teprve tehdy prenacteme hlavicku pres `_reloadSpec()`.
+   * Tedy zadny casovac navic, zadny druhy refresh gridu, zadny zasah do
+   * `datagrid.js` ani do frameworku.
+   *
+   * Pojistky (stejne, jake ma framework u sve `erp:pipeline-grid-refresh`):
+   *   • jen kdyz je jadro jeste otevrene,
+   *   • jen kdyz nema rozdelane neulozene zmeny (`_dirty.size === 0`) — jinak by
+   *     reload prepsal, co uzivatel prave pise,
+   *   • porovnava se v ramci TEHOZ radku (id zakazky), aby prepnuti na jinou
+   *     zakazku nevyvolalo reload,
+   *   • prvni vypocet po otevreni se jen zapamatuje, nereloaduje. */
   var _soucetChip = null, _soucetInst = null, _soucetTimer = null, _soucetHook = false;
+  /* Posledni videny soucet — {id, p, s, n}. Zamerne MIMO _inject, ktery se pri
+   * kazdem _render volá znovu; jinak by se pamet po reloadu vynulovala a jadro
+   * by se obnovovalo dokola. */
+  var _soucetPosledni = null;
+
+  /* Prenacte hlavicku jadra. Jedina cesta obnovy v tomhle souboru. */
+  function _obnovHlavicku(inst) {
+    try {
+      if (!inst || typeof inst._reloadSpec !== "function") return;
+      var ov = inst._shell && inst._shell.overlay;
+      if (ov && !document.body.contains(ov)) return;      /* jadro uz je zavrene */
+      if (inst._dirty && inst._dirty.size > 0) return;    /* neprepisuj rozdelane */
+      inst._reloadSpec();
+    } catch (e) {}
+  }
 
   function _soucetHookNavesit() {
     if (_soucetHook) return;
@@ -519,6 +586,17 @@
         chip.textContent = txt;
         chip.title = "Součet za tuto zakázku, počítaný ze stejných řádků, jaké jsou v gridu „Hodnocení vše\". Obnovuje se sám po změnách; kliknutím ho přepočítáš hned.";
         chip.style.display = "";
+
+        /* Zmenil se soucet proti tomu, co jsme naposled videli u TEHOZ radku?
+         * Pak nekdo v gridu neco ulozil a hlavicka je zastarala — prenacti ji.
+         * Prvni vypocet po otevreni se jen zapamatuje. Detail: komentar
+         * "OBNOVA HLAVICKY PO RUCNI ZMENE V GRIDU" vyse. */
+        var minule = _soucetPosledni;
+        _soucetPosledni = { id: id, p: sumP, s: sumS, n: rows.length };
+        if (minule && minule.id === id &&
+            (minule.p !== sumP || minule.s !== sumS || minule.n !== rows.length)) {
+          _obnovHlavicku(inst);
+        }
       })
       .catch(function () { chip.style.display = "none"; });
   }
@@ -791,10 +869,11 @@
       kod: null,
       nadpis: "Jak to jde za sebou",
       body: [
-        "Tlačítka <b>1 → 2 → 3</b> jsou očíslovaná schválně — v tomhle pořadí na sebe navazují:",
-        "<b>1</b> načte z docházky, <i>kdo</i> na zakázce dělal · <b>2</b> uloží sazby a spočítá <i>hlavičku</i> zakázky · <b>3</b> z té hlavičky rozpočítá <i>prémie na lidi</i>.",
-        "Když se pustí 3 před 2, přepočet počítá ze staré hlavičky a prémie vyjdou z neaktuálních hodin. Přeskočit krok jde, <b>prohodit ne</b>.",
-        "Běžná úprava jednoho člověka (efektivita, poznámka) žádné z těchto tlačítek nepotřebuje — edituje se rovnou v gridu a ukládá se sama. Tlačítko <b>3</b> je až potom, aby se prémie přepočítala."
+        "Tlačítka <b>1 → 2 → 3 → 4</b> jsou očíslovaná schválně — v tomhle pořadí na sebe navazují:",
+        "<b>1</b> načte z docházky, <i>kdo</i> na zakázce dělal · <b>2</b> přidá do kalkulace <i>hodiny vícepráce</i> · <b>3</b> uloží sazby a spočítá <i>hlavičku</i> zakázky · <b>4</b> z té hlavičky rozpočítá <i>prémie na lidi</i>.",
+        "Když se pustí 4 před 3, přepočet počítá ze staré hlavičky a prémie vyjdou z neaktuálních hodin. Přeskočit krok jde, <b>prohodit ne</b>.",
+        "⚠️ <b>Krok 2 není hotový hned.</b> Hodiny vícepráce se zapíšou do Centrály, ale do našich čísel se dostanou až obnovou zrcadla zakázek (~30 min). Kroky <b>3</b> a <b>4</b> proto pusť až potom — jinak počítají ještě bez nich.",
+        "Běžná úprava jednoho člověka (efektivita, poznámka) žádné z těchto tlačítek nepotřebuje — edituje se rovnou v gridu a ukládá se sama. Tlačítko <b>4</b> je až potom, aby se prémie přepočítala."
       ]
     },
     {
@@ -802,16 +881,28 @@
       nadpis: "1️⃣ ▶️ Připravit hodnocení",
       kratce: "Načte podle docházky, kdo na zakázce dělal. Druhé spuštění smaže ruční zadání.",
       body: [
-        "Je to krok <b>„načti mi, kdo na tom dělal“</b>, ne „obnov mi čísla“. Na obnovu čísel je tlačítko 3.",
+        "Je to krok <b>„načti mi, kdo na tom dělal“</b>, ne „obnov mi čísla“. Na obnovu čísel je tlačítko 4.",
         "Postupně: odmítne zakázku uzamčenou z Centrály → <b>smaže dosavadní řádky hodnocení téhle zakázky</b> → založí je znovu, jeden za každého, kdo má odpracované hodiny na některé zakázce ze skupiny (všem efektivita 100 %, nikdo šéfmontér, hodiny 0) → spustí přepočet, který teprve doplní hodiny a prémie.",
         "⚠️ <b>Druhé spuštění zahodí ruční práci:</b> efektivity, hodnocení flexibility, chybovosti a estetiky včetně poznámek, speciální prémie a poznámky.",
         "✅ <b>Označení šéfmontéra se zachová</b> — je uložené u zakázky, ne u člověka, a přepočet ho dosadí zpátky."
       ]
     },
     {
+      kod: "hodnavic",
+      nadpis: "2️⃣ ⏱️ Úprava hodin vícepráce…",
+      kratce: "Přidá hodiny navíc do kalkulace. Zapisuje se do Centrály, u nás se projeví až po obnově zrcadla.",
+      body: [
+        "Okno ukazuje totéž co jádro 347 v Centrále: vlevo <b>úpravy kalk. hodin VP</b>, vpravo <b>úpravy vedoucího výroby</b>, dole <b>žádosti z dílny</b> (u těch je vidět žádané i schválené hodiny).",
+        "Nahoře se zadává nový zápis: hodiny a minuty, důvod (nabízí se nejčastěji používané) a poznámka.",
+        "Zapisuje se <b>do Centrály</b> jako <b>rovnou platná úprava</b>, ne jako žádost ke schválení, a k nám se uloží kopie.",
+        "Po uzavření vyhodnocení se zápis nepustí.",
+        "⚠️ <b>Centrála si kalkulaci přepočítá hned, u nás ne.</b> V prémiích se to projeví až po obnově zrcadla zakázek (~30 min) a novém spuštění <b>3️⃣ Nastav koeficienty</b> a <b>4️⃣ Přepočet hodnocení</b>. Píše se to i v hlášce po uložení."
+      ]
+    },
+    {
       kod: "koeficienty",
-      nadpis: "2️⃣ ⚙️ Nastav koeficienty",
-      kratce: "Sazby a rezerva zakázky. Po OK rovnou spočítá hlavičku. Musí běžet před tlačítkem 3.",
+      nadpis: "3️⃣ ⚙️ Nastav koeficienty",
+      kratce: "Sazby a rezerva zakázky. Po OK rovnou spočítá hlavičku. Musí běžet před tlačítkem 4.",
       body: [
         "Otevře šest polí hlavičky zakázky: sazba prémie, sazba srážky, konstanta času – rezerva, prémie šéfmontér, prémie šéfmontér / hodin, koeficient prémie šéfmontéra.",
         "<b>Prázdné pole = ponechat beze změny.</b> Rezerva musí být větší než nula.",
@@ -822,7 +913,7 @@
     },
     {
       kod: "prepocet",
-      nadpis: "3️⃣ 🔄 Přepočet hodnocení",
+      nadpis: "4️⃣ 🔄 Přepočet hodnocení",
       kratce: "Rozpočítá hodiny a prémie na jednotlivé lidi. Prémie jen při efektivitě 100 %.",
       body: [
         "<b>Hodiny:</b> sečte odpracované hodiny z docházky za <b>celou skupinu</b> sloučených zakázek; činnosti označené „nepočítat do hodnocení“ vynechá.",
@@ -838,7 +929,7 @@
     },
     {
       kod: "uzavrit",
-      nadpis: "4️⃣ 🔒 Uzavřít",
+      nadpis: "5️⃣ 🔒 Uzavřít",
       kratce: "Vytvoří z hodnocení výplaty (SuperHrubá mzda). Vyžaduje oprávnění.",
       body: [
         "Zapíše spočtené odměny do financí zakázek jako výplaty (SuperHrubá mzda).",
@@ -848,7 +939,7 @@
     },
     {
       kod: "do_mezd",
-      nadpis: "5️⃣ 💰 Do mezd",
+      nadpis: "6️⃣ 💰 Do mezd",
       kratce: "Zapíše odměny do mzdy (složka 651) za měsíc uzavření. Opakování nevadí.",
       body: [
         "Odměny z uzavřené zakázky se zapíšou zaměstnancům do mzdy jako složka 67 (v Heliosu 651), a to za <b>měsíc, kdy byla zakázka uzavřena</b> — ne za měsíc, kdy se na ní dělalo.",
@@ -864,18 +955,6 @@
         "Smaže vypočtené výplaty, zakázku zarchivuje a znovu ji otevře, takže se dá přepočítat.",
         "Smaže i mzdové řádky — ale <b>pokud už některý byl předán do mzdy</b> (stav <i>exported</i>), zrušení se odmítne a musí to vyřešit mzdová účetní.",
         "Vyžaduje oprávnění."
-      ]
-    },
-    {
-      kod: "hodnavic",
-      nadpis: "⏱️ Úprava hodin vícepráce…",
-      kratce: "Přidá hodiny navíc do kalkulace. Zapisuje se do Centrály, u nás se projeví až po obnově zrcadla.",
-      body: [
-        "Okno ukazuje totéž co jádro 347 v Centrále: vlevo <b>úpravy kalk. hodin VP</b>, vpravo <b>úpravy vedoucího výroby</b>, dole <b>žádosti z dílny</b> (u těch je vidět žádané i schválené hodiny).",
-        "Nahoře se zadává nový zápis: hodiny a minuty, důvod (nabízí se nejčastěji používané) a poznámka.",
-        "Zapisuje se <b>do Centrály</b> jako <b>rovnou platná úprava</b>, ne jako žádost ke schválení, a k nám se uloží kopie.",
-        "Po uzavření vyhodnocení se zápis nepustí.",
-        "⚠️ <b>Centrála si kalkulaci přepočítá hned, u nás ne.</b> V prémiích se to projeví až po obnově zrcadla zakázek (~30 min) a novém spuštění <b>2️⃣ Nastav koeficienty</b> a <b>3️⃣ Přepočet hodnocení</b>. Píše se to i v hlášce po uložení."
       ]
     },
     {
@@ -897,7 +976,7 @@
       body: [
         "Vybere se z lidí, kteří jsou na zakázce. Dalším kliknutím na téhož člověka se označení zruší.",
         "Ukládá se <b>u zakázky</b>, ne u člověka — proto ho „Připravit hodnocení“ nesmaže a přepočet ho vždycky dosadí zpátky.",
-        "Prémie šéfmontéra se ale přizná až podle podmínek v tlačítku 3 — samotné označení na ni nestačí."
+        "Prémie šéfmontéra se ale přizná až podle podmínek v tlačítku 4 — samotné označení na ni nestačí."
       ]
     },
     {
@@ -1009,6 +1088,9 @@
       b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
+      /* "Nacitam…" na tlacitku viceprace — dialog ceka na most a bez teto znacky
+       * nebylo cekani videt (4c0516b2). Znacka putovala s tlacitkem z VLASTNI sem. */
+      if (act.code === "hodnavic") { b.setAttribute("data-ec-cekam", act.code); }
       var t1 = _napovedaKratce(act.code); if (t1) { b.title = t1; }
       b.onclick = function () { if (act.vlastni) { _vlastni(inst, act, b); } else { _run(inst, act, b); } };
       bar.appendChild(b);
@@ -1024,7 +1106,7 @@
       b.style.cssText = "cursor:pointer;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:12px;line-height:1.2;white-space:nowrap;";
       b.onmouseenter = function () { b.style.background = "#eef2ff"; };
       b.onmouseleave = function () { b.style.background = "#fff"; };
-      if (act.code === "hodnavic" || act.code === "ukol") { b.setAttribute("data-ec-cekam", act.code); }
+      if (act.code === "ukol") { b.setAttribute("data-ec-cekam", act.code); }
       var t2 = _napovedaKratce(act.code); if (t2) { b.title = t2; }
       b.onclick = function () { _vlastni(inst, act, b); };
       bar.appendChild(b);

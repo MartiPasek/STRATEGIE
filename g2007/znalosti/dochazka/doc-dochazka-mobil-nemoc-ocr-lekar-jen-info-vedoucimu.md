@@ -1,4 +1,4 @@
-# Nemoc, OČR a lékař z mobilu = jen informace vedoucímu, do docházky nic
+# Nemoc, OČR a lékař z mobilu = jen informace vedoucímu, do docházky nic (lékař dořešen 14. 9. 2026)
 
 > oblast: `dochazka` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
@@ -12,7 +12,7 @@ Peťa doslova (25. 8. 2026): *„když někdo z mobilu nahlásí nemoc, NIKAM se
 Dřív (19. 8. 2026): *„ano vedoucímu má přijít pouze info, že ten člověk jde k lékaři nebo že je nemocen."*
 
 - **Nemoc a OČR** zapisuje Peťa ručně ve **Správě docházky** až podle dokladu (neschopenka, potvrzení).
-- **Lékař** je zatím taky jen info. Jeho logika (přednostní čerpání sick day, strop 4 hodiny) se **předělá po domluvě s Martim** — do té doby pozastaveno. Peťa 26. 8. 2026- *„lékaře musíme řešit individuálně, bude fungovat jinak po domluvě s Martim."*
+- **Lékař má od 14. 9. 2026 PŘESNĚ STEJNÝ REŽIM jako nemoc a OČR** (Peťa 14. 9. 2026, dořešeno). Z mobilu jde **jen informace vedoucímu** — žádný zápis do docházky, žádná žádost, **žádné čerpání sick days a žádný výpočet krytí** (dřívější logika- přednostní sick day, strop 4 hodiny — se nepoužívá). Do Správy docházky to zadává Peťa **ručně až podle dodaného lístečku od lékaře**, stejně jako nemoc podle neschopenky. Tím padá formulace z 26. 8. 2026 (*„lékaře musíme řešit individuálně, bude fungovat jinak po domluvě s Martim"*, do té doby pozastaveno) — režim je rozhodnutý a je pro všechny tři případy společný.
 - Člověk v mobilu dostane **„Nahlášeno vedoucímu"**, vedoucí prostou zprávu na vědomí (bez tlačítka schválit).
 
 ## Proč se to řešilo čtyřikrát

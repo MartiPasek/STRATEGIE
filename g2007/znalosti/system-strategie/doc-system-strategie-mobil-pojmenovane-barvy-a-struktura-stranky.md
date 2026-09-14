@@ -2,6 +2,12 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ⚠️ **DOPLNENO 14. 9. 2026 odpoledne (rozhodl Jiri Honomichl).** Tlacitka a rozbalovaci
+> menu uvnitr obrazovek maji nove **pozadi dlazdice a vzdy bily text** - tabulka barev nize plati
+> dal pro odznaky, odkazy a filtry, ale **pozadi tlacitek uz z `--btn` nevychazi** a **zelena
+> tlacitka uz nemaji tmavy text**. Past nize proto plati jen pro tlacitka, ktera maji barvu
+> zapsanou primo u sebe (takovych je 107 ze 450).
+> Detail: [[doc-system-strategie-mobil-tlacitka-a-rozbalovaci-menu-pozadi-dlazdice]]
 
 # Mobilní appka — pojmenované barvy a struktura stránky (stav k 2. 9. 2026)
 
@@ -16,7 +22,7 @@ nebo znovu zavede odstín, který jsme právě odstranili.
 | --on-green | #04150e | text na zelené ploše | 7,40 : 1 |
 | --blue-nav | #9fc4ff | zvýrazněná položka spodní lišty | 7,70 : 1 |
 | --badge | #c62828 | všechny odznaky (puntíky s číslem) | 5,62 : 1 |
-| --btn | #2563eb | pozadí základního tlačítka a vybraného filtru | 5,17 : 1 |
+| --btn | #2563eb | vybraný filtr (do 14. 9. 2026 i pozadí základního tlačítka — viz rámeček nahoře) | 5,17 : 1 |
 
 **Používej je, nepiš barvy natvrdo.** Původní hodnoty byly pod normou:
 bílá na zelené 2,11 · zvýraznění lišty 4,27 · odznaky 1,92 až 3,93 · modré tlačítko 3,21.
@@ -24,9 +30,14 @@ bílá na zelené 2,11 · zvýraznění lišty 4,27 · odznaky 1,92 až 3,93 · 
 Proměnná --blue (#4f8ef7) **zůstala beze změny** — používá se na odkazy a tam má kontrast
 v pořádku. Neměň ji.
 
-## PAST: zelené tlačítko má nově tmavý text
+## PAST: zelené tlačítko mělo tmavý text (do 14. 9. 2026)
 
-Pravidlo je dnes: třída green nastavuje pozadí na zelenou a barvu textu na --on-green.
+**Od odpoledne 14. 9. 2026 to pro běžná tlačítka NEPLATÍ** — třída green sice dál nastavuje
+zelené pozadí a tmavý text, ale pozdější pravidlo v témže souboru jim dává pozadí dlaždice
+a bílý text. **Past dál platí jen tam, kde má tlačítko barvu zapsanou přímo u sebe.**
+
+Původní znění (platilo 1. 9. – 14. 9. 2026): třída green nastavuje pozadí na zelenou
+a barvu textu na --on-green.
 
 **Kdo udělá zelené tlačítko a přebarví mu pozadí na jinou barvu, musí mu dát i vlastní barvu
 textu** — jinak zdědí tmavou a text na tmavém pozadí zmizí. Jeden takový případ v appce už byl

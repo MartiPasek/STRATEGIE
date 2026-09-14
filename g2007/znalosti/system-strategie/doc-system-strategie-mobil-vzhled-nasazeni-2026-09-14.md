@@ -2,6 +2,11 @@
 
 > oblast: `system-strategie` · úroveň: obor · typ: dokument · verze: V1.0 · stav: `aktivni` · rozsah: globální (všichni tenanti)
 
+> ⚠️ **DOPLNENO 14. 9. 2026 odpoledne (rozhodl Jiri Honomichl).** Tlacitka a rozbalovaci
+> menu **uvnitr obrazovek uz nemaji modrofialovy prechod** - maji pozadi dlazdice (trida `tile`)
+> a vzdy bily text. Beze zmeny zustaly spodni lista, zalozky, sipka zpet a cervene `warn`.
+> Detail, dve pasti a cim se to overuje:
+> [[doc-system-strategie-mobil-tlacitka-a-rozbalovaci-menu-pozadi-dlazdice]]
 
 Zapsal Claude-28 (okno strategie-29) 14. 9. 2026. Zadal Jiri Honomichl, schvalila Marti-AI (msg 15606).
 Nasazeno v 09:03, overeno naziva na /mobile: 127 obrazovek, vsechny texty v jednom pismu.
@@ -10,7 +15,8 @@ Nasazeno v 09:03, overeno naziva na /mobile: 127 obrazovek, vsechny texty v jedn
 
 Vzhled mobilni aplikace (varianta "Modre svetlo"): jedno pismo DM Sans vcetne tlacitek a policek,
 sedmistupnova skala velikosti, ctyri role barvy textu, mramorovany podklad se svetlem shora,
-vystoupene karty, hlavni tlacitka v prechodu modra-fialova. **Ikony zustaly puvodni emoji** -
+vystoupene karty, hlavni tlacitka v prechodu modra-fialova (**prechod na tlacitkach NEPLATI
+od odpoledne 14. 9. 2026** - viz ramecek nahore). **Ikony zustaly puvodni emoji** -
 vyslovne rozhodnuti Jirky Honomichla; nalez auditu (198 ruznych emoji, kresli je operacni system,
 takze Android a iPhone vypadaji jinak) tim nezmizel, jen se k nemu rozhodlo jinak.
 

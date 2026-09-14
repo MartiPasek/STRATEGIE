@@ -100,7 +100,7 @@ výslovně upozorněn a rozhodl takto; „Moje aplikace" si lidé plní sami.
 
 ## Co zůstalo otevřené
 
-- Sekce dlaždic ve „Vývoji" se pořád kreslí z kódu; do tabulky se přenesly jen jejich názvy.
+- ~~Sekce dlaždic ve Vývoji se pořád kreslí z kódu.~~ **HOTOVO 14. 9. 2026** — viž poslední oddíl.
 
 ## Rozhodnutí: editace názvu a ikony dlaždice v appce NEBUDE
 
@@ -177,4 +177,51 @@ noci měnilo; platí tohle:
 - ⚠️ **`scrollbar-gutter: stable` na `html`**: bez toho se při přepnutí na záložku s dlouhým
   obsahem objevil posuvník, stránka se zúžila o 15 bodů a **celá appka poskočila o 8 bodů
   doleva** (změřeno naostro). Na telefonu se nic nemění, tam je posuvník překryvný.
+
+## Záložka Vývoj se od 14. 9. 2026 kreslí z databáze — včetně sekcí a práv
+
+**Zadal Jiří Honomichl, schválila Marti-AI (msg 15588 a 15591). Provedl Claude-28.**
+Do té doby byly sekce i všech 65 dlaždic napsané v kódu. Dnes je v `public.mobile_app_dlazdice`
+**66 dlaždic ve 12 sekcích**; kód jen projde data, odfiltruje podle práva a seskupí podle sekce.
+Dílek se tím zmenšil o 6,7 kB. **Přesun aplikace mezi záložkami je teď změna jednoho řádku v datech.**
+
+### Sloupec `pravo` — komu se dlaždice ukáže
+
+| hodnota | kdo |
+|---|---|
+| `vsichni` | každý, kdo na záložku vidí |
+| `fin` | finanční a HR okruh |
+| `parent_admin` | rodič nebo správce |
+| `parent_admin_nebo_fin` | rodič, správce **nebo** finanční okruh (dnes jen „Ops akce") |
+| `fin_krome_parent_admin` | finanční okruh mimo rodiče a správce |
+| `vpved` | kdo má příznak vedoucího výroby |
+| `uid_1_11_34` | jmenovitě tři lidé (dlaždice „VP věž") |
+| `schvalovatel_planu` | připojí se až po kladné odpovědi serveru |
+
+⚠️ **Vývojové dlaždice posílá server jen rodiči nebo správci** — komu se vůbec pošlou, rozhoduje
+server, ne telefon. Jemnější rozlišení uvnitř (fin, vpved, jmenovitě) si kreslí telefon podle
+sloupce `pravo`; jsou to jen odkazy a data za nimi si každá obrazovka hlídá sama.
+
+### Dvě výjimky, které zůstaly v kódu
+
+- **„Účetní" a „Uživatelé"** nastavují před otevřením proměnnou `_auMode` — to je logika, ne data.
+  V tabulce mají `akce_typ = 'zvlastni'` a kód si k nim najde funkci podle kódu dlaždice.
+  **Kód z databáze se v telefonu nespouští** a spouštět nebude.
+- **„Schvalování plánu"** se připojuje až po kladné odpovědi serveru (skrytá buňka by šla odkrýt
+  hledáním). V datech má právo `schvalovatel_planu`.
+
+### Past: „Ops akce" byla v kódu dvakrát
+
+Jedna dlaždice byla napsaná dvakrát se dvěma různými podmínkami (pro rodiče/správce a zvlášť
+pro finanční okruh), aby o ni nikdo nepřišel. V tabulce musí být kód jedinečný, takže se
+**sloučila do jednoho řádku** s právem `parent_admin_nebo_fin`. Kdo ji viděl dřív, vidí ji dál.
+Prvotní zápis kvůli té duplicitě spadl na „ON CONFLICT DO UPDATE cannot affect row a second time".
+
+### Jak se ověřilo, že se pro lidi nic nezměnilo
+
+Před přepnutím i po něm se na živé stránce změřilo, co vidí **pět různých rolí** (správce,
+správce s financemi, rodič, finanční člověk, běžný člen). Výsledek je shodný: 8 sekcí / 42 dlaždic
+pro správce, 12 / 64 pro správce s financemi, 12 / 65 pro rodiče a **žádná záložka Vývoj** pro
+finančního člověka i běžného člena. Ověřeno i to, že „Uživatelé" otevřou správný režim
+(`_auMode = users`) a že konzole nehlásí chybu.
 

@@ -334,17 +334,32 @@
             hlaska.textContent = (w && w.chyba) || "Uložení se nepovedlo.";
             return;
           }
-          /* Cisla u NAS se zmeni az potom, co se obnovi zrcadlo zakazek
-           * (tenant.oz_zakazky, ~30 min) a pusti se prepocet. Rikam to nahlas,
-           * at Dusan necaka, ze mu premie naskoci hned. */
-          global.alert("Zapsáno do Centrály (ID " + w.ec_id + ") — " +
-                       _hnCislo(w.hodin) + " h.\n\n" +
-                       "Centrála si kalkulaci přepočítala.\n\n" +
-                       "U nás se to v prémiích projeví, až se obnoví zrcadlo zakázek " +
+          /* HLASKA SE RIDI TIM, CO SE OPRAVDU STALO (C24 / Kristy, 14.9.2026).
+           * Do 14.9. tu byla natvrdo veta o ~30 minutach — tak dlouho totiz
+           * trvalo, nez se obnovilo zrcadlo zakazek a nase kalkulace o hodinach
+           * vubec vedela. Ted se zrcadlo te skupiny obnovi hned po zapisu
+           * (g2007.python `oz_zakazky_obnov`), takze Dusan muze rovnou na 3 a 4.
+           * Kdyz obnova NEPROJDE, hodiny jsou porad bezpecne v Centrale — jen
+           * se k nam dostanou az jobem, a hlaska proto rekne tu puvodni vetu.
+           * Zamerne nerikame "hotovo" tam, kde hotovo neni. */
+          var _zprava = "Zapsáno do Centrály (ID " + w.ec_id + ") — " +
+                        _hnCislo(w.hodin) + " h.\n\n" +
+                        "Centrála si kalkulaci přepočítala.\n\n";
+          if (w.zrcadlo) {
+            _zprava += "Kalkulované hodiny jsou aktuální i u nás — " +
+                       "můžeš rovnou pustit „3️⃣ Nastav koeficienty“ " +
+                       "a „4️⃣ Přepočet hodnocení“.";
+          } else {
+            _zprava += "U nás se to v prémiích projeví, až se obnoví zrcadlo zakázek " +
                        "(do ~30 minut) a pustíš znovu „3️⃣ Nastav koeficienty“ " +
-                       "a „4️⃣ Přepočet hodnocení“." +
-                       (w.lokalne ? "" : "\n\n(Kopii k nám se uložit nepodařilo — v Centrále " +
-                                          "to ale je a přijde synchronizací.)"));
+                       "a „4️⃣ Přepočet hodnocení“.\n\n" +
+                       "(Rychlou obnovu zrcadla se teď nepodařilo spustit, proto to čekání.)";
+          }
+          if (!w.lokalne) {
+            _zprava += "\n\n(Kopii k nám se uložit nepodařilo — v Centrále " +
+                       "to ale je a přijde synchronizací.)";
+          }
+          global.alert(_zprava);
           if (typeof inst._reloadSpec === "function") { try { inst._reloadSpec(); } catch (e) {} }
         }).catch(function (e) {
           btn.disabled = false; btn.textContent = "Uložit do Centrály";
@@ -896,7 +911,8 @@
         "Nahoře se zadává nový zápis: hodiny a minuty, důvod (nabízí se nejčastěji používané) a poznámka.",
         "Zapisuje se <b>do Centrály</b> jako <b>rovnou platná úprava</b>, ne jako žádost ke schválení, a k nám se uloží kopie.",
         "Po uzavření vyhodnocení se zápis nepustí.",
-        "⚠️ <b>Centrála si kalkulaci přepočítá hned, u nás ne.</b> V prémiích se to projeví až po obnově zrcadla zakázek (~30 min) a novém spuštění <b>3️⃣ Nastav koeficienty</b> a <b>4️⃣ Přepočet hodnocení</b>. Píše se to i v hlášce po uložení."
+        "<b>Po uložení se kalkulované hodiny obnoví i u nás hned</b> — od 14. 9. 2026 se po zápisu rovnou stáhne aktuální kalkulace té zakázky (a celé skupiny sloučení) z Centrály. Můžeš tedy rovnou pokračovat krokem <b>3️⃣ Nastav koeficienty</b> a <b>4️⃣ Přepočet hodnocení</b>.",
+        "⚠️ Kdyby se ta rychlá obnova nepovedla, <b>hláška po uložení to řekne</b> a platí původní stav: hodiny jsou bezpečně v Centrále a k nám dorazí obnovou zrcadla do ~30 minut. Do té doby by kroky 3 a 4 počítaly ještě bez nich."
       ]
     },
     {

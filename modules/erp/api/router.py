@@ -3389,6 +3389,48 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
 
             fields_list = [dict(f) for f in fields_rows]
 
+            # OPRAVA c. 2 (C24 / Kristy, 14.9.2026) — dvojklik v embedded gridu
+            # prestal fungovat PO prekresleni jadra (poprve sel, pak uz ne).
+            #
+            # CO BYLO SPATNE: `grid_actions` (has_insert/edit/delete + edit_core_id,
+            # dopocitane z fw.data_source_op) plnila jen vetev /fw-form/by-id
+            # (Krok 5.Z, 31.5.2026 — "melo by to byt kodove stejne!!!"). Tahle
+            # starsi vetev je neposilala vubec, takze `comp.grid_actions` bylo
+            # undefined -> `editCoreId = null` -> onRowDoubleClick v design_forms.js
+            # spadne do vetve `if (editCoreId == null) return;` a TISE NIC NEUDELA.
+            # Zadna chyba v konzoli, zadna hlaska — proto se to tak spatne hleda.
+            #
+            # PROC SE TO PROJEVILO AZ DNES: do opravy c. 1 (nize) tenhle endpoint
+            # vracel 500, takze se jadro po akci vubec neprekreslovalo a grid
+            # zustaval ten puvodni — i s funkcnim dvojklikem z otevreni (by-id).
+            # Jakmile prekresleni zacalo fungovat, grid se postavil znovu, uz bez
+            # grid_actions. Oprava c. 1 tuhle chybu nezpusobila, jen ji odkryla.
+            #
+            # Kod je zamerne 1:1 opsany z vetve by-id (r. ~3870), ne vlastni
+            # varianta — at se obe vetve chovaji stejne.
+            #
+            # ⚠️ ZBYVA ROZDIL: by-id posila navic `grid_core_id` (cd.core_id z CTE).
+            # Tady chybi — dopad je jen kosmeticky (pill "core:row" v paticce gridu
+            # a akce "Core setting"), proto to sem netaham. Patri to do sjednoceni
+            # obou vetvi, ne do dalsi zaplaty.
+            for _f in fields_list:
+                if _f.get("comp_type_code") == "grid_modern" and _f.get("data_source_id"):
+                    _ga = ds.execute(_sql_text_fwform("""
+                        SELECT bool_or(operation_kind = 'insert') AS has_insert,
+                               bool_or(operation_kind = 'edit')   AS has_edit,
+                               bool_or(operation_kind = 'delete') AS has_delete,
+                               MAX(core_id) FILTER (WHERE operation_kind = 'edit') AS edit_core_id
+                        FROM fw.data_source_op
+                        WHERE data_source_id = :dsid
+                    """), {"dsid": _f["data_source_id"]}).mappings().first()
+                    if _ga:
+                        _f["grid_actions"] = {
+                            "has_insert": bool(_ga["has_insert"]),
+                            "has_edit": bool(_ga["has_edit"]),
+                            "has_delete": bool(_ga["has_delete"]),
+                            "edit_core_id": _ga["edit_core_id"],
+                        }
+
         # 5. Load data row from target entity table
         schema_name = entity_config["schema"]
         table_name = entity_config["table"]

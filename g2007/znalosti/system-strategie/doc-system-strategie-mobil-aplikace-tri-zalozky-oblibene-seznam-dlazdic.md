@@ -39,13 +39,24 @@ Volá se přes `/api/v1/erp/app/erp_registry/run` s `args ["__uid__", …]` — 
 **Právo se ověřuje na serveru** (`users.is_admin` nebo `is_marti_parent`), telefonu se nevěří;
 člověk čte a mění výhradně svůj vlastní výběr, protože přihlášení bere jádro samo.
 
-## Tři různá gesta — neslévat je
+## Gesta a tlačítka — POZOR, měnilo se to během 14. 9. 2026
 
-- **Podržení prstu ve „Vývoji aplikací"** = pustit dlaždici mezi Všechny aplikace.
-- **Podržení prstu ve „Všech aplikacích"** = přidat/odebrat z Mojich aplikací (⭐ na dlaždici).
-- **Podržení prstu v „Mojich aplikacích"** = zapnout režim úprav (šipky ▲▼ a křížek).
-- **Tlačítko „Upravit"** na Všech aplikacích (vidí ho jen ten, kdo smí pouštět) = vrátit dlaždici
-  zpět do Vývoje. Vědomě to NENÍ podržení prstu, aby se gesta nesrazila.
+⚠️ **Platí tohle** (poslední podoba, ověřená na živé stránce):
+
+- **Podržení prstu zůstalo JEN ve „Vývoji aplikací"** = pustit dlaždici mezi Všechny aplikace.
+  Na „Všech aplikacích" i v „Mojich aplikacích" bylo podržení **zrušeno**.
+- Všechno ostatní se ovládá **tlačítkem Upravit / Hotovo** nahoře přes celou šířku záložky.
+- Na „Všech aplikacích" tohle tlačítko vidí **všichni**. Uvnitř má každý řádek hvězdičku
+  (přidat/odebrat z Mojich aplikací) — pro všechny — a šipku zpět do Vývoje **jen pro rodiče
+  a správce** (příznak `smi_poustet` ze serveru; právo si server ověřuje sám, skrytí tlačítka
+  je jen pohodlí).
+- **Přepnutí na jinou záložku režim úprav zavře.**
+
+~~Do 14. 9. 2026 v noci platilo: podržení prstu ve „Všech aplikacích" = přidat nebo odebrat
+z oblíbených, podržení v „Mojich aplikacích" = zapnout režim úprav, a tlačítko „Upravit"
+na „Všech aplikacích" viděl jen ten, kdo smí pouštět dlaždice ven.~~
+**NEPLATÍ** — zrušeno týž den na pokyn Jiřího Honomichla, protože ovládání má být vidět,
+ne schované v gestu. Detail v posledních oddílech tohoto dokumentu.
 
 ## Vrácení do Vývoje sahá i do dat ostatních lidí
 

@@ -465,6 +465,14 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
    **do 5 Kč**, **není to nález a neřeší se.** Typický případ: dodavatel dá zaokrouhlení
    do sazby 0 %, Centrála ho má v 21 % → základ i daň se rozejdou o pár haléřů opačným
    směrem, k úhradě sedí přesně. Nehlásit jako chybu.
+
+   **Platí to i na rozdíl v ZÁKLADU, nejen v dani** (Peťa 14. 9. 2026: *„tolerujeme to do
+   5 korun, hlavně aby seděla celková částka k platbě"*). Kolegyně rozdíl často schová do
+   korekční řádky nebo do poštovného, aby k úhradě vyšlo přesně — a to je správně.
+   Rozhodující je **celková částka k úhradě v měně faktury**: ta musí sedět na haléř
+   (u eurové faktury na cent). Když sedí, rozdíly do 5 Kč v základu i v dani se **nehlásí**.
+   Ověřeno 9. 9. 2026 na 2294 (1 eurocent), 2302 (2 haléře), 2303 (24 haléřů) a 2305 (20 haléřů).
+   ⚠️ **Netýká se to kurzu** — ten musí sedět přesně, viz bod 8.
 2. **Když je všechno v pořádku, NEROZEPISOVAT.** Stačí napsat **„vše OK"** — žádná
    tabulka, žádný výčet položek. Rozepisuje se **jen to, co nesedí**.
 

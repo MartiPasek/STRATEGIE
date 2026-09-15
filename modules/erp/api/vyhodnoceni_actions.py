@@ -68,6 +68,49 @@ _EC_ACTIONS = {
 _EC_AKCE_S_OPRAVNENIM = frozenset({"uzavrit", "zrusit", "do_mezd", "koeficienty_uloz"})
 
 
+async def _centrala_sync(uid, d) -> JSONResponse:
+    """Srovná příznaky v Centrále podle našeho stavu. Peněz se nedotýká."""
+    from core.database_data import get_data_session as _gds
+    session = _gds()
+    try:
+        smi = session.execute(_t(
+            "SELECT 1 FROM ec.akce_opravneni WHERE akce = 'uzavrit' AND user_id = :u"),
+            {"u": uid}).first()
+        if not smi:
+            return JSONResponse(
+                {"ok": False, "action": "centrala_sync",
+                 "error": "Na tuto akci nemáš oprávnění (jede pod právem k uzavření)."},
+                status_code=403)
+
+        zak = str(d.get("cislo") or "").strip()
+        if not zak and d.get("id") is not None:
+            zak = session.execute(
+                _t("SELECT cislo_zakazky FROM ec.vyhodnoceni_zakazka WHERE id = :id"),
+                {"id": int(d["id"])}).scalar()
+        if not zak:
+            return JSONResponse({"ok": False, "error": "chybí zakázka (cislo/id)"}, status_code=400)
+
+        uzavreno = session.execute(_t(
+            "SELECT coalesce(m.vyhodnoceni_uzavreno, false) FROM tenant.zakazka_meta m "
+            "WHERE m.tenant_id = 2 AND m.cislo_zakazky = :z"), {"z": zak}).scalar()
+        akce = "uzavrit" if uzavreno else "zrusit"
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)[:400]}, status_code=500)
+    finally:
+        session.close()
+
+    try:
+        from modules.erp.api import erp_registry as _reg
+        cen = _reg.call("vyhodnoceni_centrala_priznak", zak, akce=akce, uid=uid)
+    except Exception as exc:  # noqa: BLE001
+        cen = {"ok": False, "chyba": str(exc)[:250]}
+
+    ok = bool(isinstance(cen, dict) and cen.get("ok"))
+    return JSONResponse({"ok": ok, "action": "centrala_sync", "podle_nas": akce,
+                         "centrala": cen},
+                        status_code=200 if ok else 502)
+
+
 @api_router.post("/action/run")
 async def ec_action_run(req: Request) -> JSONResponse:
     uid = _r._get_uid(req)
@@ -75,6 +118,21 @@ async def ec_action_run(req: Request) -> JSONResponse:
 
     d = await req.json()
     ac = str(d.get("action_code") or "").strip()
+
+    # DOSYNCHRONIZOVÁNÍ PŘÍZNAKU DO CENTRÁLY (C24 / Kristý, 15.9.2026) — samostatná
+    # akce BEZ peněžního dopadu. Existuje ze dvou důvodů:
+    #   1. Když při uzávěrce nebyla Centrála dostupná, příznak tam chybí a peníze
+    #      u nás jsou. Tohle to dožene, aniž by se sahalo na finanční řádky.
+    #   2. Doběhnutí historie — zakázky uzavřené ve STRATEGII PŘED 15.9.2026
+    #      o sobě v Centrále nedaly vědět vůbec.
+    # Směr se NEHÁDÁ z parametru, ale odvozuje z NAŠEHO stavu
+    # (tenant.zakazka_meta.vyhodnoceni_uzavreno) — akce tedy vždycky jen srovná
+    # Centrálu podle nás a nemůže ji přepnout do stavu, který u nás neplatí.
+    # Oprávnění: jede pod právem k akci 'uzavrit' (ne vlastní řádek v
+    # ec.akce_opravneni) — kdo smí uzavřít, smí i dorovnat příznak; nic víc to nedělá.
+    if ac == "centrala_sync":
+        return await _centrala_sync(uid, d)
+
     spec = _EC_ACTIONS.get(ac)
     if not spec:
         return JSONResponse({"ok": False, "error": "neznámá akce (mimo whitelist)"}, status_code=400)
@@ -184,4 +242,38 @@ async def ec_action_run(req: Request) -> JSONResponse:
     # konvence: funkce vrací 'E#<hláška>' pro business chybu
     if res_s.startswith("E#"):
         return JSONResponse({"ok": False, "error": res_s[2:], "action": ac})
-    return JSONResponse({"ok": True, "action": ac, "result": res_s})
+
+    odpoved = {"ok": True, "action": ac, "result": res_s}
+
+    # ── PROPSÁNÍ PŘÍZNAKŮ DO CENTRÁLY (C24 / Kristý, 15.9.2026) ──────────────
+    # Zadání Kristý: „Dušan potřebuje v Centrále vidět, že je zakázka vyhodnocená
+    # a uzavřená." Uzávěrka do 15.9.2026 žila jen u nás — Centrála o ní nevěděla
+    # a šlo do uzavřené zakázky dál psát vícepráci.
+    #
+    # Volá se AŽ PO `session.commit()`, schválně:
+    #   1. Peníze (ec.zakazky_finance_zam) jsou zdroj pravdy a jsou už zapsané.
+    #      Kdyby selhal zápis do Centrály, uzávěrku NEROLLBACKUJEME — jen to
+    #      obsluze řekneme. Opačné pořadí by znamenalo, že výpadek MSSQL
+    #      zablokuje uzávěrku, která s Centrálou nemá co do činění.
+    #   2. Do Centrály jdou POUZE PŘÍZNAKY (_Uzavreno, _VyhodnoceniUzavreno,
+    #      _DatumVyhodnoceni, _VyhodnocenoStrategie) + UzavrenoKDatu. Finanční
+    #      řádky do EC_ZakazkyFinanceZam nezapisujeme NIKDY — proto taky
+    #      nevoláme centrální EC_Zakazky_VyhodnoceniUzavrit, která to dělá
+    #      (INSERT z EC_TempVyhodnoceniZak = výplaty zapsané dvakrát).
+    # Zápis je idempotentní, takže opakované spuštění je neškodné a zároveň
+    # slouží jako „dosynchronizování", když Centrála zrovna nebyla dostupná.
+    if ac in ("uzavrit", "zrusit"):
+        try:
+            from modules.erp.api import erp_registry as _reg
+            cen = _reg.call("vyhodnoceni_centrala_priznak",
+                            params.get("zak"), akce=ac, uid=uid)
+        except Exception as exc:  # noqa: BLE001
+            cen = {"ok": False, "chyba": str(exc)[:250]}
+        odpoved["centrala"] = cen
+        if not (isinstance(cen, dict) and cen.get("ok")):
+            odpoved["varovani"] = (
+                "Akce proběhla, ale příznak se nepodařilo propsat do Centrály. "
+                "V Centrále zakázka zůstává jako nevyhodnocená. Zkus akci spustit "
+                "znovu — zápis je idempotentní, nic se nezdvojí.")
+
+    return JSONResponse(odpoved)

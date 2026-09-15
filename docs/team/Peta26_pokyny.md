@@ -177,7 +177,22 @@ a proto sčítal dovolenou s dovolenou navíc do složky 211 — **opraveno 25. 
 obou číselníků a na to, co obrazovka reálně vrací** — a **nejdřív si přečtu G2007 k tématu**.
 Celé je to v G2007: `doc-dochazka-dva-ciselniky-druh-zaznamu-vs-cinnost`.
 
-## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU = JEN INFO VEDOUCÍMU, DO DOCHÁZKY NIC (Peťa 26. 8. 2026, lékař dořešen 14. 9. 2026, ZÁVAZNÉ)
+## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU (Peťa 26. 8. 2026, lékař 14. 9. 2026 — POZOR: 15. 9. 2026 DOHODNUTA ZMĚNA, VIZ POZNÁMKA)
+
+> ### ⚠️ POZNÁMKA 15. 9. 2026 — TOHLE SE BUDE PŘEDĚLÁVAT, NESTAVĚT NA TOM
+>
+> Peťa se **domluvila s Jirkou a Týnkou jinak**: nemoc, OČR a lékař mají být **víc
+> automatizované**, než popisuje celá tahle sekce. **Jirka to bude předělávat jinou
+> logikou.** Jak přesně to bude fungovat, Peťa doplní, až to bude jasné.
+>
+> Do té doby platí, co je napsané níž (z mobilu jen info vedoucímu, do Správy docházky
+> ručně podle dokladu) — ale **nikdo podle téhle sekce nesmí nic nově programovat ani
+> na ní stavět další úpravy**, dokud Peťa neřekne, jak to má vypadat. Kdo sem přijde
+> s úkolem k nemoci, OČR nebo lékaři, ať se **nejdřív zeptá Peti**.
+>
+> Týká se to i znalosti v G2007 `doc-dochazka-mobil-nemoc-ocr-lekar-jen-info-vedoucimu`
+> a pojistky `nemoc-ocr-lekar-z-mobilu-jen-info` — obě zatím zůstávají, ale počítá se
+> s tím, že je nová logika nahradí.
 
 Peťa to řekla **počtvrté** — 19. 8., 24. 8., 25. 8. a znovu 26. 8. 2026. Pokaždé proto, že to
 nikde nebylo zapsané. Teď je to tady i v G2007 `doc-dochazka-mobil-nemoc-ocr-lekar-jen-info-vedoucimu`

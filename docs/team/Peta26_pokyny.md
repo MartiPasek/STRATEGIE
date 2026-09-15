@@ -250,6 +250,19 @@ nález nemá, ukáže se samostatně nad tabulkou — ať je to vidět vždy.
 Data: `tenant.att_day_confirm` (`confirmed_at`, `disputed`), chodí to už v `att_fix_day`
 jako `dispute`. Obrazovka: `apps/api/static_db/dochazka-opravy.html`, proměnná `_znackaPotvrzeni`.
 
+### Rámeček s nálezy = „Nesedí", všechno na jednom řádku
+Peťa 15. 9. 2026: *„toto mi přijde hůře přehledné, hodně čtení."* Vybrala si slovo **„Nesedí"**
+(ne „Nálezy" — to zní úředně).
+
+- **Nadpis a vysvětlení na JEDNOM řádku**: „⚠ Nesedí — den se sice opravoval, ale pořád je co
+  spravit", „ℹ Nesedí — člověk si to upravil sám, zkontroluj a odbav", „✓ Nesedělo — den je
+  mezitím opravený". Vpravo na témž řádku značka o potvrzení docházky.
+- **Každý nález jedna odrážka na jednom řádku**: tučně bíle to podstatné, šedě časy a hodiny,
+  za pomlčkou důvod. Text se rozebírá až v obrazovce (`_nalezHtml`) — z textu nálezu se odřízne
+  datum („14.09."), časy v závorce jdou do šedé části a desetinná tečka se mění na čárku.
+- **Poznámky k záznamům jsou SBALENÉ** (`<details>`) — rozbalí se na kliknutí. Z textu se
+  vyhazují hranaté závorky a místo „?–…" se píše „celý den".
+
 ### Dlouhá pauza PŘED home office se nehlásí
 Peťa 15. 9. 2026: *„pokud někdo má konec a pak má později činnost HO, aby to nepřicházelo vůbec
 — je z toho jasně patrné, že byl v práci, šel domů a odpoledne nebo večer ještě pracoval."*

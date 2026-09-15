@@ -206,6 +206,9 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
 - **Automatem dopočítané řádky se vůbec nenabízejí a nepřevádějí**: `nenarokova`
   (nenároková práce nad fond) a `fond_doplneni` (doplnění do fondu). Automat si je po převodu
   dopočítá sám na obou dnech. Hlídá to i server, ne jen obrazovka.
+- **V nabídce nejsou ani stornované řádky a „Dnes už se mnou nepočítej"** (Peťa 15. 9. 2026:
+  „nedává smysl, aby se tam nabízelo to storno"). Převod **celého** dne je stěhuje s sebou
+  jako dosud — jen se nevybírají jednotlivě.
 - **Celý den** (původní chování — cílový den musí být prázdný, stěhuje se i potvrzení dne)
   se spustí jen když je zaškrtnuté všechno **a** den nemá žádný automatický řádek.
 - **Část dne**: cílový den prázdný být nemusí (to je smysl věci), hlídá se jen **překryv časů**;

@@ -213,6 +213,9 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
   se spustí jen když je zaškrtnuté všechno **a** den nemá žádný automatický řádek.
 - **Část dne**: cílový den prázdný být nemusí (to je smysl věci), hlídá se jen **překryv časů**;
   potvrzení dne zůstává na původním dni; do historie se píše „část dne".
+- **Pole s datem je CÍLOVÝ den** — je předvyplněné otevřeným dnem (kvůli šipkám ◀ ▶),
+  takže nad ním musí být jasně napsané „Převést NA den". Peťa 15. 9. 2026 se ptala
+  „na ten se to jako převede?" — bez popisku to není poznat.
 - Zámek mezd platí pro obojí a **na obou stranách** — ze zamčeného měsíce se nepřevádí nikam.
 - Kde to je: `g2007.python` → `att_fix_move_day` (parametr `ids` = seznam id řádků),
   endpoint `POST /app/attendance/fix/move-day` v `modules/erp/api/router.py`.

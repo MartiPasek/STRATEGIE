@@ -238,6 +238,34 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
 
 ## ✅ KONTROLY (NÁLEZY) V DETAILU DNE (Peťa 15. 9. 2026)
 
+### Jedna karta = jeden DEN (Peťa 15. 9. 2026)
+Když na jednom dni visí u téhož člověka víc nálezů, je ve frontě **jedna karta** se seznamem,
+ne několik karet pod sebou (Horký měl 14. 9. dvě — zapomenutý odchod a dlouhá pauza).
+Tlačítko „V pořádku — vyřídit" odbaví **všechny nálezy té karty** (počet je v závorce).
+Zelený štítek „opraveno" svítí, jen když je srovnané všechno na tom dni; varování o překryvu
+časů stačí u jednoho nálezu. Karty proto nesou `_pays` (pole), ne `_pay` (jeden).
+
+### Nález zezelená HNED po opravě — úklid běží i při otevření dne
+Peťa 15. 9. 2026: *„to přece má zezelenat hned, nechci po každé opravě dávat ctrl shift r."*
+
+Úklid nálezů (zavírá ty, jejichž záznam už neplatí — storno, jen ohlášení, smazaný) běžel
+do 15. 9. **jen uvnitř `att_anomaly_scan`**, tedy až při dalším běhu kontroly. Po opravě proto
+den zůstal ještě několik minut červený. Nově se tentýž úklid pouští **taky v `att_fix_day`**,
+cíleně jen pro toho jednoho člověka — a protože se den po opravě stejně načítá znovu,
+zezelená okamžitě.
+
+**Co zakládá nálezy, se nezměnilo** — jen to, kdy se zavírají, když už neplatí.
+Je to změna v `g2007.python`, takže se projeví za běhu, bez deploye.
+
+### ⚠️ Peťa je OSVČ — dovolená navíc je u ní SPRÁVNĚ
+Peťa 15. 9. 2026: *„mám to dobře, a právě bych nechtěla, abys mě na to upozorňoval."*
+
+Peťa má `dovolena_zakladni_dni = 0` a `dovolena_navic_dni = 27`, takže se jí všechny dny
+dovolené vedou jako **Dovolená navíc** (`ec_druh = 30`). **To není chyba** — u OSVČ je celý
+nárok v „navíc", jak stojí ve znalosti `doc-dochazka-dovolena-radna-vs-navic-rozpad`
+(„OSVC ma cely narok v navic, radnou nema vubec"). Neupozorňovat na to jako na nesrovnalost.
+
+
 ### Je vidět, jestli si člověk docházku potvrdil
 Peťa 15. 9. 2026: *„bylo by dobré, kdyby tam bylo vidět, že si to člověk potvrdil tu docházku."*
 Značka je **vpravo nahoře v rámečku s nálezy** (Peťa poslala návrh obrázkem), a když den žádný
@@ -1136,6 +1164,15 @@ na začátku `apps/api/main.py` (architektura z env, WMI se při startu nevolá)
   Stejně tak „ostatní - kanceláře" bez čísla byla duplicita → platí činnost **6**.
 - **Kde to je celé:** G2007, znalost `doc-dochazka-cinnosti-ciselnik-centrala-vs-strategie`.
   Než se Peťy na cokoli kolem činností zeptáš, přečti si ji — už jsme to řešili 3×.
+- ⚠️ **POZOR: na činnosti se ptej NAŠEHO číselníku (`tenant.vyroba_cinnost`), ne Centrály.**
+  V Centrále je pět tabulek, které vypadají jako číselník činností a nejsou jím — a všech
+  pět je jen tam. Kdo se ptá našeho číselníku, sáhnout vedle nemůže. Do Centrály jen když
+  ověřuješ shodu, a pak výhradně do `EC_DilnaCinnosti` a `EC_Dochazka_CinnostiRezie`.
+  **A u čísla činnosti VŽDY uveď i název** („činnost 9 – Služební cesta / montáž", ne
+  „činnost 9") — když sáhneš vedle, Peťa to na nesedícím názvu pozná hned, aniž by musela
+  vědět cokoli o tabulkách. Peťa 15. 9. 2026: *„to někam nekoukat není na mě"* — hlídání
+  je moje věc, tohle je ta jediná část, kterou pozná ona. Celé v G2007:
+  `doc-dochazka-cinnosti-ptat-se-naseho-ciselniku-ne-centraly`.
 - **Píše se VŽDY `Rezie`, bez háčku** (Peťa 20. 8. 2026: *„ať vidíme, že je to správně
   a nevzniká nám tam něco jiného"*). Platí i v textu, který Peťa čte — ne jen v datech.
   Hlídá **pojistka `rezie-vzdy-bez-hacku`**: rozpad (`vyroba_work.zakazka_ref`), docházka

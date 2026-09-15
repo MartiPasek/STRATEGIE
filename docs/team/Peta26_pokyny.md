@@ -213,6 +213,9 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
   se spustí jen když je zaškrtnuté všechno **a** den nemá žádný automatický řádek.
 - **Část dne**: cílový den prázdný být nemusí (to je smysl věci), hlídá se jen **překryv časů**;
   potvrzení dne zůstává na původním dni; do historie se píše „část dne".
+- **Důvod NENÍ povinný** (Peťa 15. 9. 2026: „tohle bych nechala bez důvodu"). Když ho
+  nevyplní, do poznámky a do historie se zapíše „bez uvedení důvodu". U ostatních oprav
+  v téhle obrazovce zůstává důvod povinný — `reasonBox()` má proto parametr.
 - **Pole s datem je CÍLOVÝ den** — je předvyplněné otevřeným dnem (kvůli šipkám ◀ ▶),
   takže nad ním musí být jasně napsané „Převést NA den". Peťa 15. 9. 2026 se ptala
   „na ten se to jako převede?" — bez popisku to není poznat.

@@ -106,9 +106,14 @@ async def _centrala_sync(uid, d) -> JSONResponse:
         cen = {"ok": False, "chyba": str(exc)[:250]}
 
     ok = bool(isinstance(cen, dict) and cen.get("ok"))
-    return JSONResponse({"ok": ok, "action": "centrala_sync", "podle_nas": akce,
-                         "centrala": cen},
-                        status_code=200 if ok else 502)
+    odp = {"ok": ok, "action": "centrala_sync", "podle_nas": akce,
+           "zakazka": zak, "centrala": cen}
+    if not ok:
+        # UI čte chybu z pole `error` (společná hláška pro všechny akce) — bez
+        # něj by uživatel viděl jen „Akce selhala: undefined".
+        chyba = cen.get("chyba") if isinstance(cen, dict) else cen
+        odp["error"] = "Propsání do Centrály se nepovedlo. " + str(chyba)[:250]
+    return JSONResponse(odp, status_code=200 if ok else 502)
 
 
 @api_router.post("/action/run")

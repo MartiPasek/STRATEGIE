@@ -1225,6 +1225,105 @@
     /* Po zavreni jadra (OK i akce z listy) srovnat prehled pod nim — Kristy
      * 11.9.2026: cislo v prehledu zustavalo z doby pred vyhodnocenim. */
     _navesObnovuPrehledu(inst);
+
+    /* Zelena zalozka "Finalni vyhodnoceni" — viz blok nize. */
+    try { _obarviZalozkuFinance(inst, 0); } catch (e) {}
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════
+   * ZELENA ZALOZKA "FINALNI VYHODNOCENI" (C24 / Kristy, 15. 9. 2026)
+   * ═══════════════════════════════════════════════════════════════════
+   * Zadani Kristy: "pokud grid nebude prazdny, bylo by hezke aby se zalozka
+   * obarvila zelene, aby to Dusan hned videl, ze uz ma vygenerovane hodnoceni."
+   *
+   * CO JE "NEPRAZDNY GRID": grid v te zalozce cte data source
+   * `ec.vyhodnoceni_jadro_finance`, za kterym jsou radky `ec.zakazky_finance_zam`.
+   * Ty vznikaji JEDINE tlacitkem 5️⃣ Uzavrit a maze je ↩️ Zrusit — neprazdny grid
+   * tedy znamena "zakazka je uzavrena, vyplaty jsou spocitane".
+   *
+   * ⚠️ PROC SE NEPTAME NA `uzavreno_k_datu` (a proc to neni detail):
+   * `ec.vyhodnoceni_uzavrit` ten sloupec NENASTAVUJE — overeno cetbou cele funkce
+   * 15. 9. 2026 pri kontrole VR10582, ne odhadnuto. U zakazky uzavrene ve
+   * STRATEGII zustava NULL (vyplni ho az `ec.srovnej_uzavreni_skupin` podle
+   * zrcadla Centraly, tedy jen kdyz ji uzavre i Centrala). Kdo se zeptá na
+   * `uzavreno_k_datu`, dostane u nasi uzaverky "neuzavreno". Ptame se proto na
+   * SKUTECNY OBSAH gridu — ten rekne pravdu i kdyby se uzaverka nekdy delala jinudy.
+   *
+   * ZPUSOB: tentyz vzor, jakym uz pocita soucet Σ v liste — jeden lehky dotaz
+   * `/api/v1/erp/data/<data_source>?master_id=…`. Zadny zasah do frameworku,
+   * zadna druha cesta obnovy gridu (viz varovani u OBNOVY GRIDU vyse).
+   *
+   * HLEDANI ZALOZKY V DOM: framework vykresluje zalozky jako
+   * `button.erp-pc-tab` s popiskem v `<span>` (design_forms.js, render
+   * pagecontrolu). Hledame podle POPISKU, ne podle `data-tabsheet-id` — id noveho
+   * tabsheetu by tu bylo natvrdo a pri prelozeni zalozky by tise prestalo sedet.
+   * Kdyz se zalozka prejmenuje, barva zmizi (nic se nerozbije) — proto je nazev
+   * v konstante hned vedle. */
+  var DS_FINANCE   = "ec.vyhodnoceni_jadro_finance";
+  var TAB_FINANCE  = "Finální vyhodnocení";   /* musi sedet s caption tabsheetu ts_finalni */
+  var ZELENA       = "#34d399";
+
+  function _najdiZalozku(inst, popisek) {
+    try {
+      var host = inst && inst._shell && inst._shell.body;
+      if (!host) return null;
+      var taby = host.querySelectorAll("button.erp-pc-tab");
+      for (var i = 0; i < taby.length; i++) {
+        /* tecku, kterou sami pripojujeme, z porovnani vyhodime */
+        var txt = (taby[i].textContent || "").replace(/●/g, "").replace(/✕/g, "").trim();
+        if (txt === popisek) return taby[i];
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  /* pokus = kolikaty pokus o nalezeni zalozky (0 = prvni).
+   * Jeden opakovany pokus proto, ze `_inject` bezi hned po `_render` a tab strip
+   * se v nekterych pruchodech dokresluje az za okamzik. Je to hledani uzlu v DOM,
+   * ne druha cesta obnovy dat — nic se tim nefetchuje dvakrat. */
+  function _obarviZalozkuFinance(inst, pokus) {
+    var tab = _najdiZalozku(inst, TAB_FINANCE);
+    if (!tab) {
+      if ((pokus || 0) < 1) {
+        setTimeout(function () {
+          try { _obarviZalozkuFinance(inst, (pokus || 0) + 1); } catch (e) {}
+        }, 300);
+      }
+      return;
+    }
+    var rec = _rec(inst);
+    var id = (rec.id != null) ? rec.id : (inst.opts && inst.opts.rowId);
+    if (id == null) return;
+    fetch("/api/v1/erp/data/" + DS_FINANCE +
+          "?master_id=" + encodeURIComponent(id) + "&kind=select-detail",
+          { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var n = (j && j.ok && Array.isArray(j.rows)) ? j.rows.length : 0;
+        /* Jadro se mezitim mohlo prekreslit nebo zavrit — tenhle uzel uz nemusi zit. */
+        if (!document.body.contains(tab)) return;
+        var tecka = tab.querySelector(".ec-vyh-tecka");
+        if (n > 0) {
+          tab.style.color = ZELENA;
+          tab.style.fontWeight = "600";
+          tab.title = "Hodnocení je vygenerované — " + n +
+                      (n === 1 ? " řádek" : (n < 5 ? " řádky" : " řádků")) + " výplaty.";
+          if (!tecka) {
+            tecka = document.createElement("span");
+            tecka.className = "ec-vyh-tecka";
+            tecka.textContent = "●";
+            tecka.style.cssText = "color:" + ZELENA + ";font-size:10px;";
+            tab.appendChild(tecka);
+          }
+        } else {
+          /* Barvu zpatky nestavime — zalozky se pri kazdem `_render` kresli znovu,
+           * takze prazdny stav uz ma vychozi barvu frameworku. Odstranime jen tecku
+           * pro pripad, ze by uzel prekresleni prezil. */
+          tab.title = "Hodnocení zatím není vygenerované — spusť 5️⃣ 🔒 Uzavřít.";
+          if (tecka && tecka.parentNode) { tecka.parentNode.removeChild(tecka); }
+        }
+      })
+      .catch(function () {});
   }
 
   /* ═══════════════════════════════════════════════════════════════════

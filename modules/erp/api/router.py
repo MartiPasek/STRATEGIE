@@ -25378,6 +25378,10 @@ async def att_fix_move_day(req: Request) -> JSONResponse:
     posouvají o rozdíl dnů. Cílový den musí být prázdný a nesmí být v budoucnosti,
     zamčený měsíc to odmítne na obou stranách. Povinný důvod, audit, notifikace.
 
+    15.9.2026 (Peťa): volitelné pole "ids" v těle = seznam id řádků. Když přijde,
+    přesunou se JEN ty řádky (a jejich úseky rozpadu), cílový den prázdný být nemusí
+    a hlídá se jen překryv časů; potvrzení dne zůstává na původním dni.
+
     DB-driven delegate (g2007.python kod=att_fix_move_day). Zadal Jirka 5.8.2026,
     schválila Marti-AI (msg 12268) — úpravy přes nový řádek v g2007.python,
     NE editací tohoto souboru."""
@@ -25389,7 +25393,8 @@ async def att_fix_move_day(req: Request) -> JSONResponse:
     from modules.erp.api import erp_registry as _ereg
     result = _ereg.call("att_fix_move_day", uid,
                         (body or {}).get("uid"), (body or {}).get("day"),
-                        (body or {}).get("novy_den"), (body or {}).get("reason"))
+                        (body or {}).get("novy_den"), (body or {}).get("reason"),
+                        (body or {}).get("ids"))
     status = result.pop("_status_code", 200) if isinstance(result, dict) else 200
     return JSONResponse(result, status_code=status)
 

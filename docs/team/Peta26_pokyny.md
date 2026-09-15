@@ -238,6 +238,21 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
 
 ## ✅ KONTROLY (NÁLEZY) V DETAILU DNE (Peťa 15. 9. 2026)
 
+### Působnost „jen já" — `jen=<user_id>` (Peťa 15. 9. 2026)
+Kdo si docházku opravuje sám, ale nemá vidět cizí lidi. Vzniklo kvůli **Týnce (Kristýna
+Marešová, user 11)**: do skupiny `DOCHÁZKA - OPRAVY` nikdy nepatřila, takže Opravy vůbec
+neotevřela — a protože má u sebe osobní odpovědnost za docházku nastavenou **sama na sebe**,
+vypadla i z fronty Peti a Michelle. Její nálezy tak nevidí **nikdo** (k 15. 9. jich čekalo šest).
+Peťa: *„nám chodit nemá a má chodit sama sobě."*
+
+- Do `tenant.att_fix_scope.scope` se zapíše **`jen=<user_id>`** (Týnka: `jen=11`).
+- Řeší to **`att_fix_scope_emps`** — schválně tam, protože tu funkci volá jak fronta
+  (`att_fix_queue`), tak notifikace (`att_fix_editors_for_emp`). Jedno místo, obě cesty.
+- Dát místo toho „kanceláře" NELZE — to je 195 lidí a Peťa to výslovně nechce
+  („nechci ji mít ani ve frontě, pak ji právě potvrzuji bez vyřízení a vznikají tím chyby").
+- Člověk musí být zároveň členem skupiny `DOCHÁZKA - OPRAVY`, jinak se do Oprav nedostane
+  (kontroluje `_je_editor_oprav`).
+
 ### Jedna karta = jeden DEN (Peťa 15. 9. 2026)
 Když na jednom dni visí u téhož člověka víc nálezů, je ve frontě **jedna karta** se seznamem,
 ne několik karet pod sebou (Horký měl 14. 9. dvě — zapomenutý odchod a dlouhá pauza).

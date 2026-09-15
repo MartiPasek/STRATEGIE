@@ -1171,8 +1171,15 @@
      * PROC: kdyz nekdo dostane efektivitu pod 100 %, jeho neodpracovane hodiny
      * se maji pripocist ke KALKULACI zakazky (`efektivita_pridat_hodiny`), cimz
      * se zvetsi usetreny cas a premie ostatnich. Jenze ten prepocet dela az
-     * `ec.vypocet_konstant`, tedy tlacitko "2 Nastav koeficienty" — NE samotny
-     * "3 Prepocet hodnoceni", ktery uz jen cte hotovou hlavicku.
+     * `ec.vypocet_konstant`, tedy tlacitko "3 Nastav koeficienty" — NE samotny
+     * "4 Prepocet hodnoceni", ktery uz jen cte hotovou hlavicku.
+     *
+     * ⚠️ CISLA KROKU (C24 / Kristy, 15.9.2026): tenhle blok vznikl 14.9. a nesl
+     * jeste stare cislovani 2/3 — viceprace se toho dne presunula na pozici 2
+     * a vsechno za ni se posunulo o jedna. Kdo bude menit poradi tlacitek
+     * v ACTIONS, MUSI projit i TEXTY: hlasku po zapisu viceprace (~r. 350),
+     * napovedu (~r. 919+) a tenhle stitek. Cisla nejsou nikde odvozena
+     * z ACTIONS, jsou v textech natvrdo.
      *
      * Kdo tedy snizi efektivitu a da rovnou trojku, vidi, ze dotycnemu premie
      * zmizela, ale ostatnim se nic nepridalo — a vypada to jako chyba vypoctu.
@@ -1188,13 +1195,13 @@
       "border:1px solid #fcd34d;border-radius:6px;background:#fffbeb;color:#92400e;" +
       "font-size:12px;line-height:1.2;white-space:nowrap;font-weight:600;display:none;" +
       "cursor:help;";
-    varov.textContent = "⚠️ Snížená efektivita — spusť 2️⃣ a pak 3️⃣";
+    varov.textContent = "⚠️ Snížená efektivita — spusť 3️⃣ a pak 4️⃣";
     varov.title = "Někdo na téhle zakázce má efektivitu pod 100 %, ale kalkulace s tím "
                 + "ještě nepočítá.\n\n"
                 + "Jeho neodpracované hodiny se mají přičíst ke kalkulovaným hodinám — tím "
-                + "se zvětší ušetřený čas a prémie ostatních. Dělá to ale až „2️⃣ Nastav "
-                + "koeficienty“, ne samotný „3️⃣ Přepočet hodnocení“.\n\n"
-                + "Spusť tedy 2️⃣ (v dialogu nic neměň, jen OK) a pak 3️⃣. Až se to "
+                + "se zvětší ušetřený čas a prémie ostatních. Dělá to ale až „3️⃣ Nastav "
+                + "koeficienty“, ne samotný „4️⃣ Přepočet hodnocení“.\n\n"
+                + "Spusť tedy 3️⃣ (v dialogu nic neměň, jen OK) a pak 4️⃣. Až se to "
                 + "propíše, tahle hláška zmizí sama.";
     bar.appendChild(varov);
     _varovaniEf = varov;

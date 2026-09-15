@@ -214,6 +214,11 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
 - Kde to je: `g2007.python` → `att_fix_move_day` (parametr `ids` = seznam id řádků),
   endpoint `POST /app/attendance/fix/move-day` v `modules/erp/api/router.py`.
 
+> ⚠️ **Poučení 15. 9. 2026 — `el()` zahodí `<tr>` a `<td>`.** Pomocná funkce `el(html)`
+> v Opravách staví prvek přes `innerHTML` uvnitř `<div>` — a tam prohlížeč řádky a buňky
+> tabulky **zahodí**, takže `el('<tr>…')` vrátí `null` a celý dialog spadne (tlačítko pak
+> nereaguje). Tabulky se musí skládat přes `document.createElement`.
+
 > ⚠️ **Poučení 15. 9. 2026 — zakládání NOVÉ funkce přes most neprojde.** Zkoušel jsem to
 > jako `att_fix_move_part` (INSERT do `g2007.python`); banner se sice zobrazil, Peťa ho třikrát
 > odklikla, ale řádek nikdy nevznikl. Jakmile jsem to přepsal jako **úpravu existující funkce**

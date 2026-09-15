@@ -317,6 +317,23 @@ Práce 17:40–19:25 s činností home office.
 
 Kde to je: `g2007.python` → `att_anomaly_scan`, blok „R6 dlouha_pauza".
 
+### Dlouhá pauza + POTVRZENÍ DNE — nález se tím odbaví (Peťa 15. 9. 2026, domluveno s Týnkou)
+Peťa: *„on v té frontě bude, jak jsi říkal, že vznikne, a pak si to člověk potvrdí, tak se odbaví."*
+
+Takže **ne** že by nález nevznikl. Vznikne normálně, jde do fronty kontrolora jako dosud.
+Ale ve chvíli, kdy si **zaměstnanec sám potvrdí docházku** za ten den, se nález **automaticky
+odbaví**: dostane `resolved_at` + `resolved_by` (= ten, kdo potvrzoval) a k detailu se připíše
+`· Odbaveno: zaměstnanec si docházku sám odsouhlasil.` Z fronty tím zmizí, v detailu dne
+zůstane vidět jako **vyřízený (zelený)** nález i s tou poznámkou.
+
+**Zatím JEN pravidlo `dlouha_pauza`.** Ostatní nálezy chodí dál jako dosud — o rozšíření na
+další pravidla se Peťa s Týnkou teprve domluví.
+
+Kde to je: `g2007.python` → `att_confirm_day`, hned za úklidem nálezu `nepotvrzeny_den`.
+
+Proč to drží: scan zakládá nálezy s `ON CONFLICT (tenant_id, rule, entry_id) DO NOTHING`, takže
+jednou odbavený nález už znovu nevznikne — odbavení je trvalé.
+
 ## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU (Peťa 26. 8. 2026, lékař 14. 9. 2026 — POZOR: 15. 9. 2026 DOHODNUTA ZMĚNA, VIZ POZNÁMKA)
 
 > ### ⚠️ POZNÁMKA 15. 9. 2026 — TOHLE SE BUDE PŘEDĚLÁVAT, NESTAVĚT NA TOM

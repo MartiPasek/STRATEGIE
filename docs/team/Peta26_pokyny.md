@@ -177,6 +177,51 @@ a proto sčítal dovolenou s dovolenou navíc do složky 211 — **opraveno 25. 
 obou číselníků a na to, co obrazovka reálně vrací** — a **nejdřív si přečtu G2007 k tématu**.
 Celé je to v G2007: `doc-dochazka-dva-ciselniky-druh-zaznamu-vs-cinnost`.
 
+## 🔧 OPRAVY DOCHÁZKY — NABÍDKA ČINNOSTÍ A PŘEVOD DNE (Peťa 15. 9. 2026)
+
+### Činnost se nabízí podle TYPU záznamu
+Peťa 15. 9. 2026: *„když se vybere ty práce, mají tam být vidět jen pracovní, a když se vybere
+pauza, mají tam být vidět činnosti k pauze."*
+
+- **Práce / Režie** → jen pracovní činnosti a režie (druh `standard` a `rezie`).
+- **Přestávka** → jen činnosti k pauze: **Oběd, Kouření, Svačina, Soukromé záležitosti**.
+  Do 15. 9. se u Přestávky pole Činnost vůbec neukazovalo.
+- **Nepřítomnosti se v Opravách nenabízejí vůbec** — dovolená, nemoc, lékař, OČR, sick day,
+  mateřská, volna, překážky, „Domů". Ty patří do **Správy docházky**, ne do Oprav.
+- **Home office zůstává** v pracovních — člověk pracuje, jen z domova (Peťa to potvrdila).
+- Kde to je: `g2007.python` → `att_fix_cinnosti` (+ `att_fix_cinnosti_demo`), obrazovka
+  `apps/api/static_db/dochazka-opravy.html` (funkce `mkCin` / `cinFill` / `cinShow`).
+  Pauzy jsou vyjmenované kódem (`obed`, `koureni`, `svacina`, `soukrome_zalezitosti`), protože
+  sloupec `kind` u nich znamená `nepritomnost` a ten se čte i na spoustě jiných míst.
+- **Soukromé záležitosti** = přerušení práce, které se nepočítá do odpracovaného času
+  (Peťa: „na tabletu se to zadávalo, byl to čas, který se nepočítal do docházky"). Sedí to —
+  v číselníku má stejnou povahu jako oběd a kouření.
+
+### Převod dne umí i ČÁST dne
+Peťa 15. 9. 2026: *„je tam převod dne, ale je tam celý den a já bych potřebovala převést jen
+tu práci."* V dialogu **Převod dne** je teď seznam řádků dne se zaškrtávátky (vypadá jako
+tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
+
+- **Defaultně není nic zaškrtnuté** — editor vybírá vědomě.
+- **Automatem dopočítané řádky se vůbec nenabízejí a nepřevádějí**: `nenarokova`
+  (nenároková práce nad fond) a `fond_doplneni` (doplnění do fondu). Automat si je po převodu
+  dopočítá sám na obou dnech. Hlídá to i server, ne jen obrazovka.
+- **Celý den** (původní chování — cílový den musí být prázdný, stěhuje se i potvrzení dne)
+  se spustí jen když je zaškrtnuté všechno **a** den nemá žádný automatický řádek.
+- **Část dne**: cílový den prázdný být nemusí (to je smysl věci), hlídá se jen **překryv časů**;
+  potvrzení dne zůstává na původním dni; do historie se píše „část dne".
+- Zámek mezd platí pro obojí a **na obou stranách** — ze zamčeného měsíce se nepřevádí nikam.
+- Kde to je: `g2007.python` → `att_fix_move_day` (parametr `ids` = seznam id řádků),
+  endpoint `POST /app/attendance/fix/move-day` v `modules/erp/api/router.py`.
+
+> ⚠️ **Poučení 15. 9. 2026 — zakládání NOVÉ funkce přes most neprojde.** Zkoušel jsem to
+> jako `att_fix_move_part` (INSERT do `g2007.python`); banner se sice zobrazil, Peťa ho třikrát
+> odklikla, ale řádek nikdy nevznikl. Jakmile jsem to přepsal jako **úpravu existující funkce**
+> (`replace()` uvnitř `zdroj`), prošlo to napoprvé. **Takže: rozšiřovat existující funkci,
+> ne zakládat novou.** A hlavně — návratovka „OK, N řádků" neznamená, že se něco změnilo:
+> `replace()` na text, který v kódu není, hlásí OK a nezmění nic. **Vždy ověřit čtením
+> konkrétního místa**, ne jen `position('slovo')`.
+
 ## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU (Peťa 26. 8. 2026, lékař 14. 9. 2026 — POZOR: 15. 9. 2026 DOHODNUTA ZMĚNA, VIZ POZNÁMKA)
 
 > ### ⚠️ POZNÁMKA 15. 9. 2026 — TOHLE SE BUDE PŘEDĚLÁVAT, NESTAVĚT NA TOM

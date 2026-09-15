@@ -236,6 +236,31 @@ tabulka dne: TYP / OD / DO / HODINY / ZAKÁZKA / ČINNOST).
 > `replace()` na text, který v kódu není, hlásí OK a nezmění nic. **Vždy ověřit čtením
 > konkrétního místa**, ne jen `position('slovo')`.
 
+## ✅ KONTROLY (NÁLEZY) V DETAILU DNE (Peťa 15. 9. 2026)
+
+### Je vidět, jestli si člověk docházku potvrdil
+Peťa 15. 9. 2026: *„bylo by dobré, kdyby tam bylo vidět, že si to člověk potvrdil tu docházku."*
+Značka je **vpravo nahoře v rámečku s nálezy** (Peťa poslala návrh obrázkem), a když den žádný
+nález nemá, ukáže se samostatně nad tabulkou — ať je to vidět vždy.
+
+- zeleně **✓ docházka potvrzena dd.m. hh:mm** — člověk den odklikl,
+- oranžově **✋ člověk hlásí, že den nesedí** — dal rozpor,
+- šedě **docházka zatím nepotvrzena** — ještě se k tomu nedostal.
+
+Data: `tenant.att_day_confirm` (`confirmed_at`, `disputed`), chodí to už v `att_fix_day`
+jako `dispute`. Obrazovka: `apps/api/static_db/dochazka-opravy.html`, proměnná `_znackaPotvrzeni`.
+
+### Dlouhá pauza PŘED home office se nehlásí
+Peťa 15. 9. 2026: *„pokud někdo má konec a pak má později činnost HO, aby to nepřicházelo vůbec
+— je z toho jasně patrné, že byl v práci, šel domů a odpoledne nebo večer ještě pracoval."*
+
+Pravidlo **R6 `dlouha_pauza`** (pauza delší než 2 h = podezření na zapomenuté přepnutí zpět)
+proto nález **nevygeneruje**, když po té pauze v témž dni následuje práce, která má **činnost
+home office** nebo **typ Home office**. Typický případ: Práce 08:06–14:33, Přestávka 14:33–17:40,
+Práce 17:40–19:25 s činností home office.
+
+Kde to je: `g2007.python` → `att_anomaly_scan`, blok „R6 dlouha_pauza".
+
 ## 🚑 NEMOC, OČR A LÉKAŘ Z MOBILU (Peťa 26. 8. 2026, lékař 14. 9. 2026 — POZOR: 15. 9. 2026 DOHODNUTA ZMĚNA, VIZ POZNÁMKA)
 
 > ### ⚠️ POZNÁMKA 15. 9. 2026 — TOHLE SE BUDE PŘEDĚLÁVAT, NESTAVĚT NA TOM

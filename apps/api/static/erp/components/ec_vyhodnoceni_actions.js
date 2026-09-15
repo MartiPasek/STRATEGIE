@@ -63,7 +63,22 @@
     { code: "prepocet",         label: "4️⃣ 🔄 Přepočet hodnocení", confirm: null },
     { code: "uzavrit",          label: "5️⃣ 🔒 Uzavřít", confirm: "⚠️ UZAVŘÍT vyhodnocení?\n\nTato akce VYTVOŘÍ VÝPLATY (SuperHrubá mzda) pro pracovníky této zakázky — zápis do financí zakázek.\n\nPokračovat?" },
     { code: "do_mezd",          label: "6️⃣ 💰 Do mezd", confirm: "⚠️ PŘEVÉST ODMĚNY DO MEZD?\n\nOdměny z této zakázky se zapíšou zaměstnancům do mzdy (složka 651) za měsíc, kdy byla zakázka uzavřena.\n\nSpustit to jde i opakovaně — co už je ve mzdě, se nezdvojí.\n\nPokračovat?" },
-    { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokud už odměny šly do mezd, SMAŽOU SE i odtud — pokud ale některá z nich už byla předána do mzdy (stav exported), zrušení se odmítne a musí to vyřešit mzdová účetní.\n\nPokračovat?" }
+    { code: "zrusit",           label: "↩️ Zrušit", confirm: "⚠️ ZRUŠIT vyhodnocení?\n\nSMAŽE vypočtené výplaty, zakázku zarchivuje a znovu otevře k přepočtu.\n\nPokud už odměny šly do mezd, SMAŽOU SE i odtud — pokud ale některá z nich už byla předána do mzdy (stav exported), zrušení se odmítne a musí to vyřešit mzdová účetní.\n\nPokračovat?" },
+    /* DOSYNCHRONIZOVAT CENTRALU (C24 / Kristy, 15. 9. 2026).
+     * Od 15. 9. 2026 se pri Uzavrit a Zrusit priznak do Centraly propisuje SAM
+     * (viz vyhodnoceni_actions.py). Tohle tlacitko je pro dva pripady, kdy
+     * automat nestacil:
+     *   1. Centrala byla v okamziku uzaverky nedostupna — penize se zapsaly
+     *      u nas, priznak tam nedosel. Tlacitko to dozene bez toho, aby se
+     *      znovu sahalo na vyplaty.
+     *   2. Zakazky uzavrene PRED 15. 9. 2026 o sobe Centrale nedaly vedet vubec.
+     * Smer se neptame uzivatele — backend ho odvodi z NASEHO stavu
+     * (tenant.zakazka_meta.vyhodnoceni_uzavreno), takze akce umi Centralu jen
+     * srovnat podle nas, ne ji prepnout do stavu, ktery u nas neplati.
+     * ZAMERNE BEZ CISLA KROKU: neni soucast workflow 1-6 a cisla kroku jsou
+     * v textech natvrdo na sedmi mistech (14.-15. 9. 2026 nas to uz jednou
+     * stalo opravu) — pridani cislovaneho tlacitka by je posunulo. */
+    { code: "centrala_sync",    label: "🔁 Dosynchronizovat Centrálu", confirm: "Srovnat příznak v Centrále podle našeho stavu?\n\nNezapisuje peníze ani nemění vyhodnocení — jen do Centrály propíše, jestli je zakázka u nás uzavřená, nebo ne.\n\nSpustit to jde i opakovaně, nic se nezdvojí.\n\nPokračovat?" }
   ];
 
   /* Akce, ktere potrebuji vlastni obsluhu (vyber cloveka / seznam zakazek),
@@ -853,6 +868,20 @@
       if (!o.j || !o.j.ok) {
         global.alert("Akce selhala: " + ((o.j && o.j.error) || "HTTP " + (o.ok ? "200" : "err")));
       } else {
+        /* PROPSANI DO CENTRALY (C24 / Kristy, 15. 9. 2026).
+         * Uzavrit a Zrusit ted krome penez u nas zapisuji i priznak do Centraly
+         * (_Uzavreno / _VyhodnoceniUzavreno / _VyhodnocenoStrategie). Ten zapis
+         * schvalne NENI podminkou uspechu akce — penize jsou zdroj pravdy a jsou
+         * uz zapsane, takze vypadek MSSQL uzaverku neshodi. Uzivatel se to ale
+         * MUSI dozvedet, jinak by v dobre vire tvrdil Dusanovi, ze uz to v
+         * Centrale vidi. Proto backend vraci `varovani` a my ho ukazeme. */
+        if (o.j.varovani) { global.alert("⚠️ " + o.j.varovani); }
+        if (o.j.action === "centrala_sync") {
+          var c = o.j.centrala || {};
+          global.alert("✅ Centrála srovnána podle nás.\n\nStav: " +
+                       (o.j.podle_nas === "uzavrit" ? "uzavřeno" : "otevřeno") +
+                       "\nZakázek ve skupině: " + (c.zakazek != null ? c.zakazek : "?"));
+        }
         try { if (typeof inst._reloadSpec === "function") { inst._reloadSpec(); } } catch (e) {}
         /* ⚠️ VRACENO 11.9.2026 (Kristy: "ajaj, vidim prazdno").
          * Tady bylo `setTimeout(_obnovGridyVJadre, 400)`. Zpusobovalo to, ze grid

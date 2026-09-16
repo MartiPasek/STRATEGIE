@@ -788,6 +788,26 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
    Zahraniční faktury ze srpna 2026 (Eberhard DE, Adamczewski DE, UAB LT, Mózer SK)
    mají shodně 24,205 — to je právě ten kurz k 1. pracovnímu dni měsíce.
 
+9b. **🏢 STŘEDISKO MUSÍ SEDĚT NA ŘADU ZAKÁZKY — VR = 001, SW = 002** (Peťa 16. 9. 2026).
+    Centrála na to má vlastní hlídání a při otevření dokladu vyhodí okno
+    *„POZOR - Chybně zadané středisko (VR = 001, SW = 002)!!!!"* — ale **hlásí se to až
+    při práci s dokladem**, takže se na to nedá spolehnout. **Kontroluj to sám u každé faktury.**
+
+    **Kde to je v datech:** obojí na hlavičce dokladu — středisko `TabDokladyZbozi.StredNaklad`,
+    zakázka `TabDokladyZbozi.CisloZakazky` (na položkách je zakázka taky, v `TabPohybyZbozi`).
+
+    | Zakázka začíná | Středisko musí být |
+    |---|---|
+    | **VR…** | **001** |
+    | **SW…** | **002** |
+
+    Příklad **2357** (Lehký - PLC, 16. 9. 2026): zakázka **VR10643**, středisko **002** →
+    **nález**. Peťa to řešila.
+    ⚠️ **Co pravidlo zatím nepokrývá — nehádat, zeptat se:** zakázky jiných řad (**VKM**,
+    **Rezie**) a **sdružené faktury** přes víc zakázek, kde je v hlavičce místo čísla slovo
+    **„Sdružená"**. Příklady z téže dávky: 2362 má hlavičku VKM se střediskem 001,
+    2361 je „Sdružená" se střediskem 001 a položkami na VR, VKM i Rezie.
+
 9. **🔢 VARIABILNÍ SYMBOL SE KONTROLUJE — rozdíl je NÁLEZ** (Peťa 7. 9. 2026: *„to je
    špatně, to taky kontroluj"*).
    Porovnej **VS uvedený na faktuře** proti tomu, co je v Centrále (**`TabDokladyZbozi.DodFak`**
@@ -849,8 +869,17 @@ nepřebývá — ne podle toho, že v ní chybí lidská věta.
    Peťa pak vidí rozdíl na první pohled a nemusí ho luštit z věty.
 3. **Napsat i co to prakticky znamená.** Ne jen „základ 0,00", ale *„doklad vypadá
    rozdělaně — takhle by se nic nezaplatilo."* To je ta věta, kvůli které tam jsem.
-4. **Postranní poznámky až na konec, jednou větou** a jasně oddělené („Dvě věci pro
-   pořádek: …"). Nemíchat je mezi nálezy — ale ani je nezamlčet.
+4. **⚠️ POSTŘEH K FAKTUŘE PATŘÍ K TÉ FAKTUŘE, NE DOLŮ POD ZPRÁVU** (Peťa 16. 9. 2026:
+   *„jak mi uděláš ten seznam, že faktura ok nebo nález, tak mi k tomu rovnou piš i ty
+   postřehy — leckdy jsou oprávněné, ale jsou vlastně v textu níž"*).
+   Když se postřeh týká **konkrétní faktury**, napiš ho **rovnou k jejímu řádku** (odrážka
+   pod ní, jedna věta). Peťa řeší faktury po jedné a nemá se k poznámce prokousávat na konci.
+   Příklady, které takhle patří nahoru k řádku: nabídka je po platnosti · doprava nebyla
+   v nabídce · doklad je fotka nebo scan · dodavatel je neplátce DPH · zkrácená splatnost ·
+   v Centrále je připojený jiný dokument než faktura.
+   **Dolů patří jen to, co se netýká jedné faktury** — obecné pozorování přes celou dávku,
+   nebo věc mimo kontrolu (most, chyba v kartě dodavatele). Uvede se jasně oddělené
+   („Dvě věci pro pořádek: …"). **Zamlčet se nesmí ani jedno.**
 
 **Vzorová zpráva (dávka 2277–2284, 7. 9. 2026 — takhle to Peťa chce):**
 

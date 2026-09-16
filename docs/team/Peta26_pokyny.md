@@ -724,6 +724,19 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
    ⚠️ Tohle je **výjimka z pravidla o toleranci 5 Kč v DPH** — tady může být rozdíl velký
    a stejně se neřeší. Rozhoduje celková cena.
 
+   **🍪 PLATÍ TO NA OBČERSTVENÍ OBECNĚ, NEJEN NA VODY OD PAPERY** (Peťa 16. 9. 2026:
+   *„ano je to tak, pochutiny, jídlo atd. je bez DPH"*). **Jídlo, pochutiny a nápoje
+   pro firmu = reprezentace → zadává se VČETNĚ DPH**, daň se neodečítá. Ať to přijde
+   od kohokoli, ne jen od Papery.
+   Poznávací znamení v datech: **`SumaKcBezDPH` = `SumaKc`** (základ i celkem stejné číslo)
+   a na faktuře je přitom DPH vyčíslené, obvykle ve **snížené sazbě 12 %**.
+   Příklad 2346 (OFFICEO 3026142073, 16. 9. 2026): káva, čaje, cukr, mléko, smetana do kávy;
+   na faktuře základ 4 983,40 + DPH 12 procent 598,01 = 5 581,41, v Centrále je **5 581,41
+   jako základ i jako celkem**. **Je to správně, nehlásit.**
+   ⚠️ Nepleť si to s běžným zbožím od téhož dodavatele — **2347** (OFFICEO 3026142074, kancelářské
+   potřeby, 21 procent) má normálně základ 6 984,20 a DPH 1 466,68. Rozhoduje, **co se koupilo**,
+   ne od koho.
+
 8. **💱 KURZ — jinak u tuzemského a jinak u zahraničního dodavatele. ROZDÍL JE NÁLEZ**
    (Peťa 2. 9. 2026).
 
@@ -795,6 +808,22 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
     **Kontroluje se tedy SOUČET položek proti celkové ceně na faktuře**, ne řádek po řádku.
     Totéž platí obráceně — kolegyně slučuje, co dodavatel rozepsal (měděný příplatek
     přičtený k dílu u Murrelektroniku, recyklační poplatek k termostatu u EMS ELEKTRO).
+
+11. **🛡️ POJIŠŤOVNY NEPOSÍLAJÍ FAKTURU, ALE „PŘEDPIS" — A MUSÍ ZNÍT NA FIRMU**
+    (Peťa 16. 9. 2026). Pojišťovna nevystavuje fakturu ani daňový doklad, jen **„Informace
+    o placení"** neboli předpis pojistného na další období. **Není to chyba, že to není
+    faktura** — takhle to od nich chodí. Pojistné je osvobozené od DPH, takže `SumaKcBezDPH`
+    = `SumaKc` a **žádná daň se neodečítá**.
+    Co se na předpisu kontroluje: **částka · variabilní symbol (= číslo pojistné smlouvy) ·
+    číslo účtu · termín „zaplaťte do"** (ten jde do splatnosti).
+
+    ⚠️ **A hlavně: NA KOHO PŘEDPIS ZNÍ.** Peťa 16. 9. 2026: *„nesmí to být na Paška, ale na
+    firmu — respektive je-li to na Paška, nesmí to jít do účetnictví ani to nesmí zaplatit
+    firma."* Když je **pojistníkem fyzická osoba** místo EUROSOFTu, **je to nález a hlásí se**,
+    i když je adresa firemní a jde o „pojištění podnikatelů".
+    Příklad **2345** (Generali 1159883147, 39 837 Kč, 16. 9. 2026): pojistník **Martin Pašek**,
+    doklad přesto zaúčtovaný v řadě 500. Nahlásil jsem to jen jako poznámku na okraj —
+    **patřilo to mezi nálezy.**
 
 **Přesný tvar výstupu, který Peťa chce** (Peťa 21. 8. 2026 — jeden řádek na fakturu):
 

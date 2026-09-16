@@ -803,10 +803,23 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
 
     Příklad **2357** (Lehký - PLC, 16. 9. 2026): zakázka **VR10643**, středisko **002** →
     **nález**. Peťa to řešila.
-    ⚠️ **Co pravidlo zatím nepokrývá — nehádat, zeptat se:** zakázky jiných řad (**VKM**,
-    **Rezie**) a **sdružené faktury** přes víc zakázek, kde je v hlavičce místo čísla slovo
-    **„Sdružená"**. Příklady z téže dávky: 2362 má hlavičku VKM se střediskem 001,
-    2361 je „Sdružená" se střediskem 001 a položkami na VR, VKM i Rezie.
+    **Doplněno Peťou 16. 9. 2026:**
+
+    | Zakázka | Středisko |
+    |---|---|
+    | **VR…** | **001** |
+    | **SW…** | **002** |
+    | **VKM…** | **001** |
+    | **Rezie** | **cokoli** — většinou 001, ale může být i jiné |
+
+    ⚠️ **Rezii NEKONTROLUJ.** Peťa 16. 9. 2026: *„režie může být bohužel vše, ale většinově
+    001"* a k tomu rovnou *„to asi neohlídáš"*. Když je zakázka `Rezie`, **středisko se nehlásí
+    ať je jakékoli** — nedá se z něj poznat, co je správně. Nevymýšlet si k tomu domněnky.
+
+    **Sdružená faktura** (v hlavičce místo čísla slovo **„Sdružená"**) se posuzuje **podle
+    zakázek na položkách**: když všechny spadají pod 001 (VR, VKM) nebo jsou Rezie, je 001
+    v pořádku. Příklad 2361 (16. 9. 2026): položky na VR10666, VR10714, VR10758, VKM a Rezie,
+    hlavička 001 — **sedí**.
 
 9. **🔢 VARIABILNÍ SYMBOL SE KONTROLUJE — rozdíl je NÁLEZ** (Peťa 7. 9. 2026: *„to je
    špatně, to taky kontroluj"*).

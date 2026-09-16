@@ -956,6 +956,19 @@ Funguje i na nabídky (`Z:\Poptavky_V\EVP<číslo>`). Je to o dvě otočky naví
   objednávky**, ne k DUZP faktury — takže i když je DUZP až po datu platnosti, nemusí být
   nic špatně. A i kdyby bylo, *„to už bychom řešili my lidi v rámci nahlášené chyby."*
   Porovnávej **ceny**, platnost nech být.
+  - **ALE KDYŽ CENY NESEDÍ, PLATNOST SI ZJISTI A PŘIPIŠ JI** (Peťa 16. 9. 2026:
+    *„tady je prošlá nabídka po platnosti, proto to nesedí — takže upozornit stále ano,
+    ale ještě k tomu dovětek, že je nabídka již prošlá"*). Nález se hlásí **pořád**,
+    jen k němu patří věta, **jestli už byla nabídka po platnosti** — to je totiž skoro
+    vždycky vysvětlení, proč se ceny rozešly: dodavateli mezitím zdražil ceník, sleva
+    zůstala stejná.
+    Kde platnost hledat: na nabídce buď **„Platnost do"** s datem (ControlTech), nebo
+    **lhůta od data nabídky** („Platnost 1 týdny od data nabídky" u Schracku — tam je
+    rozhodující „Datum" v hlavičce).
+    Ověřeno 16. 9. 2026 na třech případech, kde ceny neseděly a všechny nabídky byly prošlé:
+    **2318** (Schrack 464019097, nabídka z 23. 4. 2026, platnost 1 týden),
+    **2319** (Schrack 464033761, z 24. 7. 2026, platnost 1 týden),
+    **2359** (ControlTech NVCZ-1740/2026, platnost do 28. 8. 2026, faktura z 9. 9. 2026).
 - ⚠️ **Když je na faktuře číslo nabídky, MUSÍM ji zkontrolovat.** 3. 9. 2026 jsem u faktury
   2236 (Keyence) nabídku 12055657 přehlédl, přestože její číslo bylo na dokladu i v Centrále
   (pole „Číslo nabídky dodavatele"). Peťa se musela ptát. **Číslo nabídky hledej vždy —

@@ -1451,6 +1451,60 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
+## 📝 PŘIPRAVENO NA ZÍTŘEK — „UPRAVIL SI SÁM" MÁ UKÁZAT I ZADANOU HODNOTU (Peťa 16. 9. 2026)
+
+Peťa 16. 9.: *„jak je tam člověk si to opravil sám, tak by bylo dobré, kdyby tam byla zapsaná
+i ta jím zadaná hodnota. Necháme na zítřek, jen si to připrav."*
+
+**Podklady jsou zjištěné, zítra už jen doprogramovat.**
+
+### Kde to je
+`g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, kolem znaku **112 352**, ve větvi
+`_autoOdhlOk`:
+
+```
+'ℹ zapomenutý odchod — ' + (String(e2.note||'').indexOf('zkráceno uživatelem')>=0
+                            ? 'upravil si sám' : 'opraveno')
+```
+
+### Odkud vzít zadanou hodnotu
+- **Nový (uživatelem zadaný) konec** = `e2.kon`, tedy skutečný konec záznamu (`att_entry.ended_at`).
+- **Původní hodnota od automatu** je v poznámce: `att_entry.note` obsahuje vždy přesně
+  `zkráceno uživatelem (původně do HH:MM)`. Ověřeno na 19 záznamech od 15. 8. do 15. 9. 2026.
+- **Není to vždycky 23:59.** Většinou ano (půlnoční automat), ale Marek Honal měl 7. 9.
+  původně 15:01 a Petr Beneš 30. 8. původně 16:05. Na 23:59 se tedy NESPOLÉHAT.
+- Poznámka bývá složená z víc částí oddělených ` / `, například
+  `[auto-odhlášení o půlnoci] / zkráceno uživatelem (původně do 23:59)`. Hodnotu proto
+  vytáhnout regulárním výrazem, ne dělením řetězce.
+
+### NEŽ ZAČNU, ZEPTÁM SE PEŤY — NEHÁDAT
+Není jednoznačné, které ze dvou míst měla na mysli:
+
+1. **Štítek na řádku** (sloupec STAV): `ℹ zapomenutý odchod — upravil si sám na 15:50`.
+2. **Rámeček „Nesedí" nahoře**: jeho bod zní `Neodhlášeno — konec dopsal automat o půlnoci,
+   směna od 08:40 (15,32 h)`, tedy pořád **staré číslo od automatu**, přestože člověk už
+   opravil na 7,17 h. Tohle je možná to, co Peťu mate.
+
+Může to být i obojí. Obrázek z 16. 9. (Zuzana Duspivová, 15. 9.) ukazuje oba případy najednou.
+
+### Pozor při nasazení
+Změna je v HTML → materializuje se až při startu aplikace, a navíc si prohlížeč drží starou
+stránku. Po nasazení říct Peťe, ať dá **Ctrl+Shift+R** (viz ponaučení níž).
+
+## 🔄 PO ZMĚNĚ STRÁNKY NESTAČÍ RESTART — PROHLÍŽEČ SI DRŽÍ STAROU VERZI (Peťa 16. 9. 2026)
+Peťa 16. 9. hlásila, že slučování nálezů do jedné karty nefunguje — Čepický měl 15. 9. dvě
+karty místo jedné. Prošel jsem data (oba nálezy shodný zaměstnanec i den), slučovací kód ve
+stránce (na místě, bez starých zbytků) i verzi v databázi (94, zapsaná před posledním
+restartem). Všechno v pořádku. Po **Ctrl+Shift+R** se karty slily.
+
+**Ponaučení: když Peťa hlásí, že změna ve stránce není vidět, první věc je tvrdé obnovení
+prohlížeče, ne hrabání se v kódu.** Stálo to šest dotazů do databáze, které nemusely být.
+Pořadí kontroly:
+
+1. Ctrl+Shift+R u Peťy.
+2. Až pak: je změna vůbec v `g2007.soubor` a byl po ní restart aplikace?
+3. Až nakonec: co server opravdu posílá a co s tím dělá kód.
+
 ## 🔎 KONTROLA DOCHÁZKY ČLOVĚKA — „divné dny" (Peťa 4.8.2026, ověřeno v kódu)
 Peťa zadává: *„divné dny — kdyby někde něco neměl, měl to moc dlouhé / moc krátké, překryv,
 dlouhou pauzu, neukončený den, chybějící činnost nebo zakázku."*

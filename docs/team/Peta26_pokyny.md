@@ -821,6 +821,26 @@ Peťa zadává: *„zkontroluj fakturu poř. číslo NNNN s tím, co je přilož
     v pořádku. Příklad 2361 (16. 9. 2026): položky na VR10666, VR10714, VR10758, VKM a Rezie,
     hlavička 001 — **sedí**.
 
+9c. **📌 KAŽDÁ POLOŽKA MUSÍ MÍT VYBRANOU ZAKÁZKU — PRÁZDNÁ JE NÁLEZ** (Peťa 16. 9. 2026:
+    *„u jednotlivých položek musí být vybrané číslo zakázky… to je potřeba taky hlásit"*).
+    Nestačí zakázka v hlavičce — **zakázku má mít i každý řádek**. Hlídá se to hlavně
+    u sdružených faktur, kde se řádky rozpadají na víc zakázek a jeden snadno zůstane prázdný.
+
+    **Jak si to ověřím jedním dotazem** (`CisloZakazky` je na položkách v `TabPohybyZbozi`):
+    ```sql
+    SELECT D.PoradoveCislo, P.Nazev1, P.JCbezDaniKC
+    FROM TabDokladyZbozi D with(nolock)
+    JOIN TabPohybyZbozi P with(nolock) ON P.IDDoklad = D.ID
+    WHERE D.Obdobi = 40 AND D.DruhPohybuZbo IN (18, 19)
+      AND D.PoradoveCislo BETWEEN <od> AND <do>
+      AND (P.CisloZakazky IS NULL OR LTRIM(RTRIM(P.CisloZakazky)) = '')
+    ```
+    Prázdný výsledek = v pořádku. Co vypíše, **to se hlásí i s názvem položky a částkou**,
+    ať Peťa ví, který řádek otevřít.
+    Příklad **2361** (16. 9. 2026): jediná položka **„Režijní materiál" za 123,79 Kč** byla
+    bez zakázky, zbylých 29 řádků ji mělo. Peťa si toho všimla dřív než já — **tenhle dotaz
+    pouštěj u každé dávky.**
+
 9. **🔢 VARIABILNÍ SYMBOL SE KONTROLUJE — rozdíl je NÁLEZ** (Peťa 7. 9. 2026: *„to je
    špatně, to taky kontroluj"*).
    Porovnej **VS uvedený na faktuře** proti tomu, co je v Centrále (**`TabDokladyZbozi.DodFak`**

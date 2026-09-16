@@ -1045,6 +1045,40 @@
     window.ErpInlineCellEditor = ErpInlineCellEditor;
   }
 
+  // ── Vrstva pro vyskakovací okna AG Gridu (C24 Kristý, 16.9.2026) ─────
+  // Tlačítka A−/A/A+ v patičce zvětšují celé ERP přes CSS `zoom` na <body>
+  // (router.py, body.erp-zoom-small / erp-zoom-large). AG Grid si pozici
+  // kontextového menu a podmenu počítá z getBoundingClientRect (už zvětšené
+  // souřadnice) a zapíše je do style.left/top uvnitř zvětšeného <body> —
+  // prohlížeč je pak zvětší PODRUHÉ. Při A+ podmenu „Exportovat" uskočilo
+  // doprava dolů a nešlo na něj kliknout (Dušan, 16.9.2026), při A− naopak.
+  // Řešení: popupy kreslíme do vrstvy MIMO <body> (potomek <html>, bez zoomu),
+  // takže pozice sedí; velikost obsahu menu dorovnáme CSS zoomem na vnitřku
+  // popupu (ne na prvku, který nese left/top). Ověřeno v Chromiu s AG Grid
+  // 32.3 pro A−, A i A+ (menu u kurzoru, podmenu hned u položky).
+  function _erpAgPopupLayer() {
+    if (typeof document === "undefined" || !document.documentElement) return undefined;
+    let layer = document.getElementById("erp-ag-popup-layer");
+    if (layer) return layer;
+    if (!document.getElementById("erp-ag-popup-layer-style")) {
+      const st = document.createElement("style");
+      st.id = "erp-ag-popup-layer-style";
+      st.textContent =
+        "#erp-ag-popup-layer{position:fixed;left:0;top:0;width:100vw;height:100vh;" +
+        "pointer-events:none;z-index:2147483647;}" +
+        "#erp-ag-popup-layer .ag-popup{pointer-events:auto;}" +
+        "body.erp-zoom-large ~ #erp-ag-popup-layer .ag-popup-child > *{zoom:1.25;}" +
+        "body.erp-zoom-small ~ #erp-ag-popup-layer .ag-popup-child > *{zoom:0.75;}";
+      (document.head || document.documentElement).appendChild(st);
+    }
+    layer = document.createElement("div");
+    layer.id = "erp-ag-popup-layer";
+    // Za <body> jako sourozenec — mimo dosah body zoomu, a CSS výše ho
+    // najde přes selektor "body.erp-zoom-* ~ #erp-ag-popup-layer".
+    document.documentElement.appendChild(layer);
+    return layer;
+  }
+
   // ── Component class ──────────────────────────────────────────────────
   class ErpDataGrid {
     constructor(container, options) {
@@ -2282,6 +2316,9 @@
         // — jde to zakazat?"). preventDefaultOnContextMenu: true potlačí
         // OS browser menu i když AG Grid sám nemá menu items pro daný target.
         preventDefaultOnContextMenu: true,
+        // C24 16.9.2026: popupy (kontextové menu, podmenu, menu sloupců, filtry)
+        // do vrstvy mimo zvětšené <body> — viz _erpAgPopupLayer výše.
+        popupParent: _erpAgPopupLayer(),
         // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): hook pro custom
         // context menu items z jádra Centrály 1 (Marti: "budeme jej
         // potrebovat tam pridavat z jadra dalsi polozky"). Default behavior

@@ -1451,6 +1451,44 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
+## 🧭 SLUŽEBNÍ CESTA JE JEN INFORMACE — MODŘE, A ZELENÁ HNED PO ZMĚNĚ ČINNOSTI (Peťa 17. 9. 2026)
+
+Peťa 17. 9.: *„opravila jsem záznam a nezezelenalo to."* A k řešení: *„ukazovat třeba modře,
+ale hlavně mi jde o to, aby když se ta činnost změní na jinou než služební, aby to zezelenalo,
+protože v tu chvíli není na co upozorňovat."*
+
+### Co se dělo (a co se NEdělo)
+Na Čepického 16. 9. byly **dva** nálezy „služební cesta", každý k jinému pracovnímu záznamu:
+3,37 h a 1,57 h. Peťa opravila jeden záznam → jeho nález se **zavřel hned** (9:01, bez Ctrl+Shift+R),
+takže **včerejší okamžité zezelenání funguje**. Zůstal druhý nález u záznamu 11:58–16:09, kde
+v rozpadu opravdu 1,57 h služební cesty je — byl tedy platný.
+
+Chyba nebyla v zavírání nálezů, ale ve dvou jiných věcech:
+
+### 1. Úklid služební cesty běžel jen v noci
+Úklid pro pravidlo `sluzebni_cesta` existuje od 4. 9. 2026 v `att_anomaly_scan` — zavře nález,
+jakmile na záznamu **není činnost s `ec_cislo = 9`**. Běžel ale až při dalším běhu kontroly,
+takže po přepsání činnosti zůstal den ještě červený.
+
+Nově se **tentýž dotaz pouští cíleně na daného člověka při načtení dne** —
+`g2007.python` → `att_fix_day`, samostatný `try` hned za úklidem ostatních nálezů.
+Podmínka je **doslova stejná jako ve scanu**, ať se nemůžou rozejít.
+
+### 2. Rámeček lhal, že „je co spravit"
+Když na dni zbývaly už jen informační nálezy, rámeček byl **červený** a psal
+*„den se sice opravoval, ale pořád je co spravit"* — jenže na informaci není co spravovat.
+
+Nově: zbývají-li **jen** nálezy s textem „jen informace", rámeček je **modrý** (informace
+automatu, podle barevného systému) a píše *„jen informace od automatu, nic se opravovat nedá"*.
+Zelený bude, až nález zmizí úplně — tedy po přepsání činnosti.
+
+Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, proměnná `_jenInfo`
+hned za `_nadpis`; přepisuje `_ainfo` a `_dopl`.
+
+### Ponaučení
+Než napíšu „nefunguje to", **ověřím, jestli nejde o jiný, stále platný nález**. Tady byly dva
+skoro stejně vypadající nálezy na jednom dni a ten první se zavřel správně.
+
 ## 🟢 NEROZHODNUTÁ ŽÁDOST O ABSENCI — ODBAVENÍM SE ROVNOU SCHVÁLÍ (Peťa 17. 9. 2026)
 
 Peťa 17. 9. 2026: *„to je člověk, kterému to neschvaluji já, ale pokud budu volat tomu, kdo to

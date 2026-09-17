@@ -1451,6 +1451,38 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
+## 🏢 SLOUPEC „SKUPINA" V DOCHÁZCE NEW — KANCELÁŘE vs. DÍLNA (Peťa 17. 9. 2026)
+
+Peťa 17. 9.: *„potřebuju do přehledu Docházka new dát sloupec jako byl v Centrále v přehledu
+1032 — potřebuju vidět rozdělení na kanceláře a dílnu."*
+
+Sloupec **Skupina** je hned za jménem a ukazuje **Kanceláře** nebo **Dílna**.
+
+### Odkud se to bere — POZOR, nic nového se nevymýšlelo
+Hodnota se bere z **`tenant.att_fix_emp_dle_scope(p_scope)`** — z téže DB funkce, která určuje
+působnost editorů v Opravách docházky. Je to strom skupin `staff_group` (kořeny VÝROBA
+a KANCELÁŘE), nasazeno 24. 7. 2026, a od 27. 8. 2026 je to **jediný zdroj pravdy** — Jirka
+tenkrát nechal Python větev přepojit na DB funkci právě proto, aby se dvě kopie definice práv
+nerozešly. Marti-AI k tomu: *„nejsou technický dluh, jsou to bezpečnostní incident čekající na
+příležitost."*
+
+**Takže když se změní zařazení člověka ve stromu skupin, změní se i tenhle sloupec.** Nikde
+není druhá definice, kterou by bylo potřeba udržovat.
+
+Kdo není ani v jedné větvi, má prázdno (fallback na kancelář dělá až Opravy, ne tenhle přehled).
+
+### Kde to je
+- **Data:** `fw.data_set`, kód `dochazka.zakazky_vse_list`, sloupec `"Skupina"` hned za
+  `"JmenoPrijmeni"`. SQL se čte při každém dotazu — **restart kvůli němu není potřeba.**
+- **Mřížka:** `g2007.soubor` → `apps/api/static_db/dochazka-po-zakazkach.html`, pole `COLS_DEF`,
+  položka `{k:'Skupina', ...}`. Tohle je HTML → **restart potřeba je.**
+- Endpoint `/app/dochazka-zak-tab/data` (`modules/erp/api/dochazka_zak_tab.py`) se neměnil —
+  jen posílá dál, co datová sada vrátí.
+
+### Ponaučení k mostu
+V definici sloupců mřížky jsou zápisy typu `w:150` a `c:1` — **dvojtečka před číslicí**, což most
+čte jako parametr. Musí se psát `~` a obalit `replace(…, '~', chr(58))`, jinak zápis spadne.
+
 ## 📂 ROZDĚLENÝ ŘÁDEK — ŠIPKA NA JEDNO KLIKNUTÍ (Peťa 17. 9. 2026)
 
 Peťa 17. 9.: *„měla by tam být vidět zakázka a činnost, přesně pro tyhle případy, kdy je

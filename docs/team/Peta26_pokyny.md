@@ -1451,6 +1451,33 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
+## 🟢 NEROZHODNUTÁ ŽÁDOST O ABSENCI — ODBAVENÍM SE ROVNOU SCHVÁLÍ (Peťa 17. 9. 2026)
+
+Peťa 17. 9. 2026: *„to je člověk, kterému to neschvaluji já, ale pokud budu volat tomu, kdo to
+schvaluje, zdrží mě to. Je to psané, tedy už to prošlo — teď zamítat nedává smysl. Chtěla bych,
+aby když zmáčknu 'V pořádku — odbavit', aby mi to zezelenalo, zmizelo z fronty a zároveň se to
+schválilo ve Správě."*
+
+Nález **`nerozhodnuta_zadost_po_dni`** („den už proběhl a je v docházce, ale nikdo žádost
+nerozhodl") se odbavením v Opravách **zároveň schválí ve Správě docházky**:
+
+- `att_absence_request.stav` → `approved`
+- `decided_by_user_id` → **ten, kdo odbavil** (ne původní schvalovatel)
+- `status_text` → `Schváleno při odbavení v Opravách docházky (Jméno) - den už proběhl a je
+  zapsaný v docházce.`
+
+Podepisuje se ten, kdo odbavil, schválně — ať je v historii poznat, jak schválení vzniklo,
+a nevypadá to, že rozhodl někdo, kdo se toho vůbec nedotkl.
+
+**Platí to JEN pro tohle jedno pravidlo.** Ostatní nálezy se odbavují jako dosud a do žádostí
+nesahají. Schválí se jen žádost ve stavu `pending` navázaná na záznam dne
+(`att_entry.source_id` při `source_system = 'absence_req'`) — když žádná taková není, nestane
+se nic.
+
+Kde to je: `g2007.python` → `att_fix_resolve`, ve větvi `if aid:` hned před zápisem do auditu.
+Platí pro obě tlačítka, protože obě volají stejný endpoint `/app/attendance/fix/resolve`:
+„V pořádku — odbavit" v detailu dne i „V pořádku — vyřídit" ve frontě.
+
 ## ✏️ „ČLOVĚK SI TO UPRAVIL SÁM **NA 15:50**" (Peťa 17. 9. 2026, HOTOVO)
 
 Peťa 16. 9.: *„jak je tam člověk si to opravil sám, tak by bylo dobré, kdyby tam byla zapsaná

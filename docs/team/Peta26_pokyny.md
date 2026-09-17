@@ -1461,11 +1461,14 @@ Když má docházkový řádek rozpad na **dva a víc úseků**, sloupce ZAKÁZK
 nejčastěji potřeba něco přepsat.
 
 Rozbalit to šlo i dřív, ale **jen dvojklikem na řádek** — a kdo o tom neví, rozpad nikdy
-neotevře. Nově je **ta šipka u „rozpad" tlačítko na jedno kliknutí**. Den tím zůstává krátký
-(sbalený, jak chtěl Jirka 5. 8. 2026), ale rozbalení je na dosah. Dvojklik na řádek funguje dál.
+neotevře. Peťa 17. 9.: *„jde to, ale je to neintuitivní, chtělo by to šipčičku na začátku
+řádku."* Tak to teď je: **▸ na začátku řádku, ve sloupci TYP**, jedno kliknutí rozbalí a
+zase sbalí. Den tím zůstává krátký (sbalený, jak chtěl Jirka 5. 8. 2026), ale rozbalení je
+tam, kde ho člověk hledá. Šipka u „rozpad" i dvojklik na řádek fungují dál.
 
-Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, funkce `_prepniRozpad`
-a posluchač `click` na `_tdZak`, v bloku `if(_subs.length){`.
+Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, v bloku
+`if(_subs.length){` — funkce `_prepniRozpad`, prvek `_sipTyp` vložený na začátek `_tdTyp`
+a obalené `_sipka` (`_sipkaOrig`), aby se šipka překreslila i po dvojkliku.
 
 ⚠️ Pozor na jméno: `_prepni` už v souboru existuje (formulář „Přidat záznam"), proto se tahle
 funkce jmenuje `_prepniRozpad`. **Než v tomhle souboru založím proměnnou, ověřím, jestli se

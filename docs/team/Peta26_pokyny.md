@@ -1451,6 +1451,38 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
+## 📂 ROZDĚLENÝ ŘÁDEK ZŮSTÁVÁ ROZBALENÝ (Peťa 17. 9. 2026)
+
+Peťa 17. 9.: *„měla by tam být vidět zakázka a činnost, přesně pro tyhle případy, kdy je
+potřeba to změnit."*
+
+Když má docházkový řádek rozpad na **dva a víc úseků**, sloupce ZAKÁZKA a ČINNOST se na
+hlavním řádku neukazují — je tam jen `🧾 rozpad (2×)`. A právě takový řádek je ten, na kterém
+je nejčastěji potřeba něco přepsat. Úseky proto **zůstávají rozbalené hned po otevření dne**.
+
+Řádky s jednou položkou se chovají jako dřív (sbalené), protože u nich je zakázka i činnost
+vidět přímo na hlavním řádku. Dvojklik dál rozbaluje a sbaluje.
+
+⚠️ **Mění to nastavení Jirky z 5. 8. 2026** („úseky rozpadu jsou po otevření dne SBALENÉ — den
+se tím zkrátí a nemusí se rolovat"). Jeho důvod platí dál pro jednopoložkové řádky; u
+rozdělených dostala přednost viditelnost. Kdyby to Jirkovi vadilo, ví se, kde se to mění.
+
+Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, `_rozOpen=_hasRozpad`
+v bloku `if(_subs.length){`.
+
+**Opravovat se dá přímo na úseku** — tlačítko ✏️ u pod-řádku mění čas, zakázku i činnost
+(endpoint `/fix/polozka`), 🗑 úsek stornuje. Hlavička dne se z položek dopočítá sama.
+
+### Případ, ze kterého to vzniklo (Čepický 16. 9. 2026)
+Den vypadal, že je pořád rozbitý, ale rozbitý nebyl:
+
+- záznam 07:42–11:04 — celý služební cesta; Peťa ho přepsala na „bez rozlišení", nález se
+  zavřel hned,
+- záznam 11:58–16:09 — **rozdělený, protože si Zdeněk sám ve 13:32 v aplikaci přepnul
+  činnost**: 11:58–13:32 služební cesta (1,57 h), 13:32–16:09 bez rozlišení (2,62 h).
+
+Ten druhý nález byl tedy platný. Nešlo ho poznat proto, že rozpad byl sbalený.
+
 ## 🧭 SLUŽEBNÍ CESTA JE JEN INFORMACE — MODŘE, A ZELENÁ HNED PO ZMĚNĚ ČINNOSTI (Peťa 17. 9. 2026)
 
 Peťa 17. 9.: *„opravila jsem záznam a nezezelenalo to."* A k řešení: *„ukazovat třeba modře,

@@ -1474,6 +1474,23 @@ nesahají. Schválí se jen žádost ve stavu `pending` navázaná na záznam dn
 (`att_entry.source_id` při `source_system = 'absence_req'`) — když žádná taková není, nestane
 se nic.
 
+### ⚠️ POZOR: sloupec „S" ve Správě docházky NENÍ stav žádosti
+Peťa 17. 9.: *„tak je tam schválená žádost ve Správě, ale ještě tam potřebuji tu fajfku."*
+
+Ta fajfka ve sloupci **S** je samostatný příznak **`att_entry.ved_schvaleno`** (boolean)
+přímo na **denních záznamech**, ne na žádosti. Schválení žádosti ho samo nerozsvítí.
+
+Ověřeno porovnáním u Martina Paška: 28. 8. měl `ved_schvaleno = true` a fajfku, 16.–18. 9.
+měly `false` a fajfka chyběla — přestože obě žádosti byly `approved` a záznamy `confirmed`.
+
+Proto se při odbavení nastavuje i tohle, a to na **všechny dny té žádosti najednou**:
+`ved_schvaleno = true`, `ved_schvaleno_kym` = kdo odbavil, `ved_schvaleno_kdy` = teď.
+
+Související sloupce na `att_entry`: `ved_schvaleno`, `ved_schvaleno_kym`, `ved_schvaleno_kdy`,
+`vedouci_poznamka`, `pozadavek_uprava`. Definice mřížky je v
+`g2007.soubor` → `apps/api/static_db/dochazka-po-zakazkach.html`, pole `COLS_BUD`
+(`{k:'Schvaleno', h:'S', ...}`).
+
 Kde to je: `g2007.python` → `att_fix_resolve`, ve větvi `if aid:` hned před zápisem do auditu.
 Platí pro obě tlačítka, protože obě volají stejný endpoint `/app/attendance/fix/resolve`:
 „V pořádku — odbavit" v detailu dne i „V pořádku — vyřídit" ve frontě.

@@ -1451,24 +1451,25 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
-## 📂 ROZDĚLENÝ ŘÁDEK ZŮSTÁVÁ ROZBALENÝ (Peťa 17. 9. 2026)
+## 📂 ROZDĚLENÝ ŘÁDEK — ŠIPKA NA JEDNO KLIKNUTÍ (Peťa 17. 9. 2026)
 
 Peťa 17. 9.: *„měla by tam být vidět zakázka a činnost, přesně pro tyhle případy, kdy je
-potřeba to změnit."*
+potřeba to změnit."* A po vyzkoušení: *„možná by stačilo, aby to bylo rozbalovací."*
 
-Když má docházkový řádek rozpad na **dva a víc úseků**, sloupce ZAKÁZKA a ČINNOST se na
-hlavním řádku neukazují — je tam jen `🧾 rozpad (2×)`. A právě takový řádek je ten, na kterém
-je nejčastěji potřeba něco přepsat. Úseky proto **zůstávají rozbalené hned po otevření dne**.
+Když má docházkový řádek rozpad na **dva a víc úseků**, sloupce ZAKÁZKA a ČINNOST se na hlavním
+řádku neukazují — je tam jen `🧾 rozpad ▸ (2×)`. A právě takový řádek je ten, na kterém je
+nejčastěji potřeba něco přepsat.
 
-Řádky s jednou položkou se chovají jako dřív (sbalené), protože u nich je zakázka i činnost
-vidět přímo na hlavním řádku. Dvojklik dál rozbaluje a sbaluje.
+Rozbalit to šlo i dřív, ale **jen dvojklikem na řádek** — a kdo o tom neví, rozpad nikdy
+neotevře. Nově je **ta šipka u „rozpad" tlačítko na jedno kliknutí**. Den tím zůstává krátký
+(sbalený, jak chtěl Jirka 5. 8. 2026), ale rozbalení je na dosah. Dvojklik na řádek funguje dál.
 
-⚠️ **Mění to nastavení Jirky z 5. 8. 2026** („úseky rozpadu jsou po otevření dne SBALENÉ — den
-se tím zkrátí a nemusí se rolovat"). Jeho důvod platí dál pro jednopoložkové řádky; u
-rozdělených dostala přednost viditelnost. Kdyby to Jirkovi vadilo, ví se, kde se to mění.
+Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, funkce `_prepniRozpad`
+a posluchač `click` na `_tdZak`, v bloku `if(_subs.length){`.
 
-Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, `_rozOpen=_hasRozpad`
-v bloku `if(_subs.length){`.
+⚠️ Pozor na jméno: `_prepni` už v souboru existuje (formulář „Přidat záznam"), proto se tahle
+funkce jmenuje `_prepniRozpad`. **Než v tomhle souboru založím proměnnou, ověřím, jestli se
+tak už něco nejmenuje.**
 
 **Opravovat se dá přímo na úseku** — tlačítko ✏️ u pod-řádku mění čas, zakázku i činnost
 (endpoint `/fix/polozka`), 🗑 úsek stornuje. Hlavička dne se z položek dopočítá sama.

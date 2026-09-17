@@ -1456,7 +1456,9 @@ dokud neřekne** — ale ani je nezapomenout.
 Peťa 17. 9.: *„potřebuju do přehledu Docházka new dát sloupec jako byl v Centrále v přehledu
 1032 — potřebuju vidět rozdělení na kanceláře a dílnu."*
 
-Sloupec **Skupina** je hned za jménem a ukazuje **Kanceláře** nebo **Dílna**.
+Sloupec **Skupina** je **hned za Poznámkou** (Peťa 17. 9.: *„jen ten sloupec dej za
+poznámku"*) a ukazuje **Kanceláře** nebo **Dílna**. Je i v záložce **Vše** — ta čte
+tutéž datovou sadu, jen bez omezení na dva měsíce, takže se nikde nepřidává zvlášť.
 
 ### Odkud se to bere — POZOR, nic nového se nevymýšlelo
 Hodnota se bere z **`tenant.att_fix_emp_dle_scope(p_scope)`** — z téže DB funkce, která určuje

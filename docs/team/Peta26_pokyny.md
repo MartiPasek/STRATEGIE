@@ -1451,45 +1451,30 @@ dokud neřekne** — ale ani je nezapomenout.
 4. **Sick days Dvořáková (49) a Novotná (16)** — proti exportu z Centrály k 31.5. sedí 84 z 86
    lidí, u těchto dvou zůstal rozdíl. Nevíme, která strana má pravdu.
 
-## 📝 PŘIPRAVENO NA ZÍTŘEK — „UPRAVIL SI SÁM" MÁ UKÁZAT I ZADANOU HODNOTU (Peťa 16. 9. 2026)
+## ✏️ „ČLOVĚK SI TO UPRAVIL SÁM **NA 15:50**" (Peťa 17. 9. 2026, HOTOVO)
 
 Peťa 16. 9.: *„jak je tam člověk si to opravil sám, tak by bylo dobré, kdyby tam byla zapsaná
-i ta jím zadaná hodnota. Necháme na zítřek, jen si to připrav."*
+i ta jím zadaná hodnota."* Upřesnila 17. 9.: jde o **nadpis rámečku s nálezy**, ne o štítek
+na řádku.
 
-**Podklady jsou zjištěné, zítra už jen doprogramovat.**
+Nadpis tedy nově zní: `ℹ Nesedí — člověk si to upravil sám na 15:50, zkontroluj a odbav`.
 
-### Kde to je
-`g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, kolem znaku **112 352**, ve větvi
-`_autoOdhlOk`:
+### Jak se ten čas bere
+Projdou se nestornované záznamy dne a vyberou se ty, které mají v poznámce
+`zkráceno uživatelem`. Z nich se vezme **skutečný konec** (`kon`) — tedy to, co člověk zadal.
+Když si takhle upravil víc záznamů, vypíšou se všechny oddělené čárkou. Když se čas nepodaří
+zjistit, nadpis zůstane v původním znění (bez „na …").
 
-```
-'ℹ zapomenutý odchod — ' + (String(e2.note||'').indexOf('zkráceno uživatelem')>=0
-                            ? 'upravil si sám' : 'opraveno')
-```
+Kde to je: `g2007.soubor` → `apps/api/static_db/dochazka-opravy.html`, proměnná `_samCas`
+hned za `_nadpis`, použitá v `_dopl`.
 
-### Odkud vzít zadanou hodnotu
-- **Nový (uživatelem zadaný) konec** = `e2.kon`, tedy skutečný konec záznamu (`att_entry.ended_at`).
-- **Původní hodnota od automatu** je v poznámce: `att_entry.note` obsahuje vždy přesně
-  `zkráceno uživatelem (původně do HH:MM)`. Ověřeno na 19 záznamech od 15. 8. do 15. 9. 2026.
-- **Není to vždycky 23:59.** Většinou ano (půlnoční automat), ale Marek Honal měl 7. 9.
-  původně 15:01 a Petr Beneš 30. 8. původně 16:05. Na 23:59 se tedy NESPOLÉHAT.
-- Poznámka bývá složená z víc částí oddělených ` / `, například
-  `[auto-odhlášení o půlnoci] / zkráceno uživatelem (původně do 23:59)`. Hodnotu proto
-  vytáhnout regulárním výrazem, ne dělením řetězce.
+### ⚠️ Zkracovat se nemusí jen z 23:59 — to je normální
+Peťa 17. 9. 2026: *„to, že si to někdo krátí nejen z toho 23:59, je normální — prostě si ve 4
+vzpomene, že se neodhlásil, tak se odhlásí a pak si nechá zkrátit konec podle reality."*
 
-### NEŽ ZAČNU, ZEPTÁM SE PEŤY — NEHÁDAT
-Není jednoznačné, které ze dvou míst měla na mysli:
-
-1. **Štítek na řádku** (sloupec STAV): `ℹ zapomenutý odchod — upravil si sám na 15:50`.
-2. **Rámeček „Nesedí" nahoře**: jeho bod zní `Neodhlášeno — konec dopsal automat o půlnoci,
-   směna od 08:40 (15,32 h)`, tedy pořád **staré číslo od automatu**, přestože člověk už
-   opravil na 7,17 h. Tohle je možná to, co Peťu mate.
-
-Může to být i obojí. Obrázek z 16. 9. (Zuzana Duspivová, 15. 9.) ukazuje oba případy najednou.
-
-### Pozor při nasazení
-Změna je v HTML → materializuje se až při startu aplikace, a navíc si prohlížeč drží starou
-stránku. Po nasazení říct Peťe, ať dá **Ctrl+Shift+R** (viz ponaučení níž).
+V poznámce je proto v závorce původní hodnota, která **často není 23:59**: Marek Honal měl
+7. 9. původně 15:01, Petr Beneš 30. 8. původně 16:05. **Nikde se na 23:59 nespoléhat** a nebrat
+jiný původní čas jako podezřelý — je to běžný, správný postup.
 
 ## 🔄 PO ZMĚNĚ STRÁNKY NESTAČÍ RESTART — PROHLÍŽEČ SI DRŽÍ STAROU VERZI (Peťa 16. 9. 2026)
 Peťa 16. 9. hlásila, že slučování nálezů do jedné karty nefunguje — Čepický měl 15. 9. dvě

@@ -30056,6 +30056,13 @@ def _mirror_run_job(job_key):
         # okno -7 dni pro mobil). Kod zije v g2007.python, tady jen delegat.
         "sync_doprava_zakaznikovi": lambda: __import__("modules.erp.api.erp_registry",
                                                        fromlist=["call"]).call("sync_doprava_zakaznikovi_from_ec"),
+        # Hodiny navic (viceprace) z Centraly -> ec.zakazky_hod_navic (C24 / Kristy, 17.9.2026).
+        # Job `sync_hod_navic` ve fw.mirror_job i funkce `sync_ec_hod_navic` existovaly od
+        # 11.9.2026, ale TADY chybel radek -> kazdy beh skoncil "neznamy job" a zrcadlo
+        # stalo na 10.9.2026. Dialog vicepraci proto ukazoval stara schvaleni (napr.
+        # Dusanova oprava ID 4801 z Centraly se u nas neobjevila). Kod zije v g2007.python.
+        "sync_hod_navic": lambda: __import__("modules.erp.api.erp_registry",
+                                             fromlist=["call"]).call("sync_ec_hod_navic"),
         # Peťa 19. 8. 2026: 1. v měsíci připomínka, co pořád čeká na doklad.
         # Běží denně, skript si sám hlídá, že je prvního — jindy skončí bez práce.
         # Chodí těm, kdo mají právo „neschopenky" (dnes Peťa a Michelle), ne podle jmen.

@@ -1,0 +1,29 @@
+{
+ "_zdroj": "Protokol o dilcim podani JMH EC 06/2026 (CSSZ, podani FEA4EBF6DEC14B7CB5A7BA7CE9A39414, 20.7.2026 09:47) + protokol o kompletnosti k temuz podani (14 vad).",
+ "_popis": "Mapa oic -> typ formulare a GUID soucasti pro OPRAVNE podani za 06/2026. typ O = radny formular te osoby byl PRIJAT, navazuje se na jeho existujici GUID (NEgenerovat novy). typ R = radny formular byl odmitnut nebo nebyl vubec poslan, posila se jako novy radny s NOVYM guid. GUID JMH puvodniho radneho podani = F1C3F703-CEE1-4193-A566-127569066591.",
+ "_prijato": "7 osob (11 proslo dilci kontrolou, z toho Mozer, Vlkova, Herejtova a Senft vypadli v kompletnosti na 40244/40245/40343)",
+ "_neprijato": "10 osob (5x 20315 a 1x 20262 v dilci kontrole, 4x vada v kompletnosti, plus lide kteri v podani vubec nebyli)",
+ "firma": "EC",
+ "rok": 2026,
+ "mesic": 6,
+ "formulare": {
+  "1742727679": {"typ": "O", "guid": "BAA3A05A-6819-427C-98D0-85E08C33CE5C"},
+  "1881211519": {"typ": "O", "guid": "89FF2F83-959D-4DE0-B244-0557D233938D"},
+  "1923942867": {"typ": "O", "guid": "88C62BDB-CA49-474F-BE68-91A378785DCC"},
+  "1707659316": {"typ": "O", "guid": "7FD2DC94-537C-4ADE-9EDC-65388F159CC8"},
+  "1900953879": {"typ": "O", "guid": "E609EF2D-DD09-4448-A83D-3C3A7A67B513"},
+  "1687857831": {"typ": "O", "guid": "8EFF60F2-D7A9-4634-B23A-18B683E78BA5"},
+  "1571953724": {"typ": "O", "guid": "AC25B7D8-DB8B-4D70-B8A3-923F198EAEBE"},
+
+  "1163295640": {"typ": "R", "guid": null},
+  "1628612513": {"typ": "R", "guid": null},
+  "1628688886": {"typ": "R", "guid": null},
+  "1328922298": {"typ": "R", "guid": null},
+  "1122284229": {"typ": "R", "guid": null},
+  "1206657342": {"typ": "R", "guid": null},
+  "1499290595": {"typ": "R", "guid": null},
+  "1745404650": {"typ": "R", "guid": null},
+  "1318779210": {"typ": "R", "guid": null},
+  "1900990960": {"typ": "R", "guid": null}
+ }
+}

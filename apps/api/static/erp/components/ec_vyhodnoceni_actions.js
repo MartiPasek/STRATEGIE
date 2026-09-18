@@ -519,13 +519,18 @@
           _hodnavic(inst);
         }
       };
+      /* ROZDELENO PODLE AUTORA (C24 / Kristy 18.9.2026, zadani Dusana: "v tabulce je
+       * videt, ze hodiny zadava VP a ne ja, tak at se to nepropisuje do chlivku VV").
+       * Do 18.9. tu byly v OBOU chlivcich tytez radky — Centrala oba prehledy (7402 VP,
+       * 7403 vedouci vyroby) plni ze stejneho typu 1 a nerozlisuje je. Backend je proto
+       * deli podle autora zaznamu: `vv` = zadal Dusan, `vp` = vsichni ostatni. */
       rada.appendChild(_hnSeznam("Úprava kalk. hodin VP", v.vp || [], false, hnCtx));
-      rada.appendChild(_hnSeznam("Úprava kalk. hodin vedoucí výroby", v.vp || [], false, hnCtx));
+      rada.appendChild(_hnSeznam("Úprava kalk. hodin vedoucí výroby", v.vv || [], false, hnCtx));
       box.appendChild(rada);
 
       var pozn = document.createElement("div");
-      pozn.textContent = "Oba přehledy nahoře čtou stejné záznamy (typ 1) — tak je to " +
-                         "i v Centrále, není to chyba zobrazení.";
+      pozn.textContent = "Rozdělení podle toho, kdo hodiny zadal: vlevo VP a ostatní, " +
+                         "vpravo vedoucí výroby. V Centrále jsou v obou přehledech všechny.";
       pozn.style.cssText = "font-size:11px;color:#94a3b8;margin:0 0 12px 0;";
       box.appendChild(pozn);
 
